@@ -1,0 +1,12 @@
+[package]
+name = "llama-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { version = "1.0.69", features = ["backtrace"] }
+bimap = "0.6.2"
+ggml-raw = { path = "../ggml-raw" }
+regex = "1.7.1"

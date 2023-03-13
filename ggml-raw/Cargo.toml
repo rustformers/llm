@@ -1,0 +1,14 @@
+[build-dependencies.bindgen]
+version = "^0.62.0"
+
+[build-dependencies.cc]
+version = "^1.0"
+
+[dependencies]
+
+[package]
+description = "Low level bindings for ggml"
+edition = "2021"
+license = "MIT"
+name = "ggml-raw"
+version = "0.1.0"

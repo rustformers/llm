@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "ggml-raw",
+    "llama-rs",
+]
+
+resolver = "2"
