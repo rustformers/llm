@@ -3,7 +3,7 @@
 use std::{
     collections::HashMap,
     io::{self, BufRead, Read, Seek, SeekFrom, Write},
-    path::Path,
+    path::{Path, PathBuf}, str::FromStr,
 };
 
 use anyhow::{Context, Result};
@@ -347,11 +347,15 @@ impl LlamaModel {
             let part_id = i;
 
             let part_path = if i > 0 {
-                path.join(format!(".{i}"))
+                let mut path = path.to_owned();
+                let mut filename = path.components().last().unwrap().as_os_str().to_owned();
+                filename.push(&format!(".{i}"));
+                path.pop();
+                path.join(filename)
             } else {
                 path.to_path_buf()
             };
-            let part_path_str = path.to_string_lossy();
+            let part_path_str = part_path.to_string_lossy();
 
             println!(
                 "loading model part {}/{} from '{}'\n",
@@ -360,7 +364,7 @@ impl LlamaModel {
                 part_path_str,
             );
 
-            let mut part_reader = BufReader::new(File::open(part_path)?);
+            let mut part_reader = BufReader::new(File::open(&part_path)?);
             // Skip metadata
             part_reader.seek(SeekFrom::Start(file_offset))?;
 
@@ -1009,5 +1013,5 @@ fn main() {
         .expect("Could not load model");
 
     let mut rng = thread_rng();
-    model.infer_with_prompt(&vocab, &InferParams::default(), "#!/bin", "", &mut rng);
+    model.infer_with_prompt(&vocab, &InferParams::default(), "[1,2,3,4", "", &mut rng);
 }
