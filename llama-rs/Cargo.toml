@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1.0.69", features = ["backtrace"] }
 bimap = "0.6.2"
+bytemuck = "1.13.1"
 ggml-raw = { path = "../ggml-raw" }
 regex = "1.7.1"

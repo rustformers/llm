@@ -8,11 +8,11 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use ggml::{GgmlContext, GgmlTensor};
+use ggml::{GgmlContext, GgmlTensor, GGML_TYPE_I32};
 use ggml_raw::{ggml_context, ggml_init_params, ggml_tensor, ggml_type};
 use regex::Regex;
 
-use crate::ggml::{GGML_TYPE_F16, GGML_TYPE_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1};
+use crate::ggml::{GgmlCGraph, GGML_TYPE_F16, GGML_TYPE_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1};
 
 mod ggml;
 
@@ -227,10 +227,7 @@ impl LlamaModel {
         };
 
         // Initialize the context
-        let context = GgmlContext::init(ggml_init_params {
-            mem_size: ctx_size as usize,
-            mem_buffer: std::ptr::null_mut(),
-        });
+        let context = GgmlContext::init(ctx_size as usize);
 
         let model = {
             let mut tensors = HashMap::new();
@@ -360,7 +357,6 @@ impl LlamaModel {
                 }
 
                 let tensor_name = read_string(&mut part_reader, length as usize)?;
-                dbg!(&tensor_name);
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
@@ -517,9 +513,295 @@ impl LlamaModel {
 
         Ok((model, vocab))
     }
+
+    pub fn infer_with_prompt(&self, vocab: &GptVocab, prompt: &str, antiprompt: &str) {
+        let embd_inp = self.tokenize(vocab, prompt, true);
+        let antiprompt_inp = self.tokenize(vocab, antiprompt, false);
+
+        let mut mem_per_token = 0;
+        let out = self.llama_eval(8, 0, &embd_inp, &mut mem_per_token);
+
+        dbg!(&out[0..10]);
+
+        dbg!(embd_inp);
+        dbg!(antiprompt_inp);
+    }
+
+    #[allow(non_snake_case)]
+    pub fn llama_eval(
+        &self,
+        n_threads: i32,
+        n_past: i32,
+        embd_inp: &[TokenId],
+        mem_per_token: &mut usize,
+    ) -> Vec<f32> {
+        let n = embd_inp.len();
+
+        let LlamaHyperParams {
+            n_vocab,
+            n_ctx,
+            n_embd,
+            n_mult: _,
+            n_head,
+            n_layer,
+            n_rot,
+            f16_: _,
+        } = self.hparams;
+
+        let mut buf_size = 512 * 1024 * 1024;
+        if *mem_per_token > 0 && *mem_per_token * n > buf_size {
+            // add 10% to account for ggml object overhead
+            buf_size = (1.1f64 * *mem_per_token as f64 * n as f64) as usize;
+        };
+        let ctx0 = GgmlContext::init(buf_size);
+
+        let mut gf = GgmlCGraph::new(n_threads);
+
+        let embd = ctx0.new_tensor_1d(GGML_TYPE_I32, n as i32);
+        unsafe { embd.write_data(bytemuck::cast_slice(embd_inp)) };
+
+        let mut inpL = ctx0.op_get_rows(&self.tok_embeddings, &embd);
+
+        for il in 0..n_layer as usize {
+            let inpSA = inpL.share();
+            let mut cur: GgmlTensor;
+
+            // norm
+            {
+                cur = ctx0.op_norm(&inpL);
+
+                // cur = attention_norm * cur
+                cur = ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].attention_norm, &cur), &cur);
+            }
+
+            // self-attention
+            {
+                let Qcur = ctx0.op_mul_mat(&self.layers[il].wq, &cur);
+                let Kcur = ctx0.op_mul_mat(&self.layers[il].wk, &cur);
+                let Vcur = ctx0.op_mul_mat(&self.layers[il].wv, &cur);
+
+                // store key and value to memory
+                if n >= 1 {
+                    let k = ctx0.op_view_1d(
+                        &self.memory_k,
+                        n as i32 * n_embd,
+                        (self.memory_k.element_size() * n_embd as usize)
+                            * (il * n_ctx as usize + n_past as usize),
+                    );
+
+                    let v = ctx0.op_view_1d(
+                        &self.memory_v,
+                        n as i32 * n_embd,
+                        (self.memory_v.element_size() * n_embd as usize)
+                            * (il * n_ctx as usize + n_past as usize),
+                    );
+
+                    gf.build_forward_expand(&mut ctx0.op_cpy(&Kcur, &k));
+                    gf.build_forward_expand(&mut ctx0.op_cpy(&Vcur, &v));
+                }
+
+                // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
+                let Q = ctx0.op_permute(
+                    &ctx0.op_rope(
+                        &ctx0.op_cpy(
+                            &Qcur,
+                            &ctx0.new_tensor_3d(GGML_TYPE_F32, n_embd / n_head, n_head, n as i32),
+                        ),
+                        n_past,
+                        n_rot,
+                        0,
+                    ),
+                    0,
+                    2,
+                    1,
+                    3,
+                );
+
+                // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
+                let K = ctx0.op_permute(
+                    &ctx0.op_rope(
+                        &ctx0.op_reshape_3d(
+                            &ctx0.op_view_1d(
+                                &self.memory_k,
+                                (n_past + n as i32) * n_embd,
+                                il * n_ctx as usize
+                                    * self.memory_k.element_size()
+                                    * n_embd as usize,
+                            ),
+                            n_embd / n_head,
+                            n_head,
+                            n_past + n as i32,
+                        ),
+                        n_past,
+                        n_rot,
+                        1,
+                    ),
+                    0,
+                    2,
+                    1,
+                    3,
+                );
+
+                // K * Q
+                let KQ = ctx0.op_mul_mat(&K, &Q);
+
+                // KQ_scaled = KQ / sqrt(n_embd/n_head)
+                let KQ_scaled = ctx0.op_scale(
+                    &KQ,
+                    &ctx0.new_f32(1.0 / f32::sqrt(n_embd as f32 / n_head as f32)),
+                );
+
+                // KQ_masked = mask_past(KQ_scaled)
+                let KQ_masked = ctx0.op_diag_mask_inf(&KQ_scaled, n_past);
+
+                // KQ = soft_max(KQ_masked)
+                let KQ_soft_max = ctx0.op_soft_max(&KQ_masked);
+
+                // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
+                let V_trans = ctx0.op_permute(
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_view_1d(
+                            &self.memory_v,
+                            (n_past + n as i32) * n_embd,
+                            il * n_ctx as usize * self.memory_v.element_size() * n_embd as usize,
+                        ),
+                        n_embd / n_head,
+                        n_head,
+                        n_past + n as i32,
+                    ),
+                    1,
+                    2,
+                    0,
+                    3,
+                );
+
+                // KQV = transpose(V) * KQ_soft_max
+                let KQV = ctx0.op_mul_mat(&V_trans, &KQ_soft_max);
+
+                // KQV_merged = KQV.permute(0, 2, 1, 3)
+                let KQV_merged = ctx0.op_permute(&KQV, 0, 2, 1, 3);
+
+                // cur = KQV_merged.contiguous().view(n_embd, N)
+                cur = ctx0.op_cpy(
+                    &KQV_merged,
+                    &ctx0.new_tensor_2d(GGML_TYPE_F32, n_embd, n as i32),
+                );
+
+                // projection (no bias)
+                cur = ctx0.op_mul_mat(&self.layers[il].wo, &cur);
+            }
+
+            let inpFF = ctx0.op_add(&cur, &inpSA);
+
+            // feed-forward network
+            {
+                // norm
+                {
+                    cur = ctx0.op_norm(&inpFF);
+
+                    // cur = ffn_norm*cur
+                    cur = ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ffn_norm, &cur), &cur);
+                }
+
+                let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &cur);
+
+                cur = ctx0.op_mul_mat(&self.layers[il].w1, &cur);
+
+                // SILU activation
+                cur = ctx0.op_silu(&cur);
+
+                cur = ctx0.op_mul(&cur, &tmp);
+
+                cur = ctx0.op_mul_mat(&self.layers[il].w2, &cur);
+            }
+
+            cur = ctx0.op_add(&cur, &inpFF);
+
+            // input for next layer
+            inpL = cur;
+        }
+
+        // norm
+        {
+            inpL = ctx0.op_norm(&inpL);
+
+            // inpL = norm*inpL
+            inpL = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &inpL), &inpL);
+        }
+
+        // lm_head
+        {
+            inpL = ctx0.op_mul_mat(&self.output, &inpL);
+        }
+
+        // logits -> probs
+        // inpL = ctx0.op_soft_max(&inpL);
+
+        // run the computation
+        gf.build_forward_expand(&inpL);
+        ctx0.graph_compute(&mut gf);
+
+        // return result for just the last token
+        let mut embd_w = vec![0.0f32; n_vocab as usize];
+        // SAFETY: yolo
+        unsafe {
+            inpL.read_data(
+                n_vocab as usize * (n - 1),
+                bytemuck::cast_slice_mut(&mut embd_w),
+            )
+        };
+
+        if *mem_per_token == 0 {
+            *mem_per_token = ctx0.used_mem() / n;
+        }
+
+        embd_w
+    }
+
+    pub fn tokenize(&self, vocab: &GptVocab, text: &str, bos: bool) -> Vec<TokenId> {
+        let mut res = Vec::new();
+        if bos {
+            res.push(1 as TokenId); // TODO: replace with vocab.bos
+        }
+
+        // Find the longest token that matches the text
+        let mut pos = 0;
+        loop {
+            let mut l = 0;
+            let mut t = 0;
+
+            for (tk_id, tk) in vocab.mapping.iter().enumerate() {
+                if tk.len() < l {
+                    continue;
+                }
+                if tk.len() > text.len() - pos {
+                    continue;
+                }
+                if text[pos..].starts_with(tk) {
+                    l = tk.len();
+                    t = tk_id;
+                }
+            }
+
+            if l == 0 {
+                break;
+            }
+
+            res.push(t as TokenId);
+            pos += l;
+        }
+
+        res
+    }
 }
 
 fn main() {
-    LlamaModel::load("/data/Llama/LLaMA/7B/ggml-model-q4_0.bin", 256)
+    let (model, vocab) = LlamaModel::load("/data/Llama/LLaMA/7B/ggml-model-q4_0.bin", 256)
         .expect("Could not load model");
+
+    model.infer_with_prompt(
+        &vocab,
+        "Hello world",
+        "",
+    );
 }
