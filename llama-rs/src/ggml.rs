@@ -259,7 +259,7 @@ impl GgmlTensor {
     }
 
     pub unsafe fn read_data(&self, offset: usize, dst: &mut [u8]) {
-        let data = unsafe { ggml_raw::ggml_get_data(self.ptr.as_ptr()) };
+        let data = unsafe { ggml_raw::ggml_get_data(self.ptr.as_ptr()).add(offset) };
         std::ptr::copy_nonoverlapping(data, dst as *mut _ as _, dst.len())
     }
 }

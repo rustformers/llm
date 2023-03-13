@@ -10,6 +10,8 @@ use anyhow::{Context, Result};
 
 use ggml::{GgmlContext, GgmlTensor, GGML_TYPE_I32};
 use ggml_raw::{ggml_context, ggml_init_params, ggml_tensor, ggml_type};
+use partial_sort::PartialSort;
+use rand::{distributions::WeightedIndex, prelude::Distribution, thread_rng};
 use regex::Regex;
 
 use crate::ggml::{GgmlCGraph, GGML_TYPE_F16, GGML_TYPE_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1};
@@ -61,6 +63,32 @@ struct LlamaModel {
     tensors: HashMap<String, GgmlTensor>,
 
     context: GgmlContext,
+}
+
+pub struct InferParams {
+    n_threads: i32,
+    n_predict: usize,
+    n_batch: usize,
+    repeat_last_n: usize,
+    top_k: i32,
+    top_p: f32,
+    repeat_penalty: f32,
+    temp: f32,
+}
+
+impl Default for InferParams {
+    fn default() -> Self {
+        Self {
+            n_threads: 8,
+            n_predict: 256,
+            n_batch: 8,
+            repeat_last_n: 64,
+            top_k: 40,
+            top_p: 0.95,
+            repeat_penalty: 1.30,
+            temp: 0.80,
+        }
+    }
 }
 
 type TokenId = i32;
@@ -514,17 +542,199 @@ impl LlamaModel {
         Ok((model, vocab))
     }
 
-    pub fn infer_with_prompt(&self, vocab: &GptVocab, prompt: &str, antiprompt: &str) {
+    pub fn infer_with_prompt(
+        &self,
+        vocab: &GptVocab,
+        params: &InferParams,
+        prompt: &str,
+        antiprompt: &str,
+        rng: &mut impl rand::Rng,
+    ) {
         let embd_inp = self.tokenize(vocab, prompt, true);
         let antiprompt_inp = self.tokenize(vocab, antiprompt, false);
+        let mut logits = Vec::new();
 
+        // determine the required inference memory per token:
         let mut mem_per_token = 0;
-        let out = self.llama_eval(8, 0, &embd_inp, &mut mem_per_token);
+        let _ = self.llama_eval(
+            params.n_threads,
+            0,
+            &[0, 1, 2, 3],
+            &mut logits,
+            &mut mem_per_token,
+        );
 
-        dbg!(&out[0..10]);
+        let last_n_size = params.repeat_last_n;
+        let mut last_n_tokens = vec![0 as TokenId; last_n_size];
 
-        dbg!(embd_inp);
-        dbg!(antiprompt_inp);
+        let mut remaining_tokens = usize::min(
+            params.n_predict,
+            self.hparams.n_ctx as usize - embd_inp.len(),
+        );
+        let mut input_consumed = 0;
+        let mut input_noecho = false;
+
+        let mut n_past = 0;
+        let mut embd = Vec::new();
+        while remaining_tokens > 0 {
+            // predict
+            if embd.len() > 0 {
+                self.llama_eval(
+                    params.n_threads,
+                    n_past,
+                    &embd,
+                    &mut logits,
+                    &mut mem_per_token,
+                );
+            }
+
+            n_past += embd.len() as i32;
+            embd.clear();
+
+            if embd_inp.len() <= input_consumed {
+                // out of input, sample next token
+                let InferParams {
+                    top_k,
+                    top_p,
+                    repeat_penalty,
+                    temp,
+                    ..
+                } = params;
+
+                let n_vocab = self.hparams.n_vocab;
+
+                let id = self.sample_top_p_top_k(
+                    vocab,
+                    &logits[logits.len() - n_vocab as usize..],
+                    &last_n_tokens,
+                    *repeat_penalty as f64,
+                    *top_k,
+                    *top_p as f64,
+                    *temp as f64,
+                    rng,
+                );
+
+                last_n_tokens.remove(0);
+                last_n_tokens.push(id);
+
+                // add it to the context
+                embd.push(id);
+
+                // echo this to console
+                input_noecho = false;
+
+                // decrement remaining sampling budget
+                remaining_tokens -= 1;
+            } else {
+                // if here, it means we are still processing the input prompt
+                while embd_inp.len() > input_consumed {
+                    embd.push(embd_inp[input_consumed]);
+                    last_n_tokens.remove(0);
+                    last_n_tokens.push(embd_inp[input_consumed]);
+                    input_consumed += 1;
+                    if embd.len() > params.n_batch {
+                        break;
+                    }
+                }
+            }
+
+            // display text
+            if !input_noecho {
+                for &id in &embd {
+                    print!("{}", vocab.mapping[id as usize]);
+                    io::stdout().flush().expect("flush");
+                }
+            }
+
+            if embd.last().copied() == Some(2) {
+                println!(" [end of text]");
+                break;
+            }
+        }
+    }
+
+    pub fn sample_top_p_top_k(
+        &self,
+        vocab: &GptVocab,
+        logits: &[f32],
+        last_n_tokens: &[TokenId],
+        repeat_penalty: f64,
+        top_k: i32,
+        top_p: f64,
+        temp: f64,
+        rng: &mut impl rand::Rng,
+    ) -> TokenId {
+        let n_logits = vocab.mapping.len();
+        let mut logits_id = Vec::<(f64, TokenId)>::with_capacity(n_logits);
+
+        {
+            let scale = 1.0 / temp;
+            for (i, &logit) in logits.iter().enumerate() {
+                // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
+                // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
+                if last_n_tokens.contains(&(i as TokenId)) {
+                    // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
+                    if logits[i] < 0.0 {
+                        logits_id.push((logit as f64 * scale * repeat_penalty, i as TokenId));
+                    } else {
+                        logits_id.push((logit as f64 * scale / repeat_penalty, i as TokenId));
+                    }
+                } else {
+                    logits_id.push((logit as f64 * scale, i as TokenId));
+                }
+            }
+        }
+
+        // find the top K tokens
+        {
+            logits_id.partial_sort(top_k as usize, |a, b| {
+                // Sort descending
+                b.0.total_cmp(&a.0)
+            });
+            logits_id.truncate(top_k as usize);
+        }
+
+        let maxl = logits_id
+            .iter()
+            .map(|x| x.0)
+            .max_by(f64::total_cmp)
+            .unwrap();
+
+        // compute probs for the top K tokens
+        let mut probs: Vec<f64> = logits_id
+            .iter()
+            .copied()
+            .map(|(k, v)| (k - maxl).exp())
+            .collect();
+        let sum: f64 = probs.iter().copied().sum();
+
+        // Normalize the probs
+        for p in probs.iter_mut() {
+            *p /= sum;
+        }
+
+        // Top p sampling
+        if top_p < 1.0 {
+            let mut cumsum = 0.0;
+            for i in 0..probs.len() {
+                cumsum += probs[i];
+                if cumsum >= top_p {
+                    probs.truncate(i + 1);
+                    logits_id.truncate(i + 1);
+                    break;
+                }
+            }
+
+            cumsum = 1.0 / cumsum;
+            for p in probs.iter_mut() {
+                *p *= cumsum;
+            }
+        }
+
+        let dist = WeightedIndex::new(&probs).expect("WeightedIndex error");
+        let idx = dist.sample(rng);
+
+        logits_id[idx].1
     }
 
     #[allow(non_snake_case)]
@@ -533,9 +743,10 @@ impl LlamaModel {
         n_threads: i32,
         n_past: i32,
         embd_inp: &[TokenId],
+        embd_w: &mut Vec<f32>,
         mem_per_token: &mut usize,
-    ) -> Vec<f32> {
-        let n = embd_inp.len();
+    ) {
+        let N = embd_inp.len();
 
         let LlamaHyperParams {
             n_vocab,
@@ -549,15 +760,15 @@ impl LlamaModel {
         } = self.hparams;
 
         let mut buf_size = 512 * 1024 * 1024;
-        if *mem_per_token > 0 && *mem_per_token * n > buf_size {
+        if *mem_per_token > 0 && *mem_per_token * N > buf_size {
             // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * *mem_per_token as f64 * n as f64) as usize;
+            buf_size = (1.1f64 * *mem_per_token as f64 * N as f64) as usize;
         };
         let ctx0 = GgmlContext::init(buf_size);
 
         let mut gf = GgmlCGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(GGML_TYPE_I32, n as i32);
+        let embd = ctx0.new_tensor_1d(GGML_TYPE_I32, N as i32);
         unsafe { embd.write_data(bytemuck::cast_slice(embd_inp)) };
 
         let mut inpL = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -581,23 +792,23 @@ impl LlamaModel {
                 let Vcur = ctx0.op_mul_mat(&self.layers[il].wv, &cur);
 
                 // store key and value to memory
-                if n >= 1 {
+                if N >= 1 {
                     let k = ctx0.op_view_1d(
                         &self.memory_k,
-                        n as i32 * n_embd,
+                        N as i32 * n_embd,
                         (self.memory_k.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
                     let v = ctx0.op_view_1d(
                         &self.memory_v,
-                        n as i32 * n_embd,
+                        N as i32 * n_embd,
                         (self.memory_v.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
-                    gf.build_forward_expand(&mut ctx0.op_cpy(&Kcur, &k));
-                    gf.build_forward_expand(&mut ctx0.op_cpy(&Vcur, &v));
+                    gf.build_forward_expand(&ctx0.op_cpy(&Kcur, &k));
+                    gf.build_forward_expand(&ctx0.op_cpy(&Vcur, &v));
                 }
 
                 // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
@@ -605,7 +816,7 @@ impl LlamaModel {
                     &ctx0.op_rope(
                         &ctx0.op_cpy(
                             &Qcur,
-                            &ctx0.new_tensor_3d(GGML_TYPE_F32, n_embd / n_head, n_head, n as i32),
+                            &ctx0.new_tensor_3d(GGML_TYPE_F32, n_embd / n_head, n_head, N as i32),
                         ),
                         n_past,
                         n_rot,
@@ -623,14 +834,14 @@ impl LlamaModel {
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
                                 &self.memory_k,
-                                (n_past + n as i32) * n_embd,
+                                (n_past + N as i32) * n_embd,
                                 il * n_ctx as usize
                                     * self.memory_k.element_size()
                                     * n_embd as usize,
                             ),
                             n_embd / n_head,
                             n_head,
-                            n_past + n as i32,
+                            n_past + N as i32,
                         ),
                         n_past,
                         n_rot,
@@ -662,12 +873,12 @@ impl LlamaModel {
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             &self.memory_v,
-                            (n_past + n as i32) * n_embd,
+                            (n_past + N as i32) * n_embd,
                             il * n_ctx as usize * self.memory_v.element_size() * n_embd as usize,
                         ),
                         n_embd / n_head,
                         n_head,
-                        n_past + n as i32,
+                        n_past + N as i32,
                     ),
                     1,
                     2,
@@ -684,7 +895,7 @@ impl LlamaModel {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 cur = ctx0.op_cpy(
                     &KQV_merged,
-                    &ctx0.new_tensor_2d(GGML_TYPE_F32, n_embd, n as i32),
+                    &ctx0.new_tensor_2d(GGML_TYPE_F32, n_embd, N as i32),
                 );
 
                 // projection (no bias)
@@ -742,20 +953,18 @@ impl LlamaModel {
         ctx0.graph_compute(&mut gf);
 
         // return result for just the last token
-        let mut embd_w = vec![0.0f32; n_vocab as usize];
+        embd_w.resize(n_vocab as usize, 0.0);
         // SAFETY: yolo
         unsafe {
             inpL.read_data(
-                n_vocab as usize * (n - 1),
-                bytemuck::cast_slice_mut(&mut embd_w),
+                n_vocab as usize * (N - 1),
+                bytemuck::cast_slice_mut(embd_w),
             )
         };
 
         if *mem_per_token == 0 {
-            *mem_per_token = ctx0.used_mem() / n;
+            *mem_per_token = ctx0.used_mem() / N;
         }
-
-        embd_w
     }
 
     pub fn tokenize(&self, vocab: &GptVocab, text: &str, bos: bool) -> Vec<TokenId> {
@@ -799,9 +1008,6 @@ fn main() {
     let (model, vocab) = LlamaModel::load("/data/Llama/LLaMA/7B/ggml-model-q4_0.bin", 256)
         .expect("Could not load model");
 
-    model.infer_with_prompt(
-        &vocab,
-        "Hello world",
-        "",
-    );
+    let mut rng = thread_rng();
+    model.infer_with_prompt(&vocab, &InferParams::default(), "#!/bin", "", &mut rng);
 }

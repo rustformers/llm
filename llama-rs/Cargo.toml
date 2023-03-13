@@ -10,4 +10,6 @@ anyhow = { version = "1.0.69", features = ["backtrace"] }
 bimap = "0.6.2"
 bytemuck = "1.13.1"
 ggml-raw = { path = "../ggml-raw" }
+partial_sort = "0.2.0"
+rand = "0.8.5"
 regex = "1.7.1"
