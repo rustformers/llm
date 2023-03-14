@@ -1,5 +1,3 @@
-#![feature(buf_read_has_data_left)]
-
 use std::{
     collections::HashMap,
     io::{self, BufRead, Read, Seek, SeekFrom, Write},
@@ -380,7 +378,10 @@ impl LlamaModel {
 
             // Load weights
             loop {
-                if !part_reader.has_data_left()? {
+                // NOTE: Implementation from #![feature(buf_read_has_data_left)]
+                let is_eof = part_reader.fill_buf().map(|b| b.is_empty())?;
+
+                if is_eof {
                     break;
                 }
 
