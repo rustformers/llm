@@ -66,9 +66,6 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
 - **A:** Haha. Of course *not*. I just like collecting imaginary internet
   points, in the form of little stars, that people seem to give to me whenever I
   embark on pointless quests for *rewriting X thing, but in Rust*.
-  
-- **Q: Where do I get the weights from**
-- **A:** The only legal source is 
 
 ## Known issues / To-dos
 
