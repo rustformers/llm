@@ -35,11 +35,8 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (model, vocab) = llama::LlamaModel::load(
-        "/data/Llama/LLaMA/7B/ggml-model-q4_0.bin",
-        args.num_ctx_tokens as i32,
-    )
-    .expect("Could not load model");
+    let (model, vocab) = llama::LlamaModel::load(&args.model_path, args.num_ctx_tokens as i32)
+        .expect("Could not load model");
 
     let mut rng = thread_rng();
     model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng);
