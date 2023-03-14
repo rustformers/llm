@@ -1,12 +1,13 @@
 
 > Do the LLaMA thing, but now in Rust 🦀🚀🦙
-
-![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
+![A llama riding a crab, AI-generated](./doc/resources/logo.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F8DNO5D)
 
 [![Latest version](https://img.shields.io/crates/v/llama-rs.svg)](https://crates.io/crates/llama_rs)
 ![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+
+![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
 **Llama-rs** is a Rust port of the
 [llama.cpp](https://github.com/ggerganov/llama.cpp) project. This allows running
