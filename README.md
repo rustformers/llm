@@ -1,6 +1,7 @@
+# LLaMA-rs
 
 > Do the LLaMA thing, but now in Rust 🦀🚀🦙
-![A llama riding a crab, AI-generated](./doc/resources/logo.png)
+![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F8DNO5D)
 
@@ -9,7 +10,7 @@
 
 ![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
-**Llama-rs** is a Rust port of the
+**LLaMA-rs** is a Rust port of the
 [llama.cpp](https://github.com/ggerganov/llama.cpp) project. This allows running
 inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
 model on a CPU with good performance.
