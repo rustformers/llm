@@ -13,7 +13,8 @@
 **LLaMA-rs** is a Rust port of the
 [llama.cpp](https://github.com/ggerganov/llama.cpp) project. This allows running
 inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
-model on a CPU with good performance.
+model on a CPU with good performance using full precision, f16 or 4-bit
+quantized versions of the model.
 
 Just like its C++ counterpart, it is powered by the
 [`ggml`](https://github.com/ggerganov/ggml) tensor library, achieving the same performance as the original code.
