@@ -3,7 +3,8 @@
 use std::{
     collections::HashMap,
     io::{self, BufRead, Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf}, str::FromStr,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use anyhow::{Context, Result};
@@ -80,7 +81,7 @@ impl Default for InferParams {
     fn default() -> Self {
         Self {
             n_threads: 8,
-            n_predict: 256,
+            n_predict: 128,
             n_batch: 8,
             repeat_last_n: 64,
             top_k: 40,
@@ -119,12 +120,12 @@ impl LlamaModel {
         let path_str = path.to_string_lossy();
 
         let mut reader = BufReader::new(
-            File::open(&path)
+            File::open(path)
                 .with_context(|| anyhow::anyhow!("Failed to open file at '{path_str}'",))?,
         );
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_int(reader: &mut impl BufRead) -> Result<i32> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
@@ -142,7 +143,7 @@ impl LlamaModel {
 
         // Verify magic
         {
-            let mut magic = read_int(&mut reader)?;
+            let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
                 anyhow::bail!("Invalid model file '{path_str}' (bad magic)")
             }
@@ -155,14 +156,14 @@ impl LlamaModel {
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
         let hparams = LlamaHyperParams {
-            n_vocab: read_int(&mut reader)?,
+            n_vocab: read_i32(&mut reader)?,
             n_ctx,
-            n_embd: read_int(&mut reader)?,
-            n_mult: read_int(&mut reader)?,
-            n_head: read_int(&mut reader)?,
-            n_layer: read_int(&mut reader)?,
-            n_rot: read_int(&mut reader)?,
-            f16_: read_int(&mut reader)?,
+            n_embd: read_i32(&mut reader)?,
+            n_mult: read_i32(&mut reader)?,
+            n_head: read_i32(&mut reader)?,
+            n_layer: read_i32(&mut reader)?,
+            n_rot: read_i32(&mut reader)?,
+            f16_: read_i32(&mut reader)?,
         };
 
         let n_ff =
@@ -176,7 +177,7 @@ impl LlamaModel {
         // ===============
         let mut vocab = GptVocab::default();
         for _ in 0..hparams.n_vocab {
-            let len = read_int(&mut reader)?;
+            let len = read_i32(&mut reader)?;
             let word = read_string(&mut reader, len as usize)?;
             vocab.mapping.push(word);
         }
@@ -192,8 +193,6 @@ impl LlamaModel {
             invalid => anyhow::bail!("Invalid value for hparams.f16_ {invalid}"),
         };
 
-        let wtype2 = ggml_raw::ggml_type_GGML_TYPE_F32;
-
         let n_embd = hparams.n_embd;
         let n_layer = hparams.n_layer;
         let n_ctx = hparams.n_ctx;
@@ -207,6 +206,14 @@ impl LlamaModel {
             let n_vocab = n_vocab as u64;
             let n_ff = n_ff as u64;
 
+            /// NOTE: The original code relies in promotion rules and automatic
+            /// cast between int to float. What we do instead is use this macro
+            /// to convert every term of the multiplication to f64, which should
+            /// have enough precision bits to hold the final value, then cast to
+            /// usize. I have observed a discrepancy between the ctx_size found
+            /// using this code, and the one in llama.cpp. The number for rust
+            /// ends up being slightly lower, but no "out of memory" errors are
+            /// reported by ggml.
             macro_rules! mul {
                 ($term:expr, $($terms:expr),*) => {
                     (($term as f64) $(* ($terms as f64))*) as u64
@@ -243,9 +250,6 @@ impl LlamaModel {
 
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
-            // TODO: Sizes in the original implementation are slightly smaller
-            // than the ones we get here, but everything still works. I don't
-            // know where the issue is.
             println!(
                 "ggml ctx size = {:.2} MB\n",
                 ctx_size as f64 / (1024.0 * 1024.0)
@@ -313,8 +317,10 @@ impl LlamaModel {
                 layers.push(layer);
             }
 
+            // key + value memory
             let n_mem = n_layer * n_ctx;
             let n_elements = n_embd * n_mem;
+
             let memory_k = context.new_tensor_1d(GGML_TYPE_F32, n_elements);
             let memory_v = context.new_tensor_1d(GGML_TYPE_F32, n_elements);
 
@@ -365,6 +371,7 @@ impl LlamaModel {
             );
 
             let mut part_reader = BufReader::new(File::open(&part_path)?);
+
             // Skip metadata
             part_reader.seek(SeekFrom::Start(file_offset))?;
 
@@ -377,14 +384,14 @@ impl LlamaModel {
                     break;
                 }
 
-                let n_dims = read_int(&mut part_reader)?;
-                let length = read_int(&mut part_reader)?;
-                let ftype = read_int(&mut part_reader)?;
+                let n_dims = read_i32(&mut part_reader)?;
+                let length = read_i32(&mut part_reader)?;
+                let ftype = read_i32(&mut part_reader)?;
 
-                let mut ne = [1i32, 1i32];
                 let mut nelements = 1;
+                let mut ne = [1i32, 1i32];
                 for i in 0..n_dims {
-                    ne[i as usize] = read_int(&mut part_reader)?;
+                    ne[i as usize] = read_i32(&mut part_reader)?;
                     nelements *= ne[i as usize];
                 }
 
@@ -395,23 +402,38 @@ impl LlamaModel {
                         anyhow::bail!("Unknown tensor '{tensor_name}' in model_file '{part_path_str}'")
                     };
 
+                // split_type = 0: split by columns
+                // split_type = 1: split by rows
+                //
+                // split_type = 0:
+                // regex:
+                //   - tok_embeddings.*
+                //   - layers.*.attention.wo.weight
+                //   - layers.*.feed_forward.w2.weight
+
+                // split_type = 1:
+                // regex:
+                //   - output.*
+                //   - layers.*.attention.wq.weight
+                //   - layers.*.attention.wk.weight
+                //   - layers.*.attention.wv.weight
+                //   - layers.*.feed_forward.w1.weight
+                //   - layers.*.feed_forward.w3.weight
                 #[allow(clippy::if_same_then_else)]
-                let split_type = {
-                    if tensor_name.contains("tok_embeddings") {
+                let split_type = if tensor_name.contains("tok_embeddings") {
+                    0
+                } else if tensor_name.contains("layers") {
+                    if tensor_name.contains("attention.wo.weight") {
                         0
-                    } else if tensor_name.contains("layers") {
-                        if tensor_name.contains("attention.wo.weight") {
-                            0
-                        } else if tensor_name.contains("feed_forward.w2.weight") {
-                            0
-                        } else {
-                            1
-                        }
-                    } else if tensor_name.contains("output") {
-                        1
+                    } else if tensor_name.contains("feed_forward.w2.weight") {
+                        0
                     } else {
-                        0
+                        1
                     }
+                } else if tensor_name.contains("output") {
+                    1
+                } else {
+                    0
                 };
 
                 if n_dims == 1 {
@@ -451,8 +473,14 @@ impl LlamaModel {
                 let bpe = match ftype {
                     0 => ggml_type_size(GGML_TYPE_F32),
                     1 => ggml_type_size(GGML_TYPE_F16),
-                    2 => ggml_type_size(GGML_TYPE_Q4_0),
-                    3 => ggml_type_size(GGML_TYPE_Q4_1),
+                    2 => {
+                        assert_eq!(ne[0] % 64, 0);
+                        ggml_type_size(GGML_TYPE_Q4_0)
+                    }
+                    3 => {
+                        assert_eq!(ne[0] % 64, 0);
+                        ggml_type_size(GGML_TYPE_Q4_1)
+                    }
                     _ => anyhow::bail!("Invalid ftype {ftype} in model file"),
                 };
 
@@ -551,11 +579,9 @@ impl LlamaModel {
         vocab: &GptVocab,
         params: &InferParams,
         prompt: &str,
-        antiprompt: &str,
         rng: &mut impl rand::Rng,
     ) {
         let embd_inp = self.tokenize(vocab, prompt, true);
-        let antiprompt_inp = self.tokenize(vocab, antiprompt, false);
         let mut logits = Vec::new();
 
         // determine the required inference memory per token:
@@ -1009,9 +1035,9 @@ impl LlamaModel {
 }
 
 fn main() {
-    let (model, vocab) = LlamaModel::load("/data/Llama/LLaMA/7B/ggml-model-q4_0.bin", 256)
+    let (model, vocab) = LlamaModel::load("/data/Llama/LLaMA/7B/ggml-model-q4_0.bin", 512)
         .expect("Could not load model");
 
     let mut rng = thread_rng();
-    model.infer_with_prompt(&vocab, &InferParams::default(), "[1,2,3,4", "", &mut rng);
+    model.infer_with_prompt(&vocab, &InferParams::default(), "Hello world", &mut rng);
 }
