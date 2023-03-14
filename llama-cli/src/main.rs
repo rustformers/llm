@@ -1,10 +1,8 @@
 use cli_args::CLI_ARGS;
-use llama::InferenceParams;
+use llama_rs::InferenceParams;
 use rand::thread_rng;
 
 mod cli_args;
-mod ggml;
-mod llama;
 
 fn main() {
     let args = &*CLI_ARGS;
@@ -35,7 +33,7 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (model, vocab) = llama::LlamaModel::load(&args.model_path, args.num_ctx_tokens as i32)
+    let (model, vocab) = llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32)
         .expect("Could not load model");
 
     let mut rng = thread_rng();

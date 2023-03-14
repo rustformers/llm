@@ -1,14 +1,15 @@
 [package]
-name = "llama-rs"
+name = "llama-cli"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "1.0.69", features = ["backtrace"] }
-bytemuck = "1.13.1"
-ggml-raw = { path = "../ggml-raw" }
-partial_sort = "0.2.0"
+clap = { version = "4.1.8", features = ["derive"] }
+once_cell = "1.17.1"
+num_cpus = "1.15.0"
+
+llama-rs = { path = "../llama-rs" }
 
 rand = { workspace = true }
