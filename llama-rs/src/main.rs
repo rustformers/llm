@@ -1039,5 +1039,5 @@ fn main() {
         .expect("Could not load model");
 
     let mut rng = thread_rng();
-    model.infer_with_prompt(&vocab, &InferParams::default(), "Hello world", &mut rng);
+    model.infer_with_prompt(&vocab, &InferParams::default(), "Write an essay about how cool the Rust programming language is:\n\n# The Rust Programming Language\n", &mut rng);
 }
