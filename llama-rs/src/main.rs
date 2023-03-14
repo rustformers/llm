@@ -987,7 +987,7 @@ impl LlamaModel {
         // SAFETY: yolo
         unsafe {
             inpL.read_data(
-                n_vocab as usize * (N - 1),
+                n_vocab as usize * (N - 1) * std::mem::size_of::<f32>(),
                 bytemuck::cast_slice_mut(embd_w),
             )
         };
