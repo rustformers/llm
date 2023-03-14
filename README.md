@@ -2,7 +2,7 @@
 
 > Do the LLaMA thing, but now in Rust 🦀🚀🦙
 ![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
-> *By @darthdeus, using Stable Diffusion*
+> *By [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion*
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F8DNO5D)
 
