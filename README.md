@@ -26,9 +26,12 @@ Just like its C++ counterpart, it is powered by the
 
 Make sure you have a rust toolchain set up.
 
-1. Clone the repository
-2. Build (`cargo build --release`)
-3. Run with `cargo run --release -- <ARGS>`
+1. Get a copy of the model's weights[^1]
+2. Clone the repository
+3. Build (`cargo build --release`)
+4. Run with `cargo run --release -- <ARGS>`
+
+[^1]: The only legal source to get the weights at the time of writing is [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama). The choice of words also may or may not hint at the existence of other kinds of sources.
 
 **NOTE**: Make sure to build and run in release mode. Debug builds are currently broken.
 
@@ -63,6 +66,9 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
 - **A:** Haha. Of course *not*. I just like collecting imaginary internet
   points, in the form of little stars, that people seem to give to me whenever I
   embark on pointless quests for *rewriting X thing, but in Rust*.
+  
+- **Q: Where do I get the weights from**
+- **A:** The only legal source is 
 
 ## Known issues / To-dos
 
