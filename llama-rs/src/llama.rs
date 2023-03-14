@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    io::{self, BufRead, Read, Seek, SeekFrom, Write},
+    fmt::Display,
+    io::{BufRead, Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -95,6 +96,24 @@ pub struct GptVocab {
     mapping: Vec<Token>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OutputToken<'a> {
+    Token(&'a str),
+    EndOfText,
+}
+impl Display for OutputToken<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                OutputToken::Token(t) => *t,
+                OutputToken::EndOfText => "[end of text]",
+            }
+        )
+    }
+}
+
 fn llama_n_parts(size: i32) -> i32 {
     match size {
         4096 => 1,
@@ -164,7 +183,7 @@ impl LlamaModel {
             ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
         let n_parts = llama_n_parts(hparams.n_embd);
 
-        eprintln!("Loaded HyperParams {hparams:#?}");
+        log::debug!("Loaded HyperParams {hparams:#?}");
 
         // ===============
         // Load vocabulary
@@ -248,7 +267,7 @@ impl LlamaModel {
 
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
-            println!(
+            log::info!(
                 "ggml ctx size = {:.2} MB\n",
                 ctx_size as f64 / (1024.0 * 1024.0)
             );
@@ -323,7 +342,7 @@ impl LlamaModel {
             let memory_v = context.new_tensor_1d(GGML_TYPE_F32, n_elements);
 
             let memory_size = memory_k.nbytes() + memory_v.nbytes();
-            println!(
+            log::info!(
                 "Memory size: {} MB {}",
                 memory_size as f32 / 1024.0 / 1024.0,
                 n_mem
@@ -361,7 +380,7 @@ impl LlamaModel {
             };
             let part_path_str = part_path.to_string_lossy();
 
-            println!(
+            log::info!(
                 "loading model part {}/{} from '{}'\n",
                 i + 1,
                 n_parts,
@@ -558,14 +577,10 @@ impl LlamaModel {
                 }
 
                 n_tensors += 1;
-                if n_tensors % 8 == 0 {
-                    print!(".");
-                    io::stdout().flush()?;
-                }
             }
 
-            println!(" done");
-            println!(
+            log::info!("loading complete");
+            log::info!(
                 "model size = {:.2} MB / num tensors = {}\n",
                 total_size as f64 / 1024.0 / 1024.0,
                 n_tensors
@@ -575,12 +590,13 @@ impl LlamaModel {
         Ok((model, vocab))
     }
 
-    pub fn inference_with_prompt(
+    pub fn inference_with_prompt<'a>(
         &self,
-        vocab: &GptVocab,
+        vocab: &'a GptVocab,
         params: &InferenceParams,
         prompt: &str,
         rng: &mut impl rand::Rng,
+        callback: impl Fn(OutputToken<'a>),
     ) {
         let embd_inp = self.tokenize(vocab, prompt, true);
         let mut logits = Vec::new();
@@ -603,7 +619,6 @@ impl LlamaModel {
             self.hparams.n_ctx as usize - embd_inp.len(),
         );
         let mut input_consumed = 0;
-        let mut input_noecho = false;
 
         let mut n_past = 0;
         let mut embd = Vec::new();
@@ -651,9 +666,6 @@ impl LlamaModel {
                 // add it to the context
                 embd.push(id);
 
-                // echo this to console
-                input_noecho = false;
-
                 // decrement remaining sampling budget
                 remaining_tokens -= 1;
             } else {
@@ -670,15 +682,18 @@ impl LlamaModel {
             }
 
             // display text
-            if !input_noecho {
-                for &id in &embd {
-                    print!("{}", vocab.mapping[id as usize]);
-                    io::stdout().flush().expect("flush");
-                }
+            let mut eot = false;
+            for &id in &embd {
+                let output_token = if id == 2 {
+                    eot = true;
+                    OutputToken::EndOfText
+                } else {
+                    OutputToken::Token(&vocab.mapping[id as usize])
+                };
+                callback(output_token);
             }
 
-            if embd.last().copied() == Some(2) {
-                println!(" [end of text]");
+            if eot {
                 break;
             }
         }

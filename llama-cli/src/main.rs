@@ -5,6 +5,8 @@ use rand::thread_rng;
 mod cli_args;
 
 fn main() {
+    env_logger::init();
+
     let args = &*CLI_ARGS;
 
     let inference_params = InferenceParams {
@@ -37,5 +39,8 @@ fn main() {
         .expect("Could not load model");
 
     let mut rng = thread_rng();
-    model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng);
+    model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
+        print!("{t}")
+    });
+    println!();
 }
