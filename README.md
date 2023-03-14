@@ -30,6 +30,8 @@ Make sure you have a rust toolchain set up.
 2. Build (`cargo build --release`)
 3. Run with `cargo run --release -- <ARGS>`
 
+**NOTE**: Make sure to build and run in release mode. Debug builds are currently broken.
+
 For example, you try the following prompt:
 
 ``` shell
@@ -75,4 +77,5 @@ Contributions welcome! Here's a few pressing issues:
       the real potential for this tool is to allow embedding in other services.
 - [ ] No crates.io release. The name `llama-rs` is reserved and I plan to do
       this soon-ish.
+- [ ] Debug builds are currently broken.
 - [ ] Anything from the original C++ code.
