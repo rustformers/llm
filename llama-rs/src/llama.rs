@@ -170,10 +170,14 @@ impl LlamaModel {
         // Load vocabulary
         // ===============
         let mut vocab = GptVocab::default();
-        for _ in 0..hparams.n_vocab {
+        for i in 0..hparams.n_vocab {
             let len = read_i32(&mut reader)?;
-            let word = read_string(&mut reader, len as usize)?;
-            vocab.mapping.push(word);
+            if let Ok(word) = read_string(&mut reader, len as usize) {
+                vocab.mapping.push(word);
+            } else {
+                println!("Warning: Bad token in vocab at index {i}");
+                vocab.mapping.push("�".to_string());
+            }
         }
 
         // for the big tensors, we have the option to store the data in 16-bit
