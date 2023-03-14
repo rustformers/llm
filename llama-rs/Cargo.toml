@@ -9,7 +9,10 @@ edition = "2021"
 anyhow = { version = "1.0.69", features = ["backtrace"] }
 bimap = "0.6.2"
 bytemuck = "1.13.1"
+clap = { version = "4.1.8", features = ["derive"] }
 ggml-raw = { path = "../ggml-raw" }
+num_cpus = "1.15.0"
+once_cell = "1.17.1"
 partial_sort = "0.2.0"
 rand = "0.8.5"
 regex = "1.7.1"
