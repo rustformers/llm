@@ -214,7 +214,7 @@ impl LlamaModel {
                 };
             }
 
-            fn ggml_type_sizef(x: u32) -> f64 {
+            fn ggml_type_sizef(x: ggml_raw::ggml_type) -> f64 {
                 (unsafe { ggml_raw::ggml_type_sizef(x) }) as f64
             }
 
