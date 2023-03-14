@@ -45,7 +45,8 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
 Contributions welcome! Here's a few pressing issues:
 
 - [ ] The code only sets the right CFLAGS on Linux. The `build.rs` script in
-      `ggml_raw` needs to be fixed.
+      `ggml_raw` needs to be fixed, so inference *will be very slow on every
+      other OS*.
 - [ ] The quantization code has not been ported (yet). You can still use the
       quantized models with llama.cpp.
 - [ ] The code needs to be "library"-fied. It is nice as a showcase binary, but
