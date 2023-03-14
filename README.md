@@ -32,11 +32,11 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
 ## Q&A
 
 - **Q: Why did you do this?**
-  **A:** It was not my choice. Ferris appeared to me in my dreams and asked me
+- **A:** It was not my choice. Ferris appeared to me in my dreams and asked me
   to rewrite this in the name of the Holy crab.
   
 - **Q: Seriously now**
-  **A:** Come on! I don't want to get into a flame war. You know how it goes,
+- **A:** Come on! I don't want to get into a flame war. You know how it goes,
   *something something* memory *something something* cargo is nice, don't make
   me say it, everybody knows this already.
 
