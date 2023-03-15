@@ -42,11 +42,7 @@ fn main() {
 
     if let Some(restore_path) = &args.restore_prompt {
         let memory = ModelMemory::load_compressed(restore_path);
-        match memory.and_then(|memory| {
-            let res = model.set_memory(memory);
-            unsafe { model.get_memory(); }
-            res
-        }) {
+        match memory.and_then(|memory| model.set_memory(memory)) {
             Ok(_) => (),
             Err(err) => {
                 eprintln!("Could not restore prompt. Error: {err}");
