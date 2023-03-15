@@ -646,10 +646,6 @@ impl LlamaModel {
         // llama_eval is called.
         let mut mem_per_token = 0;
 
-        unsafe {
-            self.get_memory();
-        }
-
         let mut last_n_tokens = vec![0 as TokenId; params.repeat_last_n];
 
         let mut remaining_tokens = usize::min(
