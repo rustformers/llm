@@ -1,7 +1,10 @@
+use core::slice;
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
     fmt::Display,
-    io::{BufRead, Read, Seek, SeekFrom},
+    fs::File,
+    hash::{Hash, Hasher},
+    io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
 
@@ -59,6 +62,9 @@ pub struct LlamaModel {
     tensors: HashMap<String, GgmlTensor>,
 
     context: GgmlContext,
+
+    /// How many tokens have been fed into the model's working memory so far.
+    n_past: usize,
 }
 
 pub struct InferenceParams {
@@ -70,6 +76,33 @@ pub struct InferenceParams {
     pub top_p: f32,
     pub repeat_penalty: f32,
     pub temp: f32,
+}
+
+/// A slice to llama's internal memory tensors. Storing this can be used to
+/// cache prompts.
+///
+/// NOTE: This struct can be serialized and then deserialized as an owned
+/// `LlamaMemory`.
+#[derive(serde::Serialize)]
+pub struct LlamaModelMemoryRef<'model> {
+    /// How many tokens have been stored in the memory so far.
+    pub npast: usize,
+    /// The contents of the 'key' memory tensor
+    pub memory_k: &'model [u8],
+    /// The contents of the 'value' memory tensor
+    pub memory_v: &'model [u8],
+}
+
+/// An owned vector, containing the copy of llama memory's contents. Useful to
+/// restore a cached prompt.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct LlamaModelMemory {
+    /// How many tokens have been stored in the memory so far.
+    pub npast: usize,
+    /// The contents of the 'key' memory tensor
+    pub memory_k: Vec<u8>,
+    /// The contents of the 'value' memory tensor
+    pub memory_v: Vec<u8>,
 }
 
 impl Default for InferenceParams {
@@ -358,6 +391,7 @@ impl LlamaModel {
                 memory_v,
                 tensors,
                 context,
+                n_past: 0,
             }
         };
 
@@ -577,7 +611,12 @@ impl LlamaModel {
                 }
 
                 n_tensors += 1;
+                if n_tensors % 8 == 0 {
+                    print!(".");
+                    std::io::stdout().flush();
+                }
             }
+            println!(".");
 
             log::info!("loading complete");
             log::info!(
@@ -591,28 +630,27 @@ impl LlamaModel {
     }
 
     pub fn inference_with_prompt<'a>(
-        &self,
+        &mut self,
         vocab: &'a GptVocab,
         params: &InferenceParams,
         prompt: &str,
         rng: &mut impl rand::Rng,
+        stop_after_prompt: bool,
         callback: impl Fn(OutputToken<'a>),
     ) {
-        let embd_inp = self.tokenize(vocab, prompt, true);
-        let mut logits = Vec::new();
+        let beginning_of_sentence = self.n_past == 0;
+        let embd_inp = self.tokenize(vocab, prompt, beginning_of_sentence);
+        let mut logits = vec![0.0; self.hparams.n_vocab as usize];
 
-        // determine the required inference memory per token:
+        // Mem per token is initialized at zero. Will be read the first time
+        // llama_eval is called.
         let mut mem_per_token = 0;
-        let _ = self.llama_eval(
-            params.n_threads,
-            0,
-            &[0, 1, 2, 3],
-            &mut logits,
-            &mut mem_per_token,
-        );
 
-        let last_n_size = params.repeat_last_n;
-        let mut last_n_tokens = vec![0 as TokenId; last_n_size];
+        unsafe {
+            self.get_memory();
+        }
+
+        let mut last_n_tokens = vec![0 as TokenId; params.repeat_last_n];
 
         let mut remaining_tokens = usize::min(
             params.n_predict,
@@ -620,25 +658,31 @@ impl LlamaModel {
         );
         let mut input_consumed = 0;
 
-        let mut n_past = 0;
         let mut embd = Vec::new();
         while remaining_tokens > 0 {
             // predict
             if embd.len() > 0 {
                 self.llama_eval(
                     params.n_threads,
-                    n_past,
+                    self.n_past as i32,
                     &embd,
                     &mut logits,
                     &mut mem_per_token,
                 );
             }
 
-            n_past += embd.len() as i32;
+            self.n_past += embd.len();
             embd.clear();
 
             if embd_inp.len() <= input_consumed {
                 // out of input, sample next token
+
+                // TODO: The logic is super convoluted already and this only
+                // makes it worse... Refactor!
+                if stop_after_prompt {
+                    break;
+                }
+
                 let InferenceParams {
                     top_k,
                     top_p,
@@ -700,7 +744,7 @@ impl LlamaModel {
     }
 
     pub fn sample_top_p_top_k(
-        &self,
+        &mut self,
         vocab: &GptVocab,
         logits: &[f32],
         last_n_tokens: &[TokenId],
@@ -785,7 +829,7 @@ impl LlamaModel {
 
     #[allow(non_snake_case)]
     pub fn llama_eval(
-        &self,
+        &mut self,
         n_threads: i32,
         n_past: i32,
         embd_inp: &[TokenId],
@@ -1013,7 +1057,7 @@ impl LlamaModel {
         }
     }
 
-    pub fn tokenize(&self, vocab: &GptVocab, text: &str, bos: bool) -> Vec<TokenId> {
+    pub fn tokenize(&mut self, vocab: &GptVocab, text: &str, bos: bool) -> Vec<TokenId> {
         let mut res = Vec::new();
         if bos {
             res.push(1 as TokenId); // TODO: replace with vocab.bos
@@ -1047,5 +1091,84 @@ impl LlamaModel {
         }
 
         res
+    }
+
+    /// Obtains raw access to the underlying tensor memory. This memory can be
+    /// used to cache prompts.
+    ///
+    /// # Safety
+    ///
+    /// This function provides raw access to the underlying memory owned by the
+    /// ggml context. While the provided `LlamaModelMemory` object is alive, no
+    /// other methods for this model object should be called.
+    pub unsafe fn get_memory(&mut self) -> LlamaModelMemoryRef<'_> {
+        let memory_k = unsafe {
+            slice::from_raw_parts(self.memory_k.data() as *mut u8, self.memory_k.nbytes())
+        };
+        let memory_v = unsafe {
+            slice::from_raw_parts(self.memory_v.data() as *mut u8, self.memory_v.nbytes())
+        };
+
+        LlamaModelMemoryRef {
+            memory_k,
+            memory_v,
+            npast: self.n_past,
+        }
+    }
+
+    /// Clears the model's memory, so it
+    pub fn clear_memory(&mut self) {
+        self.memory_k.zero_data();
+        self.memory_v.zero_data();
+        self.n_past = 0;
+    }
+
+    pub fn set_memory(&mut self, memory: LlamaModelMemory) -> anyhow::Result<()> {
+        if self.memory_k.nbytes() != memory.memory_k.len()
+            || self.memory_v.nbytes() != memory.memory_v.len()
+        {
+            anyhow::bail!("Memory size mismatch");
+        }
+
+        // SAFETY: We have exclusive access to Self, which means no one else
+        // should be touching the context's memory. We can write to it because
+        // we already checked the size.
+        unsafe {
+            self.memory_k.write_data(&memory.memory_k);
+            self.memory_v.write_data(&memory.memory_v);
+        }
+
+        self.n_past = memory.npast;
+
+        Ok(())
+    }
+}
+
+impl<'a> LlamaModelMemoryRef<'a> {
+    pub fn write_compressed(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let path = path.as_ref();
+        let path_str = path.to_string_lossy();
+
+        let writer = BufWriter::new(
+            File::create(path)
+                .with_context(|| format!("Could not open file '{path_str}' for writing"))?,
+        );
+
+        bincode::serialize_into(writer, &self)?;
+        Ok(())
+    }
+}
+
+impl LlamaModelMemory {
+    pub fn load_compressed(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref();
+        let path_str = path.to_string_lossy();
+
+        let reader = BufReader::new(
+            File::open(path)
+                .with_context(|| format!("Could not open file '{path_str}' for reading"))?,
+        );
+
+        Ok(bincode::deserialize_from(reader)?)
     }
 }

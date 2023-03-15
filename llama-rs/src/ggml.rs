@@ -1,17 +1,19 @@
 use std::{
     ffi::c_void,
-    marker::PhantomData,
-    ptr::{addr_of, NonNull},
+    ptr::NonNull,
     sync::{Arc, Weak},
 };
 
 pub const GGML_TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_0;
 pub const GGML_TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_1;
+#[allow(unused)]
 pub const GGML_TYPE_I8: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I8;
+#[allow(unused)]
 pub const GGML_TYPE_I16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I16;
 pub const GGML_TYPE_I32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I32;
 pub const GGML_TYPE_F16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F16;
 pub const GGML_TYPE_F32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F32;
+#[allow(unused)]
 pub const GGML_TYPE_COUNT: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_COUNT;
 
 /// Acts as a RAII-guard over a `ggml_raw::ggml_context`, allocating via
@@ -256,6 +258,10 @@ impl GgmlTensor {
 
     pub unsafe fn write_data(&self, src: &[u8]) {
         std::ptr::copy_nonoverlapping(src.as_ptr(), self.data() as *mut u8, src.len())
+    }
+
+    pub fn zero_data(&self) {
+        unsafe { std::ptr::write_bytes(self.data() as *mut u8, 0, self.nbytes()) }
     }
 
     pub unsafe fn read_data(&self, offset: usize, dst: &mut [u8]) {

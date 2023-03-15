@@ -3,5 +3,5 @@ mod llama;
 
 pub use llama::{
     GptVocab as Vocab, InferenceParams, LlamaHyperParams as HyperParams, LlamaModel as Model,
-    OutputToken,
+    LlamaModelMemory as ModelMemory, LlamaModelMemoryRef as ModelMemoryRef, OutputToken,
 };

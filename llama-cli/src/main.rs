@@ -1,5 +1,7 @@
+use std::io::Write;
+
 use cli_args::CLI_ARGS;
-use llama_rs::InferenceParams;
+use llama_rs::{InferenceParams, ModelMemory};
 use rand::thread_rng;
 
 mod cli_args;
@@ -35,12 +37,51 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (model, vocab) = llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32)
+    let (mut model, vocab) = llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32)
         .expect("Could not load model");
 
+    if let Some(restore_path) = &args.restore_prompt {
+        let memory = ModelMemory::load_compressed(restore_path);
+        match memory.and_then(|memory| {
+            let res = model.set_memory(memory);
+            unsafe { model.get_memory(); }
+            res
+        }) {
+            Ok(_) => (),
+            Err(err) => {
+                eprintln!("Could not restore prompt. Error: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let mut rng = thread_rng();
-    model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
-        print!("{t}")
-    });
+    let stop_after_prompt = args.cache_prompt.is_some();
+    model.inference_with_prompt(
+        &vocab,
+        &inference_params,
+        &prompt,
+        &mut rng,
+        stop_after_prompt,
+        |t| {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
+        },
+    );
+
+    if let Some(cache_path) = &args.cache_prompt {
+        // SAFETY: no other model functions used inside the block
+        unsafe {
+            let memory = model.get_memory();
+            match memory.write_compressed(cache_path) {
+                Ok(_) => (),
+                Err(err) => {
+                    eprintln!("Could not write prompt cache: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+
     println!();
 }
