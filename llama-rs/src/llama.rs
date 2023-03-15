@@ -426,41 +426,31 @@ impl LlamaModel {
                 } else if tensor_name.contains("layers") {
                     if tensor_name.contains("attention.wo.weight") {
                         0
-                    } else if tensor_name.contains("feed_forward.w2.weight") {
-                        0
                     } else {
-                        1
+                        i32::from(!tensor_name.contains("feed_forward.w2.weight"))
                     }
-                } else if tensor_name.contains("output") {
-                    1
                 } else {
-                    0
+                    i32::from(tensor_name.contains("output"))
                 };
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
                         anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
                     }
-                } else {
-                    if tensor.nelements() / n_parts != nelements {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
-                    }
+                } else if tensor.nelements() / n_parts != nelements {
+                    anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
                 }
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
                         anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
                     }
-                } else {
-                    if split_type == 0 {
-                        if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                            anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
-                        }
-                    } else {
-                        if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                            anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
-                        }
+                } else if split_type == 0 {
+                    if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
+                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
                     }
+                } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
+                    anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
                 }
 
                 fn ggml_type_size(t: ggml_type) -> usize {
@@ -587,7 +577,7 @@ impl LlamaModel {
 
         // determine the required inference memory per token:
         let mut mem_per_token = 0;
-        let _ = self.llama_eval(
+        self.llama_eval(
             params.n_threads,
             0,
             &[0, 1, 2, 3],
@@ -609,7 +599,7 @@ impl LlamaModel {
         let mut embd = Vec::new();
         while remaining_tokens > 0 {
             // predict
-            if embd.len() > 0 {
+            if !embd.is_empty() {
                 self.llama_eval(
                     params.n_threads,
                     n_past,
