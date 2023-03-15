@@ -1141,7 +1141,7 @@ impl LlamaModel {
 }
 
 impl<'a> LlamaModelMemoryRef<'a> {
-    pub fn write_compressed(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
 
@@ -1156,7 +1156,7 @@ impl<'a> LlamaModelMemoryRef<'a> {
 }
 
 impl LlamaModelMemory {
-    pub fn load_compressed(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn load_from_disk(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
 
