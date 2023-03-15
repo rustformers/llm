@@ -51,12 +51,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bimap"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc0455254eb5c6964c4545d8bac815e1a1be4f3afe0ae695ea539c12d728d44b"
-
-[[package]]
 name = "bindgen"
 version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -166,6 +160,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
+name = "env_logger"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85cdab6a89accf66733ad5a1693a4dcced6aeff64602b634530dd73c1f3ee9f0"
+dependencies = [
+ "humantime",
+ "is-terminal",
+ "log",
+ "regex",
+ "termcolor",
+]
+
+[[package]]
 name = "errno"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,6 +246,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
 
 [[package]]
+name = "humantime"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
 name = "io-lifetimes"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -295,19 +308,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 
 [[package]]
+name = "llama-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "llama-rs",
+ "num_cpus",
+ "once_cell",
+ "rand",
+]
+
+[[package]]
 name = "llama-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bimap",
  "bytemuck",
- "clap",
  "ggml-raw",
- "num_cpus",
- "once_cell",
+ "log",
  "partial_sort",
  "rand",
- "regex",
 ]
 
 [[package]]

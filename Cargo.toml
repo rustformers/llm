@@ -2,6 +2,10 @@
 members = [
     "ggml-raw",
     "llama-rs",
+    "llama-cli"
 ]
 
 resolver = "2"
+
+[workspace.dependencies]
+rand = "0.8.5"
