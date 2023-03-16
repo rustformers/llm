@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use cli_args::CLI_ARGS;
-use llama_rs::InferenceParams;
+use llama_rs::InferenceParameters;
 use rand::thread_rng;
 
 mod cli_args;
@@ -14,7 +14,7 @@ fn main() {
 
     let args = &*CLI_ARGS;
 
-    let inference_params = InferenceParams {
+    let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
         n_predict: args.num_predict,
         n_batch: args.batch_size,
