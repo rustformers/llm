@@ -6,11 +6,11 @@ use std::{
 
 pub use ggml_raw::ggml_type as Type;
 
-pub const TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_0;
-pub const TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_1;
-pub const TYPE_I32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I32;
-pub const TYPE_F16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F16;
-pub const TYPE_F32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F32;
+pub const TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_Q4_0;
+pub const TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_Q4_1;
+pub const TYPE_I32: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_I32;
+pub const TYPE_F16: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_F16;
+pub const TYPE_F32: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_F32;
 
 /// Acts as a RAII-guard over a `ggml_raw::ggml_context`, allocating via
 /// ggml_init and dropping via ggml_free
