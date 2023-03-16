@@ -2,10 +2,10 @@ use std::{
     collections::HashMap,
     fmt::Display,
     io::{BufRead, Read, Seek, SeekFrom},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use thiserror::Error;
 
 use crate::ggml::{GgmlContext, GgmlTensor, GGML_TYPE_I32};
 use ggml_raw::ggml_type;
@@ -156,36 +156,76 @@ pub enum LoadProgress<'a> {
     },
 }
 
+#[derive(Error, Debug)]
+pub enum LoadError {
+    #[error("could not open file {path:?}")]
+    OpenFileFailed {
+        source: std::io::Error,
+        path: PathBuf,
+    },
+    #[error("unable to read exactly {bytes} bytes")]
+    ReadExactFailed {
+        source: std::io::Error,
+        bytes: usize,
+    },
+    #[error("non-specific I/O error")]
+    IO(#[from] std::io::Error),
+
+    #[error("could not convert bytes to a UTF-8 string")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("invalid integer conversion")]
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+
+    #[error("invalid magic number for {path:?}")]
+    InvalidMagic { path: PathBuf },
+    #[error("invalid value {value} for `f16` in hyperparameters")]
+    HyperparametersF16Invalid { value: i32 },
+    #[error("unknown tensor `{tensor_name}` in {path:?}")]
+    UnknownTensor { tensor_name: String, path: PathBuf },
+    #[error("the tensor `{tensor_name}` has the wrong size in {path:?}")]
+    TensorWrongSize { tensor_name: String, path: PathBuf },
+    #[error("invalid ftype {ftype} in {path:?}")]
+    InvalidFtype { ftype: i32, path: PathBuf },
+}
+
 impl LlamaModel {
     pub fn load(
         path: impl AsRef<Path>,
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(LlamaModel, GptVocab)> {
+    ) -> Result<(LlamaModel, GptVocab), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
-        let path_str = path.to_string_lossy();
 
-        let mut reader = BufReader::new(
-            File::open(path)
-                .with_context(|| anyhow::anyhow!("Failed to open file at '{path_str}'",))?,
-        );
+        let mut reader =
+            BufReader::new(File::open(path).map_err(|e| LoadError::OpenFileFailed {
+                source: e,
+                path: path.to_owned(),
+            })?);
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
-                .context("Trying to parse metadata")?;
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: bytes.len(),
+                })?;
             Ok(i32::from_le_bytes(bytes))
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String> {
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
             let mut buf = vec![0; len];
-            reader.read_exact(&mut buf)?;
+            reader
+                .read_exact(&mut buf)
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: buf.len(),
+                })?;
             let s = String::from_utf8(buf)?;
             Ok(s)
         }
@@ -194,7 +234,9 @@ impl LlamaModel {
         {
             let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
-                anyhow::bail!("Invalid model file '{path_str}' (bad magic)")
+                return Err(LoadError::InvalidMagic {
+                    path: path.to_owned(),
+                });
             }
         }
 
@@ -245,7 +287,7 @@ impl LlamaModel {
             1 => GGML_TYPE_F16,
             2 => GGML_TYPE_Q4_0,
             3 => GGML_TYPE_Q4_1,
-            invalid => anyhow::bail!("Invalid value for hparams.f16_ {invalid}"),
+            invalid => return Err(LoadError::HyperparametersF16Invalid { value: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -415,7 +457,6 @@ impl LlamaModel {
             } else {
                 path.to_path_buf()
             };
-            let part_path_str = part_path.to_string_lossy();
 
             load_progress_callback(LoadProgress::PartLoading {
                 file: &part_path,
@@ -455,7 +496,7 @@ impl LlamaModel {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        anyhow::bail!("Unknown tensor '{tensor_name}' in model_file '{part_path_str}'")
+                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
                     };
 
                 // split_type = 0: split by columns
@@ -494,26 +535,41 @@ impl LlamaModel {
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
                 } else {
                     if tensor.nelements() / n_parts != nelements {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
                 }
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
                 } else {
                     if split_type == 0 {
                         if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                            anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                            return Err(LoadError::TensorWrongSize {
+                                tensor_name,
+                                path: part_path,
+                            });
                         }
                     } else {
                         if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                            anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                            return Err(LoadError::TensorWrongSize {
+                                tensor_name,
+                                path: part_path,
+                            });
                         }
                     }
                 }
@@ -537,14 +593,22 @@ impl LlamaModel {
                         assert_eq!(ne[0] % 64, 0);
                         ggml_type_size(GGML_TYPE_Q4_1)
                     }
-                    _ => anyhow::bail!("Invalid ftype {ftype} in model file"),
+                    _ => {
+                        return Err(LoadError::InvalidFtype {
+                            ftype,
+                            path: part_path,
+                        })
+                    }
                 };
 
                 if n_dims == 1 || n_parts == 1 {
                     if (nelements as usize * bpe) / ggml_blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
 
                     let data = tensor.data();
@@ -564,7 +628,10 @@ impl LlamaModel {
                     if (nelements as usize * bpe) / ggml_blck_size(tensor.get_type()) as usize
                         != tensor.nbytes() / n_parts as usize
                     {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
 
                     if split_type == 0 {
@@ -622,7 +689,7 @@ impl LlamaModel {
 
             load_progress_callback(LoadProgress::PartLoaded {
                 file: &part_path,
-                byte_size: total_size.try_into()?,
+                byte_size: total_size,
                 tensor_count: n_tensors.try_into()?,
             });
         }

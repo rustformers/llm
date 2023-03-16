@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "1.0.69", features = ["backtrace"] }
 bytemuck = "1.13.1"
 ggml-raw = { path = "../ggml-raw" }
 partial_sort = "0.2.0"
+thiserror = "1.0"
 
 rand = { workspace = true }
