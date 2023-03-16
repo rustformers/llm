@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use cli_args::CLI_ARGS;
 use llama_rs::InferenceParams;
 use rand::thread_rng;
@@ -35,12 +37,66 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (model, vocab) = llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32)
+    let (model, vocab) =
+        llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
+            use llama_rs::LoadProgress;
+            match progress {
+                LoadProgress::HyperParamsLoaded(hparams) => {
+                    log::debug!("Loaded HyperParams {hparams:#?}")
+                }
+                LoadProgress::BadToken { index } => {
+                    log::info!("Warning: Bad token in vocab at index {index}")
+                }
+                LoadProgress::ContextSize { bytes } => log::info!(
+                    "ggml ctx size = {:.2} MB\n",
+                    bytes as f64 / (1024.0 * 1024.0)
+                ),
+                LoadProgress::MemorySize { bytes, n_mem } => log::info!(
+                    "Memory size: {} MB {}",
+                    bytes as f32 / 1024.0 / 1024.0,
+                    n_mem
+                ),
+                LoadProgress::PartLoading {
+                    file,
+                    current_part,
+                    total_parts,
+                } => log::info!(
+                    "Loading model part {}/{} from '{}'\n",
+                    current_part,
+                    total_parts,
+                    file.to_string_lossy(),
+                ),
+                LoadProgress::PartTensorLoaded {
+                    current_tensor,
+                    total_tensors,
+                    ..
+                } => {
+                    if current_tensor % 8 == 0 {
+                        log::info!("Loaded tensor {current_tensor}/{total_tensors}");
+                    }
+                }
+                LoadProgress::PartLoaded {
+                    file,
+                    byte_size,
+                    tensor_count,
+                } => {
+                    log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    log::info!(
+                        "Model size = {:.2} MB / num tensors = {}",
+                        byte_size as f64 / 1024.0 / 1024.0,
+                        tensor_count
+                    );
+                }
+            }
+        })
         .expect("Could not load model");
+
+    log::info!("Model fully loaded!");
 
     let mut rng = thread_rng();
     model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
-        print!("{t}")
+        print!("{t}");
+        std::io::stdout().flush().unwrap();
     });
     println!();
 }

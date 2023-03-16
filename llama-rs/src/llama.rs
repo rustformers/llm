@@ -14,7 +14,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 
 use crate::ggml::{GgmlCGraph, GGML_TYPE_F16, GGML_TYPE_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LlamaHyperParams {
     n_vocab: i32,
     n_ctx: i32,
@@ -124,8 +124,44 @@ fn llama_n_parts(size: i32) -> i32 {
     }
 }
 
+/// Each variant represents a step within the process of loading the model.
+/// These can be used to report progress to the user.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum LoadProgress<'a> {
+    HyperParamsLoaded(&'a LlamaHyperParams),
+    BadToken {
+        index: usize,
+    },
+    ContextSize {
+        bytes: usize,
+    },
+    MemorySize {
+        bytes: usize,
+        n_mem: usize,
+    },
+    PartLoading {
+        file: &'a Path,
+        current_part: usize,
+        total_parts: usize,
+    },
+    PartTensorLoaded {
+        file: &'a Path,
+        current_tensor: usize,
+        total_tensors: usize,
+    },
+    PartLoaded {
+        file: &'a Path,
+        byte_size: usize,
+        tensor_count: usize,
+    },
+}
+
 impl LlamaModel {
-    pub fn load(path: impl AsRef<Path>, n_ctx: i32) -> Result<(LlamaModel, GptVocab)> {
+    pub fn load(
+        path: impl AsRef<Path>,
+        n_ctx: i32,
+        load_progress_callback: impl Fn(LoadProgress),
+    ) -> Result<(LlamaModel, GptVocab)> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -183,7 +219,7 @@ impl LlamaModel {
             ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
         let n_parts = llama_n_parts(hparams.n_embd);
 
-        log::debug!("Loaded HyperParams {hparams:#?}");
+        load_progress_callback(LoadProgress::HyperParamsLoaded(&hparams));
 
         // ===============
         // Load vocabulary
@@ -194,7 +230,9 @@ impl LlamaModel {
             if let Ok(word) = read_string(&mut reader, len as usize) {
                 vocab.mapping.push(word);
             } else {
-                println!("Warning: Bad token in vocab at index {i}");
+                load_progress_callback(LoadProgress::BadToken {
+                    index: i.try_into()?,
+                });
                 vocab.mapping.push("�".to_string());
             }
         }
@@ -267,10 +305,9 @@ impl LlamaModel {
 
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
-            log::info!(
-                "ggml ctx size = {:.2} MB\n",
-                ctx_size as f64 / (1024.0 * 1024.0)
-            );
+            load_progress_callback(LoadProgress::ContextSize {
+                bytes: ctx_size.try_into()?,
+            });
 
             ctx_size
         };
@@ -342,11 +379,11 @@ impl LlamaModel {
             let memory_v = context.new_tensor_1d(GGML_TYPE_F32, n_elements);
 
             let memory_size = memory_k.nbytes() + memory_v.nbytes();
-            log::info!(
-                "Memory size: {} MB {}",
-                memory_size as f32 / 1024.0 / 1024.0,
-                n_mem
-            );
+
+            load_progress_callback(LoadProgress::MemorySize {
+                bytes: memory_size,
+                n_mem: n_mem.try_into()?,
+            });
 
             LlamaModel {
                 hparams,
@@ -380,12 +417,11 @@ impl LlamaModel {
             };
             let part_path_str = part_path.to_string_lossy();
 
-            log::info!(
-                "loading model part {}/{} from '{}'\n",
-                i + 1,
-                n_parts,
-                part_path_str,
-            );
+            load_progress_callback(LoadProgress::PartLoading {
+                file: &part_path,
+                current_part: (i + 1).try_into()?,
+                total_parts: n_parts.try_into()?,
+            });
 
             let mut part_reader = BufReader::new(File::open(&part_path)?);
 
@@ -577,14 +613,18 @@ impl LlamaModel {
                 }
 
                 n_tensors += 1;
+                load_progress_callback(LoadProgress::PartTensorLoaded {
+                    file: &part_path,
+                    current_tensor: n_tensors.try_into()?,
+                    total_tensors: model.tensors.len(),
+                });
             }
 
-            log::info!("loading complete");
-            log::info!(
-                "model size = {:.2} MB / num tensors = {}\n",
-                total_size as f64 / 1024.0 / 1024.0,
-                n_tensors
-            );
+            load_progress_callback(LoadProgress::PartLoaded {
+                file: &part_path,
+                byte_size: total_size.try_into()?,
+                tensor_count: n_tensors.try_into()?,
+            });
         }
 
         Ok((model, vocab))

@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1.0.69", features = ["backtrace"] }
 bytemuck = "1.13.1"
-log = "0.4"
 ggml-raw = { path = "../ggml-raw" }
 partial_sort = "0.2.0"
 

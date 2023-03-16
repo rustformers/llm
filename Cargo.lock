@@ -314,6 +314,7 @@ dependencies = [
  "clap",
  "env_logger",
  "llama-rs",
+ "log",
  "num_cpus",
  "once_cell",
  "rand",
@@ -326,7 +327,6 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "ggml-raw",
- "log",
  "partial_sort",
  "rand",
 ]
