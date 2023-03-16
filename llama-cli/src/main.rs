@@ -7,7 +7,10 @@ use rand::thread_rng;
 mod cli_args;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
 
     let args = &*CLI_ARGS;
 
