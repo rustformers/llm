@@ -590,13 +590,13 @@ impl LlamaModel {
         Ok((model, vocab))
     }
 
-    pub fn inference_with_prompt<'a>(
+    pub fn inference_with_prompt(
         &self,
-        vocab: &'a GptVocab,
+        vocab: &GptVocab,
         params: &InferenceParams,
         prompt: &str,
         rng: &mut impl rand::Rng,
-        callback: impl Fn(OutputToken<'a>),
+        callback: impl Fn(OutputToken),
     ) {
         let embd_inp = self.tokenize(vocab, prompt, true);
         let mut logits = Vec::new();
