@@ -41,6 +41,21 @@ For example, you try the following prompt:
 cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is
 ```
 
+### Fedora
+
+On Fedora, to avoid build errors due to the missing `stddef.h` file, you may need to install the following packages:
+
+``` shell
+sudo dnf groupinstall "Development Tools" "Development Libraries"
+```
+
+Then build with `CPATH` set to the location of the `gcc` headers :
+      
+``` shell
+CPATH="/usr/lib/gcc/x86_64-redhat-linux/12/include/" cargo build --release
+```
+
+
 ## Q&A
 
 - **Q: Why did you do this?**
