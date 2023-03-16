@@ -1,20 +1,19 @@
+mod ggml;
+
 use std::{
     collections::HashMap,
-    io::{self, BufRead, Read, Seek, SeekFrom, Write},
-    path::Path,
+    fmt::Display,
+    io::{BufRead, Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use thiserror::Error;
 
-use crate::ggml::{GgmlContext, GgmlTensor, GGML_TYPE_I32};
-use ggml_raw::ggml_type;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
-use crate::ggml::{GgmlCGraph, GGML_TYPE_F16, GGML_TYPE_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1};
-
-#[derive(Debug, Default)]
-pub struct LlamaHyperParams {
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Hyperparameters {
     n_vocab: i32,
     n_ctx: i32,
     n_embd: i32,
@@ -25,42 +24,43 @@ pub struct LlamaHyperParams {
     f16_: i32,
 }
 
-struct LlamaLayer {
-    attention_norm: GgmlTensor,
+struct Layer {
+    attention_norm: ggml::Tensor,
 
-    wq: GgmlTensor,
-    wk: GgmlTensor,
-    wv: GgmlTensor,
-    wo: GgmlTensor,
+    wq: ggml::Tensor,
+    wk: ggml::Tensor,
+    wv: ggml::Tensor,
+    wo: ggml::Tensor,
 
     // normalization
-    ffn_norm: GgmlTensor,
+    ffn_norm: ggml::Tensor,
 
     // ff
-    w1: GgmlTensor,
-    w2: GgmlTensor,
-    w3: GgmlTensor,
+    w1: ggml::Tensor,
+    w2: ggml::Tensor,
+    w3: ggml::Tensor,
 }
 
-pub struct LlamaModel {
-    hparams: LlamaHyperParams,
+pub struct Model {
+    hparams: Hyperparameters,
 
-    tok_embeddings: GgmlTensor,
+    tok_embeddings: ggml::Tensor,
 
-    norm: GgmlTensor,
-    output: GgmlTensor,
+    norm: ggml::Tensor,
+    output: ggml::Tensor,
 
-    layers: Vec<LlamaLayer>,
+    layers: Vec<Layer>,
 
-    memory_k: GgmlTensor,
-    memory_v: GgmlTensor,
+    memory_k: ggml::Tensor,
+    memory_v: ggml::Tensor,
 
-    tensors: HashMap<String, GgmlTensor>,
+    tensors: HashMap<String, ggml::Tensor>,
 
-    context: GgmlContext,
+    // Must be kept alive for the model
+    _context: ggml::Context,
 }
 
-pub struct InferenceParams {
+pub struct InferenceParameters {
     pub n_threads: i32,
     pub n_predict: usize,
     pub n_batch: usize,
@@ -71,7 +71,7 @@ pub struct InferenceParams {
     pub temp: f32,
 }
 
-impl Default for InferenceParams {
+impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
             n_threads: 8,
@@ -90,9 +90,27 @@ type TokenId = i32;
 type Token = String;
 
 #[derive(Default)]
-pub struct GptVocab {
+pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding string
     mapping: Vec<Token>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OutputToken<'a> {
+    Token(&'a str),
+    EndOfText,
+}
+impl Display for OutputToken<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                OutputToken::Token(t) => *t,
+                OutputToken::EndOfText => "[end of text]",
+            }
+        )
+    }
 }
 
 fn llama_n_parts(size: i32) -> i32 {
@@ -105,32 +123,108 @@ fn llama_n_parts(size: i32) -> i32 {
     }
 }
 
-impl LlamaModel {
-    pub fn load(path: impl AsRef<Path>, n_ctx: i32) -> Result<(LlamaModel, GptVocab)> {
+/// Each variant represents a step within the process of loading the model.
+/// These can be used to report progress to the user.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum LoadProgress<'a> {
+    HyperParamsLoaded(&'a Hyperparameters),
+    BadToken {
+        index: usize,
+    },
+    ContextSize {
+        bytes: usize,
+    },
+    MemorySize {
+        bytes: usize,
+        n_mem: usize,
+    },
+    PartLoading {
+        file: &'a Path,
+        current_part: usize,
+        total_parts: usize,
+    },
+    PartTensorLoaded {
+        file: &'a Path,
+        current_tensor: usize,
+        tensor_count: usize,
+    },
+    PartLoaded {
+        file: &'a Path,
+        byte_size: usize,
+        tensor_count: usize,
+    },
+}
+
+#[derive(Error, Debug)]
+pub enum LoadError {
+    #[error("could not open file {path:?}")]
+    OpenFileFailed {
+        source: std::io::Error,
+        path: PathBuf,
+    },
+    #[error("unable to read exactly {bytes} bytes")]
+    ReadExactFailed {
+        source: std::io::Error,
+        bytes: usize,
+    },
+    #[error("non-specific I/O error")]
+    IO(#[from] std::io::Error),
+
+    #[error("could not convert bytes to a UTF-8 string")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("invalid integer conversion")]
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+
+    #[error("invalid magic number for {path:?}")]
+    InvalidMagic { path: PathBuf },
+    #[error("invalid value {value} for `f16` in hyperparameters")]
+    HyperparametersF16Invalid { value: i32 },
+    #[error("unknown tensor `{tensor_name}` in {path:?}")]
+    UnknownTensor { tensor_name: String, path: PathBuf },
+    #[error("the tensor `{tensor_name}` has the wrong size in {path:?}")]
+    TensorWrongSize { tensor_name: String, path: PathBuf },
+    #[error("invalid ftype {ftype} in {path:?}")]
+    InvalidFtype { ftype: i32, path: PathBuf },
+}
+
+impl Model {
+    pub fn load(
+        path: impl AsRef<Path>,
+        n_ctx: i32,
+        load_progress_callback: impl Fn(LoadProgress),
+    ) -> Result<(Model, Vocabulary), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
-        let path_str = path.to_string_lossy();
 
-        let mut reader = BufReader::new(
-            File::open(path)
-                .with_context(|| anyhow::anyhow!("Failed to open file at '{path_str}'",))?,
-        );
+        let mut reader =
+            BufReader::new(File::open(path).map_err(|e| LoadError::OpenFileFailed {
+                source: e,
+                path: path.to_owned(),
+            })?);
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
-                .context("Trying to parse metadata")?;
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: bytes.len(),
+                })?;
             Ok(i32::from_le_bytes(bytes))
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String> {
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
             let mut buf = vec![0; len];
-            reader.read_exact(&mut buf)?;
+            reader
+                .read_exact(&mut buf)
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: buf.len(),
+                })?;
             let s = String::from_utf8(buf)?;
             Ok(s)
         }
@@ -139,7 +233,9 @@ impl LlamaModel {
         {
             let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
-                anyhow::bail!("Invalid model file '{path_str}' (bad magic)")
+                return Err(LoadError::InvalidMagic {
+                    path: path.to_owned(),
+                });
             }
         }
 
@@ -149,7 +245,7 @@ impl LlamaModel {
 
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
-        let hparams = LlamaHyperParams {
+        let hparams = Hyperparameters {
             n_vocab: read_i32(&mut reader)?,
             n_ctx,
             n_embd: read_i32(&mut reader)?,
@@ -164,18 +260,20 @@ impl LlamaModel {
             ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
         let n_parts = llama_n_parts(hparams.n_embd);
 
-        eprintln!("Loaded HyperParams {hparams:#?}");
+        load_progress_callback(LoadProgress::HyperParamsLoaded(&hparams));
 
         // ===============
         // Load vocabulary
         // ===============
-        let mut vocab = GptVocab::default();
+        let mut vocab = Vocabulary::default();
         for i in 0..hparams.n_vocab {
             let len = read_i32(&mut reader)?;
             if let Ok(word) = read_string(&mut reader, len as usize) {
                 vocab.mapping.push(word);
             } else {
-                println!("Warning: Bad token in vocab at index {i}");
+                load_progress_callback(LoadProgress::BadToken {
+                    index: i.try_into()?,
+                });
                 vocab.mapping.push("�".to_string());
             }
         }
@@ -184,11 +282,11 @@ impl LlamaModel {
         // floats or quantized in order to save memory and also to speed up the
         // computation
         let wtype = match hparams.f16_ {
-            0 => GGML_TYPE_F32,
-            1 => GGML_TYPE_F16,
-            2 => GGML_TYPE_Q4_0,
-            3 => GGML_TYPE_Q4_1,
-            invalid => anyhow::bail!("Invalid value for hparams.f16_ {invalid}"),
+            0 => ggml::TYPE_F32,
+            1 => ggml::TYPE_F16,
+            2 => ggml::TYPE_Q4_0,
+            3 => ggml::TYPE_Q4_1,
+            invalid => return Err(LoadError::HyperparametersF16Invalid { value: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -226,44 +324,43 @@ impl LlamaModel {
 
             ctx_size += mul!(n_embd, n_vocab, ggml_type_sizef(wtype)); // tok_embeddings
 
-            ctx_size += mul!(n_embd, ggml_type_sizef(GGML_TYPE_F32)); // norm
+            ctx_size += mul!(n_embd, ggml_type_sizef(ggml::TYPE_F32)); // norm
 
             ctx_size += mul!(n_embd, n_vocab, ggml_type_sizef(wtype)); // output
 
-            ctx_size += mul!(n_layer, n_embd, ggml_type_sizef(GGML_TYPE_F32)); // attention_norm
+            ctx_size += mul!(n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // attention_norm
 
             ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wq
             ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wk
             ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wv
             ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wo
 
-            ctx_size += mul!(n_layer, n_embd, ggml_type_sizef(GGML_TYPE_F32)); // ffn_norm
+            ctx_size += mul!(n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // ffn_norm
 
             ctx_size += mul!(n_layer, n_ff, n_embd, ggml_type_sizef(wtype)); // w1
             ctx_size += mul!(n_layer, n_ff, n_embd, ggml_type_sizef(wtype)); // w2
             ctx_size += mul!(n_layer, n_ff, n_embd, ggml_type_sizef(wtype)); // w3
 
-            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml_type_sizef(GGML_TYPE_F32)); // memory_k
-            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml_type_sizef(GGML_TYPE_F32)); // memory_v
+            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // memory_k
+            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // memory_v
 
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
-            println!(
-                "ggml ctx size = {:.2} MB\n",
-                ctx_size as f64 / (1024.0 * 1024.0)
-            );
+            load_progress_callback(LoadProgress::ContextSize {
+                bytes: ctx_size.try_into()?,
+            });
 
             ctx_size
         };
 
         // Initialize the context
-        let context = GgmlContext::init(ctx_size as usize);
+        let context = ggml::Context::init(ctx_size as usize);
 
         let model = {
             let mut tensors = HashMap::new();
 
             let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
-            let norm = context.new_tensor_1d(GGML_TYPE_F32, n_embd);
+            let norm = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
             let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
 
             tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
@@ -272,13 +369,13 @@ impl LlamaModel {
 
             let mut layers = Vec::new();
             for i in 0..n_layer {
-                let layer = LlamaLayer {
-                    attention_norm: context.new_tensor_1d(GGML_TYPE_F32, n_embd),
+                let layer = Layer {
+                    attention_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
                     wq: context.new_tensor_2d(wtype, n_embd, n_embd),
                     wk: context.new_tensor_2d(wtype, n_embd, n_embd),
                     wv: context.new_tensor_2d(wtype, n_embd, n_embd),
                     wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                    ffn_norm: context.new_tensor_1d(GGML_TYPE_F32, n_embd),
+                    ffn_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
                     w1: context.new_tensor_2d(wtype, n_embd, n_ff),
                     w2: context.new_tensor_2d(wtype, n_ff, n_embd),
                     w3: context.new_tensor_2d(wtype, n_embd, n_ff),
@@ -319,17 +416,17 @@ impl LlamaModel {
             let n_mem = n_layer * n_ctx;
             let n_elements = n_embd * n_mem;
 
-            let memory_k = context.new_tensor_1d(GGML_TYPE_F32, n_elements);
-            let memory_v = context.new_tensor_1d(GGML_TYPE_F32, n_elements);
+            let memory_k = context.new_tensor_1d(ggml::TYPE_F32, n_elements);
+            let memory_v = context.new_tensor_1d(ggml::TYPE_F32, n_elements);
 
             let memory_size = memory_k.nbytes() + memory_v.nbytes();
-            println!(
-                "Memory size: {} MB {}",
-                memory_size as f32 / 1024.0 / 1024.0,
-                n_mem
-            );
 
-            LlamaModel {
+            load_progress_callback(LoadProgress::MemorySize {
+                bytes: memory_size,
+                n_mem: n_mem.try_into()?,
+            });
+
+            Model {
                 hparams,
                 tok_embeddings,
                 norm,
@@ -338,7 +435,7 @@ impl LlamaModel {
                 memory_k,
                 memory_v,
                 tensors,
-                context,
+                _context: context,
             }
         };
 
@@ -359,14 +456,12 @@ impl LlamaModel {
             } else {
                 path.to_path_buf()
             };
-            let part_path_str = part_path.to_string_lossy();
 
-            println!(
-                "loading model part {}/{} from '{}'\n",
-                i + 1,
-                n_parts,
-                part_path_str,
-            );
+            load_progress_callback(LoadProgress::PartLoading {
+                file: &part_path,
+                current_part: (i + 1).try_into()?,
+                total_parts: n_parts.try_into()?,
+            });
 
             let mut part_reader = BufReader::new(File::open(&part_path)?);
 
@@ -400,7 +495,7 @@ impl LlamaModel {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        anyhow::bail!("Unknown tensor '{tensor_name}' in model_file '{part_path_str}'")
+                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
                     };
 
                 // split_type = 0: split by columns
@@ -439,57 +534,80 @@ impl LlamaModel {
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
                 } else {
                     if tensor.nelements() / n_parts != nelements {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
                 }
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
                 } else {
                     if split_type == 0 {
                         if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                            anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                            return Err(LoadError::TensorWrongSize {
+                                tensor_name,
+                                path: part_path,
+                            });
                         }
                     } else {
                         if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                            anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                            return Err(LoadError::TensorWrongSize {
+                                tensor_name,
+                                path: part_path,
+                            });
                         }
                     }
                 }
 
-                fn ggml_type_size(t: ggml_type) -> usize {
+                fn ggml_type_size(t: ggml::Type) -> usize {
                     unsafe { ggml_raw::ggml_type_size(t) }
                 }
 
-                fn ggml_blck_size(t: ggml_type) -> i32 {
+                fn ggml_blck_size(t: ggml::Type) -> i32 {
                     unsafe { ggml_raw::ggml_blck_size(t) }
                 }
 
                 let bpe = match ftype {
-                    0 => ggml_type_size(GGML_TYPE_F32),
-                    1 => ggml_type_size(GGML_TYPE_F16),
+                    0 => ggml_type_size(ggml::TYPE_F32),
+                    1 => ggml_type_size(ggml::TYPE_F16),
                     2 => {
                         assert_eq!(ne[0] % 64, 0);
-                        ggml_type_size(GGML_TYPE_Q4_0)
+                        ggml_type_size(ggml::TYPE_Q4_0)
                     }
                     3 => {
                         assert_eq!(ne[0] % 64, 0);
-                        ggml_type_size(GGML_TYPE_Q4_1)
+                        ggml_type_size(ggml::TYPE_Q4_1)
                     }
-                    _ => anyhow::bail!("Invalid ftype {ftype} in model file"),
+                    _ => {
+                        return Err(LoadError::InvalidFtype {
+                            ftype,
+                            path: part_path,
+                        })
+                    }
                 };
 
                 if n_dims == 1 || n_parts == 1 {
                     if (nelements as usize * bpe) / ggml_blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
 
                     let data = tensor.data();
@@ -509,7 +627,10 @@ impl LlamaModel {
                     if (nelements as usize * bpe) / ggml_blck_size(tensor.get_type()) as usize
                         != tensor.nbytes() / n_parts as usize
                     {
-                        anyhow::bail!("Tensor {tensor_name} has the wrong size in model file");
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
 
                     if split_type == 0 {
@@ -558,18 +679,18 @@ impl LlamaModel {
                 }
 
                 n_tensors += 1;
-                if n_tensors % 8 == 0 {
-                    print!(".");
-                    io::stdout().flush()?;
-                }
+                load_progress_callback(LoadProgress::PartTensorLoaded {
+                    file: &part_path,
+                    current_tensor: n_tensors.try_into()?,
+                    tensor_count: model.tensors.len(),
+                });
             }
 
-            println!(" done");
-            println!(
-                "model size = {:.2} MB / num tensors = {}\n",
-                total_size as f64 / 1024.0 / 1024.0,
-                n_tensors
-            );
+            load_progress_callback(LoadProgress::PartLoaded {
+                file: &part_path,
+                byte_size: total_size,
+                tensor_count: n_tensors.try_into()?,
+            });
         }
 
         Ok((model, vocab))
@@ -577,17 +698,18 @@ impl LlamaModel {
 
     pub fn inference_with_prompt(
         &self,
-        vocab: &GptVocab,
-        params: &InferenceParams,
+        vocab: &Vocabulary,
+        params: &InferenceParameters,
         prompt: &str,
         rng: &mut impl rand::Rng,
+        callback: impl Fn(OutputToken),
     ) {
         let embd_inp = self.tokenize(vocab, prompt, true);
         let mut logits = Vec::new();
 
         // determine the required inference memory per token:
         let mut mem_per_token = 0;
-        let _ = self.llama_eval(
+        let _ = self.evaluate(
             params.n_threads,
             0,
             &[0, 1, 2, 3],
@@ -603,14 +725,13 @@ impl LlamaModel {
             self.hparams.n_ctx as usize - embd_inp.len(),
         );
         let mut input_consumed = 0;
-        let mut input_noecho = false;
 
         let mut n_past = 0;
         let mut embd = Vec::new();
         while remaining_tokens > 0 {
             // predict
             if embd.len() > 0 {
-                self.llama_eval(
+                self.evaluate(
                     params.n_threads,
                     n_past,
                     &embd,
@@ -624,7 +745,7 @@ impl LlamaModel {
 
             if embd_inp.len() <= input_consumed {
                 // out of input, sample next token
-                let InferenceParams {
+                let InferenceParameters {
                     top_k,
                     top_p,
                     repeat_penalty,
@@ -651,9 +772,6 @@ impl LlamaModel {
                 // add it to the context
                 embd.push(id);
 
-                // echo this to console
-                input_noecho = false;
-
                 // decrement remaining sampling budget
                 remaining_tokens -= 1;
             } else {
@@ -670,15 +788,18 @@ impl LlamaModel {
             }
 
             // display text
-            if !input_noecho {
-                for &id in &embd {
-                    print!("{}", vocab.mapping[id as usize]);
-                    io::stdout().flush().expect("flush");
-                }
+            let mut eot = false;
+            for &id in &embd {
+                let output_token = if id == 2 {
+                    eot = true;
+                    OutputToken::EndOfText
+                } else {
+                    OutputToken::Token(&vocab.mapping[id as usize])
+                };
+                callback(output_token);
             }
 
-            if embd.last().copied() == Some(2) {
-                println!(" [end of text]");
+            if eot {
                 break;
             }
         }
@@ -686,7 +807,7 @@ impl LlamaModel {
 
     pub fn sample_top_p_top_k(
         &self,
-        vocab: &GptVocab,
+        vocab: &Vocabulary,
         logits: &[f32],
         last_n_tokens: &[TokenId],
         repeat_penalty: f64,
@@ -768,8 +889,7 @@ impl LlamaModel {
         logits_id[idx].1
     }
 
-    #[allow(non_snake_case)]
-    pub fn llama_eval(
+    pub fn evaluate(
         &self,
         n_threads: i32,
         n_past: i32,
@@ -779,7 +899,7 @@ impl LlamaModel {
     ) {
         let N = embd_inp.len();
 
-        let LlamaHyperParams {
+        let Hyperparameters {
             n_vocab,
             n_ctx,
             n_embd,
@@ -795,18 +915,18 @@ impl LlamaModel {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * *mem_per_token as f64 * N as f64) as usize;
         };
-        let ctx0 = GgmlContext::init(buf_size);
+        let ctx0 = ggml::Context::init(buf_size);
 
-        let mut gf = GgmlCGraph::new(n_threads);
+        let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(GGML_TYPE_I32, N as i32);
+        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, N as i32);
         unsafe { embd.write_data(bytemuck::cast_slice(embd_inp)) };
 
         let mut inpL = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
         for il in 0..n_layer as usize {
             let inpSA = inpL.share();
-            let mut cur: GgmlTensor;
+            let mut cur: ggml::Tensor;
 
             // norm
             {
@@ -847,7 +967,7 @@ impl LlamaModel {
                     &ctx0.op_rope(
                         &ctx0.op_cpy(
                             &Qcur,
-                            &ctx0.new_tensor_3d(GGML_TYPE_F32, n_embd / n_head, n_head, N as i32),
+                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, N as i32),
                         ),
                         n_past,
                         n_rot,
@@ -926,7 +1046,7 @@ impl LlamaModel {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 cur = ctx0.op_cpy(
                     &KQV_merged,
-                    &ctx0.new_tensor_2d(GGML_TYPE_F32, n_embd, N as i32),
+                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, N as i32),
                 );
 
                 // projection (no bias)
@@ -998,7 +1118,7 @@ impl LlamaModel {
         }
     }
 
-    pub fn tokenize(&self, vocab: &GptVocab, text: &str, bos: bool) -> Vec<TokenId> {
+    pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
         let mut res = Vec::new();
         if bos {
             res.push(1 as TokenId); // TODO: replace with vocab.bos

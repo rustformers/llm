@@ -14,6 +14,7 @@ fn main() {
 
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
+
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();

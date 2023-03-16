@@ -1,29 +1,30 @@
 use std::{
     ffi::c_void,
-    marker::PhantomData,
-    ptr::{addr_of, NonNull},
+    ptr::NonNull,
     sync::{Arc, Weak},
 };
 
-pub const GGML_TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_0;
-pub const GGML_TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_1;
-pub const GGML_TYPE_I8: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I8;
-pub const GGML_TYPE_I16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I16;
-pub const GGML_TYPE_I32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I32;
-pub const GGML_TYPE_F16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F16;
-pub const GGML_TYPE_F32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F32;
-pub const GGML_TYPE_COUNT: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_COUNT;
+pub use ggml_raw::ggml_type as Type;
+
+pub const TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_0;
+pub const TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_1;
+pub const TYPE_I8: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I8;
+pub const TYPE_I16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I16;
+pub const TYPE_I32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I32;
+pub const TYPE_F16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F16;
+pub const TYPE_F32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F32;
+pub const TYPE_COUNT: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_COUNT;
 
 /// Acts as a RAII-guard over a `ggml_raw::ggml_context`, allocating via
 /// ggml_init and dropping via ggml_free
-pub struct GgmlContext {
+pub struct Context {
     /// An `Arc` is used to model the relation between the context and the
     /// allocated tensors. Tensors are owned by the object, so a [`GgmlTensor`]
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
     ptr: Arc<NonNull<ggml_raw::ggml_context>>,
 }
-impl GgmlContext {
+impl Context {
     pub fn init(mem_size: usize) -> Self {
         let raw = unsafe {
             ggml_raw::ggml_init(ggml_raw::ggml_init_params {
@@ -38,116 +39,103 @@ impl GgmlContext {
         }
     }
 
-    fn new_tensor_raw(&self, raw: *mut ggml_raw::ggml_tensor) -> GgmlTensor {
-        GgmlTensor {
+    fn new_tensor_raw(&self, raw: *mut ggml_raw::ggml_tensor) -> Tensor {
+        Tensor {
             ptr: NonNull::new(raw).expect("Should not be null"),
             ctx: Arc::downgrade(&self.ptr),
         }
     }
 
-    pub fn new_tensor_1d(&self, typ: ggml_raw::ggml_type, ne0: i32) -> GgmlTensor {
+    pub fn new_tensor_1d(&self, typ: ggml_raw::ggml_type, ne0: i32) -> Tensor {
         let raw = unsafe { ggml_raw::ggml_new_tensor_1d(self.ptr.as_ptr(), typ, ne0) };
         self.new_tensor_raw(raw)
     }
 
-    pub fn new_tensor_2d(&self, typ: ggml_raw::ggml_type, ne0: i32, ne1: i32) -> GgmlTensor {
+    pub fn new_tensor_2d(&self, typ: ggml_raw::ggml_type, ne0: i32, ne1: i32) -> Tensor {
         let raw = unsafe { ggml_raw::ggml_new_tensor_2d(self.ptr.as_ptr(), typ, ne0, ne1) };
         self.new_tensor_raw(raw)
     }
 
-    pub fn new_tensor_3d(
-        &self,
-        typ: ggml_raw::ggml_type,
-        ne0: i32,
-        ne1: i32,
-        ne2: i32,
-    ) -> GgmlTensor {
+    pub fn new_tensor_3d(&self, typ: ggml_raw::ggml_type, ne0: i32, ne1: i32, ne2: i32) -> Tensor {
         let raw = unsafe { ggml_raw::ggml_new_tensor_3d(self.ptr.as_ptr(), typ, ne0, ne1, ne2) };
         self.new_tensor_raw(raw)
     }
 
-    pub fn new_f32(&self, x: f32) -> GgmlTensor {
+    pub fn new_f32(&self, x: f32) -> Tensor {
         let raw = unsafe { ggml_raw::ggml_new_f32(self.ptr.as_ptr(), x) };
         self.new_tensor_raw(raw)
     }
 
-    pub fn op_get_rows(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_get_rows(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_get_rows(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_norm(&self, a: &GgmlTensor) -> GgmlTensor {
+    pub fn op_norm(&self, a: &Tensor) -> Tensor {
         let tensor = unsafe { ggml_raw::ggml_norm(self.ptr.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_mul(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_mul(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_mul(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_repeat(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_repeat(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_mul_mat(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_mul_mat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_mul_mat(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_add(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_add(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_add(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_silu(&self, a: &GgmlTensor) -> GgmlTensor {
+    pub fn op_silu(&self, a: &Tensor) -> Tensor {
         let tensor = unsafe { ggml_raw::ggml_silu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_scale(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_scale(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_scale(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_diag_mask_inf(&self, a: &GgmlTensor, n_past: i32) -> GgmlTensor {
+    pub fn op_diag_mask_inf(&self, a: &Tensor, n_past: i32) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_diag_mask_inf(self.ptr.as_ptr(), a.ptr.as_ptr(), n_past) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_soft_max(&self, a: &GgmlTensor) -> GgmlTensor {
+    pub fn op_soft_max(&self, a: &Tensor) -> Tensor {
         let tensor = unsafe { ggml_raw::ggml_soft_max(self.ptr.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_view_1d(&self, a: &GgmlTensor, ne0: i32, offset: usize) -> GgmlTensor {
+    pub fn op_view_1d(&self, a: &Tensor, ne0: i32, offset: usize) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), ne0, offset) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_cpy(&self, a: &GgmlTensor, b: &GgmlTensor) -> GgmlTensor {
+    pub fn op_cpy(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_cpy(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_permute(
-        &self,
-        a: &GgmlTensor,
-        axis0: i32,
-        axis1: i32,
-        axis2: i32,
-        axis3: i32,
-    ) -> GgmlTensor {
+    pub fn op_permute(&self, a: &Tensor, axis0: i32, axis1: i32, axis2: i32, axis3: i32) -> Tensor {
         let tensor = unsafe {
             ggml_raw::ggml_permute(
                 self.ptr.as_ptr(),
@@ -160,19 +148,19 @@ impl GgmlContext {
         };
         self.new_tensor_raw(tensor)
     }
-    pub fn op_reshape_3d(&self, a: &GgmlTensor, ne0: i32, ne1: i32, ne2: i32) -> GgmlTensor {
+    pub fn op_reshape_3d(&self, a: &Tensor, ne0: i32, ne1: i32, ne2: i32) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_reshape_3d(self.ptr.as_ptr(), a.ptr.as_ptr(), ne0, ne1, ne2) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn op_rope(&self, a: &GgmlTensor, npast: i32, ndims: i32, mode: i32) -> GgmlTensor {
+    pub fn op_rope(&self, a: &Tensor, npast: i32, ndims: i32, mode: i32) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_rope(self.ptr.as_ptr(), a.ptr.as_ptr(), npast, ndims, mode) };
         self.new_tensor_raw(tensor)
     }
 
-    pub fn graph_compute(&self, graph: &mut GgmlCGraph) {
+    pub fn graph_compute(&self, graph: &mut ComputationGraph) {
         unsafe {
             ggml_raw::ggml_graph_compute(self.ptr.as_ptr(), &mut graph.inner);
         }
@@ -183,7 +171,7 @@ impl GgmlContext {
     }
 }
 
-impl Drop for GgmlContext {
+impl Drop for Context {
     fn drop(&mut self) {
         // SAFETY: The only non-weak copy of ptr is no longer accessible after
         // this drop call.
@@ -195,15 +183,15 @@ impl Drop for GgmlContext {
 
 /// Tensors are owned by the context. A tensor is alive as long as the
 /// underlying context it was created with is alive.
-pub struct GgmlTensor {
+pub struct Tensor {
     ptr: NonNull<ggml_raw::ggml_tensor>,
     ctx: Weak<NonNull<ggml_raw::ggml_context>>,
 }
 
-impl GgmlTensor {
+impl Tensor {
     /// Creates a shared copy of this tensor pointer.
     pub fn share(&self) -> Self {
-        GgmlTensor {
+        Tensor {
             ptr: self.ptr,
             ctx: Weak::clone(&self.ctx),
         }
@@ -264,11 +252,11 @@ impl GgmlTensor {
     }
 }
 
-pub struct GgmlCGraph {
+pub struct ComputationGraph {
     inner: ggml_raw::ggml_cgraph,
 }
 
-impl GgmlCGraph {
+impl ComputationGraph {
     pub fn new(n_threads: i32) -> Self {
         Self {
             inner: ggml_raw::ggml_cgraph {
@@ -280,7 +268,7 @@ impl GgmlCGraph {
         }
     }
 
-    pub fn build_forward_expand(&mut self, tensor: &GgmlTensor) {
+    pub fn build_forward_expand(&mut self, tensor: &Tensor) {
         unsafe { ggml_raw::ggml_build_forward_expand(&mut self.inner, tensor.ptr.as_ptr()) }
     }
 }
