@@ -99,7 +99,7 @@ fn llama_n_parts(size: i32) -> i32 {
     match size {
         4096 => 1,
         5120 => 2,
-        6656 => 3,
+        6656 => 4,
         8192 => 8,
         _ => unreachable!("Invalid size for N_PARTS"),
     }
