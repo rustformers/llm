@@ -68,11 +68,11 @@ fn main() {
                 ),
                 LoadProgress::PartTensorLoaded {
                     current_tensor,
-                    total_tensors,
+                    tensor_count,
                     ..
                 } => {
                     if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{total_tensors}");
+                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
                     }
                 }
                 LoadProgress::PartLoaded {

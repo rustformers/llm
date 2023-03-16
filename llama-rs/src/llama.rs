@@ -147,7 +147,7 @@ pub enum LoadProgress<'a> {
     PartTensorLoaded {
         file: &'a Path,
         current_tensor: usize,
-        total_tensors: usize,
+        tensor_count: usize,
     },
     PartLoaded {
         file: &'a Path,
@@ -683,7 +683,7 @@ impl LlamaModel {
                 load_progress_callback(LoadProgress::PartTensorLoaded {
                     file: &part_path,
                     current_tensor: n_tensors.try_into()?,
-                    total_tensors: model.tensors.len(),
+                    tensor_count: model.tensors.len(),
                 });
             }
 
