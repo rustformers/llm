@@ -15,34 +15,33 @@ fn main() {
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let is_release = env::var("PROFILE").unwrap() == "release";
+    let compiler = build.get_compiler();
 
     match target_arch.as_str() {
         "x86" | "x86_64" => {
             let features = x86::Features::get();
 
-            match target_os.as_str() {
-                "freebsd" | "haiku" | "ios" | "macos" | "linux" => {
-                    build.flag("-pthread");
+            if compiler.is_like_clang() || compiler.is_like_gnu() {
+                build.flag("-pthread");
 
-                    if features.avx {
-                        build.flag("-mavx");
-                    }
-                    if features.avx2 {
-                        build.flag("-mavx2");
-                    }
-                    if features.fma {
-                        build.flag("-mfma");
-                    }
-                    if features.f16c {
-                        build.flag("-mf16c");
-                    }
-                    if features.sse3 {
-                        build.flag("-msse3");
-                    }
+                if features.avx {
+                    build.flag("-mavx");
                 }
-                "windows" => match (features.avx2, features.avx) {
+                if features.avx2 {
+                    build.flag("-mavx2");
+                }
+                if features.fma {
+                    build.flag("-mfma");
+                }
+                if features.f16c {
+                    build.flag("-mf16c");
+                }
+                if features.sse3 {
+                    build.flag("-msse3");
+                }
+            } else if compiler.is_like_msvc() {
+                match (features.avx2, features.avx) {
                     (true, _) => {
                         build.flag("/arch:AVX2");
                     }
@@ -50,8 +49,7 @@ fn main() {
                         build.flag("/arch:AVX");
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
         }
         _ => {}
