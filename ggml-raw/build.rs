@@ -63,11 +63,12 @@ fn get_supported_target_features() -> std::collections::HashSet<String> {
     env::var("CARGO_CFG_TARGET_FEATURE")
         .unwrap()
         .split(',')
-        .map(|s| s.to_string())
+        .map(ToString::to_string)
         .collect()
 }
 
 mod x86 {
+    #[allow(clippy::struct_excessive_bools)]
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Features {
         pub fma: bool,
