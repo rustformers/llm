@@ -27,7 +27,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
   fmt:
-    name: Formatting
+    name: Clippy and formatting
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
