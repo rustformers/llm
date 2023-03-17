@@ -231,10 +231,12 @@ pub enum Error {
     TensorWrongSize { tensor_name: String, path: PathBuf },
     #[error("invalid ftype {ftype} in {path:?}")]
     InvalidFtype { ftype: i32, path: PathBuf },
-    #[error("could not write model memory")]
-    FailedToWriteMemory(Box<dyn std::error::Error>),
-    #[error("could not read model memory")]
-    FailedToReadMemory(Box<dyn std::error::Error>),
+    #[error("I/O error while writing model memory")]
+    SnapshotIO(std::io::Error),
+    #[error("error during snapshot serialization")]
+    SnapshotSerialization(bincode::Error),
+    #[error("snapshot error: {0}")]
+    Snapshot(Box<Error>),
     #[error("could not write memory due to size mismatch (self={self_size}, input={input_size})")]
     MemorySizeMismatch { self_size: usize, input_size: usize },
 }
@@ -1218,7 +1220,7 @@ impl Model {
 impl<'a> InferenceSnapshotRef<'a> {
     pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), Error> {
         bincode::serialize_into(writer, &self)
-            .map_err(|err| Error::FailedToReadMemory(Box::new(err)))
+            .map_err(|err| Error::Snapshot(Box::new(Error::SnapshotSerialization(err))))
     }
 
     pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), Error> {
@@ -1227,7 +1229,7 @@ impl<'a> InferenceSnapshotRef<'a> {
 
         let path = path.as_ref();
         let mut writer = BufWriter::new(
-            File::create(path).map_err(|err| Error::FailedToWriteMemory(Box::new(err)))?,
+            File::create(path).map_err(|err| Error::Snapshot(Box::new(Error::SnapshotIO(err))))?,
         );
 
         self.write(&mut writer)
@@ -1236,7 +1238,8 @@ impl<'a> InferenceSnapshotRef<'a> {
 
 impl InferenceSnapshot {
     pub fn read(reader: &mut impl std::io::Read) -> Result<Self, Error> {
-        bincode::deserialize_from(reader).map_err(|err| Error::FailedToReadMemory(Box::new(err)))
+        bincode::deserialize_from(reader)
+            .map_err(|err| Error::Snapshot(Box::new(Error::SnapshotSerialization(err))))
     }
 
     pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, Error> {
@@ -1245,7 +1248,7 @@ impl InferenceSnapshot {
 
         let path = path.as_ref();
         let mut reader = BufReader::new(
-            File::open(path).map_err(|err| Error::FailedToReadMemory(Box::new(err)))?,
+            File::open(path).map_err(|err| Error::Snapshot(Box::new(Error::SnapshotIO(err))))?,
         );
 
         Self::read(&mut reader)
