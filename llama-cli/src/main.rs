@@ -1,17 +1,20 @@
 use std::io::Write;
 
 use cli_args::CLI_ARGS;
-use llama_rs::{InferenceParams, ModelMemory};
+use llama_rs::{InferenceParameters, ModelMemory};
 use rand::thread_rng;
 
 mod cli_args;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
 
     let args = &*CLI_ARGS;
 
-    let inference_params = InferenceParams {
+    let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
         n_predict: args.num_predict,
         n_batch: args.batch_size,
@@ -26,24 +29,79 @@ fn main() {
         match std::fs::read_to_string(path) {
             Ok(prompt) => prompt,
             Err(err) => {
-                eprintln!("Could not read prompt file at {path}. Error {err}");
+                log::error!("Could not read prompt file at {path}. Error {err}");
                 std::process::exit(1);
             }
         }
     } else if let Some(prompt) = &args.prompt {
         prompt.clone()
     } else {
-        eprintln!("No prompt or prompt file was provided. See --help");
+        log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
     };
 
-    let (mut model, vocab) = llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32)
+    let (mut model, vocab) =
+        llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
+            use llama_rs::LoadProgress;
+            match progress {
+                LoadProgress::HyperParamsLoaded(hparams) => {
+                    log::debug!("Loaded HyperParams {hparams:#?}")
+                }
+                LoadProgress::BadToken { index } => {
+                    log::info!("Warning: Bad token in vocab at index {index}")
+                }
+                LoadProgress::ContextSize { bytes } => log::info!(
+                    "ggml ctx size = {:.2} MB\n",
+                    bytes as f64 / (1024.0 * 1024.0)
+                ),
+                LoadProgress::MemorySize { bytes, n_mem } => log::info!(
+                    "Memory size: {} MB {}",
+                    bytes as f32 / 1024.0 / 1024.0,
+                    n_mem
+                ),
+                LoadProgress::PartLoading {
+                    file,
+                    current_part,
+                    total_parts,
+                } => log::info!(
+                    "Loading model part {}/{} from '{}'\n",
+                    current_part,
+                    total_parts,
+                    file.to_string_lossy(),
+                ),
+                LoadProgress::PartTensorLoaded {
+                    current_tensor,
+                    tensor_count,
+                    ..
+                } => {
+                    if current_tensor % 8 == 0 {
+                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                    }
+                }
+                LoadProgress::PartLoaded {
+                    file,
+                    byte_size,
+                    tensor_count,
+                } => {
+                    log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    log::info!(
+                        "Model size = {:.2} MB / num tensors = {}",
+                        byte_size as f64 / 1024.0 / 1024.0,
+                        tensor_count
+                    );
+                }
+            }
+        })
         .expect("Could not load model");
 
+    log::info!("Model fully loaded!");
+
     if let Some(restore_path) = &args.restore_prompt {
-        let memory = ModelMemory::load_compressed(restore_path);
+        let memory = ModelMemory::load_from_disk(restore_path);
         match memory.and_then(|memory| model.set_memory(memory)) {
-            Ok(_) => (),
+            Ok(_) => {
+                log::info!("Restored cached memory from {restore_path}");
+            }
             Err(err) => {
                 eprintln!("Could not restore prompt. Error: {err}");
                 std::process::exit(1);
@@ -64,20 +122,21 @@ fn main() {
             std::io::stdout().flush().unwrap();
         },
     );
+    println!();
 
     if let Some(cache_path) = &args.cache_prompt {
         // SAFETY: no other model functions used inside the block
         unsafe {
             let memory = model.get_memory();
-            match memory.write_compressed(cache_path) {
-                Ok(_) => (),
+            match memory.write_to_disk(cache_path) {
+                Ok(_) => {
+                    log::info!("Successfully written prompt cache to {cache_path}");
+                },
                 Err(err) => {
-                    eprintln!("Could not write prompt cache: {err}");
+                    log::error!("Could not write prompt cache at {cache_path}: {err}");
                     std::process::exit(1);
                 }
             }
         }
     }
-
-    println!();
 }
