@@ -58,6 +58,9 @@ pub struct Model {
 
     // Must be kept alive for the model
     _context: ggml::Context,
+
+    /// How many tokens have been fed into the model's working memory so far.
+    n_past: usize,
 }
 
 pub struct InferenceParameters {
@@ -93,6 +96,33 @@ type Token = String;
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding string
     mapping: Vec<Token>,
+}
+
+/// A slice to llama's internal memory tensors. Storing this can be used to
+/// cache prompts.
+///
+/// NOTE: This struct can be serialized and then deserialized as an owned
+/// `LlamaMemory`.
+#[derive(serde::Serialize)]
+pub struct ModelMemoryRef<'model> {
+    /// How many tokens have been stored in the memory so far.
+    pub npast: usize,
+    /// The contents of the 'key' memory tensor
+    pub memory_k: &'model [u8],
+    /// The contents of the 'value' memory tensor
+    pub memory_v: &'model [u8],
+}
+
+/// An owned vector, containing the copy of llama memory's contents. Useful to
+/// restore a cached prompt.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ModelMemory {
+    /// How many tokens have been stored in the memory so far.
+    pub npast: usize,
+    /// The contents of the 'key' memory tensor
+    pub memory_k: Vec<u8>,
+    /// The contents of the 'value' memory tensor
+    pub memory_v: Vec<u8>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -155,8 +185,9 @@ pub enum LoadProgress<'a> {
     },
 }
 
+
 #[derive(Error, Debug)]
-pub enum LoadError {
+pub enum LlamaError {
     #[error("could not open file {path:?}")]
     OpenFileFailed {
         source: std::io::Error,
@@ -185,6 +216,12 @@ pub enum LoadError {
     TensorWrongSize { tensor_name: String, path: PathBuf },
     #[error("invalid ftype {ftype} in {path:?}")]
     InvalidFtype { ftype: i32, path: PathBuf },
+    #[error("could not write model memory")]
+    FailedToWriteMemory(Box<dyn std::error::Error>),
+    #[error("could not read model memory")]
+    FailedToReadMemory(Box<dyn std::error::Error>),
+    #[error("could not write memory due to size mismatch (self={self_size}, input={input_size})")]
+    MemorySizeMismatch { self_size: usize, input_size: usize },
 }
 
 impl Model {
@@ -192,24 +229,24 @@ impl Model {
         path: impl AsRef<Path>,
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(Model, Vocabulary), LoadError> {
+    ) -> Result<(Model, Vocabulary), LlamaError> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
 
         let mut reader =
-            BufReader::new(File::open(path).map_err(|e| LoadError::OpenFileFailed {
+            BufReader::new(File::open(path).map_err(|e| LlamaError::OpenFileFailed {
                 source: e,
                 path: path.to_owned(),
             })?);
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LlamaError> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
+                .map_err(|e| LlamaError::ReadExactFailed {
                     source: e,
                     bytes: bytes.len(),
                 })?;
@@ -217,11 +254,11 @@ impl Model {
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LlamaError> {
             let mut buf = vec![0; len];
             reader
                 .read_exact(&mut buf)
-                .map_err(|e| LoadError::ReadExactFailed {
+                .map_err(|e| LlamaError::ReadExactFailed {
                     source: e,
                     bytes: buf.len(),
                 })?;
@@ -233,7 +270,7 @@ impl Model {
         {
             let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
-                return Err(LoadError::InvalidMagic {
+                return Err(LlamaError::InvalidMagic {
                     path: path.to_owned(),
                 });
             }
@@ -286,7 +323,7 @@ impl Model {
             1 => ggml::TYPE_F16,
             2 => ggml::TYPE_Q4_0,
             3 => ggml::TYPE_Q4_1,
-            invalid => return Err(LoadError::HyperparametersF16Invalid { value: invalid }),
+            invalid => return Err(LlamaError::HyperparametersF16Invalid { value: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -432,6 +469,7 @@ impl Model {
                 memory_v,
                 tensors,
                 _context: context,
+                n_past: 0,
             }
         };
 
@@ -491,7 +529,7 @@ impl Model {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
+                        return Err(LlamaError::UnknownTensor { tensor_name, path: part_path });
                     };
 
                 // split_type = 0: split by columns
@@ -530,13 +568,13 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
-                        return Err(LoadError::TensorWrongSize {
+                        return Err(LlamaError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if tensor.nelements() / n_parts != nelements {
-                    return Err(LoadError::TensorWrongSize {
+                    return Err(LlamaError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
                     });
@@ -544,20 +582,20 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(LoadError::TensorWrongSize {
+                        return Err(LlamaError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if split_type == 0 {
                     if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(LoadError::TensorWrongSize {
+                        return Err(LlamaError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                    return Err(LoadError::TensorWrongSize {
+                    return Err(LlamaError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
                     });
@@ -575,7 +613,7 @@ impl Model {
                         ggml::type_size(ggml::TYPE_Q4_1)
                     }
                     _ => {
-                        return Err(LoadError::InvalidFtype {
+                        return Err(LlamaError::InvalidFtype {
                             ftype,
                             path: part_path,
                         })
@@ -586,7 +624,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
-                        return Err(LoadError::TensorWrongSize {
+                        return Err(LlamaError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -609,7 +647,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes() / n_parts as usize
                     {
-                        return Err(LoadError::TensorWrongSize {
+                        return Err(LlamaError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -679,11 +717,12 @@ impl Model {
     }
 
     pub fn inference_with_prompt(
-        &self,
+        &mut self,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
         rng: &mut impl rand::Rng,
+        stop_after_prompt: bool,
         callback: impl Fn(OutputToken),
     ) {
         let embd_inp = self.tokenize(vocab, prompt, true);
@@ -708,25 +747,29 @@ impl Model {
         );
         let mut input_consumed = 0;
 
-        let mut n_past = 0;
         let mut embd = Vec::new();
         while remaining_tokens > 0 {
             // predict
             if !embd.is_empty() {
                 self.evaluate(
                     params.n_threads,
-                    n_past,
+                    self.n_past as i32,
                     &embd,
                     &mut logits,
                     &mut mem_per_token,
                 );
             }
 
-            n_past += embd.len() as i32;
+            self.n_past += embd.len();
             embd.clear();
 
             if embd_inp.len() <= input_consumed {
                 // out of input, sample next token
+
+                if stop_after_prompt {
+                    break;
+                }
+
                 let InferenceParameters {
                     top_k,
                     top_p,
@@ -873,7 +916,7 @@ impl Model {
     }
 
     pub fn evaluate(
-        &self,
+        &mut self,
         n_threads: i32,
         n_past: i32,
         embd_inp: &[TokenId],
@@ -1141,5 +1184,90 @@ impl Model {
         }
 
         res
+    }
+
+    /// Obtains raw access to the underlying tensor memory. This memory can be
+    /// used to cache prompts.
+    ///
+    /// # Safety
+    ///
+    /// This function provides raw access to the underlying memory owned by the
+    /// ggml context. While the provided `LlamaModelMemory` object is alive, no
+    /// other methods for this model object should be called.
+    pub unsafe fn get_memory(&mut self) -> ModelMemoryRef<'_> {
+        use core::slice;
+        let memory_k = unsafe {
+            slice::from_raw_parts(self.memory_k.data() as *mut u8, self.memory_k.nbytes())
+        };
+        let memory_v = unsafe {
+            slice::from_raw_parts(self.memory_v.data() as *mut u8, self.memory_v.nbytes())
+        };
+
+        ModelMemoryRef {
+            memory_k,
+            memory_v,
+            npast: self.n_past,
+        }
+    }
+
+    /// Clears the model's memory, so inference can be restarted without having
+    /// to load the weights again.
+    pub fn clear_memory(&mut self) {
+        self.memory_k.zero_data();
+        self.memory_v.zero_data();
+        self.n_past = 0;
+    }
+
+    pub fn set_memory(&mut self, memory: ModelMemory) -> Result<(), LlamaError> {
+        if self.memory_k.nbytes() != memory.memory_k.len()
+            || self.memory_v.nbytes() != memory.memory_v.len()
+        {
+            return Err(LlamaError::MemorySizeMismatch {
+                self_size: self.memory_k.nbytes() + self.memory_v.nbytes(),
+                input_size: memory.memory_k.len() + memory.memory_v.len(),
+            });
+        }
+
+        // SAFETY: We have exclusive access to Self, which means no one else
+        // should be touching the context's memory. We can write to it because
+        // we already checked the size.
+        unsafe {
+            self.memory_k.write_data(&memory.memory_k);
+            self.memory_v.write_data(&memory.memory_v);
+        }
+
+        self.n_past = memory.npast;
+
+        Ok(())
+    }
+}
+
+impl<'a> ModelMemoryRef<'a> {
+    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), LlamaError> {
+        use std::fs::File;
+        use std::io::BufWriter;
+
+        let path = path.as_ref();
+        let writer = BufWriter::new(
+            File::create(path).map_err(|err| LlamaError::FailedToWriteMemory(Box::new(err)))?,
+        );
+
+        bincode::serialize_into(writer, &self)
+            .map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))
+    }
+}
+
+impl ModelMemory {
+    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, LlamaError> {
+        use std::fs::File;
+        use std::io::BufReader;
+
+        let path = path.as_ref();
+        let reader = BufReader::new(
+            File::open(path).map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))?,
+        );
+
+        bincode::deserialize_from(reader)
+            .map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))
     }
 }
