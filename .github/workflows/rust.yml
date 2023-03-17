@@ -22,7 +22,13 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@rustfmt
+    - run: cargo fmt --all -- --check
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
