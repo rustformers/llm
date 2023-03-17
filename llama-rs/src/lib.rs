@@ -110,7 +110,7 @@ pub struct Vocabulary {
 }
 
 #[derive(serde::Serialize)]
-/// A serializable snapshot of the inference process. Can be saved to disk
+/// A serializable snapshot of the inference process. Can be saved to disk.
 /// Useful for prompt caching.
 pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
@@ -202,7 +202,7 @@ pub enum LoadProgress<'a> {
 }
 
 #[derive(Error, Debug)]
-pub enum LlamaError {
+pub enum Error {
     #[error("could not open file {path:?}")]
     OpenFileFailed {
         source: std::io::Error,
@@ -245,24 +245,24 @@ impl Model {
         n_ctx: i32,
         last_n_size: usize,
         load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(Model, Vocabulary), LlamaError> {
+    ) -> Result<(Model, Vocabulary), Error> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
 
         let mut reader =
-            BufReader::new(File::open(path).map_err(|e| LlamaError::OpenFileFailed {
+            BufReader::new(File::open(path).map_err(|e| Error::OpenFileFailed {
                 source: e,
                 path: path.to_owned(),
             })?);
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LlamaError> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, Error> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
-                .map_err(|e| LlamaError::ReadExactFailed {
+                .map_err(|e| Error::ReadExactFailed {
                     source: e,
                     bytes: bytes.len(),
                 })?;
@@ -270,11 +270,11 @@ impl Model {
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LlamaError> {
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, Error> {
             let mut buf = vec![0; len];
             reader
                 .read_exact(&mut buf)
-                .map_err(|e| LlamaError::ReadExactFailed {
+                .map_err(|e| Error::ReadExactFailed {
                     source: e,
                     bytes: buf.len(),
                 })?;
@@ -286,7 +286,7 @@ impl Model {
         {
             let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
-                return Err(LlamaError::InvalidMagic {
+                return Err(Error::InvalidMagic {
                     path: path.to_owned(),
                 });
             }
@@ -339,7 +339,7 @@ impl Model {
             1 => ggml::TYPE_F16,
             2 => ggml::TYPE_Q4_0,
             3 => ggml::TYPE_Q4_1,
-            invalid => return Err(LlamaError::HyperparametersF16Invalid { value: invalid }),
+            invalid => return Err(Error::HyperparametersF16Invalid { value: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -548,7 +548,7 @@ impl Model {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        return Err(LlamaError::UnknownTensor { tensor_name, path: part_path });
+                        return Err(Error::UnknownTensor { tensor_name, path: part_path });
                     };
 
                 // split_type = 0: split by columns
@@ -587,13 +587,13 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(Error::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if tensor.nelements() / n_parts != nelements {
-                    return Err(LlamaError::TensorWrongSize {
+                    return Err(Error::TensorWrongSize {
                         tensor_name,
                         path: part_path,
                     });
@@ -601,20 +601,20 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(Error::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if split_type == 0 {
                     if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(Error::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                    return Err(LlamaError::TensorWrongSize {
+                    return Err(Error::TensorWrongSize {
                         tensor_name,
                         path: part_path,
                     });
@@ -632,7 +632,7 @@ impl Model {
                         ggml::type_size(ggml::TYPE_Q4_1)
                     }
                     _ => {
-                        return Err(LlamaError::InvalidFtype {
+                        return Err(Error::InvalidFtype {
                             ftype,
                             path: part_path,
                         })
@@ -643,7 +643,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(Error::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -666,7 +666,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes() / n_parts as usize
                     {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(Error::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -1155,8 +1155,8 @@ impl Model {
     /// # Safety
     ///
     /// This function provides raw access to the underlying memory owned by the
-    /// ggml context. While the provided `LlamaModelMemory` object is alive, no
-    /// other methods for this model object should be called.
+    /// ggml context. While the provided `InferenceSnapshotRef` object is alive,
+    /// no other methods for this model object should be called.
     pub unsafe fn get_snapshot(&mut self) -> InferenceSnapshotRef<'_> {
         use core::slice;
         let memory_k = unsafe {
@@ -1184,12 +1184,12 @@ impl Model {
         self.last_n_tokens = VecDeque::from(vec![0; self.last_n_tokens.len()]);
     }
 
-    /// Sets the state of the model, from a previously obtained InfrenceSnapshot
-    pub fn set_snapshot(&mut self, snapshot: InferenceSnapshot) -> Result<(), LlamaError> {
+    /// Sets the state of the model, from a previously obtained InferenceSnapshot
+    pub fn set_snapshot(&mut self, snapshot: InferenceSnapshot) -> Result<(), Error> {
         if self.memory_k.nbytes() != snapshot.memory_k.len()
             || self.memory_v.nbytes() != snapshot.memory_v.len()
         {
-            return Err(LlamaError::MemorySizeMismatch {
+            return Err(Error::MemorySizeMismatch {
                 self_size: self.memory_k.nbytes() + self.memory_v.nbytes(),
                 input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
             });
@@ -1212,31 +1212,31 @@ impl Model {
 }
 
 impl<'a> InferenceSnapshotRef<'a> {
-    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), LlamaError> {
+    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         use std::fs::File;
         use std::io::BufWriter;
 
         let path = path.as_ref();
         let writer = BufWriter::new(
-            File::create(path).map_err(|err| LlamaError::FailedToWriteMemory(Box::new(err)))?,
+            File::create(path).map_err(|err| Error::FailedToWriteMemory(Box::new(err)))?,
         );
 
         bincode::serialize_into(writer, &self)
-            .map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))
+            .map_err(|err| Error::FailedToReadMemory(Box::new(err)))
     }
 }
 
 impl InferenceSnapshot {
-    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, LlamaError> {
+    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, Error> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
         let reader = BufReader::new(
-            File::open(path).map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))?,
+            File::open(path).map_err(|err| Error::FailedToReadMemory(Box::new(err)))?,
         );
 
         bincode::deserialize_from(reader)
-            .map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))
+            .map_err(|err| Error::FailedToReadMemory(Box::new(err)))
     }
 }
