@@ -3,6 +3,7 @@ use std::io::Write;
 use cli_args::CLI_ARGS;
 use llama_rs::InferenceParameters;
 use rand::thread_rng;
+use rustyline::DefaultEditor;
 
 mod cli_args;
 
@@ -25,6 +26,8 @@ fn main() {
         temp: args.temp,
     };
 
+    let repl_mode = args.repl.unwrap_or(false);
+
     let prompt = if let Some(path) = &args.prompt_file {
         match std::fs::read_to_string(path) {
             Ok(prompt) => prompt,
@@ -35,6 +38,9 @@ fn main() {
         }
     } else if let Some(prompt) = &args.prompt {
         prompt.clone()
+    } else if repl_mode {
+        // Hack just to make things work for now, REPL ignores prompt CLI args
+        "".to_string()
     } else {
         eprintln!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
@@ -97,9 +103,46 @@ fn main() {
     log::info!("Model fully loaded!");
 
     let mut rng = thread_rng();
-    model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
-        print!("{t}");
-        std::io::stdout().flush().unwrap();
-    });
-    println!();
+
+    if repl_mode {
+        let mut rl = DefaultEditor::new().unwrap();
+        loop {
+            let readline = rl.readline(">> ");
+            match readline {
+                Ok(line) => {
+                    let prompt = format!("
+prompt: Below is an instruction that describes a task. Write a response that appropriately completes the request.
+
+### Instruction:
+
+{}
+
+### Response:
+", line);
+
+                    model.inference_with_prompt(
+                        &vocab,
+                        &inference_params,
+                        &prompt,
+                        &mut rng,
+                        |t| {
+                            print!("{t}");
+                            std::io::stdout().flush().unwrap();
+                        },
+                    );
+                    println!();
+                }
+                Err(err) => {
+                    println!("Error: {:?}", err);
+                    break;
+                }
+            }
+        }
+    } else {
+        model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
+        });
+        println!();
+    }
 }

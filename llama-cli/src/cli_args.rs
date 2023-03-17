@@ -16,6 +16,10 @@ pub struct Args {
     #[arg(long, short = 'f', default_value = None)]
     pub prompt_file: Option<String>,
 
+    /// Run in REPL mode.
+    #[arg(long, short = 'R', default_value = None)]
+    pub repl: Option<bool>,
+
     /// Sets the number of threads to use
     #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]
     pub num_threads: usize,
