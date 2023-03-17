@@ -251,11 +251,10 @@ impl Model {
 
         let path = path.as_ref();
 
-        let mut reader =
-            BufReader::new(File::open(path).map_err(|e| Error::OpenFileFailed {
-                source: e,
-                path: path.to_owned(),
-            })?);
+        let mut reader = BufReader::new(File::open(path).map_err(|e| Error::OpenFileFailed {
+            source: e,
+            path: path.to_owned(),
+        })?);
 
         /// Helper function. Reads an int from the buffer and returns it.
         fn read_i32(reader: &mut impl BufRead) -> Result<i32, Error> {
@@ -1217,31 +1216,38 @@ impl Model {
 }
 
 impl<'a> InferenceSnapshotRef<'a> {
+    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), Error> {
+        bincode::serialize_into(writer, &self)
+            .map_err(|err| Error::FailedToReadMemory(Box::new(err)))
+    }
+
     pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         use std::fs::File;
         use std::io::BufWriter;
 
         let path = path.as_ref();
-        let writer = BufWriter::new(
+        let mut writer = BufWriter::new(
             File::create(path).map_err(|err| Error::FailedToWriteMemory(Box::new(err)))?,
         );
 
-        bincode::serialize_into(writer, &self)
-            .map_err(|err| Error::FailedToReadMemory(Box::new(err)))
+        self.write(&mut writer)
     }
 }
 
 impl InferenceSnapshot {
+    pub fn read(reader: &mut impl std::io::Read) -> Result<Self, Error> {
+        bincode::deserialize_from(reader).map_err(|err| Error::FailedToReadMemory(Box::new(err)))
+    }
+
     pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, Error> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
-        let reader = BufReader::new(
+        let mut reader = BufReader::new(
             File::open(path).map_err(|err| Error::FailedToReadMemory(Box::new(err)))?,
         );
 
-        bincode::deserialize_from(reader)
-            .map_err(|err| Error::FailedToReadMemory(Box::new(err)))
+        Self::read(&mut reader)
     }
 }
