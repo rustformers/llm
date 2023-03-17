@@ -1,7 +1,7 @@
 mod ggml;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt::Display,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -61,14 +61,27 @@ pub struct Model {
 
     /// How many tokens have been fed into the model's working memory so far.
     n_past: usize,
+
+    /// How much memory is required per token for the temporary context used
+    /// during inference.
+    mem_per_token: usize,
+
+    /// Stores the last N tokens (N is given at construction) to penalize
+    /// repetitions during sampling.
+    last_n_tokens: VecDeque<TokenId>,
 }
+
+/// The outputs of the network. A vector containing the raw score for each of
+/// the tokens in the output.
+#[derive(Default)]
+pub struct Logits(pub Vec<f32>);
 
 pub struct InferenceParameters {
     pub n_threads: i32,
     pub n_predict: usize,
     pub n_batch: usize,
     pub repeat_last_n: usize,
-    pub top_k: i32,
+    pub top_k: usize,
     pub top_p: f32,
     pub repeat_penalty: f32,
     pub temp: f32,
@@ -185,7 +198,6 @@ pub enum LoadProgress<'a> {
     },
 }
 
-
 #[derive(Error, Debug)]
 pub enum LlamaError {
     #[error("could not open file {path:?}")]
@@ -228,6 +240,7 @@ impl Model {
     pub fn load(
         path: impl AsRef<Path>,
         n_ctx: i32,
+        last_n_size: usize,
         load_progress_callback: impl Fn(LoadProgress),
     ) -> Result<(Model, Vocabulary), LlamaError> {
         use std::fs::File;
@@ -470,6 +483,8 @@ impl Model {
                 tensors,
                 _context: context,
                 n_past: 0,
+                mem_per_token: 0,
+                last_n_tokens: VecDeque::from(vec![0; last_n_size]),
             }
         };
 
@@ -716,175 +731,124 @@ impl Model {
         Ok((model, vocab))
     }
 
+    pub fn feed_prompt(
+        &mut self,
+        params: &InferenceParameters,
+        vocab: &Vocabulary,
+        prompt: &str,
+        callback: impl Fn(OutputToken),
+        logits: &mut Logits,
+    ) {
+        let beginning_of_sentence = self.n_past == 0;
+        let prompt_tokens = self.tokenize(vocab, prompt, beginning_of_sentence);
+
+        for batch in prompt_tokens.chunks(8) {
+            self.evaluate(params.n_threads, batch, logits);
+            for &tk in batch {
+                // NOTE: No string ever tokenizes to the end of sentence. So we
+                // can just return the id here.
+                callback(OutputToken::Token(&vocab.mapping[tk as usize]));
+
+                // Update the last_n_tokens list
+                self.last_n_tokens.push_front(tk);
+            }
+        }
+    }
+
+    pub fn infer_next_token<'v>(
+        &mut self,
+        params: &InferenceParameters,
+        vocab: &'v Vocabulary,
+        rng: &mut impl rand::Rng,
+        logits: &mut Logits,
+    ) -> OutputToken<'v> {
+        // First, sample with the given logits;
+        let next_token = self.sample_top_p_top_k(vocab, &logits.0, params, rng);
+
+        // Update the last_n_tokens list
+        self.last_n_tokens.push_front(next_token);
+
+        // Then, evaluate the network again and compute the new logits
+        self.evaluate(params.n_threads, &[next_token], logits);
+
+        // Return the next token
+        if next_token == 2 {
+            OutputToken::EndOfText
+        } else {
+            OutputToken::Token(&vocab.mapping[next_token as usize])
+        }
+    }
+
     pub fn inference_with_prompt(
         &mut self,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
         rng: &mut impl rand::Rng,
-        stop_after_prompt: bool,
         callback: impl Fn(OutputToken),
     ) {
-        let embd_inp = self.tokenize(vocab, prompt, true);
-        let mut logits = Vec::new();
+        let mut logits = Logits::default();
+        self.feed_prompt(params, vocab, prompt, |tk| callback(tk), &mut logits);
 
-        // determine the required inference memory per token:
-        let mut mem_per_token = 0;
-        self.evaluate(
-            params.n_threads,
-            0,
-            &[0, 1, 2, 3],
-            &mut logits,
-            &mut mem_per_token,
-        );
-
-        let last_n_size = params.repeat_last_n;
-        let mut last_n_tokens = vec![0 as TokenId; last_n_size];
-
-        let mut remaining_tokens = usize::min(
-            params.n_predict,
-            self.hparams.n_ctx as usize - embd_inp.len(),
-        );
-        let mut input_consumed = 0;
-
-        let mut embd = Vec::new();
-        while remaining_tokens > 0 {
-            // predict
-            if !embd.is_empty() {
-                self.evaluate(
-                    params.n_threads,
-                    self.n_past as i32,
-                    &embd,
-                    &mut logits,
-                    &mut mem_per_token,
-                );
-            }
-
-            self.n_past += embd.len();
-            embd.clear();
-
-            if embd_inp.len() <= input_consumed {
-                // out of input, sample next token
-
-                if stop_after_prompt {
-                    break;
-                }
-
-                let InferenceParameters {
-                    top_k,
-                    top_p,
-                    repeat_penalty,
-                    temp,
-                    ..
-                } = params;
-
-                let n_vocab = self.hparams.n_vocab;
-
-                let id = self.sample_top_p_top_k(
-                    vocab,
-                    &logits[logits.len() - n_vocab as usize..],
-                    &last_n_tokens,
-                    *repeat_penalty as f64,
-                    *top_k,
-                    *top_p as f64,
-                    *temp as f64,
-                    rng,
-                );
-
-                last_n_tokens.remove(0);
-                last_n_tokens.push(id);
-
-                // add it to the context
-                embd.push(id);
-
-                // decrement remaining sampling budget
-                remaining_tokens -= 1;
-            } else {
-                // if here, it means we are still processing the input prompt
-                while embd_inp.len() > input_consumed {
-                    embd.push(embd_inp[input_consumed]);
-                    last_n_tokens.remove(0);
-                    last_n_tokens.push(embd_inp[input_consumed]);
-                    input_consumed += 1;
-                    if embd.len() > params.n_batch {
-                        break;
-                    }
-                }
-            }
-
-            // display text
-            let mut eot = false;
-            for &id in &embd {
-                let output_token = if id == 2 {
-                    eot = true;
-                    OutputToken::EndOfText
-                } else {
-                    OutputToken::Token(&vocab.mapping[id as usize])
-                };
-                callback(output_token);
-            }
-
-            if eot {
+        while self.n_past < self.hparams.n_ctx as usize {
+            let tk = self.infer_next_token(params, vocab, rng, &mut logits);
+            (callback)(tk);
+            if let OutputToken::EndOfText = tk {
                 break;
             }
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn sample_top_p_top_k(
         &self,
         vocab: &Vocabulary,
         logits: &[f32],
-        last_n_tokens: &[TokenId],
-        repeat_penalty: f64,
-        top_k: i32,
-        top_p: f64,
-        temp: f64,
+        params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> TokenId {
         let n_logits = vocab.mapping.len();
-        let mut logits_id = Vec::<(f64, TokenId)>::with_capacity(n_logits);
+        let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
 
         {
-            let scale = 1.0 / temp;
+            let scale = 1.0 / params.temp;
             for (i, &logit) in logits.iter().enumerate() {
                 // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                 // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-                if last_n_tokens.contains(&(i as TokenId)) {
+                if self.last_n_tokens.contains(&(i as TokenId)) {
                     // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
                     if logits[i] < 0.0 {
-                        logits_id.push((logit as f64 * scale * repeat_penalty, i as TokenId));
+                        logits_id.push((logit * scale * params.repeat_penalty, i as TokenId));
                     } else {
-                        logits_id.push((logit as f64 * scale / repeat_penalty, i as TokenId));
+                        logits_id.push((logit * scale / params.repeat_penalty, i as TokenId));
                     }
                 } else {
-                    logits_id.push((logit as f64 * scale, i as TokenId));
+                    logits_id.push((logit * scale, i as TokenId));
                 }
             }
         }
 
         // find the top K tokens
         {
-            logits_id.partial_sort(top_k as usize, |a, b| {
+            logits_id.partial_sort(params.top_k, |a, b| {
                 // Sort descending
                 b.0.total_cmp(&a.0)
             });
-            logits_id.truncate(top_k as usize);
+            logits_id.truncate(params.top_k);
         }
 
         let maxl = logits_id
             .iter()
             .map(|x| x.0)
-            .max_by(f64::total_cmp)
+            .max_by(f32::total_cmp)
             .unwrap();
 
         // compute probs for the top K tokens
-        let mut probs: Vec<f64> = logits_id
+        let mut probs: Vec<f32> = logits_id
             .iter()
             .copied()
             .map(|(k, _)| (k - maxl).exp())
             .collect();
-        let sum: f64 = probs.iter().copied().sum();
+        let sum: f32 = probs.iter().copied().sum();
 
         // Normalize the probs
         for p in probs.iter_mut() {
@@ -892,11 +856,11 @@ impl Model {
         }
 
         // Top p sampling
-        if top_p < 1.0 {
+        if params.top_p < 1.0 {
             let mut cumsum = 0.0;
             for i in 0..probs.len() {
                 cumsum += probs[i];
-                if cumsum >= top_p {
+                if cumsum >= params.top_p {
                     probs.truncate(i + 1);
                     logits_id.truncate(i + 1);
                     break;
@@ -915,15 +879,19 @@ impl Model {
         logits_id[idx].1
     }
 
+    /// Evaluates the transformer.
+    ///
+    /// The vector passed as the `output_logits` parameter is used to return a
+    /// vector with the logits (i.e., score, correlated to probability) for each
+    /// token in the vocabulary. It might be resized.
     pub fn evaluate(
         &mut self,
         n_threads: i32,
-        n_past: i32,
-        embd_inp: &[TokenId],
-        embd_w: &mut Vec<f32>,
-        mem_per_token: &mut usize,
+        input_tokens: &[TokenId],
+        output_logits: &mut Logits,
     ) {
-        let n = embd_inp.len();
+        let n = input_tokens.len();
+        let n_past = self.n_past as i32;
 
         let Hyperparameters {
             n_vocab,
@@ -937,16 +905,16 @@ impl Model {
         } = self.hparams;
 
         let mut buf_size = 512 * 1024 * 1024;
-        if *mem_per_token > 0 && *mem_per_token * n > buf_size {
+        if self.mem_per_token > 0 && self.mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * *mem_per_token as f64 * n as f64) as usize;
+            buf_size = (1.1f64 * self.mem_per_token as f64 * n as f64) as usize;
         };
         let ctx0 = ggml::Context::init(buf_size);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
         let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n as i32);
-        unsafe { embd.write_data(bytemuck::cast_slice(embd_inp)) };
+        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
@@ -1136,18 +1104,22 @@ impl Model {
         ctx0.graph_compute(&mut gf);
 
         // return result for just the last token
-        embd_w.resize(n_vocab as usize, 0.0);
+        output_logits.0.resize(n_vocab as usize, 0.0);
         // SAFETY: yolo
         unsafe {
             input_layer.read_data(
                 n_vocab as usize * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(embd_w),
+                bytemuck::cast_slice_mut(&mut output_logits.0),
             )
         };
 
-        if *mem_per_token == 0 {
-            *mem_per_token = ctx0.used_mem() / n;
+        // Adjust the required memory per token if we didn't know that already
+        if self.mem_per_token == 0 {
+            self.mem_per_token = ctx0.used_mem() / n;
         }
+
+        // Adjust n_past to new length.
+        self.n_past += input_tokens.len();
     }
 
     pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
