@@ -6,14 +6,11 @@ use std::{
 
 pub use ggml_raw::ggml_type as Type;
 
-pub const TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_0;
-pub const TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_Q4_1;
-pub const TYPE_I8: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I8;
-pub const TYPE_I16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I16;
-pub const TYPE_I32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_I32;
-pub const TYPE_F16: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F16;
-pub const TYPE_F32: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_F32;
-pub const TYPE_COUNT: ggml_raw::ggml_type = ggml_raw::ggml_type_GGML_TYPE_COUNT;
+pub const TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_Q4_0;
+pub const TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_Q4_1;
+pub const TYPE_I32: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_I32;
+pub const TYPE_F16: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_F16;
+pub const TYPE_F32: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_F32;
 
 /// Acts as a RAII-guard over a `ggml_raw::ggml_context`, allocating via
 /// ggml_init and dropping via ggml_free
@@ -271,4 +268,16 @@ impl ComputationGraph {
     pub fn build_forward_expand(&mut self, tensor: &Tensor) {
         unsafe { ggml_raw::ggml_build_forward_expand(&mut self.inner, tensor.ptr.as_ptr()) }
     }
+}
+
+pub fn type_size(t: Type) -> usize {
+    unsafe { ggml_raw::ggml_type_size(t) }
+}
+
+pub fn type_sizef(x: ggml_raw::ggml_type) -> f64 {
+    (unsafe { ggml_raw::ggml_type_sizef(x) }) as f64
+}
+
+pub fn blck_size(t: Type) -> i32 {
+    unsafe { ggml_raw::ggml_blck_size(t) }
 }
