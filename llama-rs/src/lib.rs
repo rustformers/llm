@@ -69,12 +69,10 @@ pub struct Model {
     /// Stores the last N tokens (N is given at construction) to penalize
     /// repetitions during sampling.
     last_n_tokens: VecDeque<TokenId>,
-}
 
-/// The outputs of the network. A vector containing the raw score for each of
-/// the tokens in the output.
-#[derive(Default)]
-pub struct Logits(pub Vec<f32>);
+    /// The logits that were last predicted by the network. Zeroed out otherwise.
+    last_logits: Vec<f32>,
+}
 
 pub struct InferenceParameters {
     pub n_threads: i32,
@@ -111,31 +109,36 @@ pub struct Vocabulary {
     mapping: Vec<Token>,
 }
 
-/// A slice to llama's internal memory tensors. Storing this can be used to
-/// cache prompts.
-///
-/// NOTE: This struct can be serialized and then deserialized as an owned
-/// `LlamaMemory`.
 #[derive(serde::Serialize)]
-pub struct ModelMemoryRef<'model> {
+/// A serializable snapshot of the inference process. Can be saved to disk
+/// Useful for prompt caching.
+pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
     /// The contents of the 'key' memory tensor
-    pub memory_k: &'model [u8],
+    pub memory_k: &'a [u8],
     /// The contents of the 'value' memory tensor
-    pub memory_v: &'model [u8],
+    pub memory_v: &'a [u8],
+    /// The last n tokens that were predicted during generation
+    pub last_n_tokens: VecDeque<TokenId>,
+    /// The vector of logits that was produced after the last inference
+    pub logits: Vec<f32>,
 }
 
-/// An owned vector, containing the copy of llama memory's contents. Useful to
-/// restore a cached prompt.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct ModelMemory {
+/// A serializable snapshot of the inference process. Can be restored by calling
+/// `Model::restore_from_snapshot`. Useful for prompt caching.
+#[derive(serde::Deserialize)]
+pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
     /// The contents of the 'key' memory tensor
     pub memory_k: Vec<u8>,
     /// The contents of the 'value' memory tensor
     pub memory_v: Vec<u8>,
+    /// The last n tokens that were predicted during generation
+    pub last_n_tokens: VecDeque<TokenId>,
+    /// The vector of logits that was produced after the last inference
+    pub last_logits: Vec<f32>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -485,6 +488,7 @@ impl Model {
                 n_past: 0,
                 mem_per_token: 0,
                 last_n_tokens: VecDeque::from(vec![0; last_n_size]),
+                last_logits: vec![0.0; n_vocab as usize],
             }
         };
 
@@ -733,17 +737,16 @@ impl Model {
 
     pub fn feed_prompt(
         &mut self,
-        params: &InferenceParameters,
         vocab: &Vocabulary,
+        params: &InferenceParameters,
         prompt: &str,
         callback: impl Fn(OutputToken),
-        logits: &mut Logits,
     ) {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens = self.tokenize(vocab, prompt, beginning_of_sentence);
 
         for batch in prompt_tokens.chunks(8) {
-            self.evaluate(params.n_threads, batch, logits);
+            self.evaluate(params.n_threads, batch);
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
@@ -757,19 +760,18 @@ impl Model {
 
     pub fn infer_next_token<'v>(
         &mut self,
-        params: &InferenceParameters,
         vocab: &'v Vocabulary,
+        params: &InferenceParameters,
         rng: &mut impl rand::Rng,
-        logits: &mut Logits,
     ) -> OutputToken<'v> {
-        // First, sample with the given logits;
-        let next_token = self.sample_top_p_top_k(vocab, &logits.0, params, rng);
+        // First, sample the next token, using the stored last_logits;
+        let next_token = self.sample_top_p_top_k(params, rng);
 
         // Update the last_n_tokens list
         self.last_n_tokens.push_front(next_token);
 
-        // Then, evaluate the network again and compute the new logits
-        self.evaluate(params.n_threads, &[next_token], logits);
+        // Then, evaluate the network again to compute the new last_logits
+        self.evaluate(params.n_threads, &[next_token]);
 
         // Return the next token
         if next_token == 2 {
@@ -787,11 +789,10 @@ impl Model {
         rng: &mut impl rand::Rng,
         callback: impl Fn(OutputToken),
     ) {
-        let mut logits = Logits::default();
-        self.feed_prompt(params, vocab, prompt, |tk| callback(tk), &mut logits);
+        self.feed_prompt(vocab, params, prompt, |tk| callback(tk));
 
         while self.n_past < self.hparams.n_ctx as usize {
-            let tk = self.infer_next_token(params, vocab, rng, &mut logits);
+            let tk = self.infer_next_token(vocab, params, rng);
             (callback)(tk);
             if let OutputToken::EndOfText = tk {
                 break;
@@ -801,12 +802,11 @@ impl Model {
 
     pub fn sample_top_p_top_k(
         &self,
-        vocab: &Vocabulary,
-        logits: &[f32],
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> TokenId {
-        let n_logits = vocab.mapping.len();
+        let logits = &self.last_logits;
+        let n_logits = logits.len();
         let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
 
         {
@@ -880,16 +880,7 @@ impl Model {
     }
 
     /// Evaluates the transformer.
-    ///
-    /// The vector passed as the `output_logits` parameter is used to return a
-    /// vector with the logits (i.e., score, correlated to probability) for each
-    /// token in the vocabulary. It might be resized.
-    pub fn evaluate(
-        &mut self,
-        n_threads: i32,
-        input_tokens: &[TokenId],
-        output_logits: &mut Logits,
-    ) {
+    pub fn evaluate(&mut self, n_threads: i32, input_tokens: &[TokenId]) {
         let n = input_tokens.len();
         let n_past = self.n_past as i32;
 
@@ -1104,12 +1095,12 @@ impl Model {
         ctx0.graph_compute(&mut gf);
 
         // return result for just the last token
-        output_logits.0.resize(n_vocab as usize, 0.0);
         // SAFETY: yolo
+        assert_eq!(self.last_logits.len(), n_vocab as usize);
         unsafe {
             input_layer.read_data(
                 n_vocab as usize * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(&mut output_logits.0),
+                bytemuck::cast_slice_mut(&mut self.last_logits),
             )
         };
 
@@ -1158,15 +1149,15 @@ impl Model {
         res
     }
 
-    /// Obtains raw access to the underlying tensor memory. This memory can be
-    /// used to cache prompts.
+    /// Obtains a serializable snapshot of the current inference status. This
+    /// can be used to cache the state of the model and store them into a file.
     ///
     /// # Safety
     ///
     /// This function provides raw access to the underlying memory owned by the
     /// ggml context. While the provided `LlamaModelMemory` object is alive, no
     /// other methods for this model object should be called.
-    pub unsafe fn get_memory(&mut self) -> ModelMemoryRef<'_> {
+    pub unsafe fn get_snapshot(&mut self) -> InferenceSnapshotRef<'_> {
         use core::slice;
         let memory_k = unsafe {
             slice::from_raw_parts(self.memory_k.data() as *mut u8, self.memory_k.nbytes())
@@ -1175,28 +1166,32 @@ impl Model {
             slice::from_raw_parts(self.memory_v.data() as *mut u8, self.memory_v.nbytes())
         };
 
-        ModelMemoryRef {
+        InferenceSnapshotRef {
+            npast: self.n_past,
             memory_k,
             memory_v,
-            npast: self.n_past,
+            last_n_tokens: self.last_n_tokens.clone(),
+            logits: self.last_logits.clone(),
         }
     }
 
-    /// Clears the model's memory, so inference can be restarted without having
+    /// Clears the model's state, so inference can be restarted without having
     /// to load the weights again.
-    pub fn clear_memory(&mut self) {
+    pub fn clear_state(&mut self) {
         self.memory_k.zero_data();
         self.memory_v.zero_data();
         self.n_past = 0;
+        self.last_n_tokens = VecDeque::from(vec![0; self.last_n_tokens.len()]);
     }
 
-    pub fn set_memory(&mut self, memory: ModelMemory) -> Result<(), LlamaError> {
-        if self.memory_k.nbytes() != memory.memory_k.len()
-            || self.memory_v.nbytes() != memory.memory_v.len()
+    /// Sets the state of the model, from a previously obtained InfrenceSnapshot
+    pub fn set_snapshot(&mut self, snapshot: InferenceSnapshot) -> Result<(), LlamaError> {
+        if self.memory_k.nbytes() != snapshot.memory_k.len()
+            || self.memory_v.nbytes() != snapshot.memory_v.len()
         {
             return Err(LlamaError::MemorySizeMismatch {
                 self_size: self.memory_k.nbytes() + self.memory_v.nbytes(),
-                input_size: memory.memory_k.len() + memory.memory_v.len(),
+                input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
             });
         }
 
@@ -1204,17 +1199,19 @@ impl Model {
         // should be touching the context's memory. We can write to it because
         // we already checked the size.
         unsafe {
-            self.memory_k.write_data(&memory.memory_k);
-            self.memory_v.write_data(&memory.memory_v);
+            self.memory_k.write_data(&snapshot.memory_k);
+            self.memory_v.write_data(&snapshot.memory_v);
         }
 
-        self.n_past = memory.npast;
+        self.n_past = snapshot.npast;
+        self.last_n_tokens = snapshot.last_n_tokens;
+        self.last_logits = snapshot.last_logits;
 
         Ok(())
     }
 }
 
-impl<'a> ModelMemoryRef<'a> {
+impl<'a> InferenceSnapshotRef<'a> {
     pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), LlamaError> {
         use std::fs::File;
         use std::io::BufWriter;
@@ -1229,7 +1226,7 @@ impl<'a> ModelMemoryRef<'a> {
     }
 }
 
-impl ModelMemory {
+impl InferenceSnapshot {
     pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, LlamaError> {
         use std::fs::File;
         use std::io::BufReader;
