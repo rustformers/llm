@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use cli_args::CLI_ARGS;
-use llama_rs::InferenceParameters;
+use llama_rs::{InferenceParameters, InferenceSnapshot};
 use rand::thread_rng;
 
 mod cli_args;
@@ -18,9 +18,8 @@ fn main() {
         n_threads: args.num_threads as i32,
         n_predict: args.num_predict,
         n_batch: args.batch_size,
-        top_k: args.top_k as i32,
+        top_k: args.top_k,
         top_p: args.top_p,
-        repeat_last_n: args.repeat_last_n,
         repeat_penalty: args.repeat_penalty,
         temp: args.temp,
     };
@@ -29,18 +28,18 @@ fn main() {
         match std::fs::read_to_string(path) {
             Ok(prompt) => prompt,
             Err(err) => {
-                eprintln!("Could not read prompt file at {path}. Error {err}");
+                log::error!("Could not read prompt file at {path}. Error {err}");
                 std::process::exit(1);
             }
         }
     } else if let Some(prompt) = &args.prompt {
         prompt.clone()
     } else {
-        eprintln!("No prompt or prompt file was provided. See --help");
+        log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
     };
 
-    let (model, vocab) =
+    let (mut model, vocab) =
         llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
@@ -97,9 +96,73 @@ fn main() {
     log::info!("Model fully loaded!");
 
     let mut rng = thread_rng();
-    model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
-        print!("{t}");
-        std::io::stdout().flush().unwrap();
-    });
-    println!();
+
+    let mut session = if let Some(restore_path) = &args.restore_prompt {
+        let snapshot = InferenceSnapshot::load_from_disk(restore_path);
+        match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+            Ok(session) => {
+                log::info!("Restored cached memory from {restore_path}");
+                session
+            }
+            Err(err) => {
+                eprintln!("Could not restore prompt. Error: {err}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        model.start_session(args.repeat_last_n)
+    };
+
+    if let Some(cache_path) = &args.cache_prompt {
+        let res = session.feed_prompt(&model, &vocab, &inference_params, &prompt, |t| {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
+        });
+        println!();
+        match res {
+            Ok(_) => (),
+            Err(llama_rs::Error::ContextFull) => {
+                log::warn!(
+                    "Context is not large enough to fit the prompt. Saving intermediate state."
+                );
+            }
+            err => unreachable!("{err:?}"),
+        }
+
+        // Write the memory to the cache file
+        // SAFETY: no other model functions used inside the block
+        unsafe {
+            let memory = session.get_snapshot();
+            match memory.write_to_disk(cache_path) {
+                Ok(_) => {
+                    log::info!("Successfully written prompt cache to {cache_path}");
+                }
+                Err(err) => {
+                    log::error!("Could not write prompt cache at {cache_path}: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    } else {
+        let res = session.inference_with_prompt(
+            &model,
+            &vocab,
+            &inference_params,
+            &prompt,
+            &mut rng,
+            |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+            },
+        );
+        println!();
+
+        match res {
+            Ok(_) => (),
+            Err(llama_rs::Error::ContextFull) => {
+                log::warn!("Context window full, stopping inference.")
+            }
+            err => unreachable!("{err:?}"),
+        }
+    }
 }
