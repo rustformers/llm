@@ -114,11 +114,20 @@ fn main() {
     };
 
     if let Some(cache_path) = &args.cache_prompt {
-        model.feed_prompt(&mut session, &vocab, &inference_params, &prompt, |t| {
+        let res = session.feed_prompt(&model, &vocab, &inference_params, &prompt, |t| {
             print!("{t}");
             std::io::stdout().flush().unwrap();
         });
         println!();
+        match res {
+            Ok(_) => (),
+            Err(llama_rs::Error::ContextFull) => {
+                log::warn!(
+                    "Context is not large enough to fit the prompt. Saving intermediate state."
+                );
+            }
+            err => unreachable!("{err:?}"),
+        }
 
         // Write the memory to the cache file
         // SAFETY: no other model functions used inside the block
@@ -135,8 +144,8 @@ fn main() {
             }
         }
     } else {
-        model.inference_with_prompt(
-            &mut session,
+        let res = session.inference_with_prompt(
+            &model,
             &vocab,
             &inference_params,
             &prompt,
@@ -147,5 +156,13 @@ fn main() {
             },
         );
         println!();
+
+        match res {
+            Ok(_) => (),
+            Err(llama_rs::Error::ContextFull) => {
+                log::warn!("Context window full, stopping inference.")
+            }
+            err => unreachable!("{err:?}"),
+        }
     }
 }

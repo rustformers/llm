@@ -248,6 +248,8 @@ pub enum Error {
     Snapshot(Box<Error>),
     #[error("could not write memory due to size mismatch (self={self_size}, input={input_size})")]
     MemorySizeMismatch { self_size: usize, input_size: usize },
+    #[error("the context window is full")]
+    ContextFull,
 }
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
@@ -755,79 +757,6 @@ impl Model {
         }
     }
 
-    pub fn feed_prompt(
-        &self,
-        session: &mut InferenceSession,
-        vocab: &Vocabulary,
-        params: &InferenceParameters,
-        prompt: &str,
-        callback: impl Fn(OutputToken),
-    ) {
-        let beginning_of_sentence = session.n_past == 0;
-        let prompt_tokens = self.tokenize(vocab, prompt, beginning_of_sentence);
-
-        for batch in prompt_tokens.chunks(8) {
-            self.evaluate(session, params.n_threads, batch);
-            for &tk in batch {
-                // NOTE: No string ever tokenizes to the end of sentence. So we
-                // can just return the id here.
-                callback(OutputToken::Token(&vocab.mapping[tk as usize]));
-
-                // Update the last_n_tokens list
-                session.last_n_tokens.push_front(tk);
-            }
-        }
-    }
-
-    pub fn infer_next_token<'v>(
-        &self,
-        session: &mut InferenceSession,
-        vocab: &'v Vocabulary,
-        params: &InferenceParameters,
-        rng: &mut impl rand::Rng,
-    ) -> OutputToken<'v> {
-        // First, sample the next token, using the stored last_logits;
-        let next_token = self.sample_top_p_top_k(session, params, rng);
-
-        // Update the last_n_tokens list
-        session.last_n_tokens.push_front(next_token);
-
-        // Then, evaluate the network again to compute the new last_logits
-        self.evaluate(session, params.n_threads, &[next_token]);
-
-        // Return the next token
-        if next_token == 2 {
-            OutputToken::EndOfText
-        } else {
-            OutputToken::Token(&vocab.mapping[next_token as usize])
-        }
-    }
-
-    pub fn inference_with_prompt(
-        &self,
-        session: &mut InferenceSession,
-        vocab: &Vocabulary,
-        params: &InferenceParameters,
-        prompt: &str,
-        rng: &mut impl rand::Rng,
-        callback: impl Fn(OutputToken),
-    ) {
-        // Feed the initial prompt through the transformer, to update its
-        // context window with new data.
-        self.feed_prompt(session, vocab, params, prompt, |tk| callback(tk));
-
-        // After the prompt is consumed, sample tokens by repeatedly calling
-        // `infer_next_token`. We generate tokens until the model returns an
-        // EndOfText token, or we run out of space in the context window.
-        while session.n_past < self.hparams.n_ctx as usize {
-            let tk = self.infer_next_token(session, vocab, params, rng);
-            (callback)(tk);
-            if let OutputToken::EndOfText = tk {
-                break;
-            }
-        }
-    }
-
     pub fn sample_top_p_top_k(
         &self,
         session: &InferenceSession,
@@ -1216,6 +1145,91 @@ impl Model {
 }
 
 impl InferenceSession {
+    pub fn feed_prompt(
+        &mut self,
+        model: &Model,
+        vocab: &Vocabulary,
+        params: &InferenceParameters,
+        prompt: &str,
+        callback: impl Fn(OutputToken),
+    ) -> Result<(), Error> {
+        let beginning_of_sentence = self.n_past == 0;
+        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
+
+        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
+            return Err(Error::ContextFull);
+        }
+
+        for batch in prompt_tokens.chunks(8) {
+            model.evaluate(self, params.n_threads, batch);
+            for &tk in batch {
+                // NOTE: No string ever tokenizes to the end of sentence. So we
+                // can just return the id here.
+                callback(OutputToken::Token(&vocab.mapping[tk as usize]));
+
+                // Update the last_n_tokens list
+                self.last_n_tokens.push_front(tk);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn infer_next_token<'v>(
+        &mut self,
+        model: &Model,
+        vocab: &'v Vocabulary,
+        params: &InferenceParameters,
+        rng: &mut impl rand::Rng,
+    ) -> Result<OutputToken<'v>, Error> {
+        if self.n_past + 1 >= model.hparams.n_ctx as usize {
+            return Err(Error::ContextFull);
+        }
+
+        // First, sample the next token, using the stored last_logits;
+        let next_token = model.sample_top_p_top_k(self, params, rng);
+
+        // Update the last_n_tokens list
+        self.last_n_tokens.push_front(next_token);
+
+        // Then, evaluate the network again to compute the new last_logits
+        model.evaluate(self, params.n_threads, &[next_token]);
+
+        // Return the next token
+        if next_token == 2 {
+            Ok(OutputToken::EndOfText)
+        } else {
+            Ok(OutputToken::Token(&vocab.mapping[next_token as usize]))
+        }
+    }
+
+    pub fn inference_with_prompt(
+        &mut self,
+        model: &Model,
+        vocab: &Vocabulary,
+        params: &InferenceParameters,
+        prompt: &str,
+        rng: &mut impl rand::Rng,
+        callback: impl Fn(OutputToken),
+    ) -> Result<(), Error> {
+        // Feed the initial prompt through the transformer, to update its
+        // context window with new data.
+        self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;
+
+        // After the prompt is consumed, sample tokens by repeatedly calling
+        // `infer_next_token`. We generate tokens until the model returns an
+        // EndOfText token, or we run out of space in the context window.
+        while self.n_past < model.hparams.n_ctx as usize {
+            let tk = self.infer_next_token(model, vocab, params, rng)?;
+            (callback)(tk);
+            if let OutputToken::EndOfText = tk {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Obtains a serializable snapshot of the current inference status. This
     /// can be used to cache the state of the model and store them into a file.
     ///
