@@ -33,7 +33,7 @@ Make sure you have a rust toolchain set up.
 
 Some additional things to try:
 
-- Use `--help` to see a list of available commands.
+- Use `--help` to see a list of available options.
 - Prompt files can be precomputed to speed up processing using the
   `--cache-prompt` and `--restore-prompt` flags.
 
