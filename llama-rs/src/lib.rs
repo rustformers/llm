@@ -789,8 +789,13 @@ impl Model {
         rng: &mut impl rand::Rng,
         callback: impl Fn(OutputToken),
     ) {
+        // Feed the initial prompt through the transformer, to update its
+        // context window with new data.
         self.feed_prompt(vocab, params, prompt, |tk| callback(tk));
 
+        // After the prompt is consumed, sample tokens by repeatedly calling
+        // `infer_next_token`. We generate tokens until the model returns an
+        // EndOfText token, or we run out of space in the context window.
         while self.n_past < self.hparams.n_ctx as usize {
             let tk = self.infer_next_token(vocab, params, rng);
             (callback)(tk);
