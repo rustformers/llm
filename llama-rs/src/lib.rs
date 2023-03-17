@@ -58,9 +58,6 @@ pub struct Model {
 
     // Must be kept alive for the model
     _context: ggml::Context,
-
-    /// How many tokens have been fed into the model's working memory so far.
-    n_past: usize,
 }
 
 pub struct InferenceParameters {
@@ -116,33 +113,6 @@ impl Display for OutputToken<'_> {
     }
 }
 
-/// A slice to llama's internal memory tensors. Storing this can be used to
-/// cache prompts.
-///
-/// NOTE: This struct can be serialized and then deserialized as an owned
-/// `LlamaMemory`.
-#[derive(serde::Serialize)]
-pub struct ModelMemoryRef<'model> {
-    /// How many tokens have been stored in the memory so far.
-    pub npast: usize,
-    /// The contents of the 'key' memory tensor
-    pub memory_k: &'model [u8],
-    /// The contents of the 'value' memory tensor
-    pub memory_v: &'model [u8],
-}
-
-/// An owned vector, containing the copy of llama memory's contents. Useful to
-/// restore a cached prompt.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct ModelMemory {
-    /// How many tokens have been stored in the memory so far.
-    pub npast: usize,
-    /// The contents of the 'key' memory tensor
-    pub memory_k: Vec<u8>,
-    /// The contents of the 'value' memory tensor
-    pub memory_v: Vec<u8>,
-}
-
 fn llama_n_parts(size: i32) -> i32 {
     match size {
         4096 => 1,
@@ -186,7 +156,7 @@ pub enum LoadProgress<'a> {
 }
 
 #[derive(Error, Debug)]
-pub enum LlamaError {
+pub enum LoadError {
     #[error("could not open file {path:?}")]
     OpenFileFailed {
         source: std::io::Error,
@@ -215,12 +185,6 @@ pub enum LlamaError {
     TensorWrongSize { tensor_name: String, path: PathBuf },
     #[error("invalid ftype {ftype} in {path:?}")]
     InvalidFtype { ftype: i32, path: PathBuf },
-    #[error("could not write model memory")]
-    FailedToWriteMemory(Box<dyn std::error::Error>),
-    #[error("could not read model memory")]
-    FailedToReadMemory(Box<dyn std::error::Error>),
-    #[error("could not write memory due to size mismatch (self={self_size}, input={input_size})")]
-    MemorySizeMismatch { self_size: usize, input_size: usize },
 }
 
 impl Model {
@@ -228,24 +192,24 @@ impl Model {
         path: impl AsRef<Path>,
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(Model, Vocabulary), LlamaError> {
+    ) -> Result<(Model, Vocabulary), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
 
         let mut reader =
-            BufReader::new(File::open(path).map_err(|e| LlamaError::OpenFileFailed {
+            BufReader::new(File::open(path).map_err(|e| LoadError::OpenFileFailed {
                 source: e,
                 path: path.to_owned(),
             })?);
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LlamaError> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
-                .map_err(|e| LlamaError::ReadExactFailed {
+                .map_err(|e| LoadError::ReadExactFailed {
                     source: e,
                     bytes: bytes.len(),
                 })?;
@@ -253,11 +217,11 @@ impl Model {
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LlamaError> {
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
             let mut buf = vec![0; len];
             reader
                 .read_exact(&mut buf)
-                .map_err(|e| LlamaError::ReadExactFailed {
+                .map_err(|e| LoadError::ReadExactFailed {
                     source: e,
                     bytes: buf.len(),
                 })?;
@@ -269,7 +233,7 @@ impl Model {
         {
             let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
-                return Err(LlamaError::InvalidMagic {
+                return Err(LoadError::InvalidMagic {
                     path: path.to_owned(),
                 });
             }
@@ -322,7 +286,7 @@ impl Model {
             1 => ggml::TYPE_F16,
             2 => ggml::TYPE_Q4_0,
             3 => ggml::TYPE_Q4_1,
-            invalid => return Err(LlamaError::HyperparametersF16Invalid { value: invalid }),
+            invalid => return Err(LoadError::HyperparametersF16Invalid { value: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -468,7 +432,6 @@ impl Model {
                 memory_v,
                 tensors,
                 _context: context,
-                n_past: 0,
             }
         };
 
@@ -528,7 +491,7 @@ impl Model {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        return Err(LlamaError::UnknownTensor { tensor_name, path: part_path });
+                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
                     };
 
                 // split_type = 0: split by columns
@@ -567,43 +530,37 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
-                } else {
-                    if tensor.nelements() / n_parts != nelements {
-                        return Err(LlamaError::TensorWrongSize {
-                            tensor_name,
-                            path: part_path,
-                        });
-                    }
+                } else if tensor.nelements() / n_parts != nelements {
+                    return Err(LoadError::TensorWrongSize {
+                        tensor_name,
+                        path: part_path,
+                    });
                 }
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
-                } else {
-                    if split_type == 0 {
-                        if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                            return Err(LlamaError::TensorWrongSize {
-                                tensor_name,
-                                path: part_path,
-                            });
-                        }
-                    } else {
-                        if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                            return Err(LlamaError::TensorWrongSize {
-                                tensor_name,
-                                path: part_path,
-                            });
-                        }
+                } else if split_type == 0 {
+                    if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
+                        return Err(LoadError::TensorWrongSize {
+                            tensor_name,
+                            path: part_path,
+                        });
                     }
+                } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
+                    return Err(LoadError::TensorWrongSize {
+                        tensor_name,
+                        path: part_path,
+                    });
                 }
 
                 let bpe = match ftype {
@@ -618,7 +575,7 @@ impl Model {
                         ggml::type_size(ggml::TYPE_Q4_1)
                     }
                     _ => {
-                        return Err(LlamaError::InvalidFtype {
+                        return Err(LoadError::InvalidFtype {
                             ftype,
                             path: part_path,
                         })
@@ -629,7 +586,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -652,7 +609,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes() / n_parts as usize
                     {
-                        return Err(LlamaError::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -722,23 +679,28 @@ impl Model {
     }
 
     pub fn inference_with_prompt(
-        &mut self,
+        &self,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
         rng: &mut impl rand::Rng,
-        stop_after_prompt: bool,
         callback: impl Fn(OutputToken),
     ) {
-        let beginning_of_sentence = self.n_past == 0;
-        let embd_inp = self.tokenize(vocab, prompt, beginning_of_sentence);
-        let mut logits = vec![0.0; self.hparams.n_vocab as usize];
+        let embd_inp = self.tokenize(vocab, prompt, true);
+        let mut logits = Vec::new();
 
-        // Mem per token is initialized at zero. Will be read the first time
-        // llama_eval is called.
+        // determine the required inference memory per token:
         let mut mem_per_token = 0;
+        self.evaluate(
+            params.n_threads,
+            0,
+            &[0, 1, 2, 3],
+            &mut logits,
+            &mut mem_per_token,
+        );
 
-        let mut last_n_tokens = vec![0 as TokenId; params.repeat_last_n];
+        let last_n_size = params.repeat_last_n;
+        let mut last_n_tokens = vec![0 as TokenId; last_n_size];
 
         let mut remaining_tokens = usize::min(
             params.n_predict,
@@ -746,31 +708,25 @@ impl Model {
         );
         let mut input_consumed = 0;
 
+        let mut n_past = 0;
         let mut embd = Vec::new();
         while remaining_tokens > 0 {
             // predict
-            if embd.len() > 0 {
+            if !embd.is_empty() {
                 self.evaluate(
                     params.n_threads,
-                    self.n_past as i32,
+                    n_past,
                     &embd,
                     &mut logits,
                     &mut mem_per_token,
                 );
             }
 
-            self.n_past += embd.len();
+            n_past += embd.len() as i32;
             embd.clear();
 
             if embd_inp.len() <= input_consumed {
                 // out of input, sample next token
-
-                // TODO: The logic is super convoluted already and this only
-                // makes it worse... Refactor!
-                if stop_after_prompt {
-                    break;
-                }
-
                 let InferenceParameters {
                     top_k,
                     top_p,
@@ -831,6 +787,7 @@ impl Model {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn sample_top_p_top_k(
         &self,
         vocab: &Vocabulary,
@@ -882,7 +839,7 @@ impl Model {
         let mut probs: Vec<f64> = logits_id
             .iter()
             .copied()
-            .map(|(k, v)| (k - maxl).exp())
+            .map(|(k, _)| (k - maxl).exp())
             .collect();
         let sum: f64 = probs.iter().copied().sum();
 
@@ -916,14 +873,14 @@ impl Model {
     }
 
     pub fn evaluate(
-        &mut self,
+        &self,
         n_threads: i32,
         n_past: i32,
         embd_inp: &[TokenId],
         embd_w: &mut Vec<f32>,
         mem_per_token: &mut usize,
     ) {
-        let N = embd_inp.len();
+        let n = embd_inp.len();
 
         let Hyperparameters {
             n_vocab,
@@ -937,63 +894,66 @@ impl Model {
         } = self.hparams;
 
         let mut buf_size = 512 * 1024 * 1024;
-        if *mem_per_token > 0 && *mem_per_token * N > buf_size {
+        if *mem_per_token > 0 && *mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * *mem_per_token as f64 * N as f64) as usize;
+            buf_size = (1.1f64 * *mem_per_token as f64 * n as f64) as usize;
         };
         let ctx0 = ggml::Context::init(buf_size);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, N as i32);
+        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n as i32);
         unsafe { embd.write_data(bytemuck::cast_slice(embd_inp)) };
 
-        let mut inpL = ctx0.op_get_rows(&self.tok_embeddings, &embd);
+        let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
         for il in 0..n_layer as usize {
-            let inpSA = inpL.share();
-            let mut cur: ggml::Tensor;
+            let input_self_attention = input_layer.share();
+            let mut current: ggml::Tensor;
 
             // norm
             {
-                cur = ctx0.op_norm(&inpL);
+                current = ctx0.op_norm(&input_layer);
 
                 // cur = attention_norm * cur
-                cur = ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].attention_norm, &cur), &cur);
+                current = ctx0.op_mul(
+                    &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
+                    &current,
+                );
             }
 
             // self-attention
             {
-                let Qcur = ctx0.op_mul_mat(&self.layers[il].wq, &cur);
-                let Kcur = ctx0.op_mul_mat(&self.layers[il].wk, &cur);
-                let Vcur = ctx0.op_mul_mat(&self.layers[il].wv, &cur);
+                let q_current = ctx0.op_mul_mat(&self.layers[il].wq, &current);
+                let k_current = ctx0.op_mul_mat(&self.layers[il].wk, &current);
+                let v_current = ctx0.op_mul_mat(&self.layers[il].wv, &current);
 
                 // store key and value to memory
-                if N >= 1 {
+                if n >= 1 {
                     let k = ctx0.op_view_1d(
                         &self.memory_k,
-                        N as i32 * n_embd,
+                        n as i32 * n_embd,
                         (self.memory_k.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
                     let v = ctx0.op_view_1d(
                         &self.memory_v,
-                        N as i32 * n_embd,
+                        n as i32 * n_embd,
                         (self.memory_v.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
-                    gf.build_forward_expand(&ctx0.op_cpy(&Kcur, &k));
-                    gf.build_forward_expand(&ctx0.op_cpy(&Vcur, &v));
+                    gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
+                    gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
                 }
 
                 // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-                let Q = ctx0.op_permute(
+                let q = ctx0.op_permute(
                     &ctx0.op_rope(
                         &ctx0.op_cpy(
-                            &Qcur,
-                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, N as i32),
+                            &q_current,
+                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
                         ),
                         n_past,
                         n_rot,
@@ -1006,19 +966,19 @@ impl Model {
                 );
 
                 // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
-                let K = ctx0.op_permute(
+                let k = ctx0.op_permute(
                     &ctx0.op_rope(
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
                                 &self.memory_k,
-                                (n_past + N as i32) * n_embd,
+                                (n_past + n as i32) * n_embd,
                                 il * n_ctx as usize
                                     * self.memory_k.element_size()
                                     * n_embd as usize,
                             ),
                             n_embd / n_head,
                             n_head,
-                            n_past + N as i32,
+                            n_past + n as i32,
                         ),
                         n_past,
                         n_rot,
@@ -1031,31 +991,31 @@ impl Model {
                 );
 
                 // K * Q
-                let KQ = ctx0.op_mul_mat(&K, &Q);
+                let k_q = ctx0.op_mul_mat(&k, &q);
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
-                let KQ_scaled = ctx0.op_scale(
-                    &KQ,
+                let k_q_scaled = ctx0.op_scale(
+                    &k_q,
                     &ctx0.new_f32(1.0 / f32::sqrt(n_embd as f32 / n_head as f32)),
                 );
 
                 // KQ_masked = mask_past(KQ_scaled)
-                let KQ_masked = ctx0.op_diag_mask_inf(&KQ_scaled, n_past);
+                let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, n_past);
 
                 // KQ = soft_max(KQ_masked)
-                let KQ_soft_max = ctx0.op_soft_max(&KQ_masked);
+                let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
 
                 // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
-                let V_trans = ctx0.op_permute(
+                let v_transposed = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             &self.memory_v,
-                            (n_past + N as i32) * n_embd,
+                            (n_past + n as i32) * n_embd,
                             il * n_ctx as usize * self.memory_v.element_size() * n_embd as usize,
                         ),
                         n_embd / n_head,
                         n_head,
-                        n_past + N as i32,
+                        n_past + n as i32,
                     ),
                     1,
                     2,
@@ -1064,83 +1024,86 @@ impl Model {
                 );
 
                 // KQV = transpose(V) * KQ_soft_max
-                let KQV = ctx0.op_mul_mat(&V_trans, &KQ_soft_max);
+                let k_q_v = ctx0.op_mul_mat(&v_transposed, &k_q_soft_max);
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
-                let KQV_merged = ctx0.op_permute(&KQV, 0, 2, 1, 3);
+                let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
 
                 // cur = KQV_merged.contiguous().view(n_embd, N)
-                cur = ctx0.op_cpy(
-                    &KQV_merged,
-                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, N as i32),
+                current = ctx0.op_cpy(
+                    &k_q_v_merged,
+                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n as i32),
                 );
 
                 // projection (no bias)
-                cur = ctx0.op_mul_mat(&self.layers[il].wo, &cur);
+                current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
             }
 
-            let inpFF = ctx0.op_add(&cur, &inpSA);
+            let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
             // feed-forward network
             {
                 // norm
                 {
-                    cur = ctx0.op_norm(&inpFF);
+                    current = ctx0.op_norm(&input_feed_forward);
 
                     // cur = ffn_norm*cur
-                    cur = ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ffn_norm, &cur), &cur);
+                    current = ctx0.op_mul(
+                        &ctx0.op_repeat(&self.layers[il].ffn_norm, &current),
+                        &current,
+                    );
                 }
 
-                let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &cur);
+                let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &current);
 
-                cur = ctx0.op_mul_mat(&self.layers[il].w1, &cur);
+                current = ctx0.op_mul_mat(&self.layers[il].w1, &current);
 
                 // SILU activation
-                cur = ctx0.op_silu(&cur);
+                current = ctx0.op_silu(&current);
 
-                cur = ctx0.op_mul(&cur, &tmp);
+                current = ctx0.op_mul(&current, &tmp);
 
-                cur = ctx0.op_mul_mat(&self.layers[il].w2, &cur);
+                current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
             }
 
-            cur = ctx0.op_add(&cur, &inpFF);
+            current = ctx0.op_add(&current, &input_feed_forward);
 
             // input for next layer
-            inpL = cur;
+            input_layer = current;
         }
 
         // norm
         {
-            inpL = ctx0.op_norm(&inpL);
+            input_layer = ctx0.op_norm(&input_layer);
 
             // inpL = norm*inpL
-            inpL = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &inpL), &inpL);
+            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
         }
 
         // lm_head
         {
-            inpL = ctx0.op_mul_mat(&self.output, &inpL);
+            input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
         }
 
         // logits -> probs
         // inpL = ctx0.op_soft_max(&inpL);
 
         // run the computation
-        gf.build_forward_expand(&inpL);
+        gf.build_forward_expand(&input_layer);
         ctx0.graph_compute(&mut gf);
 
         // return result for just the last token
         embd_w.resize(n_vocab as usize, 0.0);
         // SAFETY: yolo
         unsafe {
-            inpL.read_data(
-                n_vocab as usize * (N - 1) * std::mem::size_of::<f32>(),
+            input_layer.read_data(
+                n_vocab as usize * (n - 1) * std::mem::size_of::<f32>(),
                 bytemuck::cast_slice_mut(embd_w),
             )
         };
 
         if *mem_per_token == 0 {
-            *mem_per_token = ctx0.used_mem() / N;
+            *mem_per_token = ctx0.used_mem() / n;
         }
     }
 
@@ -1178,90 +1141,5 @@ impl Model {
         }
 
         res
-    }
-
-    /// Obtains raw access to the underlying tensor memory. This memory can be
-    /// used to cache prompts.
-    ///
-    /// # Safety
-    ///
-    /// This function provides raw access to the underlying memory owned by the
-    /// ggml context. While the provided `LlamaModelMemory` object is alive, no
-    /// other methods for this model object should be called.
-    pub unsafe fn get_memory(&mut self) -> ModelMemoryRef<'_> {
-        use core::slice;
-        let memory_k = unsafe {
-            slice::from_raw_parts(self.memory_k.data() as *mut u8, self.memory_k.nbytes())
-        };
-        let memory_v = unsafe {
-            slice::from_raw_parts(self.memory_v.data() as *mut u8, self.memory_v.nbytes())
-        };
-
-        ModelMemoryRef {
-            memory_k,
-            memory_v,
-            npast: self.n_past,
-        }
-    }
-
-    /// Clears the model's memory, so inference can be restarted without having
-    /// to load the weights again.
-    pub fn clear_memory(&mut self) {
-        self.memory_k.zero_data();
-        self.memory_v.zero_data();
-        self.n_past = 0;
-    }
-
-    pub fn set_memory(&mut self, memory: ModelMemory) -> Result<(), LlamaError> {
-        if self.memory_k.nbytes() != memory.memory_k.len()
-            || self.memory_v.nbytes() != memory.memory_v.len()
-        {
-            return Err(LlamaError::MemorySizeMismatch {
-                self_size: self.memory_k.nbytes() + self.memory_v.nbytes(),
-                input_size: memory.memory_k.len() + memory.memory_v.len(),
-            });
-        }
-
-        // SAFETY: We have exclusive access to Self, which means no one else
-        // should be touching the context's memory. We can write to it because
-        // we already checked the size.
-        unsafe {
-            self.memory_k.write_data(&memory.memory_k);
-            self.memory_v.write_data(&memory.memory_v);
-        }
-
-        self.n_past = memory.npast;
-
-        Ok(())
-    }
-}
-
-impl<'a> ModelMemoryRef<'a> {
-    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), LlamaError> {
-        use std::fs::File;
-        use std::io::BufWriter;
-
-        let path = path.as_ref();
-        let writer = BufWriter::new(
-            File::create(path).map_err(|err| LlamaError::FailedToWriteMemory(Box::new(err)))?,
-        );
-
-        bincode::serialize_into(writer, &self)
-            .map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))
-    }
-}
-
-impl ModelMemory {
-    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, LlamaError> {
-        use std::fs::File;
-        use std::io::BufReader;
-
-        let path = path.as_ref();
-        let reader = BufReader::new(
-            File::open(path).map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))?,
-        );
-
-        bincode::deserialize_from(reader)
-            .map_err(|err| LlamaError::FailedToReadMemory(Box::new(err)))
     }
 }
