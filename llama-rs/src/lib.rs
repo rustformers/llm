@@ -352,33 +352,29 @@ impl Model {
                 };
             }
 
-            fn ggml_type_sizef(x: ggml_raw::ggml_type) -> f64 {
-                (unsafe { ggml_raw::ggml_type_sizef(x) }) as f64
-            }
-
             let mut ctx_size: u64 = 0;
 
-            ctx_size += mul!(n_embd, n_vocab, ggml_type_sizef(wtype)); // tok_embeddings
+            ctx_size += mul!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
 
-            ctx_size += mul!(n_embd, ggml_type_sizef(ggml::TYPE_F32)); // norm
+            ctx_size += mul!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // norm
 
-            ctx_size += mul!(n_embd, n_vocab, ggml_type_sizef(wtype)); // output
+            ctx_size += mul!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
 
-            ctx_size += mul!(n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // attention_norm
+            ctx_size += mul!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // attention_norm
 
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wq
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wk
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wv
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml_type_sizef(wtype)); // wo
+            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
+            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
+            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
+            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
 
-            ctx_size += mul!(n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // ffn_norm
+            ctx_size += mul!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // ffn_norm
 
-            ctx_size += mul!(n_layer, n_ff, n_embd, ggml_type_sizef(wtype)); // w1
-            ctx_size += mul!(n_layer, n_ff, n_embd, ggml_type_sizef(wtype)); // w2
-            ctx_size += mul!(n_layer, n_ff, n_embd, ggml_type_sizef(wtype)); // w3
+            ctx_size += mul!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
+            ctx_size += mul!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
+            ctx_size += mul!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
 
-            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // memory_k
-            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml_type_sizef(ggml::TYPE_F32)); // memory_v
+            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_k
+            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_v
 
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
@@ -610,24 +606,16 @@ impl Model {
                     }
                 }
 
-                fn ggml_type_size(t: ggml::Type) -> usize {
-                    unsafe { ggml_raw::ggml_type_size(t) }
-                }
-
-                fn ggml_blck_size(t: ggml::Type) -> i32 {
-                    unsafe { ggml_raw::ggml_blck_size(t) }
-                }
-
                 let bpe = match ftype {
-                    0 => ggml_type_size(ggml::TYPE_F32),
-                    1 => ggml_type_size(ggml::TYPE_F16),
+                    0 => ggml::type_size(ggml::TYPE_F32),
+                    1 => ggml::type_size(ggml::TYPE_F16),
                     2 => {
                         assert_eq!(ne[0] % 64, 0);
-                        ggml_type_size(ggml::TYPE_Q4_0)
+                        ggml::type_size(ggml::TYPE_Q4_0)
                     }
                     3 => {
                         assert_eq!(ne[0] % 64, 0);
-                        ggml_type_size(ggml::TYPE_Q4_1)
+                        ggml::type_size(ggml::TYPE_Q4_1)
                     }
                     _ => {
                         return Err(LlamaError::InvalidFtype {
@@ -638,7 +626,7 @@ impl Model {
                 };
 
                 if n_dims == 1 || n_parts == 1 {
-                    if (nelements as usize * bpe) / ggml_blck_size(tensor.get_type()) as usize
+                    if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
                         return Err(LlamaError::TensorWrongSize {
@@ -661,7 +649,7 @@ impl Model {
 
                     total_size += tensor.nbytes();
                 } else {
-                    if (nelements as usize * bpe) / ggml_blck_size(tensor.get_type()) as usize
+                    if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes() / n_parts as usize
                     {
                         return Err(LlamaError::TensorWrongSize {
@@ -672,9 +660,9 @@ impl Model {
 
                     if split_type == 0 {
                         let np0 = ne[0];
-                        let row_size = (tensor.get_ne()[0] / ggml_blck_size(tensor.get_type()))
+                        let row_size = (tensor.get_ne()[0] / ggml::blck_size(tensor.get_type()))
                             as usize
-                            * ggml_type_size(tensor.get_type());
+                            * ggml::type_size(tensor.get_type());
 
                         assert_eq!(row_size, tensor.get_nb()[1]);
 
@@ -682,8 +670,8 @@ impl Model {
                             let offset_row = i1 as usize * row_size;
                             let offset = offset_row
                                 + ((part_id * np0) as usize
-                                    / ggml_blck_size(tensor.get_type()) as usize)
-                                    * ggml_type_size(tensor.get_type());
+                                    / ggml::blck_size(tensor.get_type()) as usize)
+                                    * ggml::type_size(tensor.get_type());
                             // SAFETY: yolo, same as original code
                             unsafe {
                                 let ptr = tensor.data().add(offset);
@@ -696,9 +684,9 @@ impl Model {
                         }
                     } else {
                         let np1 = ne[1];
-                        let row_size = (tensor.get_ne()[0] / ggml_blck_size(tensor.get_type()))
+                        let row_size = (tensor.get_ne()[0] / ggml::blck_size(tensor.get_type()))
                             as usize
-                            * ggml_type_size(tensor.get_type());
+                            * ggml::type_size(tensor.get_type());
 
                         for i1 in 0..ne[1] {
                             let offset_row = (i1 + part_id * np1) as usize * row_size;
