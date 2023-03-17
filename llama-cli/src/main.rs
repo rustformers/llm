@@ -20,7 +20,6 @@ fn main() {
         n_batch: args.batch_size,
         top_k: args.top_k,
         top_p: args.top_p,
-        repeat_last_n: args.repeat_last_n,
         repeat_penalty: args.repeat_penalty,
         temp: args.temp,
     };
@@ -40,11 +39,8 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (mut model, vocab) = llama_rs::Model::load(
-        &args.model_path,
-        args.num_ctx_tokens as i32,
-        args.repeat_last_n,
-        |progress| {
+    let (mut model, vocab) =
+        llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
                 LoadProgress::HyperParamsLoaded(hparams) => {
@@ -94,29 +90,31 @@ fn main() {
                     );
                 }
             }
-        },
-    )
-    .expect("Could not load model");
+        })
+        .expect("Could not load model");
 
     log::info!("Model fully loaded!");
 
     let mut rng = thread_rng();
 
-    if let Some(restore_path) = &args.restore_prompt {
+    let mut session = if let Some(restore_path) = &args.restore_prompt {
         let snapshot = InferenceSnapshot::load_from_disk(restore_path);
-        match snapshot.and_then(|snapshot| model.set_snapshot(snapshot)) {
-            Ok(_) => {
+        match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+            Ok(session) => {
                 log::info!("Restored cached memory from {restore_path}");
+                session
             }
             Err(err) => {
                 eprintln!("Could not restore prompt. Error: {err}");
                 std::process::exit(1);
             }
         }
-    }
+    } else {
+        model.start_session(args.repeat_last_n)
+    };
 
     if let Some(cache_path) = &args.cache_prompt {
-        model.feed_prompt(&vocab, &inference_params, &prompt, |t| {
+        model.feed_prompt(&mut session, &vocab, &inference_params, &prompt, |t| {
             print!("{t}");
             std::io::stdout().flush().unwrap();
         });
@@ -125,7 +123,7 @@ fn main() {
         // Write the memory to the cache file
         // SAFETY: no other model functions used inside the block
         unsafe {
-            let memory = model.get_snapshot();
+            let memory = session.get_snapshot();
             match memory.write_to_disk(cache_path) {
                 Ok(_) => {
                     log::info!("Successfully written prompt cache to {cache_path}");
@@ -137,10 +135,17 @@ fn main() {
             }
         }
     } else {
-        model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
-        });
+        model.inference_with_prompt(
+            &mut session,
+            &vocab,
+            &inference_params,
+            &prompt,
+            &mut rng,
+            |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+            },
+        );
         println!();
     }
 }

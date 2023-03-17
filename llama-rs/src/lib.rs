@@ -41,6 +41,8 @@ struct Layer {
     w3: ggml::Tensor,
 }
 
+/// The weights for the LLaMA model. All the mutable state is split into a
+/// separate struct `InferenceSession`.
 pub struct Model {
     hparams: Hyperparameters,
 
@@ -51,13 +53,21 @@ pub struct Model {
 
     layers: Vec<Layer>,
 
-    memory_k: ggml::Tensor,
-    memory_v: ggml::Tensor,
-
     tensors: HashMap<String, ggml::Tensor>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
+}
+
+/// An inference session represents the state of the text generation. This holds
+/// the full context window, as long as several additional parameters used
+/// during sampling.
+pub struct InferenceSession {
+    // Must be kept alive for the model
+    _session_ctx: ggml::Context,
+
+    memory_k: ggml::Tensor,
+    memory_v: ggml::Tensor,
 
     /// How many tokens have been fed into the model's working memory so far.
     n_past: usize,
@@ -74,11 +84,11 @@ pub struct Model {
     last_logits: Vec<f32>,
 }
 
+/// The parameters that drive text generation.
 pub struct InferenceParameters {
     pub n_threads: i32,
     pub n_predict: usize,
     pub n_batch: usize,
-    pub repeat_last_n: usize,
     pub top_k: usize,
     pub top_p: f32,
     pub repeat_penalty: f32,
@@ -91,7 +101,6 @@ impl Default for InferenceParameters {
             n_threads: 8,
             n_predict: 128,
             n_batch: 8,
-            repeat_last_n: 64,
             top_k: 40,
             top_p: 0.95,
             repeat_penalty: 1.30,
@@ -241,11 +250,23 @@ pub enum Error {
     MemorySizeMismatch { self_size: usize, input_size: usize },
 }
 
+/// NOTE: The original code relies in promotion rules and automatic cast between
+/// int to float. What we do instead is use this macro to convert every term of
+/// the multiplication to f64, which should have enough precision bits to hold
+/// the final value, then cast to usize. I have observed a discrepancy between
+/// the ctx_size found using this code, and the one in llama.cpp. The number for
+/// rust ends up being slightly lower, but no "out of memory" errors are
+/// reported by ggml.
+macro_rules! mulf {
+    ($term:expr, $($terms:expr),*) => {
+        (($term as f64) $(* ($terms as f64))*) as u64
+    };
+}
+
 impl Model {
     pub fn load(
         path: impl AsRef<Path>,
         n_ctx: i32,
-        last_n_size: usize,
         load_progress_callback: impl Fn(LoadProgress),
     ) -> Result<(Model, Vocabulary), Error> {
         use std::fs::File;
@@ -345,54 +366,35 @@ impl Model {
 
         let n_embd = hparams.n_embd;
         let n_layer = hparams.n_layer;
-        let n_ctx = hparams.n_ctx;
         let n_vocab = hparams.n_vocab;
 
         let ctx_size = {
             // Use 64-bit math to prevent overflow.
             let n_embd = n_embd as u64;
             let n_layer = n_layer as u64;
-            let n_ctx = n_ctx as u64;
             let n_vocab = n_vocab as u64;
             let n_ff = n_ff as u64;
 
-            /// NOTE: The original code relies in promotion rules and automatic
-            /// cast between int to float. What we do instead is use this macro
-            /// to convert every term of the multiplication to f64, which should
-            /// have enough precision bits to hold the final value, then cast to
-            /// usize. I have observed a discrepancy between the ctx_size found
-            /// using this code, and the one in llama.cpp. The number for rust
-            /// ends up being slightly lower, but no "out of memory" errors are
-            /// reported by ggml.
-            macro_rules! mul {
-                ($term:expr, $($terms:expr),*) => {
-                    (($term as f64) $(* ($terms as f64))*) as u64
-                };
-            }
-
             let mut ctx_size: u64 = 0;
 
-            ctx_size += mul!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
+            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
 
-            ctx_size += mul!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // norm
+            ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // norm
 
-            ctx_size += mul!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
+            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
 
-            ctx_size += mul!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // attention_norm
+            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // attention_norm
 
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
-            ctx_size += mul!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
+            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
+            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
+            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
+            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
 
-            ctx_size += mul!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // ffn_norm
+            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // ffn_norm
 
-            ctx_size += mul!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
-            ctx_size += mul!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
-            ctx_size += mul!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
-
-            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_k
-            ctx_size += mul!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_v
+            ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
+            ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
+            ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
 
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
@@ -462,34 +464,14 @@ impl Model {
                 layers.push(layer);
             }
 
-            // key + value memory
-            let n_mem = n_layer * n_ctx;
-            let n_elements = n_embd * n_mem;
-
-            let memory_k = context.new_tensor_1d(ggml::TYPE_F32, n_elements);
-            let memory_v = context.new_tensor_1d(ggml::TYPE_F32, n_elements);
-
-            let memory_size = memory_k.nbytes() + memory_v.nbytes();
-
-            load_progress_callback(LoadProgress::MemorySize {
-                bytes: memory_size,
-                n_mem: n_mem.try_into()?,
-            });
-
             Model {
                 hparams,
                 tok_embeddings,
                 norm,
                 output,
                 layers,
-                memory_k,
-                memory_v,
                 tensors,
                 _context: context,
-                n_past: 0,
-                mem_per_token: 0,
-                last_n_tokens: VecDeque::from(vec![0; last_n_size]),
-                last_logits: vec![0.0; n_vocab as usize],
             }
         };
 
@@ -736,43 +718,82 @@ impl Model {
         Ok((model, vocab))
     }
 
+    /// Starts a new `InferenceSession` for this model.
+    pub fn start_session(&self, last_n_size: usize) -> InferenceSession {
+        let Hyperparameters {
+            n_ctx,
+            n_embd,
+            n_layer,
+            n_vocab,
+            ..
+        } = self.hparams;
+
+        let ctx_size = {
+            let mut ctx_size = 0;
+            ctx_size += mulf!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_k
+            ctx_size += mulf!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_v
+            ctx_size += (5 + 10 * n_layer as u64) * 256; // object overhead
+            ctx_size
+        };
+
+        let session_ctx = ggml::Context::init(ctx_size as usize);
+
+        // Initialize key + value memory tensors
+        let n_mem = n_layer * n_ctx;
+        let n_elements = n_embd * n_mem;
+        let memory_k = session_ctx.new_tensor_1d(ggml::TYPE_F32, n_elements);
+        let memory_v = session_ctx.new_tensor_1d(ggml::TYPE_F32, n_elements);
+
+        InferenceSession {
+            _session_ctx: session_ctx,
+            memory_k,
+            memory_v,
+            n_past: 0,
+            mem_per_token: 0,
+            last_n_tokens: VecDeque::from(vec![0; last_n_size]),
+            last_logits: vec![0.0; n_vocab as usize],
+        }
+    }
+
     pub fn feed_prompt(
-        &mut self,
+        &self,
+        session: &mut InferenceSession,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
         callback: impl Fn(OutputToken),
     ) {
-        let beginning_of_sentence = self.n_past == 0;
+        let beginning_of_sentence = session.n_past == 0;
         let prompt_tokens = self.tokenize(vocab, prompt, beginning_of_sentence);
 
         for batch in prompt_tokens.chunks(8) {
-            self.evaluate(params.n_threads, batch);
+            self.evaluate(session, params.n_threads, batch);
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
                 callback(OutputToken::Token(&vocab.mapping[tk as usize]));
 
                 // Update the last_n_tokens list
-                self.last_n_tokens.push_front(tk);
+                session.last_n_tokens.push_front(tk);
             }
         }
     }
 
     pub fn infer_next_token<'v>(
-        &mut self,
+        &self,
+        session: &mut InferenceSession,
         vocab: &'v Vocabulary,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> OutputToken<'v> {
         // First, sample the next token, using the stored last_logits;
-        let next_token = self.sample_top_p_top_k(params, rng);
+        let next_token = self.sample_top_p_top_k(session, params, rng);
 
         // Update the last_n_tokens list
-        self.last_n_tokens.push_front(next_token);
+        session.last_n_tokens.push_front(next_token);
 
         // Then, evaluate the network again to compute the new last_logits
-        self.evaluate(params.n_threads, &[next_token]);
+        self.evaluate(session, params.n_threads, &[next_token]);
 
         // Return the next token
         if next_token == 2 {
@@ -783,7 +804,8 @@ impl Model {
     }
 
     pub fn inference_with_prompt(
-        &mut self,
+        &self,
+        session: &mut InferenceSession,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
@@ -792,13 +814,13 @@ impl Model {
     ) {
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
-        self.feed_prompt(vocab, params, prompt, |tk| callback(tk));
+        self.feed_prompt(session, vocab, params, prompt, |tk| callback(tk));
 
         // After the prompt is consumed, sample tokens by repeatedly calling
         // `infer_next_token`. We generate tokens until the model returns an
         // EndOfText token, or we run out of space in the context window.
-        while self.n_past < self.hparams.n_ctx as usize {
-            let tk = self.infer_next_token(vocab, params, rng);
+        while session.n_past < self.hparams.n_ctx as usize {
+            let tk = self.infer_next_token(session, vocab, params, rng);
             (callback)(tk);
             if let OutputToken::EndOfText = tk {
                 break;
@@ -808,10 +830,11 @@ impl Model {
 
     pub fn sample_top_p_top_k(
         &self,
+        session: &InferenceSession,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> TokenId {
-        let logits = &self.last_logits;
+        let logits = &session.last_logits;
         let n_logits = logits.len();
         let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
 
@@ -820,7 +843,7 @@ impl Model {
             for (i, &logit) in logits.iter().enumerate() {
                 // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                 // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-                if self.last_n_tokens.contains(&(i as TokenId)) {
+                if session.last_n_tokens.contains(&(i as TokenId)) {
                     // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
                     if logits[i] < 0.0 {
                         logits_id.push((logit * scale * params.repeat_penalty, i as TokenId));
@@ -886,9 +909,14 @@ impl Model {
     }
 
     /// Evaluates the transformer.
-    pub fn evaluate(&mut self, n_threads: i32, input_tokens: &[TokenId]) {
+    pub fn evaluate(
+        &self,
+        session: &mut InferenceSession,
+        n_threads: i32,
+        input_tokens: &[TokenId],
+    ) {
         let n = input_tokens.len();
-        let n_past = self.n_past as i32;
+        let n_past = session.n_past as i32;
 
         let Hyperparameters {
             n_vocab,
@@ -902,9 +930,9 @@ impl Model {
         } = self.hparams;
 
         let mut buf_size = 512 * 1024 * 1024;
-        if self.mem_per_token > 0 && self.mem_per_token * n > buf_size {
+        if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * self.mem_per_token as f64 * n as f64) as usize;
+            buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
         let ctx0 = ggml::Context::init(buf_size);
 
@@ -939,16 +967,16 @@ impl Model {
                 // store key and value to memory
                 if n >= 1 {
                     let k = ctx0.op_view_1d(
-                        &self.memory_k,
+                        &session.memory_k,
                         n as i32 * n_embd,
-                        (self.memory_k.element_size() * n_embd as usize)
+                        (session.memory_k.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
                     let v = ctx0.op_view_1d(
-                        &self.memory_v,
+                        &session.memory_v,
                         n as i32 * n_embd,
-                        (self.memory_v.element_size() * n_embd as usize)
+                        (session.memory_v.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
@@ -978,10 +1006,10 @@ impl Model {
                     &ctx0.op_rope(
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
-                                &self.memory_k,
+                                &session.memory_k,
                                 (n_past + n as i32) * n_embd,
                                 il * n_ctx as usize
-                                    * self.memory_k.element_size()
+                                    * session.memory_k.element_size()
                                     * n_embd as usize,
                             ),
                             n_embd / n_head,
@@ -1017,9 +1045,9 @@ impl Model {
                 let v_transposed = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
-                            &self.memory_v,
+                            &session.memory_v,
                             (n_past + n as i32) * n_embd,
-                            il * n_ctx as usize * self.memory_v.element_size() * n_embd as usize,
+                            il * n_ctx as usize * session.memory_v.element_size() * n_embd as usize,
                         ),
                         n_embd / n_head,
                         n_head,
@@ -1102,21 +1130,21 @@ impl Model {
 
         // return result for just the last token
         // SAFETY: yolo
-        assert_eq!(self.last_logits.len(), n_vocab as usize);
+        assert_eq!(session.last_logits.len(), n_vocab as usize);
         unsafe {
             input_layer.read_data(
                 n_vocab as usize * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(&mut self.last_logits),
+                bytemuck::cast_slice_mut(&mut session.last_logits),
             )
         };
 
         // Adjust the required memory per token if we didn't know that already
-        if self.mem_per_token == 0 {
-            self.mem_per_token = ctx0.used_mem() / n;
+        if session.mem_per_token == 0 {
+            session.mem_per_token = ctx0.used_mem() / n;
         }
 
         // Adjust n_past to new length.
-        self.n_past += input_tokens.len();
+        session.n_past += input_tokens.len();
     }
 
     pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
@@ -1155,6 +1183,39 @@ impl Model {
         res
     }
 
+    /// Sets the state of the model, from a previously obtained InferenceSnapshot
+    pub fn session_from_snapshot(
+        &mut self,
+        snapshot: InferenceSnapshot,
+    ) -> Result<InferenceSession, Error> {
+        let mut session = self.start_session(snapshot.last_n_tokens.len());
+
+        if session.memory_k.nbytes() != snapshot.memory_k.len()
+            || session.memory_v.nbytes() != snapshot.memory_v.len()
+        {
+            return Err(Error::MemorySizeMismatch {
+                self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
+                input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
+            });
+        }
+
+        // SAFETY: We have exclusive access to Session, which means no one else
+        // should be touching the context's memory. We can write to it because
+        // we already checked the size.
+        unsafe {
+            session.memory_k.write_data(&snapshot.memory_k);
+            session.memory_v.write_data(&snapshot.memory_v);
+        }
+
+        session.n_past = snapshot.npast;
+        session.last_n_tokens = snapshot.last_n_tokens;
+        session.last_logits = snapshot.last_logits;
+
+        Ok(session)
+    }
+}
+
+impl InferenceSession {
     /// Obtains a serializable snapshot of the current inference status. This
     /// can be used to cache the state of the model and store them into a file.
     ///
@@ -1179,41 +1240,6 @@ impl Model {
             last_n_tokens: self.last_n_tokens.clone(),
             logits: self.last_logits.clone(),
         }
-    }
-
-    /// Clears the model's state, so inference can be restarted without having
-    /// to load the weights again.
-    pub fn clear_state(&mut self) {
-        self.memory_k.zero_data();
-        self.memory_v.zero_data();
-        self.n_past = 0;
-        self.last_n_tokens = VecDeque::from(vec![0; self.last_n_tokens.len()]);
-    }
-
-    /// Sets the state of the model, from a previously obtained InferenceSnapshot
-    pub fn set_snapshot(&mut self, snapshot: InferenceSnapshot) -> Result<(), Error> {
-        if self.memory_k.nbytes() != snapshot.memory_k.len()
-            || self.memory_v.nbytes() != snapshot.memory_v.len()
-        {
-            return Err(Error::MemorySizeMismatch {
-                self_size: self.memory_k.nbytes() + self.memory_v.nbytes(),
-                input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
-            });
-        }
-
-        // SAFETY: We have exclusive access to Self, which means no one else
-        // should be touching the context's memory. We can write to it because
-        // we already checked the size.
-        unsafe {
-            self.memory_k.write_data(&snapshot.memory_k);
-            self.memory_v.write_data(&snapshot.memory_v);
-        }
-
-        self.n_past = snapshot.npast;
-        self.last_n_tokens = snapshot.last_n_tokens;
-        self.last_logits = snapshot.last_logits;
-
-        Ok(())
     }
 }
 

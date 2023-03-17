@@ -243,6 +243,7 @@ impl Tensor {
         std::ptr::copy_nonoverlapping(src.as_ptr(), self.data() as *mut u8, src.len())
     }
 
+    #[allow(unused)]
     pub fn zero_data(&self) {
         unsafe { std::ptr::write_bytes(self.data() as *mut u8, 0, self.nbytes()) }
     }
