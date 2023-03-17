@@ -11,13 +11,17 @@ env:
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
-
+    strategy:
+      # Don't stop building if it fails on an OS
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
     - name: Check
-      run: cargo check
+      run: cargo check --verbose
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -27,12 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@rustfmt
-    - run: cargo fmt --all -- --check
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@clippy
-      - run: cargo clippy -- -Dclippy::all -Dclippy::pedantic
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    - name: Formatting
+      run: cargo fmt --all -- --check
+    - name: Clippy
+      run: cargo clippy -- -Dclippy::all -Dclippy::pedantic
