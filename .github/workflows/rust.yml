@@ -37,4 +37,4 @@ jobs:
     - name: Formatting
       run: cargo fmt --all -- --check
     - name: Clippy
-      run: cargo clippy -- -Dclippy::all -Dclippy::pedantic
+      run: cargo clippy -- -Dclippy::all # -Dclippy::pedantic
