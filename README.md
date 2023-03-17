@@ -31,9 +31,15 @@ Make sure you have a rust toolchain set up.
 3. Build (`cargo build --release`)
 4. Run with `cargo run --release -- <ARGS>`
 
+Some additional things to try:
+
+- Use `--help` to see a list of available commands.
+- Prompt files can be precomputed to speed up processing using the
+  `--cache-prompt` and `--restore-prompt` flags.
+
 [^1]: The only legal source to get the weights at the time of writing is [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama). The choice of words also may or may not hint at the existence of other kinds of sources.
 
-**NOTE**: Make sure to build and run in release mode. Debug builds are currently broken.
+**NOTE**: For best results, make sure to build and run in release mode. Debug builds are going to be very slow.
 
 For example, you try the following prompt:
 
