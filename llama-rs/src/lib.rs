@@ -1225,6 +1225,8 @@ impl InferenceSession {
         }
     }
 
+    // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
+    #[allow(clippy::too_many_arguments)]
     pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
