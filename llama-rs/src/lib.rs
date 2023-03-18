@@ -1096,147 +1096,153 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
-        let mut res = Vec::new();
-        if bos {
-            res.push(1 as TokenId); // TODO: replace with vocab.bos
+        pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
+
+            use tokenizers::tokenizer::{Result, Tokenizer};
+            let tokenizer = Tokenizer::from_file("/data/Llama/LLaMA/7B/tokenizer/tokenizer_config.json").unwrap();
+            dbg!(tokenizer.encode(text, false).unwrap());
+            panic!("STOP");
+
+            let mut res = Vec::new();
+            if bos {
+                res.push(1 as TokenId); // TODO: replace with vocab.bos
+            }
+
+            // Find the longest token that matches the text
+            let mut pos = 0;
+            loop {
+                let mut l = 0;
+                let mut t = 0;
+
+                for (tk_id, tk) in vocab.mapping.iter().enumerate() {
+                    if tk.len() < l {
+                        continue;
+                    }
+                    if tk.len() > text.len() - pos {
+                        continue;
+                    }
+                    if text[pos..].starts_with(tk) {
+                        l = tk.len();
+                        t = tk_id;
+                    }
+                }
+
+                if l == 0 {
+                    break;
+                }
+
+                res.push(t as TokenId);
+                pos += l;
+            }
+
+            res
         }
 
-        // Find the longest token that matches the text
-        let mut pos = 0;
-        loop {
-            let mut l = 0;
-            let mut t = 0;
+        /// Sets the state of the model, from a previously obtained InferenceSnapshot
+        pub fn session_from_snapshot(
+            &mut self,
+            snapshot: InferenceSnapshot,
+        ) -> Result<InferenceSession, SnapshotError> {
+            let mut session = self.start_session(snapshot.last_n_tokens.len());
 
-            for (tk_id, tk) in vocab.mapping.iter().enumerate() {
-                if tk.len() < l {
-                    continue;
-                }
-                if tk.len() > text.len() - pos {
-                    continue;
-                }
-                if text[pos..].starts_with(tk) {
-                    l = tk.len();
-                    t = tk_id;
+            if session.memory_k.nbytes() != snapshot.memory_k.len()
+                || session.memory_v.nbytes() != snapshot.memory_v.len()
+            {
+                return Err(SnapshotError::MemorySizeMismatch {
+                    self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
+                    input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
+                });
+            }
+
+            // SAFETY: We have exclusive access to Session, which means no one else
+            // should be touching the context's memory. We can write to it because
+            // we already checked the size.
+            unsafe {
+                session.memory_k.write_data(&snapshot.memory_k);
+                session.memory_v.write_data(&snapshot.memory_v);
+            }
+
+            session.n_past = snapshot.npast;
+            session.last_n_tokens = snapshot.last_n_tokens;
+            session.last_logits = snapshot.last_logits;
+
+            Ok(session)
+        }
+    }
+
+    impl InferenceSession {
+        pub fn feed_prompt<E: std::error::Error + 'static>(
+            &mut self,
+            model: &Model,
+            vocab: &Vocabulary,
+            params: &InferenceParameters,
+            prompt: &str,
+            callback: impl Fn(OutputToken) -> Result<(), E>,
+        ) -> Result<(), InferenceError> {
+            let beginning_of_sentence = self.n_past == 0;
+            let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
+
+            if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
+                return Err(InferenceError::ContextFull);
+            }
+
+            for batch in prompt_tokens.chunks(8) {
+                model.evaluate(self, params.n_threads, batch);
+                for &tk in batch {
+                    // NOTE: No string ever tokenizes to the end of sentence. So we
+                    // can just return the id here.
+                    if let Err(e) = callback(OutputToken::Token(&vocab.mapping[tk as usize])) {
+                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    }
+
+                    // Update the last_n_tokens list
+                    self.last_n_tokens.push_front(tk);
                 }
             }
 
-            if l == 0 {
-                break;
+            Ok(())
+        }
+
+        pub fn infer_next_token<'v>(
+            &mut self,
+            model: &Model,
+            vocab: &'v Vocabulary,
+            params: &InferenceParameters,
+            rng: &mut impl rand::Rng,
+        ) -> Result<OutputToken<'v>, InferenceError> {
+            if self.n_past + 1 >= model.hparams.n_ctx as usize {
+                return Err(InferenceError::ContextFull);
             }
 
-            res.push(t as TokenId);
-            pos += l;
-        }
+            // First, sample the next token, using the stored last_logits;
+            let next_token = model.sample_top_p_top_k(self, params, rng);
 
-        res
-    }
+            // Update the last_n_tokens list
+            self.last_n_tokens.push_front(next_token);
 
-    /// Sets the state of the model, from a previously obtained InferenceSnapshot
-    pub fn session_from_snapshot(
-        &mut self,
-        snapshot: InferenceSnapshot,
-    ) -> Result<InferenceSession, SnapshotError> {
-        let mut session = self.start_session(snapshot.last_n_tokens.len());
+            // Then, evaluate the network again to compute the new last_logits
+            model.evaluate(self, params.n_threads, &[next_token]);
 
-        if session.memory_k.nbytes() != snapshot.memory_k.len()
-            || session.memory_v.nbytes() != snapshot.memory_v.len()
-        {
-            return Err(SnapshotError::MemorySizeMismatch {
-                self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
-                input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
-            });
-        }
-
-        // SAFETY: We have exclusive access to Session, which means no one else
-        // should be touching the context's memory. We can write to it because
-        // we already checked the size.
-        unsafe {
-            session.memory_k.write_data(&snapshot.memory_k);
-            session.memory_v.write_data(&snapshot.memory_v);
-        }
-
-        session.n_past = snapshot.npast;
-        session.last_n_tokens = snapshot.last_n_tokens;
-        session.last_logits = snapshot.last_logits;
-
-        Ok(session)
-    }
-}
-
-impl InferenceSession {
-    pub fn feed_prompt<E: std::error::Error + 'static>(
-        &mut self,
-        model: &Model,
-        vocab: &Vocabulary,
-        params: &InferenceParameters,
-        prompt: &str,
-        callback: impl Fn(OutputToken) -> Result<(), E>,
-    ) -> Result<(), InferenceError> {
-        let beginning_of_sentence = self.n_past == 0;
-        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
-
-        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
-        }
-
-        for batch in prompt_tokens.chunks(8) {
-            model.evaluate(self, params.n_threads, batch);
-            for &tk in batch {
-                // NOTE: No string ever tokenizes to the end of sentence. So we
-                // can just return the id here.
-                if let Err(e) = callback(OutputToken::Token(&vocab.mapping[tk as usize])) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
-                }
-
-                // Update the last_n_tokens list
-                self.last_n_tokens.push_front(tk);
+            // Return the next token
+            if next_token == 2 {
+                Ok(OutputToken::EndOfText)
+            } else {
+                Ok(OutputToken::Token(&vocab.mapping[next_token as usize]))
             }
         }
 
-        Ok(())
-    }
-
-    pub fn infer_next_token<'v>(
-        &mut self,
-        model: &Model,
-        vocab: &'v Vocabulary,
-        params: &InferenceParameters,
-        rng: &mut impl rand::Rng,
-    ) -> Result<OutputToken<'v>, InferenceError> {
-        if self.n_past + 1 >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
-        }
-
-        // First, sample the next token, using the stored last_logits;
-        let next_token = model.sample_top_p_top_k(self, params, rng);
-
-        // Update the last_n_tokens list
-        self.last_n_tokens.push_front(next_token);
-
-        // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(self, params.n_threads, &[next_token]);
-
-        // Return the next token
-        if next_token == 2 {
-            Ok(OutputToken::EndOfText)
-        } else {
-            Ok(OutputToken::Token(&vocab.mapping[next_token as usize]))
-        }
-    }
-
-    // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
-    #[allow(clippy::too_many_arguments)]
-    pub fn inference_with_prompt<E: std::error::Error + 'static>(
-        &mut self,
-        model: &Model,
-        vocab: &Vocabulary,
-        params: &InferenceParameters,
-        prompt: &str,
-        maximum_token_count: Option<usize>,
-        rng: &mut impl rand::Rng,
-        callback: impl Fn(OutputToken) -> Result<(), E>,
-    ) -> Result<(), InferenceError> {
+        // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
+        #[allow(clippy::too_many_arguments)]
+        pub fn inference_with_prompt<E: std::error::Error + 'static>(
+            &mut self,
+            model: &Model,
+            vocab: &Vocabulary,
+            params: &InferenceParameters,
+            prompt: &str,
+            maximum_token_count: Option<usize>,
+            rng: &mut impl rand::Rng,
+            callback: impl Fn(OutputToken) -> Result<(), E>,
+        ) -> Result<(), InferenceError> {
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
         self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;

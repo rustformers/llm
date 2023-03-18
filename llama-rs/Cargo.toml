@@ -14,3 +14,5 @@ thiserror = "1.0"
 rand = { workspace = true }
 serde = { version = "1.0.156", features = ["derive"] }
 bincode = "1.3.3"
+
+tokenizers = { git = "https://github.com/huggingface/tokenizers", rev = "5ecd329503a4ac137bf00442ede4d31140276eb1" }
