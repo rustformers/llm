@@ -134,6 +134,10 @@ fn main() {
                     "Context is not large enough to fit the prompt. Saving intermediate state."
                 );
             }
+            Err(llama_rs::InferenceError::TokenizationFailed) => {
+                log::error!("Failed to tokenize initial prompt. Exiting.");
+                return;
+            }
             Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
 
@@ -172,6 +176,9 @@ fn main() {
             Ok(_) => (),
             Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
+            }
+            Err(llama_rs::InferenceError::TokenizationFailed) => {
+                log::error!("Failed to tokenize initial prompt.");
             }
             Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
