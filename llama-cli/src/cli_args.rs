@@ -67,6 +67,12 @@ pub struct Args {
     /// --cache-prompt
     #[arg(long, default_value = None)]
     pub restore_prompt: Option<String>,
+
+    /// Specifies the seed to use during sampling. Note that, depending on
+    /// hardware, the same seed may lead to different results on two separate
+    /// machines.
+    #[arg(long, default_value = None)]
+    pub seed: Option<u64>,
 }
 
 /// CLI args are stored in a lazy static variable so they're accessible from
