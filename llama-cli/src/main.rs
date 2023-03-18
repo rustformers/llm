@@ -120,12 +120,11 @@ fn main() {
         println!();
         match res {
             Ok(_) => (),
-            Err(llama_rs::Error::ContextFull) => {
+            Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!(
                     "Context is not large enough to fit the prompt. Saving intermediate state."
                 );
             }
-            err => unreachable!("{err:?}"),
         }
 
         // Write the memory to the cache file
@@ -159,10 +158,9 @@ fn main() {
 
         match res {
             Ok(_) => (),
-            Err(llama_rs::Error::ContextFull) => {
+            Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }
-            err => unreachable!("{err:?}"),
         }
     }
 }
