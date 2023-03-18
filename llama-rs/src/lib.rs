@@ -116,6 +116,9 @@ pub struct Vocabulary {
 
     /// Maps a token to a token id
     token_to_id: HashMap<Token, TokenId>,
+
+    /// The longest token in this vocabulary
+    max_token_length: usize,
 }
 
 #[derive(serde::Serialize)]
@@ -349,10 +352,12 @@ impl Model {
         let vocab = {
             let mut id_to_token = vec![];
             let mut token_to_id = HashMap::new();
+            let mut max_token_length = 0;
 
             for i in 0..hparams.n_vocab {
                 let len = read_i32(&mut reader)?;
                 if let Ok(word) = read_string(&mut reader, len as usize) {
+                    max_token_length = max_token_length.max(word.len());
                     id_to_token.push(word.clone());
                     token_to_id.insert(word, i);
                 } else {
@@ -366,6 +371,7 @@ impl Model {
             Vocabulary {
                 id_to_token,
                 token_to_id,
+                max_token_length,
             }
         };
 
@@ -1116,16 +1122,13 @@ impl Model {
         text: &str,
         bos: bool,
     ) -> Result<Vec<TokenId>, InferenceError> {
-        // TODO: Calculate this constant from the vocabulary
-        const MAX_TOKEN_LENGTH: usize = 18;
-
         let len = text.len();
 
         let mut score = vec![0usize; len + 1];
         let mut prev = vec![TokenId::default(); len + 1];
 
         for i in 0..len {
-            let max_len = (len - i).min(MAX_TOKEN_LENGTH);
+            let max_len = (len - i).min(vocab.max_token_length);
             for sub_len in 1..=max_len {
                 let sub = &text.as_bytes()[i..i + sub_len];
                 let Ok(sub) = std::str::from_utf8(sub) else { continue; };
