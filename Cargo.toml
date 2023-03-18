@@ -2,7 +2,8 @@
 members = [
     "ggml-raw",
     "llama-rs",
-    "llama-cli"
+    "llama-cli",
+    "tauri-app/src-tauri"
 ]
 
 resolver = "2"
