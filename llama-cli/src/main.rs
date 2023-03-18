@@ -42,7 +42,7 @@ fn main() {
         llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
-                LoadProgress::HyperParamsLoaded(hparams) => {
+                LoadProgress::HyperparametersLoaded(hparams) => {
                     log::debug!("Loaded HyperParams {hparams:#?}")
                 }
                 LoadProgress::BadToken { index } => {

@@ -180,7 +180,7 @@ fn llama_n_parts(size: i32) -> i32 {
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LoadProgress<'a> {
-    HyperParamsLoaded(&'a Hyperparameters),
+    HyperparametersLoaded(&'a Hyperparameters),
     BadToken {
         index: usize,
     },
@@ -335,7 +335,7 @@ impl Model {
             ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
         let n_parts = llama_n_parts(hparams.n_embd);
 
-        load_progress_callback(LoadProgress::HyperParamsLoaded(&hparams));
+        load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
 
         // ===============
         // Load vocabulary
