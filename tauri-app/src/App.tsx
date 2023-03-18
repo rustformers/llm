@@ -7,10 +7,21 @@ import { listen } from "@tauri-apps/api/event";
 function App() {
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
-  const path = "/Users/karelnagel/Documents/projects/llama-rs/models/Alpaca/ggml-alpaca-7b-q4.bin";
+  const input = {
+    path: "/Users/karelnagel/Documents/projects/llama-rs/models/Alpaca/ggml-alpaca-7b-q4.bin",
+    prompt,
+    n_batch: 8,
+    n_threads: 4,
+    top_k: 40,
+    top_p: 0.95,
+    repeat_penalty: 1.3,
+    temp: 0.8,
+    num_predict: 512,
+  };
+
   async function greet() {
     setAnswer("");
-    invoke("start", { path, prompt });
+    invoke("complete", { input });
   }
   useEffect(() => {
     listen("message", (event) => {
