@@ -1,0 +1,7 @@
+Below is an instruction that describes a task. Write a response that appropriately completes the request. Use the same language from the instruction as the answer.
+
+### Instruction:
+
+$PROMPT
+
+### Response:
