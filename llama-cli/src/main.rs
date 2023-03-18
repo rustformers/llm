@@ -1,11 +1,38 @@
-use std::io::Write;
+use std::io::{self, Write};
 
 use cli_args::CLI_ARGS;
-use llama_rs::InferenceParameters;
+use llama_rs::{InferenceParameters, InferenceSession, InferenceSnapshot};
 use rand::thread_rng;
-use rustyline::DefaultEditor;
 
 mod cli_args;
+
+fn repl_mode(
+    prompt: &str,
+    model: &llama_rs::Model,
+    vocab: &llama_rs::Vocabulary,
+    params: &InferenceParameters,
+) {
+    let mut rl = rustyline::DefaultEditor::new().unwrap();
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let prompt = prompt.replace("$PROMPT", &line);
+                let mut session = model.start_session(CLI_ARGS.repeat_last_n);
+                let mut rng = thread_rng();
+                session.feed_prompt(model, vocab, params, &prompt, |_| {});
+                session.inference_with_prompt(model, vocab, params, "", &mut rng, |tk| {
+                    print!("{tk}");
+                    std::io::stdout().flush();
+                });
+                println!();
+            }
+            Err(err) => {
+                log::error!("{err}");
+            }
+        }
+    }
+}
 
 fn main() {
     env_logger::builder()
@@ -19,34 +46,28 @@ fn main() {
         n_threads: args.num_threads as i32,
         n_predict: args.num_predict,
         n_batch: args.batch_size,
-        top_k: args.top_k as i32,
+        top_k: args.top_k,
         top_p: args.top_p,
-        repeat_last_n: args.repeat_last_n,
         repeat_penalty: args.repeat_penalty,
         temp: args.temp,
     };
-
-    let repl_mode = args.repl.unwrap_or(false);
 
     let prompt = if let Some(path) = &args.prompt_file {
         match std::fs::read_to_string(path) {
             Ok(prompt) => prompt,
             Err(err) => {
-                eprintln!("Could not read prompt file at {path}. Error {err}");
+                log::error!("Could not read prompt file at {path}. Error {err}");
                 std::process::exit(1);
             }
         }
     } else if let Some(prompt) = &args.prompt {
         prompt.clone()
-    } else if repl_mode {
-        // Hack just to make things work for now, REPL ignores prompt CLI args
-        "".to_string()
     } else {
-        eprintln!("No prompt or prompt file was provided. See --help");
+        log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
     };
 
-    let (model, vocab) =
+    let (mut model, vocab) =
         llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
@@ -104,45 +125,76 @@ fn main() {
 
     let mut rng = thread_rng();
 
-    if repl_mode {
-        let mut rl = DefaultEditor::new().unwrap();
-        loop {
-            let readline = rl.readline(">> ");
-            match readline {
-                Ok(line) => {
-                    let prompt = format!("
-prompt: Below is an instruction that describes a task. Write a response that appropriately completes the request.
-
-### Instruction:
-
-{}
-
-### Response:
-", line);
-
-                    model.inference_with_prompt(
-                        &vocab,
-                        &inference_params,
-                        &prompt,
-                        &mut rng,
-                        |t| {
-                            print!("{t}");
-                            std::io::stdout().flush().unwrap();
-                        },
-                    );
-                    println!();
+    if args.repl.unwrap_or(false) {
+        repl_mode(&prompt, &model, &vocab, &inference_params);
+    } else {
+        let mut session = if let Some(restore_path) = &args.restore_prompt {
+            let snapshot = InferenceSnapshot::load_from_disk(restore_path);
+            match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+                Ok(session) => {
+                    log::info!("Restored cached memory from {restore_path}");
+                    session
                 }
                 Err(err) => {
-                    println!("Error: {:?}", err);
-                    break;
+                    eprintln!("Could not restore prompt. Error: {err}");
+                    std::process::exit(1);
                 }
             }
+        } else {
+            model.start_session(args.repeat_last_n)
+        };
+
+        if let Some(cache_path) = &args.cache_prompt {
+            let res = session.feed_prompt(&model, &vocab, &inference_params, &prompt, |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+            });
+            println!();
+            match res {
+                Ok(_) => (),
+                Err(llama_rs::Error::ContextFull) => {
+                    log::warn!(
+                        "Context is not large enough to fit the prompt. Saving intermediate state."
+                    );
+                }
+                err => unreachable!("{err:?}"),
+            }
+
+            // Write the memory to the cache file
+            // SAFETY: no other model functions used inside the block
+            unsafe {
+                let memory = session.get_snapshot();
+                match memory.write_to_disk(cache_path) {
+                    Ok(_) => {
+                        log::info!("Successfully written prompt cache to {cache_path}");
+                    }
+                    Err(err) => {
+                        log::error!("Could not write prompt cache at {cache_path}: {err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        } else {
+            let res = session.inference_with_prompt(
+                &model,
+                &vocab,
+                &inference_params,
+                &prompt,
+                &mut rng,
+                |t| {
+                    print!("{t}");
+                    std::io::stdout().flush().unwrap();
+                },
+            );
+            println!();
+
+            match res {
+                Ok(_) => (),
+                Err(llama_rs::Error::ContextFull) => {
+                    log::warn!("Context window full, stopping inference.")
+                }
+                err => unreachable!("{err:?}"),
+            }
         }
-    } else {
-        model.inference_with_prompt(&vocab, &inference_params, &prompt, &mut rng, |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
-        });
-        println!();
     }
 }

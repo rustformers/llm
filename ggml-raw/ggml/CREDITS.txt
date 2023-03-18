@@ -1,0 +1,4 @@
+Vendored version: https://github.com/ggerganov/llama.cpp/commit/367946c668757532deed929e1d78673c6ac6bcb8
+
+The ggml.c and ggml.h files are distributed under the terms of the MIT license.
+Credit goes to the original authors: Copyright (c) 2023 Georgi Gerganov

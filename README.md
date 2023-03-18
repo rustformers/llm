@@ -31,9 +31,15 @@ Make sure you have a rust toolchain set up.
 3. Build (`cargo build --release`)
 4. Run with `cargo run --release -- <ARGS>`
 
+Some additional things to try:
+
+- Use `--help` to see a list of available commands.
+- Prompt files can be precomputed to speed up processing using the
+  `--cache-prompt` and `--restore-prompt` flags.
+
 [^1]: The only legal source to get the weights at the time of writing is [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama). The choice of words also may or may not hint at the existence of other kinds of sources.
 
-**NOTE**: Make sure to build and run in release mode. Debug builds are currently broken.
+**NOTE**: For best results, make sure to build and run in release mode. Debug builds are going to be very slow.
 
 For example, you try the following prompt:
 
@@ -71,14 +77,14 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
 
 Contributions welcome! Here's a few pressing issues:
 
-- [ ] The code only sets the right CFLAGS on Linux. The `build.rs` script in
-      `ggml_raw` needs to be fixed, so inference *will be very slow on every
-      other OS*.
 - [ ] The quantization code has not been ported (yet). You can still use the
       quantized models with llama.cpp.
-- [ ] The code needs to be "library"-fied. It is nice as a showcase binary, but
-      the real potential for this tool is to allow embedding in other services.
 - [ ] No crates.io release. The name `llama-rs` is reserved and I plan to do
       this soon-ish.
-- [ ] Debug builds are currently broken.
-- [ ] Anything from the original C++ code.
+- [ ] Any improvements from the original C++ code. (See https://github.com/setzer22/llama-rs/issues/15)
+- [x] Debug builds are currently broken.
+- [x] The code needs to be "library"-fied. It is nice as a showcase binary, but
+      the real potential for this tool is to allow embedding in other services.
+- [x] The code only sets the right CFLAGS on Linux. The `build.rs` script in
+      `ggml_raw` needs to be fixed, so inference *will be very slow on every
+      other OS*.

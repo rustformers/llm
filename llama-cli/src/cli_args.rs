@@ -61,6 +61,16 @@ pub struct Args {
     /// for sampling.
     #[arg(long, default_value_t = 0.95)]
     pub top_p: f32,
+
+    /// Stores a cached prompt at the given path. The same prompt can then be
+    /// loaded from disk using --restore-prompt
+    #[arg(long, default_value = None)]
+    pub cache_prompt: Option<String>,
+
+    /// Restores a cached prompt at the given path, previously using
+    /// --cache-prompt
+    #[arg(long, default_value = None)]
+    pub restore_prompt: Option<String>,
 }
 
 /// CLI args are stored in a lazy static variable so they're accessible from
