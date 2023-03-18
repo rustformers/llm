@@ -2,7 +2,8 @@
 members = [
     "ggml-raw",
     "llama-rs",
-    "llama-cli"
+    "llama-cli",
+    "llama-http"
 ]
 
 resolver = "2"
