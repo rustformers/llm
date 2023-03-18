@@ -254,6 +254,9 @@ pub enum SnapshotError {
 pub enum InferenceError {
     #[error("the context window is full")]
     ContextFull,
+
+    #[error("the user-specified callback returned an error")]
+    UserCallback(Box<dyn std::error::Error>),
 }
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
@@ -1150,13 +1153,13 @@ impl Model {
 }
 
 impl InferenceSession {
-    pub fn feed_prompt(
+    pub fn feed_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
-        callback: impl Fn(OutputToken),
+        callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
@@ -1170,7 +1173,9 @@ impl InferenceSession {
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
-                callback(OutputToken::Token(&vocab.mapping[tk as usize]));
+                if let Err(e) = callback(OutputToken::Token(&vocab.mapping[tk as usize])) {
+                    return Err(InferenceError::UserCallback(Box::new(e)));
+                }
 
                 // Update the last_n_tokens list
                 self.last_n_tokens.push_front(tk);
@@ -1208,7 +1213,7 @@ impl InferenceSession {
         }
     }
 
-    pub fn inference_with_prompt(
+    pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
         vocab: &Vocabulary,
@@ -1216,7 +1221,7 @@ impl InferenceSession {
         prompt: &str,
         maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
-        callback: impl Fn(OutputToken),
+        callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
@@ -1233,7 +1238,9 @@ impl InferenceSession {
                 .unwrap_or(true)
         {
             let tk = self.infer_next_token(model, vocab, params, rng)?;
-            (callback)(tk);
+            if let Err(e) = callback(tk) {
+                return Err(InferenceError::UserCallback(Box::new(e)));
+            }
 
             tokens_processed += 1;
             if let OutputToken::EndOfText = tk {

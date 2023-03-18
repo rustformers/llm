@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
 use llama_rs::{InferenceParameters, InferenceSnapshot};
@@ -113,11 +113,16 @@ fn main() {
     };
 
     if let Some(cache_path) = &args.cache_prompt {
-        let res = session.feed_prompt(&model, &vocab, &inference_params, &prompt, |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
-        });
+        let res =
+            session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+
+                Ok(())
+            });
+
         println!();
+
         match res {
             Ok(_) => (),
             Err(llama_rs::InferenceError::ContextFull) => {
@@ -125,6 +130,7 @@ fn main() {
                     "Context is not large enough to fit the prompt. Saving intermediate state."
                 );
             }
+            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
 
         // Write the memory to the cache file
@@ -142,7 +148,7 @@ fn main() {
             }
         }
     } else {
-        let res = session.inference_with_prompt(
+        let res = session.inference_with_prompt::<Infallible>(
             &model,
             &vocab,
             &inference_params,
@@ -152,6 +158,8 @@ fn main() {
             |t| {
                 print!("{t}");
                 std::io::stdout().flush().unwrap();
+
+                Ok(())
             },
         );
         println!();
@@ -161,6 +169,7 @@ fn main() {
             Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }
+            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
     }
 }
