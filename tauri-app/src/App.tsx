@@ -1,16 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./App.css";
+import { listen } from "@tauri-apps/api/event";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-
+  const [prompt, setPrompt] = useState("");
+  const [answer, setAnswer] = useState("");
+  const path = "/Users/karelnagel/Documents/projects/llama-rs/models/Alpaca/ggml-alpaca-7b-q4.bin";
   async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    setGreetMsg(await invoke("greet", { name }));
+    setAnswer("");
+    invoke("start", { path, prompt });
   }
+  useEffect(() => {
+    listen("message", (event) => {
+      console.log(event);
+      setAnswer((event.payload as any)?.message);
+    });
+  }, []);
 
   return (
     <div className="container">
@@ -37,15 +44,11 @@ function App() {
             greet();
           }}
         >
-          <input
-            id="greet-input"
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="Enter a name..."
-          />
+          <input id="greet-input" onChange={(e) => setPrompt(e.currentTarget.value)} placeholder="Enter a name..." />
           <button type="submit">Greet</button>
         </form>
       </div>
-      <p>{greetMsg}</p>
+      <p>{answer}</p>
     </div>
   );
 }

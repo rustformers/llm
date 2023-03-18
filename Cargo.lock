@@ -2510,6 +2510,10 @@ dependencies = [
 name = "tauri-app"
 version = "0.0.0"
 dependencies = [
+ "llama-rs",
+ "log",
+ "num_cpus",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "tauri",
