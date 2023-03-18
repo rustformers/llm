@@ -17,16 +17,16 @@ pub struct Args {
     pub prompt_file: Option<String>,
 
     /// Run in REPL mode.
-    #[arg(long, short = 'R', default_value = None)]
-    pub repl: Option<bool>,
+    #[arg(long, short = 'R', default_value_t = false)]
+    pub repl: bool,
 
     /// Sets the number of threads to use
     #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]
     pub num_threads: usize,
 
     /// Sets how many tokens to predict
-    #[arg(long, default_value_t = 128)]
-    pub num_predict: usize,
+    #[arg(long, short = 'n')]
+    pub num_predict: Option<usize>,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory. TODO: Unsure how large the limit is.
