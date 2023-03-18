@@ -87,7 +87,6 @@ pub struct InferenceSession {
 /// The parameters that drive text generation.
 pub struct InferenceParameters {
     pub n_threads: i32,
-    pub n_predict: usize,
     pub n_batch: usize,
     pub top_k: usize,
     pub top_p: f32,
@@ -99,7 +98,6 @@ impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
             n_threads: 8,
-            n_predict: 128,
             n_batch: 8,
             top_k: 40,
             top_p: 0.95,
@@ -168,21 +166,11 @@ impl Display for OutputToken<'_> {
     }
 }
 
-fn llama_n_parts(size: i32) -> i32 {
-    match size {
-        4096 => 1,
-        5120 => 2,
-        6656 => 4,
-        8192 => 8,
-        _ => unreachable!("Invalid size for N_PARTS"),
-    }
-}
-
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LoadProgress<'a> {
-    HyperParamsLoaded(&'a Hyperparameters),
+    HyperparametersLoaded(&'a Hyperparameters),
     BadToken {
         index: usize,
     },
@@ -211,12 +199,14 @@ pub enum LoadProgress<'a> {
 }
 
 #[derive(Error, Debug)]
-pub enum Error {
+pub enum LoadError {
     #[error("could not open file {path:?}")]
     OpenFileFailed {
         source: std::io::Error,
         path: PathBuf,
     },
+    #[error("no parent path for {path:?}")]
+    NoParentPath { path: PathBuf },
     #[error("unable to read exactly {bytes} bytes")]
     ReadExactFailed {
         source: std::io::Error,
@@ -240,16 +230,25 @@ pub enum Error {
     TensorWrongSize { tensor_name: String, path: PathBuf },
     #[error("invalid ftype {ftype} in {path:?}")]
     InvalidFtype { ftype: i32, path: PathBuf },
+}
+
+#[derive(Error, Debug)]
+pub enum SnapshotError {
     #[error("I/O error while writing model memory")]
-    SnapshotIO(std::io::Error),
+    IO(#[from] std::io::Error),
     #[error("error during snapshot serialization")]
-    SnapshotSerialization(bincode::Error),
-    #[error("snapshot error: {0}")]
-    Snapshot(Box<Error>),
+    Serialization(#[from] bincode::Error),
     #[error("could not write memory due to size mismatch (self={self_size}, input={input_size})")]
     MemorySizeMismatch { self_size: usize, input_size: usize },
+}
+
+#[derive(Error, Debug)]
+pub enum InferenceError {
     #[error("the context window is full")]
     ContextFull,
+
+    #[error("the user-specified callback returned an error")]
+    UserCallback(Box<dyn std::error::Error>),
 }
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
@@ -270,23 +269,26 @@ impl Model {
         path: impl AsRef<Path>,
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(Model, Vocabulary), Error> {
+    ) -> Result<(Model, Vocabulary), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
 
-        let path = path.as_ref();
+        let main_path = path.as_ref();
 
-        let mut reader = BufReader::new(File::open(path).map_err(|e| Error::OpenFileFailed {
-            source: e,
-            path: path.to_owned(),
-        })?);
+        let mut reader =
+            BufReader::new(
+                File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
+                    source: e,
+                    path: main_path.to_owned(),
+                })?,
+            );
 
         /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, Error> {
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
-                .map_err(|e| Error::ReadExactFailed {
+                .map_err(|e| LoadError::ReadExactFailed {
                     source: e,
                     bytes: bytes.len(),
                 })?;
@@ -294,11 +296,11 @@ impl Model {
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, Error> {
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
             let mut buf = vec![0; len];
             reader
                 .read_exact(&mut buf)
-                .map_err(|e| Error::ReadExactFailed {
+                .map_err(|e| LoadError::ReadExactFailed {
                     source: e,
                     bytes: buf.len(),
                 })?;
@@ -310,8 +312,8 @@ impl Model {
         {
             let magic = read_i32(&mut reader)?;
             if magic != 0x67676d6c {
-                return Err(Error::InvalidMagic {
-                    path: path.to_owned(),
+                return Err(LoadError::InvalidMagic {
+                    path: main_path.to_owned(),
                 });
             }
         }
@@ -335,9 +337,8 @@ impl Model {
 
         let n_ff =
             ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
-        let n_parts = llama_n_parts(hparams.n_embd);
 
-        load_progress_callback(LoadProgress::HyperParamsLoaded(&hparams));
+        load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
 
         // ===============
         // Load vocabulary
@@ -363,7 +364,7 @@ impl Model {
             1 => ggml::TYPE_F16,
             2 => ggml::TYPE_Q4_0,
             3 => ggml::TYPE_Q4_1,
-            invalid => return Err(Error::HyperparametersF16Invalid { value: invalid }),
+            invalid => return Err(LoadError::HyperparametersF16Invalid { value: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -482,23 +483,38 @@ impl Model {
         let file_offset = reader.stream_position()?;
         drop(reader);
 
-        for i in 0..n_parts {
-            let part_id = i;
+        let paths = {
+            let main_filename = main_path.file_name().and_then(|p| p.to_str());
 
-            let part_path = if i > 0 {
-                let mut path = path.to_owned();
-                let mut filename = path.components().last().unwrap().as_os_str().to_owned();
-                filename.push(&format!(".{i}"));
-                path.pop();
-                path.join(filename)
-            } else {
-                path.to_path_buf()
-            };
+            let mut paths: Vec<PathBuf> =
+                std::fs::read_dir(main_path.parent().ok_or_else(|| LoadError::NoParentPath {
+                    path: main_path.to_owned(),
+                })?)?
+                .filter_map(Result::ok)
+                .map(|de| de.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|p| p.to_str())
+                        .zip(main_filename)
+                        .map(|(part_filename, main_filename)| {
+                            part_filename.starts_with(main_filename)
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
+            paths.sort();
+            paths
+        };
+
+        let n_parts = paths.len();
+
+        for (i, part_path) in paths.into_iter().enumerate() {
+            let part_id = i;
 
             load_progress_callback(LoadProgress::PartLoading {
                 file: &part_path,
-                current_part: (i + 1).try_into()?,
-                total_parts: n_parts.try_into()?,
+                current_part: i + 1,
+                total_parts: n_parts,
             });
 
             let mut part_reader = BufReader::new(File::open(&part_path)?);
@@ -533,7 +549,7 @@ impl Model {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        return Err(Error::UnknownTensor { tensor_name, path: part_path });
+                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
                     };
 
                 // split_type = 0: split by columns
@@ -572,13 +588,13 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.nelements() != nelements {
-                        return Err(Error::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
-                } else if tensor.nelements() / n_parts != nelements {
-                    return Err(Error::TensorWrongSize {
+                } else if tensor.nelements() / i32::try_from(n_parts)? != nelements {
+                    return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
                     });
@@ -586,20 +602,24 @@ impl Model {
 
                 if n_dims == 1 {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(Error::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
                 } else if split_type == 0 {
-                    if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
-                        return Err(Error::TensorWrongSize {
+                    if tensor.get_ne()[0] / i32::try_from(n_parts)? != ne[0]
+                        || tensor.get_ne()[1] != ne[1]
+                    {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
-                } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
-                    return Err(Error::TensorWrongSize {
+                } else if tensor.get_ne()[0] != ne[0]
+                    || tensor.get_ne()[1] / i32::try_from(n_parts)? != ne[1]
+                {
+                    return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
                     });
@@ -617,7 +637,7 @@ impl Model {
                         ggml::type_size(ggml::TYPE_Q4_1)
                     }
                     _ => {
-                        return Err(Error::InvalidFtype {
+                        return Err(LoadError::InvalidFtype {
                             ftype,
                             path: part_path,
                         })
@@ -628,7 +648,7 @@ impl Model {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                         != tensor.nbytes()
                     {
-                        return Err(Error::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -649,9 +669,9 @@ impl Model {
                     total_size += tensor.nbytes();
                 } else {
                     if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
-                        != tensor.nbytes() / n_parts as usize
+                        != tensor.nbytes() / n_parts
                     {
-                        return Err(Error::TensorWrongSize {
+                        return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
@@ -668,7 +688,7 @@ impl Model {
                         for i1 in 0..ne[1] {
                             let offset_row = i1 as usize * row_size;
                             let offset = offset_row
-                                + ((part_id * np0) as usize
+                                + ((part_id * np0 as usize)
                                     / ggml::blck_size(tensor.get_type()) as usize)
                                     * ggml::type_size(tensor.get_type());
                             // SAFETY: yolo, same as original code
@@ -676,7 +696,7 @@ impl Model {
                                 let ptr = tensor.data().add(offset);
                                 let slice = std::slice::from_raw_parts_mut(
                                     ptr as *mut u8,
-                                    row_size / n_parts as usize,
+                                    row_size / n_parts,
                                 );
                                 part_reader.read_exact(slice)?;
                             }
@@ -688,7 +708,7 @@ impl Model {
                             * ggml::type_size(tensor.get_type());
 
                         for i1 in 0..ne[1] {
-                            let offset_row = (i1 + part_id * np1) as usize * row_size;
+                            let offset_row = (i1 as usize + part_id * np1 as usize) * row_size;
                             // SAFETY: yolo, same as original code
                             unsafe {
                                 let ptr = tensor.data().add(offset_row);
@@ -699,7 +719,7 @@ impl Model {
                         }
                     }
 
-                    total_size += tensor.nbytes() / n_parts as usize
+                    total_size += tensor.nbytes() / n_parts;
                 }
 
                 n_tensors += 1;
@@ -1116,13 +1136,13 @@ impl Model {
     pub fn session_from_snapshot(
         &mut self,
         snapshot: InferenceSnapshot,
-    ) -> Result<InferenceSession, Error> {
+    ) -> Result<InferenceSession, SnapshotError> {
         let mut session = self.start_session(snapshot.last_n_tokens.len());
 
         if session.memory_k.nbytes() != snapshot.memory_k.len()
             || session.memory_v.nbytes() != snapshot.memory_v.len()
         {
-            return Err(Error::MemorySizeMismatch {
+            return Err(SnapshotError::MemorySizeMismatch {
                 self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
                 input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
             });
@@ -1145,19 +1165,19 @@ impl Model {
 }
 
 impl InferenceSession {
-    pub fn feed_prompt(
+    pub fn feed_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
-        callback: impl Fn(OutputToken),
-    ) -> Result<(), Error> {
+        callback: impl Fn(OutputToken) -> Result<(), E>,
+    ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
 
         if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
-            return Err(Error::ContextFull);
+            return Err(InferenceError::ContextFull);
         }
 
         for batch in prompt_tokens.chunks(8) {
@@ -1165,7 +1185,9 @@ impl InferenceSession {
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
-                callback(OutputToken::Token(&vocab.mapping[tk as usize]));
+                if let Err(e) = callback(OutputToken::Token(&vocab.mapping[tk as usize])) {
+                    return Err(InferenceError::UserCallback(Box::new(e)));
+                }
 
                 // Update the last_n_tokens list
                 self.last_n_tokens.push_front(tk);
@@ -1181,9 +1203,9 @@ impl InferenceSession {
         vocab: &'v Vocabulary,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
-    ) -> Result<OutputToken<'v>, Error> {
+    ) -> Result<OutputToken<'v>, InferenceError> {
         if self.n_past + 1 >= model.hparams.n_ctx as usize {
-            return Err(Error::ContextFull);
+            return Err(InferenceError::ContextFull);
         }
 
         // First, sample the next token, using the stored last_logits;
@@ -1203,25 +1225,38 @@ impl InferenceSession {
         }
     }
 
-    pub fn inference_with_prompt(
+    // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
+    #[allow(clippy::too_many_arguments)]
+    pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
+        maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
-        callback: impl Fn(OutputToken),
-    ) -> Result<(), Error> {
+        callback: impl Fn(OutputToken) -> Result<(), E>,
+    ) -> Result<(), InferenceError> {
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
         self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;
 
         // After the prompt is consumed, sample tokens by repeatedly calling
         // `infer_next_token`. We generate tokens until the model returns an
-        // EndOfText token, or we run out of space in the context window.
-        while self.n_past < model.hparams.n_ctx as usize {
+        // EndOfText token, or we run out of space in the context window,
+        // or we reach the specified limit.
+        let mut tokens_processed = 0;
+        while self.n_past < model.hparams.n_ctx as usize
+            && maximum_token_count
+                .map(|l| tokens_processed < l)
+                .unwrap_or(true)
+        {
             let tk = self.infer_next_token(model, vocab, params, rng)?;
-            (callback)(tk);
+            if let Err(e) = callback(tk) {
+                return Err(InferenceError::UserCallback(Box::new(e)));
+            }
+
+            tokens_processed += 1;
             if let OutputToken::EndOfText = tk {
                 break;
             }
@@ -1258,38 +1293,32 @@ impl InferenceSession {
 }
 
 impl<'a> InferenceSnapshotRef<'a> {
-    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), Error> {
-        bincode::serialize_into(writer, &self)
-            .map_err(|err| Error::Snapshot(Box::new(Error::SnapshotSerialization(err))))
+    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), SnapshotError> {
+        Ok(bincode::serialize_into(writer, &self)?)
     }
 
-    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn write_to_disk(&self, path: impl AsRef<Path>) -> Result<(), SnapshotError> {
         use std::fs::File;
         use std::io::BufWriter;
 
         let path = path.as_ref();
-        let mut writer = BufWriter::new(
-            File::create(path).map_err(|err| Error::Snapshot(Box::new(Error::SnapshotIO(err))))?,
-        );
+        let mut writer = BufWriter::new(File::create(path)?);
 
         self.write(&mut writer)
     }
 }
 
 impl InferenceSnapshot {
-    pub fn read(reader: &mut impl std::io::Read) -> Result<Self, Error> {
-        bincode::deserialize_from(reader)
-            .map_err(|err| Error::Snapshot(Box::new(Error::SnapshotSerialization(err))))
+    pub fn read(reader: &mut impl std::io::Read) -> Result<Self, SnapshotError> {
+        Ok(bincode::deserialize_from(reader)?)
     }
 
-    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<Self, SnapshotError> {
         use std::fs::File;
         use std::io::BufReader;
 
         let path = path.as_ref();
-        let mut reader = BufReader::new(
-            File::open(path).map_err(|err| Error::Snapshot(Box::new(Error::SnapshotIO(err))))?,
-        );
+        let mut reader = BufReader::new(File::open(path)?);
 
         Self::read(&mut reader)
     }

@@ -4,12 +4,13 @@
 
 ![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
 
-> *Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion*
+> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F8DNO5D)
 
 [![Latest version](https://img.shields.io/crates/v/llama-rs.svg)](https://crates.io/crates/llama_rs)
 ![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
 ![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
@@ -43,7 +44,7 @@ Some additional things to try:
 
 For example, you try the following prompt:
 
-``` shell
+```shell
 cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is
 ```
 
@@ -52,14 +53,14 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
 - **Q: Why did you do this?**
 - **A:** It was not my choice. Ferris appeared to me in my dreams and asked me
   to rewrite this in the name of the Holy crab.
-  
+
 - **Q: Seriously now**
 - **A:** Come on! I don't want to get into a flame war. You know how it goes,
-  *something something* memory *something something* cargo is nice, don't make
+  _something something_ memory _something something_ cargo is nice, don't make
   me say it, everybody knows this already.
 
 - **Q: I insist.**
-- **A:** *Sheesh! Okaaay*. After seeing the huge potential for **llama.cpp**,
+- **A:** _Sheesh! Okaaay_. After seeing the huge potential for **llama.cpp**,
   the first thing I did was to see how hard would it be to turn it into a
   library to embed in my projects. I started digging into the code, and realized
   the heavy lifting is done by `ggml` (a C library, easy to bind to Rust) and
@@ -69,9 +70,9 @@ cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me h
   I'm more comfortable.
 
 - **Q: Is this the real reason?**
-- **A:** Haha. Of course *not*. I just like collecting imaginary internet
+- **A:** Haha. Of course _not_. I just like collecting imaginary internet
   points, in the form of little stars, that people seem to give to me whenever I
-  embark on pointless quests for *rewriting X thing, but in Rust*.
+  embark on pointless quests for _rewriting X thing, but in Rust_.
 
 ## Known issues / To-dos
 
@@ -86,5 +87,5 @@ Contributions welcome! Here's a few pressing issues:
 - [x] The code needs to be "library"-fied. It is nice as a showcase binary, but
       the real potential for this tool is to allow embedding in other services.
 - [x] The code only sets the right CFLAGS on Linux. The `build.rs` script in
-      `ggml_raw` needs to be fixed, so inference *will be very slow on every
-      other OS*.
+      `ggml_raw` needs to be fixed, so inference _will be very slow on every
+      other OS_.

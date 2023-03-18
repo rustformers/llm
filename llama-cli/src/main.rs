@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
 use llama_rs::{InferenceParameters, InferenceSnapshot};
@@ -16,7 +16,6 @@ fn main() {
 
     let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
-        n_predict: args.num_predict,
         n_batch: args.batch_size,
         top_k: args.top_k,
         top_p: args.top_p,
@@ -43,7 +42,7 @@ fn main() {
         llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
-                LoadProgress::HyperParamsLoaded(hparams) => {
+                LoadProgress::HyperparametersLoaded(hparams) => {
                     log::debug!("Loaded HyperParams {hparams:#?}")
                 }
                 LoadProgress::BadToken { index } => {
@@ -114,19 +113,24 @@ fn main() {
     };
 
     if let Some(cache_path) = &args.cache_prompt {
-        let res = session.feed_prompt(&model, &vocab, &inference_params, &prompt, |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
-        });
+        let res =
+            session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+
+                Ok(())
+            });
+
         println!();
+
         match res {
             Ok(_) => (),
-            Err(llama_rs::Error::ContextFull) => {
+            Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!(
                     "Context is not large enough to fit the prompt. Saving intermediate state."
                 );
             }
-            err => unreachable!("{err:?}"),
+            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
 
         // Write the memory to the cache file
@@ -144,25 +148,28 @@ fn main() {
             }
         }
     } else {
-        let res = session.inference_with_prompt(
+        let res = session.inference_with_prompt::<Infallible>(
             &model,
             &vocab,
             &inference_params,
             &prompt,
+            args.num_predict,
             &mut rng,
             |t| {
                 print!("{t}");
                 std::io::stdout().flush().unwrap();
+
+                Ok(())
             },
         );
         println!();
 
         match res {
             Ok(_) => (),
-            Err(llama_rs::Error::ContextFull) => {
+            Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }
-            err => unreachable!("{err:?}"),
+            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
     }
 }
