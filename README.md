@@ -10,6 +10,7 @@
 
 [![Latest version](https://img.shields.io/crates/v/llama-rs.svg)](https://crates.io/crates/llama_rs)
 ![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
 ![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
