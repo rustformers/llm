@@ -87,7 +87,6 @@ pub struct InferenceSession {
 /// The parameters that drive text generation.
 pub struct InferenceParameters {
     pub n_threads: i32,
-    pub n_predict: usize,
     pub n_batch: usize,
     pub top_k: usize,
     pub top_p: f32,
@@ -99,7 +98,6 @@ impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
             n_threads: 8,
-            n_predict: 128,
             n_batch: 8,
             top_k: 40,
             top_p: 0.95,
@@ -1209,6 +1207,7 @@ impl InferenceSession {
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
+        maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
         callback: impl Fn(OutputToken),
     ) -> Result<(), Error> {
@@ -1218,10 +1217,18 @@ impl InferenceSession {
 
         // After the prompt is consumed, sample tokens by repeatedly calling
         // `infer_next_token`. We generate tokens until the model returns an
-        // EndOfText token, or we run out of space in the context window.
-        while self.n_past < model.hparams.n_ctx as usize {
+        // EndOfText token, or we run out of space in the context window,
+        // or we reach the specified limit.
+        let mut tokens_processed = 0;
+        while self.n_past < model.hparams.n_ctx as usize
+            && maximum_token_count
+                .map(|l| tokens_processed < l)
+                .unwrap_or(true)
+        {
             let tk = self.infer_next_token(model, vocab, params, rng)?;
             (callback)(tk);
+
+            tokens_processed += 1;
             if let OutputToken::EndOfText = tk {
                 break;
             }

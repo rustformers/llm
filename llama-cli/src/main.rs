@@ -16,7 +16,6 @@ fn main() {
 
     let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
-        n_predict: args.num_predict,
         n_batch: args.batch_size,
         top_k: args.top_k,
         top_p: args.top_p,
@@ -149,6 +148,7 @@ fn main() {
             &vocab,
             &inference_params,
             &prompt,
+            args.num_predict,
             &mut rng,
             |t| {
                 print!("{t}");
