@@ -1,5 +1,4 @@
 use clap::Parser;
-use once_cell::sync::Lazy;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -74,7 +73,3 @@ pub struct Args {
     #[arg(long, default_value = None)]
     pub seed: Option<u64>,
 }
-
-/// CLI args are stored in a lazy static variable so they're accessible from
-/// everywhere. Arguments are parsed on first access.
-pub static CLI_ARGS: Lazy<Args> = Lazy::new(Args::parse);

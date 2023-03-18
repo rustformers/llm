@@ -1,6 +1,6 @@
 use std::{convert::Infallible, io::Write};
 
-use cli_args::CLI_ARGS;
+use clap::Parser;
 use llama_rs::{InferenceParameters, InferenceSnapshot};
 use rand::SeedableRng;
 
@@ -12,7 +12,7 @@ fn main() {
         .parse_default_env()
         .init();
 
-    let args = &*CLI_ARGS;
+    let args = cli_args::Args::parse();
 
     let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
@@ -94,7 +94,7 @@ fn main() {
 
     log::info!("Model fully loaded!");
 
-    let mut rng = if let Some(seed) = CLI_ARGS.seed {
+    let mut rng = if let Some(seed) = args.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
     } else {
         rand::rngs::StdRng::from_entropy()
