@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use cli_args::CLI_ARGS;
 use llama_rs::{InferenceParameters, InferenceSession, InferenceSnapshot};
 use rand::thread_rng;
+use rustyline::error::ReadlineError;
 
 mod cli_args;
 
@@ -20,12 +21,19 @@ fn repl_mode(
                 let prompt = prompt.replace("$PROMPT", &line);
                 let mut session = model.start_session(CLI_ARGS.repeat_last_n);
                 let mut rng = thread_rng();
+
+                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 session.feed_prompt(model, vocab, params, &prompt, |_| {});
+                sp.stop();
+
                 session.inference_with_prompt(model, vocab, params, "", &mut rng, |tk| {
                     print!("{tk}");
                     std::io::stdout().flush();
                 });
                 println!();
+            }
+            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
+                break;
             }
             Err(err) => {
                 log::error!("{err}");

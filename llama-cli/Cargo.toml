@@ -17,3 +17,4 @@ llama-rs = { path = "../llama-rs" }
 rand = { workspace = true }
 
 rustyline = "11.0.0"
+spinners = "4.1.0"
