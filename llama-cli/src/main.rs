@@ -2,7 +2,7 @@ use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
 use llama_rs::{InferenceParameters, InferenceSnapshot};
-use rand::{thread_rng, SeedableRng};
+use rand::SeedableRng;
 
 mod cli_args;
 
