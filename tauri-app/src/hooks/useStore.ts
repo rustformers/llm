@@ -40,7 +40,6 @@ export type Message = {
   id: string;
   message: string;
   type: "user" | "asssistant";
-  isGenerating?: boolean;
 };
 
 export type Store = {
@@ -49,6 +48,8 @@ export type Store = {
   prompt: string;
   setPrompt: (prompt: string) => void;
   resetPrompt: () => void;
+  isGenerating: boolean;
+  setIsGenerating: (isGenerating: boolean) => void;
 
   selectedModel?: string;
   setSelectedModel: (id: string) => void;
@@ -75,6 +76,9 @@ export const useStore = create(
       prompt: defaultPrompt,
       setPrompt: (prompt) => set({ prompt }),
       resetPrompt: () => set({ prompt: defaultPrompt }),
+
+      isGenerating: false,
+      setIsGenerating: (isGenerating) => set({ isGenerating }),
 
       setSelectedModel: (modelPath) => set({ selectedModel: modelPath }),
       models: {},

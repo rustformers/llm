@@ -6,7 +6,8 @@ export const defaultPrompt = `Below is an instruction that describes a task. Wri
 ### Instruction:
 ${instructionString}
 
-### Response:`;
+### Response:
+`;
 
 export const defaultParams: Params = {
   n_batch: 8,

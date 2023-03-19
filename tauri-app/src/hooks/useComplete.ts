@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
+import { defaultParams } from "../config";
 import { getPrompt, getRandomId } from "../helpers";
 import { InputParams, useModel, useStore } from "./useStore";
 
 export const complete = async (params: InputParams) => {
-  return await invoke("complete", { params });
+  return await invoke("complete", { params: { ...defaultParams, ...params } });
 };
 type Payload = {
   message: string;
@@ -16,17 +17,23 @@ export const useComplete = () => {
   const editMessage = useStore((s) => s.editMessage);
   const params = useStore((s) => s.params);
   const layout = useStore((s) => s.prompt);
+  const isGenerating = useStore((s) => s.isGenerating);
+  const setIsGenerating = useStore((s) => s.setIsGenerating);
   const model = useModel();
 
   const send = async (instruction: string) => {
-    if (!model) return alert("No model selected");
+    if (!model) return;
+    if (isGenerating) return;
     const id = getRandomId();
     addMessage({ id, message: "", type: "asssistant" });
     const prompt = getPrompt(layout, instruction);
-    const res = await complete({ prompt, id, path: model.path, ...params });
+    setIsGenerating(true);
+    await complete({ prompt, id, path: model.path, ...params });
+    setIsGenerating(false);
   };
 
   useEffect(() => {
+    setIsGenerating(false);
     listen<Payload>("message", (event) => {
       editMessage(event.payload.id, event.payload.message);
     });

@@ -67,6 +67,7 @@ const Input = () => {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState("");
   const addMessage = useStore((state) => state.addMessage);
+  const isGenerating = useStore((state) => state.isGenerating);
   const send = useComplete();
 
   useEffect(() => {
@@ -77,6 +78,7 @@ const Input = () => {
   }, [input]);
 
   const submit = () => {
+    if (isGenerating) return;
     const id = getRandomId();
     addMessage({ id, type: "user", message: input });
     send(input);
@@ -84,7 +86,12 @@ const Input = () => {
   };
 
   return (
-    <form className="p-2" onSubmit={submit}>
+    <form className="p-2 relative" onSubmit={submit}>
+      {isGenerating && (
+        <div className="absolute top-[-10px] text-center text-xs w-full">
+          <p>Generating...</p>
+        </div>
+      )}
       <textarea
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {

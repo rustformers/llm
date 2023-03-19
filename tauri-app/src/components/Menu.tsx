@@ -7,8 +7,8 @@ export const Menu = () => {
   return (
     <div className="border-r h-full p-2 space-y-2 overflow-auto">
       <Models />
-      <Params />
       <Prompt />
+      <Params />
     </div>
   );
 };
