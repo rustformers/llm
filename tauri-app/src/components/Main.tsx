@@ -56,7 +56,9 @@ const Message = ({ id }: { id: string }) => {
   const isUser = message.type === "user";
   return (
     <div className={`flex my-1 ${isUser ? "justify-end" : ""}`}>
-      <p className={`rounded-lg p-2 whitespace-pre-wrap ${isUser ? "bg-blue-500 text-white" : "bg-zinc-200"}`}>{message.message}</p>
+      <p className={`rounded-lg p-2 whitespace-pre-wrap ${isUser ? "bg-blue-500 text-white" : "bg-zinc-200"}`}>
+        {message.message.replace("[end of text]", "")}
+      </p>
     </div>
   );
 };
