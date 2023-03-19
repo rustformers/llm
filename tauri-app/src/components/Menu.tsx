@@ -1,12 +1,14 @@
-import { defaultParams, parameterProps, Params as ParamsType, useStore } from "../hooks/useStore";
+import { parameterProps, Params as ParamsType, useStore } from "../hooks/useStore";
 import { useState } from "react";
 import { IoIosArrowDown, IoIosTrash, IoIosAdd } from "react-icons/io";
+import { defaultParams, instructionString } from "../config";
 
 export const Menu = () => {
   return (
     <div className="border-r h-full p-2 space-y-2 overflow-auto">
       <Models />
       <Params />
+      <Prompt />
     </div>
   );
 };
@@ -78,6 +80,25 @@ const Params = () => {
           </div>
         );
       })}
+    </Section>
+  );
+};
+const Prompt = () => {
+  const prompt = useStore((state) => state.prompt);
+  const setPrompt = useStore((state) => state.setPrompt);
+  const resetPrompt = useStore((state) => state.resetPrompt);
+
+  return (
+    <Section title="Prompt" className="flex flex-col items-center space-y-2 p-2">
+      <textarea value={prompt} className="min-h-[200px] w-full rounded-lg p-1" onChange={(e) => setPrompt(e.target.value)} />
+      {!prompt.includes(instructionString) && (
+        <p className="text-sm text-red-500">
+          Doesn't have <span className="">{"{{instruction}}"}</span> in it!
+        </p>
+      )}
+      <button className="hover:bg-zinc-300 p-2 rounded-lg" onClick={resetPrompt}>
+        Reset
+      </button>
     </Section>
   );
 };

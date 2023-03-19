@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { open } from "@tauri-apps/api/dialog";
 import { getRandomId } from "../helpers";
+import { defaultParams, defaultPrompt } from "../config";
 
 export type Model = {
   name: string;
@@ -25,14 +26,6 @@ export type InputParams = Params & {
   id: string;
 };
 
-export const defaultParams: Params = {
-  n_batch: 8,
-  top_k: 40,
-  top_p: 0.95,
-  repeat_penalty: 1.3,
-  temp: 0.8,
-  num_predict: 512,
-};
 export const parameterProps: { [id in keyof Params]: { label: string; placeholder?: string } } = {
   n_batch: { label: "Batch size" },
   n_threads: { label: "Threads", placeholder: "Max" },
@@ -53,6 +46,9 @@ export type Message = {
 export type Store = {
   params: Params;
   setParams: (params: Partial<Params>) => void;
+  prompt: string;
+  setPrompt: (prompt: string) => void;
+  resetPrompt: () => void;
 
   selectedModel?: string;
   setSelectedModel: (id: string) => void;
@@ -75,6 +71,10 @@ export const useStore = create(
     immer<Store>((set) => ({
       params: defaultParams,
       setParams: (params) => set((state) => ({ params: { ...state.params, ...params } })),
+
+      prompt: defaultPrompt,
+      setPrompt: (prompt) => set({ prompt }),
+      resetPrompt: () => set({ prompt: defaultPrompt }),
 
       setSelectedModel: (modelPath) => set({ selectedModel: modelPath }),
       models: {},
