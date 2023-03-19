@@ -29,10 +29,10 @@ struct InferenceHttpRequest {
 
 impl InferenceHttpRequest {
     /// This function is used to convert the HTTP request into an `inference::InferenceRequest`.
-    /// This is is passed to the inference thread via a stream in the HTTP request. 
+    /// This is is passed to the inference thread via a stream in the HTTP request.
     ///
     /// We cannot use the same `InferenceRequest` struct for parsing the HTTP response and
-    /// requesting an inference because the 
+    /// requesting an inference because the
     /// inference thread needs to be able to send tokens back to the HTTP thread
     /// via a channel, and this cannot be serialized.
     fn to_inference_request(
@@ -60,7 +60,8 @@ async fn handle_request(
         (&Method::POST, "/stream") => {
             // Parse POST request body as a PredictionRequest
             let body = hyper::body::to_bytes(req.into_body()).await?;
-            let inference_http_request = match serde_json::from_slice::<InferenceHttpRequest>(&body) {
+            let inference_http_request = match serde_json::from_slice::<InferenceHttpRequest>(&body)
+            {
                 Ok(inference_http_request) => inference_http_request,
                 Err(_) => {
                     // Return 400 bad request if the body could not be parsed
