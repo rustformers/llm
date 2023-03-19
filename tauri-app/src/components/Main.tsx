@@ -3,8 +3,14 @@ import { getRandomId } from "../helpers";
 import { useMessage, useModel, useStore } from "../hooks/useStore";
 import { IoIosRefresh as Clear } from "react-icons/io";
 import { useComplete } from "../hooks/useComplete";
+import { invoke } from "@tauri-apps/api";
+import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/api/dialog";
+import { alpacaName, alpacaUrl } from "../config";
 
 export const Main = () => {
+  const model = useModel();
+  if (!model) return <NoModel />;
   return (
     <div className="col-span-2 flex flex-col">
       <Title />
@@ -14,23 +20,67 @@ export const Main = () => {
   );
 };
 
+type Progress = {
+  downloaded: number;
+  total_size: number;
+};
+
+const NoModel = () => {
+  const addModel = useStore((state) => state.addModel);
+
+  const download = async () => {
+    const path = await save({
+      defaultPath: alpacaName,
+      filters: [{ name: "Model", extensions: ["bin"] }],
+      title: "Where to Save?",
+    });
+    await invoke("download_model", { path, url: alpacaUrl });
+    await addModel(path || undefined);
+  };
+
+  const [progress, setProgress] = useState<Progress>();
+  useEffect(() => {
+    listen<Progress>("progress", (event) => {
+      setProgress(event.payload);
+    });
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center justify-center col-span-2 space-y-2">
+      {!progress ? (
+        <>
+          <button className="bg-zinc-300 p-2 rounded-lg" onClick={() => addModel()}>
+            Select Model From Your Computer
+          </button>
+          <p>or</p>
+          <button onClick={download} className="bg-zinc-300 p-2 rounded-lg">
+            Download Alpaca
+          </button>
+        </>
+      ) : (
+        <>
+          <p>Downloading...</p>
+          <div className="flex items-center space-x-3">
+            <p>{((progress.downloaded / progress.total_size) * 100).toFixed(2)}%</p>
+            <progress className="rounded-full bg-blue-400" value={progress.downloaded} max={progress.total_size} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const Title = () => {
   const model = useModel();
   const editModel = useStore((state) => state.editModel);
-  const addModel = useStore((state) => state.addModel);
   const clear = useStore((state) => state.clearMessages);
 
+  if (!model) return null;
   return (
     <div className="flex items-center justify-between p-2 border-b shadow-sm">
       <div />
       <h1 className="text-xl font-medium">
-        {model ? (
-          <input type="text" className="text-center" value={model.name} onChange={(e) => editModel({ ...model, name: e.target.value })} />
-        ) : (
-          <span className="cursor-pointer text-red-400" onClick={addModel}>
-            No Model Selected
-          </span>
-        )}
+        <input type="text" className="text-center" value={model.name} onChange={(e) => editModel(model.id, e.target.value)} />
       </h1>
       <Clear className="text-xl cursor-pointer" onClick={clear} />
     </div>

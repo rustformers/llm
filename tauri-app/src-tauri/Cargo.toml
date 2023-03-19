@@ -13,7 +13,7 @@ edition = "2021"
 tauri-build = { version = "1.2", features = [] }
 
 [dependencies]
-tauri = { version = "1.2", features = ["dialog-open", "shell-open"] }
+tauri = { version = "1.2", features = ["dialog-open", "dialog-save", "shell-open"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
@@ -21,6 +21,8 @@ rand = "0.8.5"
 log = "0.4"
 num_cpus = "1.15.0"
 llama-rs = { path = "../../llama-rs" }
+reqwest = { version = "0.11.3", features = ["stream"] }
+futures-util = "0.3.14"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

@@ -49,7 +49,7 @@ const Models = () => {
           />
         </div>
       ))}
-      <div onClick={addNew} className="flex justify-center p-2 hover:bg-blue-200 cursor-pointer">
+      <div onClick={() => addNew()} className="flex justify-center p-2 hover:bg-blue-200 cursor-pointer">
         <IoIosAdd className="text-xl" />
       </div>
     </Section>
@@ -68,7 +68,7 @@ const Params = () => {
         const value = params[key];
         const placeholder = props?.placeholder || defaultParams[key];
         return (
-          <div className=" w-full space-y-1">
+          <div key={id} className=" w-full space-y-1">
             <label className="text-sm">{label}</label>
             <input
               type="number"

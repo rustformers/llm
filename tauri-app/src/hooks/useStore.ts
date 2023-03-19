@@ -55,9 +55,9 @@ export type Store = {
   setSelectedModel: (id: string) => void;
 
   models: { [id: string]: Model };
-  editModel: (model: Model) => void;
+  editModel: (id: string, name: string) => void;
   removeModel: (id: string) => void;
-  addModel: () => void;
+  addModel: (path?: string) => Promise<void>;
 
   messages: { [id: string]: Message };
   allMessages: string[];
@@ -82,22 +82,24 @@ export const useStore = create(
 
       setSelectedModel: (modelPath) => set({ selectedModel: modelPath }),
       models: {},
-      editModel: (model) =>
+      editModel: (id, name) =>
         set((state) => {
-          state.models[model.id] = model;
+          state.models[id] = { ...state.models[id], name };
         }),
       removeModel: (id) =>
         set((state) => {
           delete state.models[id];
           state.selectedModel = Object.keys(state.models)[0] || undefined;
         }),
-      addModel: async () => {
-        const path = await open({
-          directory: false,
-          multiple: false,
-          title: "Select Model",
-          filters: [{ name: "Model", extensions: ["bin"] }],
-        });
+      addModel: async (downloaded) => {
+        const path =
+          downloaded ||
+          (await open({
+            directory: false,
+            multiple: false,
+            title: "Select Model",
+            filters: [{ name: "Model", extensions: ["bin"] }],
+          }));
         if (!path || Array.isArray(path)) return;
         const name = path.split("/").pop()?.split(".")[0] || path;
         const id = getRandomId();
