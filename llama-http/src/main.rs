@@ -58,7 +58,7 @@ async fn handle_request(
 ) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
         (&Method::POST, "/stream") => {
-            // Parse POST request body as a PredictionRequest
+            // Parse POST request body as an InferenceHttpRequest
             let body = hyper::body::to_bytes(req.into_body()).await?;
             let inference_http_request = match serde_json::from_slice::<InferenceHttpRequest>(&body)
             {
