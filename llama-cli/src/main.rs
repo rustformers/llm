@@ -1,7 +1,7 @@
-use std::{convert::Infallible, io::Write};
+use std::{convert::Infallible, io::Write, path::Path};
 
-use cli_args::CLI_ARGS;
-use llama_rs::{InferenceParameters, InferenceSnapshot};
+use clap::Parser;
+use llama_rs::{InferenceParameters, InferenceSession, InferenceSnapshot, Model};
 use rand::SeedableRng;
 
 mod cli_args;
@@ -12,7 +12,7 @@ fn main() {
         .parse_default_env()
         .init();
 
-    let args = &*CLI_ARGS;
+    let args = cli_args::Args::parse();
 
     let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
@@ -38,7 +38,7 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (mut model, vocab) =
+    let (model, vocab) =
         llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
@@ -94,86 +94,72 @@ fn main() {
 
     log::info!("Model fully loaded!");
 
-    let mut rng = if let Some(seed) = CLI_ARGS.seed {
+    let mut rng = if let Some(seed) = args.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
     } else {
         rand::rngs::StdRng::from_entropy()
     };
 
-    let mut session = if let Some(restore_path) = &args.restore_prompt {
-        let snapshot = InferenceSnapshot::load_from_disk(restore_path);
-        match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
-            Ok(session) => {
-                log::info!("Restored cached memory from {restore_path}");
-                session
-            }
-            Err(err) => {
-                eprintln!("Could not restore prompt. Error: {err}");
-                std::process::exit(1);
-            }
-        }
-    } else {
-        model.start_session(args.repeat_last_n)
-    };
-
-    if let Some(cache_path) = &args.cache_prompt {
-        let res =
-            session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
-                print!("{t}");
-                std::io::stdout().flush().unwrap();
-
-                Ok(())
-            });
-
-        println!();
-
-        match res {
-            Ok(_) => (),
-            Err(llama_rs::InferenceError::ContextFull) => {
-                log::warn!(
-                    "Context is not large enough to fit the prompt. Saving intermediate state."
-                );
-            }
-            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
-        }
-
-        // Write the memory to the cache file
-        // SAFETY: no other model functions used inside the block
-        unsafe {
-            let memory = session.get_snapshot();
-            match memory.write_to_disk(cache_path) {
-                Ok(_) => {
-                    log::info!("Successfully written prompt cache to {cache_path}");
+    let mut session = {
+        fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
+            let snapshot = InferenceSnapshot::load_from_disk(path);
+            match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+                Ok(session) => {
+                    log::info!("Loaded inference session from {path:?}");
+                    session
                 }
                 Err(err) => {
-                    log::error!("Could not write prompt cache at {cache_path}: {err}");
+                    eprintln!("Could not load inference session. Error: {err}");
                     std::process::exit(1);
                 }
             }
         }
-    } else {
-        let res = session.inference_with_prompt::<Infallible>(
-            &model,
-            &vocab,
-            &inference_params,
-            &prompt,
-            args.num_predict,
-            &mut rng,
-            |t| {
-                print!("{t}");
-                std::io::stdout().flush().unwrap();
 
-                Ok(())
-            },
-        );
-        println!();
+        match (&args.persist_session, &args.load_session) {
+            (Some(path), _) if path.exists() => load_snapshot_from_disk(&model, path),
+            (_, Some(path)) => load_snapshot_from_disk(&model, path),
+            _ => model.start_session(args.repeat_last_n),
+        }
+    };
 
-        match res {
-            Ok(_) => (),
-            Err(llama_rs::InferenceError::ContextFull) => {
-                log::warn!("Context window full, stopping inference.")
+    let res = session.inference_with_prompt::<Infallible>(
+        &model,
+        &vocab,
+        &inference_params,
+        &prompt,
+        args.num_predict,
+        &mut rng,
+        |t| {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
+
+            Ok(())
+        },
+    );
+    println!();
+
+    match res {
+        Ok(_) => (),
+        Err(llama_rs::InferenceError::ContextFull) => {
+            log::warn!("Context window full, stopping inference.")
+        }
+        Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+    }
+
+    if let Some(session_path) = args.save_session.or(args.persist_session) {
+        // Write the memory to the cache file
+        // SAFETY: no other model functions used inside the block
+        unsafe {
+            let memory = session.get_snapshot();
+            match memory.write_to_disk(&session_path) {
+                Ok(_) => {
+                    log::info!("Successfully wrote session to {session_path:?}");
+                }
+                Err(err) => {
+                    log::error!("Could not write session at {session_path:?}: {err}");
+                    std::process::exit(1);
+                }
             }
-            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
     }
 }
