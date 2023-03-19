@@ -129,7 +129,11 @@ pub fn complete(window: Window, params: Params) -> String {
                     "message",
                     Payload {
                         id: params.id.clone(),
-                        message: message.borrow_mut().to_string(),
+                        message: message
+                            .borrow_mut()
+                            .strip_prefix(&params.prompt)
+                            .unwrap_or("")
+                            .to_string(),
                     },
                 )
                 .unwrap();
