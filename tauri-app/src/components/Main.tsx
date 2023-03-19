@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getRandomId } from "../helpers";
 import { useMessage, useModel, useStore } from "../hooks/useStore";
 import { IoIosRefresh as Clear } from "react-icons/io";
+import { useComplete } from "../hooks/useComplete";
 
 export const Main = () => {
   return (
@@ -64,6 +65,7 @@ const Input = () => {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState("");
   const addMessage = useStore((state) => state.addMessage);
+  const send = useComplete();
 
   useEffect(() => {
     if (!ref.current) return;
@@ -75,6 +77,7 @@ const Input = () => {
   const submit = () => {
     const id = getRandomId();
     addMessage({ id, type: "user", message: input });
+    send(input);
     setInput("");
   };
 
@@ -90,7 +93,7 @@ const Input = () => {
         ref={ref}
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        className="bg-zinc-300 w-full p-2 rounded-lg"
+        className="bg-zinc-300 w-full p-2 rounded-lg resize-none"
       />
     </form>
   );

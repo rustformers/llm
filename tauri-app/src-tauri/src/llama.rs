@@ -63,12 +63,14 @@ pub fn load_model(path: &str) -> (Model, Vocabulary) {
 #[derive(Clone, serde::Serialize)]
 struct Payload {
     message: String,
+    id: String,
 }
 
 #[derive(serde::Deserialize)]
 pub struct Params {
     path: String,
     prompt: String,
+    id: String,
     repeat_last_n: Option<usize>,
     n_batch: Option<usize>,
     n_threads: Option<usize>,
@@ -84,6 +86,7 @@ impl Default for Params {
         Self {
             path: "".to_string(),
             prompt: "".to_string(),
+            id: "".to_string(),
             repeat_last_n: Some(64),
             n_batch: Some(8),
             n_threads: Some(num_cpus::get_physical()),
@@ -97,26 +100,26 @@ impl Default for Params {
 }
 
 #[tauri::command(async)]
-pub fn complete(window: Window, input: Params) -> String {
-    let (model, vocab) = load_model(&input.path);
+pub fn complete(window: Window, params: Params) -> String {
+    let (model, vocab) = load_model(&params.path);
     let mut rng = rand::rngs::StdRng::from_entropy();
-    let mut session = model.start_session(input.repeat_last_n.unwrap_or_default());
+    let mut session = model.start_session(params.repeat_last_n.unwrap_or_default());
 
     let inference_params = InferenceParameters {
-        n_threads: input.n_threads.unwrap_or_default() as i32,
-        n_batch: input.n_batch.unwrap(),
-        top_k: input.top_k.unwrap_or_default(),
-        top_p: input.top_p.unwrap_or_default(),
-        repeat_penalty: input.repeat_penalty.unwrap_or_default(),
-        temp: input.temp.unwrap_or_default(),
+        n_threads: params.n_threads.unwrap_or_default() as i32,
+        n_batch: params.n_batch.unwrap_or_default(),
+        top_k: params.top_k.unwrap_or_default(),
+        top_p: params.top_p.unwrap_or_default(),
+        repeat_penalty: params.repeat_penalty.unwrap_or_default(),
+        temp: params.temp.unwrap_or_default(),
     };
     let message = RefCell::new(String::new());
     let res = session.inference_with_prompt::<Infallible>(
         &model,
         &vocab,
         &inference_params,
-        &input.prompt,
-        Some(input.num_predict.unwrap_or_default()),
+        &params.prompt,
+        Some(params.num_predict.unwrap_or_default()),
         &mut rng,
         |t| {
             message.borrow_mut().push_str(&t.to_string());
@@ -125,6 +128,7 @@ pub fn complete(window: Window, input: Params) -> String {
                 .emit(
                     "message",
                     Payload {
+                        id: params.id.clone(),
                         message: message.borrow_mut().to_string(),
                     },
                 )

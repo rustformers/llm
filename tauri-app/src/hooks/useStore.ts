@@ -19,6 +19,11 @@ export type Params = {
   temp?: number;
   num_predict?: number;
 };
+export type InputParams = Params & {
+  path: string;
+  prompt: string;
+  id: string;
+};
 
 export const defaultParams: Params = {
   n_batch: 8,
@@ -60,7 +65,7 @@ export type Store = {
   messages: { [id: string]: Message };
   allMessages: string[];
   addMessage: (message: Message) => void;
-  editMessage: (message: Message) => void;
+  editMessage: (id: string, message: string) => void;
   removeMessage: (id: string) => void;
   clearMessages: () => void;
 };
@@ -106,9 +111,9 @@ export const useStore = create(
           state.messages[message.id] = message;
           state.allMessages.push(message.id);
         }),
-      editMessage: (message) =>
+      editMessage: (id, message) =>
         set((state) => {
-          state.messages[message.id] = message;
+          state.messages[id] = { ...state.messages[id], message };
         }),
       removeMessage: (id) =>
         set((state) => {
