@@ -4,7 +4,7 @@ use llama_rs::{InferenceParameters, Model, Vocabulary};
 use rand::SeedableRng;
 use tauri::Window;
 
-fn load_model(path: &str) -> (Model, Vocabulary) {
+pub fn load_model(path: &str) -> (Model, Vocabulary) {
     let (model, vocab) = llama_rs::Model::load(path, 512, |progress| {
         use llama_rs::LoadProgress;
         match progress {
@@ -97,10 +97,11 @@ impl Default for Params {
 }
 
 #[tauri::command(async)]
-pub fn complete(window: Window, input: Params) {
+pub fn complete(window: Window, input: Params) -> String {
     let (model, vocab) = load_model(&input.path);
     let mut rng = rand::rngs::StdRng::from_entropy();
     let mut session = model.start_session(input.repeat_last_n.unwrap_or_default());
+
     let inference_params = InferenceParameters {
         n_threads: input.n_threads.unwrap_or_default() as i32,
         n_batch: input.n_batch.unwrap(),
@@ -110,7 +111,6 @@ pub fn complete(window: Window, input: Params) {
         temp: input.temp.unwrap_or_default(),
     };
     let message = RefCell::new(String::new());
-
     let res = session.inference_with_prompt::<Infallible>(
         &model,
         &vocab,
@@ -120,6 +120,7 @@ pub fn complete(window: Window, input: Params) {
         &mut rng,
         |t| {
             message.borrow_mut().push_str(&t.to_string());
+            println!("{}", t.to_string());
             window
                 .emit(
                     "message",
@@ -131,7 +132,6 @@ pub fn complete(window: Window, input: Params) {
             Ok(())
         },
     );
-    println!();
 
     match res {
         Ok(_) => (),
@@ -140,4 +140,5 @@ pub fn complete(window: Window, input: Params) {
         }
         Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
     }
+    return message.borrow_mut().to_string();
 }

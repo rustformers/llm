@@ -1,7 +1,7 @@
 {
   "build": {
-    "beforeDevCommand": "vite",
-    "beforeBuildCommand": "tsc && vite build",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
     "devPath": "http://localhost:1420",
     "distDir": "../dist",
     "withGlobalTauri": false
@@ -15,6 +15,9 @@
       "all": false,
       "shell": {
         "all": false,
+        "open": true
+      },
+      "dialog": {
         "open": true
       }
     },
