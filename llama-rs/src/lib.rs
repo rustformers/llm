@@ -1,9 +1,10 @@
 mod ggml;
 
+use core::slice;
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Display,
-    io::{BufRead, Read, Seek, SeekFrom},
+    io::{BufRead, BufWriter, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -82,6 +83,10 @@ pub struct InferenceSession {
 
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     last_logits: Vec<f32>,
+
+    /// If true, this session will never return "context full" errors, and
+    /// instead will slide the context window to accomodate for any new tokens.
+    sliding_window: bool,
 }
 
 /// The parameters that drive text generation.
@@ -774,6 +779,7 @@ impl Model {
             mem_per_token: 0,
             last_n_tokens: VecDeque::from(vec![0; last_n_size]),
             last_logits: vec![0.0; n_vocab as usize],
+            sliding_window: false,
         }
     }
 
@@ -863,6 +869,7 @@ impl Model {
         session: &mut InferenceSession,
         n_threads: i32,
         input_tokens: &[TokenId],
+        hack: bool,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past as i32;
@@ -891,7 +898,6 @@ impl Model {
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
-
         for il in 0..n_layer as usize {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
@@ -1176,12 +1182,25 @@ impl InferenceSession {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
 
-        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
-        }
+        // How many tokens will we have to slide the context window?
+        let context_size = model.hparams.n_ctx as usize;
+        let mut remaining_tk_slides = if self.n_past + prompt_tokens.len() >= context_size {
+            if self.sliding_window {
+                (self.n_past + prompt_tokens.len()) - context_size
+            } else {
+                return Err(InferenceError::ContextFull);
+            }
+        } else {
+            0
+        };
 
-        for batch in prompt_tokens.chunks(8) {
-            model.evaluate(self, params.n_threads, batch);
+        let num_batches = prompt_tokens.chunks(params.n_batch).count();
+        for (i, batch) in prompt_tokens.chunks(params.n_batch).enumerate() {
+            if remaining_tk_slides > 0 {
+                self.slide_window(model, batch.len());
+                remaining_tk_slides -= batch.len();
+            }
+            model.evaluate(self, params.n_threads, batch, i != num_batches - 1);
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
@@ -1204,8 +1223,13 @@ impl InferenceSession {
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<OutputToken<'v>, InferenceError> {
-        if self.n_past + 1 >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
+        if self.n_past >= model.hparams.n_ctx as usize {
+            if self.sliding_window {
+                // Make room for one more token
+                self.slide_window(model, 1);
+            } else {
+                return Err(InferenceError::ContextFull);
+            }
         }
 
         // First, sample the next token, using the stored last_logits;
@@ -1214,8 +1238,28 @@ impl InferenceSession {
         // Update the last_n_tokens list
         self.last_n_tokens.push_front(next_token);
 
+        /*
+        static mut counter : usize = 0;
+        unsafe {
+            counter += 1;
+        }
+        let c = unsafe { counter };
+        save_memory_tensors(
+            &self.memory_k,
+            &self.memory_v,
+            &format!("prompt_memory_k_{c}.txt"),
+            &format!("prompt_memory_v_{c}.txt"),
+            &model.hparams,
+        )
+        .unwrap();
+
+        if self.n_past > 5 {
+            self.slide_window(model, 1);
+        }*/
+
+
         // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(self, params.n_threads, &[next_token]);
+        model.evaluate(self, params.n_threads, &[next_token], false);
 
         // Return the next token
         if next_token == 2 {
@@ -1246,7 +1290,7 @@ impl InferenceSession {
         // EndOfText token, or we run out of space in the context window,
         // or we reach the specified limit.
         let mut tokens_processed = 0;
-        while self.n_past < model.hparams.n_ctx as usize
+        while (self.sliding_window || self.n_past < model.hparams.n_ctx as usize)
             && maximum_token_count
                 .map(|l| tokens_processed < l)
                 .unwrap_or(true)
@@ -1290,6 +1334,78 @@ impl InferenceSession {
             logits: self.last_logits.clone(),
         }
     }
+
+    /// Shifts all the elements in memory, to make room for `num_tokens` more
+    /// tokens. This can be used to hold longer conversations with the model
+    /// than what the base context window allows.
+    pub fn slide_window(&mut self, model: &Model, num_tokens: usize) {
+        assert_eq!(
+            self.memory_k.element_size(),
+            self.memory_v.element_size(),
+            "The code assumes memory_k and memory_v have the same element size"
+        );
+
+        static mut counter: i32 = 0;
+        unsafe {
+            counter += 1;
+        }
+        let c = unsafe { counter };
+
+        /*
+        save_memory_tensors(
+            &self.memory_k,
+            &self.memory_v,
+            &format!("memory_k_before_{c}.txt"),
+            &format!("memory_v_before_{c}.txt"),
+            &model.hparams,
+        )
+        .unwrap(); */
+
+        // The size of the context window (for LLaMA that's 2048 tokens), but we
+        // support changing values (and it's probably wrong)
+        let context_size = model.hparams.n_ctx as usize;
+
+        // The size of an embedding vector (in bytes)
+        let embd_size = model.hparams.n_embd as usize * self.memory_k.element_size();
+
+        let num_layers = model.hparams.n_layer as usize;
+        for layer_idx in 0..num_layers {
+            let src_offset = (layer_idx * context_size + num_tokens) * embd_size;
+            let dst_offset = (layer_idx * context_size) * embd_size;
+            let size = (context_size - num_tokens) * embd_size;
+
+            unsafe {
+                let src_k = (self.memory_k.data() as *mut u8).add(src_offset);
+                let dst_k = (self.memory_k.data() as *mut u8).add(dst_offset);
+                std::ptr::copy(src_k, dst_k, size);
+
+                let src_v = (self.memory_v.data() as *mut u8).add(src_offset);
+                let dst_v = (self.memory_v.data() as *mut u8).add(dst_offset);
+                std::ptr::copy(src_v, dst_v, size);
+            }
+        }
+
+        self.n_past -= num_tokens;
+
+        /*
+        save_memory_tensors(
+            &self.memory_k,
+            &self.memory_v,
+            &format!("memory_k_after_{c}.txt"),
+            &format!("memory_v_after_{c}.txt"),
+            &model.hparams,
+        )
+        .unwrap();*/
+
+            print!("|");
+    }
+
+    /// Sets this session to use a sliding context window. Once the context
+    /// window runs out of space, it will automatically make room for extra
+    /// tokens instead of returning a "context full" error.
+    pub fn set_sliding_window(&mut self, sliding_window: bool) {
+        self.sliding_window = sliding_window;
+    }
 }
 
 impl<'a> InferenceSnapshotRef<'a> {
@@ -1322,4 +1438,57 @@ impl InferenceSnapshot {
 
         Self::read(&mut reader)
     }
+}
+
+use std::fs::File;
+use std::io::prelude::*;
+
+pub fn save_tensor_to_file(
+    tensor: &ggml::Tensor,
+    file_path: &str,
+    params: &Hyperparameters,
+) -> std::io::Result<()> {
+    let context_size = params.n_ctx;
+    let n_embd = params.n_embd;
+    let num_layers = params.n_layer;
+
+    let element_size = tensor.element_size();
+    let data_ptr = tensor.data() as *const f32;
+
+    let mut file = BufWriter::new(File::create(file_path)?);
+
+    for layer_idx in 0..num_layers {
+        writeln!(file, "==== LAYER {} ====", layer_idx)?;
+
+        for token_idx in 0..context_size {
+            for embd_idx in 0..n_embd {
+                let index = layer_idx * context_size * n_embd + token_idx * n_embd + embd_idx;
+                let value = unsafe { *data_ptr.offset(index as isize) };
+                write!(file, "{:.6}", value)?;
+
+                if embd_idx != n_embd - 1 {
+                    write!(file, ", ")?;
+                }
+            }
+            writeln!(file)?;
+        }
+
+        if layer_idx != num_layers - 1 {
+            writeln!(file)?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn save_memory_tensors(
+    memory_k: &ggml::Tensor,
+    memory_v: &ggml::Tensor,
+    k_file_path: &str,
+    v_file_path: &str,
+    hparams: &Hyperparameters,
+) -> std::io::Result<()> {
+    save_tensor_to_file(memory_k, k_file_path, hparams)?;
+    save_tensor_to_file(memory_v, v_file_path, hparams)?;
+    Ok(())
 }

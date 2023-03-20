@@ -116,6 +116,8 @@ fn main() {
         model.start_session(args.repeat_last_n)
     };
 
+    session.set_sliding_window(true);
+
     if let Some(cache_path) = &args.cache_prompt {
         let res =
             session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
