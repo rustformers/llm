@@ -130,7 +130,7 @@ impl Display for InferenceStats {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "feed_prompt_duration: {}ms, prompt_tokens: {}, predict_duration: {}ms, predict_tokens: {}, per_token_duration: {:.3}ms",
+            "feed_prompt_duration: {}ms\nprompt_tokens: {}\npredict_duration: {}ms\npredict_tokens: {}\nper_token_duration: {:.3}ms",
             self.feed_prompt_duration.as_millis(),
             self.prompt_tokens,
             self.predict_duration.as_millis(),
