@@ -1,10 +1,10 @@
 import { Main } from "./components/Main";
-import { Menu } from "./components/Menu";
+import { Settings } from "./components/Settings";
 
 export default function App() {
   return (
     <div className="grid grid-cols-3 h-screen overflow-hidden">
-      <Menu />
+      <Settings />
       <Main />
     </div>
   );
