@@ -20,6 +20,11 @@ export type Params = {
   temp?: number;
   num_predict?: number;
 };
+export type Prompt = {
+  instruction: string;
+  userPrefix: string;
+  assistantPrefix: string;
+};
 export type InputParams = Params & {
   path: string;
   prompt: string;
@@ -45,9 +50,11 @@ export type Message = {
 export type Store = {
   params: Params;
   setParams: (params: Partial<Params>) => void;
-  prompt: string;
-  setPrompt: (prompt: string) => void;
+
+  prompt: Prompt;
+  setPrompt: (prompt: Partial<Prompt>) => void;
   resetPrompt: () => void;
+
   isGenerating: boolean;
   setIsGenerating: (isGenerating: boolean) => void;
 
@@ -78,8 +85,9 @@ export const useStore = create(
 
       isActive: false,
       setIsActive: (isActive) => set({ isActive }),
+
       prompt: defaultPrompt,
-      setPrompt: (prompt) => set({ prompt }),
+      setPrompt: (prompt) => set((s) => ({ ...s.prompt, prompt })),
       resetPrompt: () => set({ prompt: defaultPrompt }),
 
       isGenerating: false,

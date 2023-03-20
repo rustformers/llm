@@ -1,7 +1,7 @@
 import { parameterProps, Params as ParamsType, useStore } from "../hooks/useStore";
 import { useState } from "react";
 import { IoIosArrowDown, IoIosTrash, IoIosAdd } from "react-icons/io";
-import { defaultParams, instructionString } from "../config";
+import { defaultParams } from "../config";
 
 export const Menu = () => {
   return (
@@ -89,13 +89,28 @@ const Prompt = () => {
   const resetPrompt = useStore((state) => state.resetPrompt);
 
   return (
-    <Section title="Prompt" className="flex flex-col items-center space-y-2 p-2">
-      <textarea value={prompt} className="min-h-[200px] w-full rounded-lg p-1" onChange={(e) => setPrompt(e.target.value)} />
-      {!prompt.includes(instructionString) && (
-        <p className="text-sm text-red-500">
-          Doesn't have <span className="">{"{{instruction}}"}</span> in it!
-        </p>
-      )}
+    <Section title="Prompt" className="flex flex-col items-center space-y- p-2">
+      <div>
+        <label>Instructions</label>
+        <textarea
+          value={prompt.instruction}
+          className="min-h-[200px] w-full rounded-lg p-1"
+          onChange={(e) => setPrompt({ instruction: e.target.value })}
+        />
+      </div>
+      <div>
+        <label>User prefix</label>
+        <input value={prompt.userPrefix} className="w-full rounded-lg p-1" onChange={(e) => setPrompt({ ...prompt, userPrefix: e.target.value })} />
+      </div>
+      <div>
+        <label>Assistant prefix</label>
+        <input
+          value={prompt.assistantPrefix}
+          className="w-full rounded-lg p-1"
+          onChange={(e) => setPrompt({ ...prompt, assistantPrefix: e.target.value })}
+        />
+      </div>
+
       <button className="hover:bg-zinc-300 p-2 rounded-lg" onClick={resetPrompt}>
         Reset
       </button>

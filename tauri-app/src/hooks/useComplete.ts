@@ -16,7 +16,7 @@ export const useComplete = () => {
   const addMessage = useStore((s) => s.addMessage);
   const editMessage = useStore((s) => s.editMessage);
   const params = useStore((s) => s.params);
-  const layout = useStore((s) => s.prompt);
+  const prompt = useStore((s) => s.prompt);
   const isGenerating = useStore((s) => s.isGenerating);
   const setIsGenerating = useStore((s) => s.setIsGenerating);
   const model = useModel();
@@ -26,9 +26,9 @@ export const useComplete = () => {
     if (isGenerating) return;
     const id = getRandomId();
     addMessage({ id, message: "", type: "asssistant" });
-    const prompt = getPrompt(layout, instruction);
+    const inputPrompt = getPrompt(prompt, instruction);
     setIsGenerating(true);
-    await complete({ prompt, id, path: model.path, ...params });
+    await complete({ prompt: inputPrompt, id, path: model.path, ...params });
     setIsGenerating(false);
   };
 
