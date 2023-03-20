@@ -37,7 +37,7 @@ Make sure you have a rust toolchain set up.
 For example, you try the following prompt:
 
 ```shell
-cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is
+cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
 ```
 
 Some additional things to try:

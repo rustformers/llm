@@ -225,8 +225,10 @@ fn main() {
         println!();
 
         match res {
-            Ok(_) => (),
-            Err(InferenceError::ContextFull) => {
+            Ok(stats) => {
+                println!("{}", stats);
+            }
+            Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }
             Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
