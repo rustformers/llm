@@ -75,7 +75,7 @@ export type Store = {
   editMessage: (id: string, message: string) => void;
   removeMessage: (id: string) => void;
   clearMessages: () => void;
-  send: (message: Message) => void;
+  send: (message: Message) => Promise<void>;
 };
 
 export const useStore = create(
@@ -151,13 +151,11 @@ export const useStore = create(
           delete state.messages[id];
           state.allMessages = state.allMessages.filter((m) => m !== id);
         }),
-      send: (input: Message) => {
-        const send = async (input: Message) => {
-          const model = get().models[get().selectedModel || ""];
-          const { id } = get().addMessage("", "asssistant");
-          const inputPrompt = getPrompt(get().prompt, input.message, input.index === 0);
-          await complete({ prompt: inputPrompt, id, path: model.path, ...get().params });
-        };
+      send: async (input: Message) => {
+        const model = get().models[get().selectedModel || ""];
+        const { id } = get().addMessage("", "asssistant");
+        const inputPrompt = getPrompt(get().prompt, input.message, input.index === 0);
+        await complete({ prompt: inputPrompt, id, path: model.path, ...get().params });
       },
     })),
     { name: "llama-rs" }
