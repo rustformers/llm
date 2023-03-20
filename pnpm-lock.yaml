@@ -22,6 +22,7 @@ importers:
       react: ^18.2.0
       react-dom: ^18.2.0
       react-icons: ^4.8.0
+      sonner: ^0.3.0
       tailwindcss: ^3.2.7
       typescript: ^4.6.4
       vite: ^4.0.0
@@ -32,6 +33,7 @@ importers:
       react: 18.2.0
       react-dom: 18.2.0_react@18.2.0
       react-icons: 4.8.0_react@18.2.0
+      sonner: 0.3.0_biqbaboplfbrettd7655fr4n2y
       zustand: 4.3.6_immer@9.0.19+react@18.2.0
     devDependencies:
       '@tauri-apps/cli': 1.2.3
@@ -1256,6 +1258,16 @@ packages:
     resolution: {integrity: sha512-b39TBaTSfV6yBrapU89p5fKekE2m/NwnDocOVruQFS1/veMgdzuPcnOM34M6CwxW8jH/lxEa5rBoDeUwu5HHTw==}
     hasBin: true
     dev: true
+
+  /sonner/0.3.0_biqbaboplfbrettd7655fr4n2y:
+    resolution: {integrity: sha512-PJ/3k97N+/Kt/uu5tnPp3HFpFGF/iQs+hq+lAEtEQcEMc7o9S4axOV8pd7RKpFJoKt199aMUqHIgzs2re4MPbw==}
+    peerDependencies:
+      react: ^18.0.0
+      react-dom: ^18.0.0
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.2.0_react@18.2.0
+    dev: false
 
   /source-map-js/1.0.2:
     resolution: {integrity: sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==}

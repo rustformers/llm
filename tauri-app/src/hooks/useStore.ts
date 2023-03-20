@@ -2,8 +2,9 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { open } from "@tauri-apps/api/dialog";
-import { getRandomId } from "../helpers";
+import { getPrompt, getRandomId } from "../helpers";
 import { defaultParams, defaultPrompt } from "../config";
+import { complete } from "./useListener";
 
 export type Model = {
   name: string;
@@ -57,9 +58,6 @@ export type Store = {
   setPrompt: (prompt: Partial<Prompt>) => void;
   resetPrompt: () => void;
 
-  isGenerating: boolean;
-  setIsGenerating: (isGenerating: boolean) => void;
-
   isActive: boolean;
   setIsActive: (isActive: boolean) => void;
 
@@ -77,6 +75,7 @@ export type Store = {
   editMessage: (id: string, message: string) => void;
   removeMessage: (id: string) => void;
   clearMessages: () => void;
+  send: (message: Message) => void;
 };
 
 export const useStore = create(
@@ -100,9 +99,6 @@ export const useStore = create(
           s.prompt = { ...s.prompt, ...prompt };
         }),
       resetPrompt: () => set({ prompt: defaultPrompt }),
-
-      isGenerating: false,
-      setIsGenerating: (isGenerating) => set({ isGenerating }),
 
       setSelectedModel: (modelPath) => set({ selectedModel: modelPath }),
       models: {},
@@ -155,6 +151,14 @@ export const useStore = create(
           delete state.messages[id];
           state.allMessages = state.allMessages.filter((m) => m !== id);
         }),
+      send: (input: Message) => {
+        const send = async (input: Message) => {
+          const model = get().models[get().selectedModel || ""];
+          const { id } = get().addMessage("", "asssistant");
+          const inputPrompt = getPrompt(get().prompt, input.message, input.index === 0);
+          await complete({ prompt: inputPrompt, id, path: model.path, ...get().params });
+        };
+      },
     })),
     { name: "llama-rs" }
   )

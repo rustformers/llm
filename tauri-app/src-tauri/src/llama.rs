@@ -1,9 +1,11 @@
-use std::{cell::RefCell, convert::Infallible};
+use std::{cell::RefCell, convert::Infallible, path::Path};
 
 use llama_rs::InferenceParameters;
 use rand::SeedableRng;
 use std::sync::Mutex;
 use tauri::Window;
+
+use crate::toast::send_toast;
 
 #[derive(Clone, serde::Serialize)]
 struct Payload {
@@ -64,8 +66,12 @@ pub fn is_active(state: tauri::State<State>) -> bool {
 pub fn start_model(window: Window, path: String, state: tauri::State<State>) {
     let rx = {
         let mut app_state = state.0.lock().unwrap();
-        println!("Sender: {:?}", app_state.sender.is_some());
         if app_state.sender.is_some() {
+            send_toast("Already running!", window);
+            return;
+        }
+        if !Path::new(&path).exists() {
+            send_toast("Invalid model path!", window);
             return;
         }
         let (tx, rx) = flume::unbounded::<SenderProps>();
@@ -123,7 +129,7 @@ pub fn start_model(window: Window, path: String, state: tauri::State<State>) {
                 match res {
                     Ok(_) => (),
                     Err(llama_rs::InferenceError::ContextFull) => {
-                        log::warn!("Context window full, stopping inference.")
+                        send_toast("Context full", window.clone());
                     }
                     Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
                 }

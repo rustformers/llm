@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { useComplete } from "../hooks/useComplete";
+import { useListener } from "../hooks/useListener";
 import { useStore } from "../hooks/useStore";
 
 export const Input = () => {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState("");
   const addMessage = useStore((state) => state.addMessage);
-  const isGenerating = useStore((state) => state.isGenerating);
-  const send = useComplete();
+  const send = useStore((state) => state.send);
+  useListener();
 
   useEffect(() => {
     if (!ref.current) return;
@@ -17,7 +17,6 @@ export const Input = () => {
   }, [input]);
 
   const submit = () => {
-    if (isGenerating) return;
     const message = addMessage(input, "user");
     send(message);
     setInput("");
@@ -25,11 +24,6 @@ export const Input = () => {
 
   return (
     <form className="p-2 relative" onSubmit={submit}>
-      {isGenerating && (
-        <div className="absolute top-[-10px] text-center text-xs w-full">
-          <p>Generating...</p>
-        </div>
-      )}
       <textarea
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
