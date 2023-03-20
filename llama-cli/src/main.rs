@@ -1,10 +1,10 @@
 use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
-use llama_rs::{InferenceError, InferenceParameters, InferenceSession, InferenceSnapshot};
+use llama_rs::{InferenceError, InferenceParameters, InferenceSnapshot};
 use rand::thread_rng;
-use rustyline::error::ReadlineError;
 use rand::SeedableRng;
+use rustyline::error::ReadlineError;
 
 mod cli_args;
 
@@ -13,14 +13,13 @@ fn repl_mode(
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
-    mut session: InferenceSession,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                session = model.start_session(CLI_ARGS.repeat_last_n);
+                let mut session = model.start_session(CLI_ARGS.repeat_last_n);
                 let prompt = prompt.replace("$PROMPT", &line);
                 let mut rng = thread_rng();
 
@@ -172,7 +171,7 @@ fn main() {
     };
 
     if args.repl {
-        repl_mode(&prompt, &model, &vocab, &inference_params, session);
+        repl_mode(&prompt, &model, &vocab, &inference_params);
     } else if let Some(cache_path) = &args.cache_prompt {
         let res =
             session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
