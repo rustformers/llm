@@ -40,16 +40,18 @@ export const parameterProps: { [id in keyof Params]: { label: string; placeholde
   temp: { label: "Temperature" },
   num_predict: { label: "Number of predictions" },
 };
-
+export type MessageType = "user" | "asssistant";
 export type Message = {
   id: string;
   message: string;
-  type: "user" | "asssistant";
+  type: MessageType;
+  index: number;
 };
 
 export type Store = {
   params: Params;
   setParams: (params: Partial<Params>) => void;
+  messageCounter: number;
 
   prompt: Prompt;
   setPrompt: (prompt: Partial<Prompt>) => void;
@@ -71,7 +73,7 @@ export type Store = {
 
   messages: { [id: string]: Message };
   allMessages: string[];
-  addMessage: (message: Message) => void;
+  addMessage: (message: string, type: MessageType) => Message;
   editMessage: (id: string, message: string) => void;
   removeMessage: (id: string) => void;
   clearMessages: () => void;
@@ -79,12 +81,18 @@ export type Store = {
 
 export const useStore = create(
   persist(
-    immer<Store>((set) => ({
+    immer<Store>((set, get) => ({
+      messageCounter: 0,
       params: defaultParams,
       setParams: (params) => set((state) => ({ params: { ...state.params, ...params } })),
 
       isActive: false,
-      setIsActive: (isActive) => set({ isActive }),
+      setIsActive: (isActive) =>
+        set((s) => {
+          if (isActive === s.isActive) return;
+          s.isActive = isActive;
+          s.messageCounter = 0;
+        }),
 
       prompt: defaultPrompt,
       setPrompt: (prompt) => set((s) => ({ ...s.prompt, prompt })),
@@ -125,11 +133,16 @@ export const useStore = create(
 
       messages: {},
       allMessages: [],
-      addMessage: (message) =>
+      addMessage: (message, type) => {
+        const id = getRandomId();
+        const newMessage = { message, type, index: get().messageCounter, id };
         set((state) => {
-          state.messages[message.id] = message;
-          state.allMessages.push(message.id);
-        }),
+          state.messages[id] = newMessage;
+          state.allMessages.push(id);
+          state.messageCounter++;
+        });
+        return newMessage;
+      },
       editMessage: (id, message) =>
         set((state) => {
           state.messages[id] = { ...state.messages[id], message };

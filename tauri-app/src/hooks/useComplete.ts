@@ -24,9 +24,8 @@ export const useComplete = () => {
   const send = async (instruction: string) => {
     if (!model) return;
     if (isGenerating) return;
-    const id = getRandomId();
-    addMessage({ id, message: "", type: "asssistant" });
-    const inputPrompt = getPrompt(prompt, instruction);
+    const { id, index } = addMessage("", "asssistant");
+    const inputPrompt = getPrompt(prompt, instruction, index === 0);
     setIsGenerating(true);
     await complete({ prompt: inputPrompt, id, path: model.path, ...params });
     setIsGenerating(false);

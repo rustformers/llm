@@ -94,7 +94,7 @@ const Prompt = () => {
         <label>Instructions</label>
         <textarea
           value={prompt.instruction}
-          className="min-h-[200px] w-full rounded-lg p-1"
+          className="min-h-[100px] w-full rounded-lg p-1"
           onChange={(e) => setPrompt({ instruction: e.target.value })}
         />
       </div>

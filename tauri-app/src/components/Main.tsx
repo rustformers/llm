@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { getRandomId } from "../helpers";
 import { useMessage, useModel, useStore } from "../hooks/useStore";
 import { useComplete } from "../hooks/useComplete";
 import { invoke } from "@tauri-apps/api";
@@ -124,7 +123,13 @@ const Message = ({ id }: { id: string }) => {
   if (!message) return null;
   const isUser = message.type === "user";
   return (
-    <div className={`flex my-1 ${isUser ? "justify-end" : ""}`}>
+    <div className={`flex flex-col my-1 ${isUser ? "items-end" : "items-start"}`}>
+      {message.index === 0 && (
+        <div className="w-full my-2">
+          <p className="text-xs text-center">New Session</p>
+          <div className="w-full h-[1px] rounded-full bg-zinc-300" />
+        </div>
+      )}
       <p className={`rounded-lg p-2 whitespace-pre-wrap ${isUser ? "bg-blue-500 text-white" : "bg-zinc-200"}`}>
         {message.message.replace("[end of text]", "")}
       </p>
@@ -148,8 +153,7 @@ const Input = () => {
 
   const submit = () => {
     if (isGenerating) return;
-    const id = getRandomId();
-    addMessage({ id, type: "user", message: input });
+    addMessage(input, "user");
     send(input);
     setInput("");
   };
