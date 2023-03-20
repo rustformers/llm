@@ -91,11 +91,14 @@ export const useStore = create(
         set((s) => {
           if (isActive === s.isActive) return;
           s.isActive = isActive;
-          s.messageCounter = 0;
+          if (!isActive) s.messageCounter = 0;
         }),
 
       prompt: defaultPrompt,
-      setPrompt: (prompt) => set((s) => ({ ...s.prompt, prompt })),
+      setPrompt: (prompt) =>
+        set((s) => {
+          s.prompt = { ...s.prompt, ...prompt };
+        }),
       resetPrompt: () => set({ prompt: defaultPrompt }),
 
       isGenerating: false,

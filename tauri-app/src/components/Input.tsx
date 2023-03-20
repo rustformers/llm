@@ -18,8 +18,8 @@ export const Input = () => {
 
   const submit = () => {
     if (isGenerating) return;
-    addMessage(input, "user");
-    send(input);
+    const message = addMessage(input, "user");
+    send(message);
     setInput("");
   };
 

@@ -26,7 +26,7 @@ const Message = ({ id }: { id: string }) => {
         </div>
       )}
       <p className={`rounded-lg p-2 whitespace-pre-wrap ${isUser ? "bg-blue-500 text-white" : "bg-zinc-200"}`}>
-        {message.message.replace("[end of text]", "")}
+        {message.message.replaceAll("[end of text]", "")}
       </p>
     </div>
   );

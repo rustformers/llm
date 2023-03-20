@@ -18,15 +18,11 @@ export const Prompt = () => {
       </div>
       <div>
         <label>User prefix</label>
-        <input value={prompt.userPrefix} className="w-full rounded-lg p-1" onChange={(e) => setPrompt({ ...prompt, userPrefix: e.target.value })} />
+        <input value={prompt.userPrefix} className="w-full rounded-lg p-1" onChange={(e) => setPrompt({ userPrefix: e.target.value })} />
       </div>
       <div>
         <label>Assistant prefix</label>
-        <input
-          value={prompt.assistantPrefix}
-          className="w-full rounded-lg p-1"
-          onChange={(e) => setPrompt({ ...prompt, assistantPrefix: e.target.value })}
-        />
+        <input value={prompt.assistantPrefix} className="w-full rounded-lg p-1" onChange={(e) => setPrompt({ assistantPrefix: e.target.value })} />
       </div>
 
       <button className="hover:bg-zinc-300 p-2 rounded-lg" onClick={resetPrompt}>
