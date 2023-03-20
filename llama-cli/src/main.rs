@@ -4,6 +4,7 @@ use cli_args::CLI_ARGS;
 use llama_rs::{InferenceError, InferenceParameters, InferenceSession, InferenceSnapshot};
 use rand::thread_rng;
 use rustyline::error::ReadlineError;
+use rand::SeedableRng;
 
 mod cli_args;
 
@@ -148,7 +149,12 @@ fn main() {
 
     log::info!("Model fully loaded!");
 
-    let mut rng = thread_rng();
+    let mut rng = if let Some(seed) = CLI_ARGS.seed {
+        rand::rngs::StdRng::seed_from_u64(seed)
+    } else {
+        rand::rngs::StdRng::from_entropy()
+    };
+
     let mut session = if let Some(restore_path) = &args.restore_prompt {
         let snapshot = InferenceSnapshot::load_from_disk(restore_path);
         match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
