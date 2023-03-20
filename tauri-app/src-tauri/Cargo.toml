@@ -23,6 +23,7 @@ num_cpus = "1.15.0"
 llama-rs = { path = "../../llama-rs" }
 reqwest = { version = "0.11.3", features = ["stream"] }
 futures-util = "0.3.14"
+flume = "0.10.14"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

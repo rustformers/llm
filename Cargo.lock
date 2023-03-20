@@ -2924,6 +2924,7 @@ dependencies = [
 name = "tauri-app"
 version = "0.0.0"
 dependencies = [
+ "flume",
  "futures-util",
  "llama-rs",
  "log",

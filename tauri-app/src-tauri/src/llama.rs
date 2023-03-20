@@ -1,64 +1,9 @@
 use std::{cell::RefCell, convert::Infallible};
 
-use llama_rs::{InferenceParameters, Model, Vocabulary};
+use llama_rs::InferenceParameters;
 use rand::SeedableRng;
+use std::sync::Mutex;
 use tauri::Window;
-
-pub fn load_model(path: &str) -> (Model, Vocabulary) {
-    let (model, vocab) = llama_rs::Model::load(path, 512, |progress| {
-        use llama_rs::LoadProgress;
-        match progress {
-            LoadProgress::HyperparametersLoaded(hparams) => {
-                log::debug!("Loaded HyperParams {hparams:#?}")
-            }
-            LoadProgress::BadToken { index } => {
-                log::info!("Warning: Bad token in vocab at index {index}")
-            }
-            LoadProgress::ContextSize { bytes } => log::info!(
-                "ggml ctx size = {:.2} MB\n",
-                bytes as f64 / (1024.0 * 1024.0)
-            ),
-            LoadProgress::MemorySize { bytes, n_mem } => log::info!(
-                "Memory size: {} MB {}",
-                bytes as f32 / 1024.0 / 1024.0,
-                n_mem
-            ),
-            LoadProgress::PartLoading {
-                file,
-                current_part,
-                total_parts,
-            } => log::info!(
-                "Loading model part {}/{} from '{}'\n",
-                current_part,
-                total_parts,
-                file.to_string_lossy(),
-            ),
-            LoadProgress::PartTensorLoaded {
-                current_tensor,
-                tensor_count,
-                ..
-            } => {
-                if current_tensor % 8 == 0 {
-                    log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                }
-            }
-            LoadProgress::PartLoaded {
-                file,
-                byte_size,
-                tensor_count,
-            } => {
-                log::info!("Loading of '{}' complete", file.to_string_lossy());
-                log::info!(
-                    "Model size = {:.2} MB / num tensors = {}",
-                    byte_size as f64 / 1024.0 / 1024.0,
-                    tensor_count
-                );
-            }
-        }
-    })
-    .expect("Could not load model");
-    (model, vocab)
-}
 
 #[derive(Clone, serde::Serialize)]
 struct Payload {
@@ -71,7 +16,6 @@ pub struct Params {
     path: String,
     prompt: String,
     id: String,
-    repeat_last_n: Option<usize>,
     n_batch: Option<usize>,
     n_threads: Option<usize>,
     top_k: Option<usize>,
@@ -87,7 +31,6 @@ impl Default for Params {
             path: "".to_string(),
             prompt: "".to_string(),
             id: "".to_string(),
-            repeat_last_n: Some(64),
             n_batch: Some(8),
             n_threads: Some(num_cpus::get_physical()),
             top_k: Some(40),
@@ -98,55 +41,135 @@ impl Default for Params {
         }
     }
 }
+pub struct SenderProps {
+    params: Option<Params>,
+    stop: Option<bool>,
+}
+pub struct AppState {
+    sender: Option<flume::Sender<SenderProps>>,
+}
+impl Default for AppState {
+    fn default() -> Self {
+        Self { sender: None }
+    }
+}
+pub struct State(pub Mutex<AppState>);
+
+#[tauri::command]
+pub fn is_active(state: tauri::State<State>) -> bool {
+    state.0.lock().unwrap().sender.is_some()
+}
 
 #[tauri::command(async)]
-pub fn complete(window: Window, params: Params) -> String {
-    let (model, vocab) = load_model(&params.path);
-    let mut rng = rand::rngs::StdRng::from_entropy();
-    let mut session = model.start_session(params.repeat_last_n.unwrap_or_default());
-
-    let inference_params = InferenceParameters {
-        n_threads: params.n_threads.unwrap_or_default() as i32,
-        n_batch: params.n_batch.unwrap_or_default(),
-        top_k: params.top_k.unwrap_or_default(),
-        top_p: params.top_p.unwrap_or_default(),
-        repeat_penalty: params.repeat_penalty.unwrap_or_default(),
-        temp: params.temp.unwrap_or_default(),
-    };
-    let message = RefCell::new(String::new());
-    let res = session.inference_with_prompt::<Infallible>(
-        &model,
-        &vocab,
-        &inference_params,
-        &params.prompt,
-        Some(params.num_predict.unwrap_or_default()),
-        &mut rng,
-        |t| {
-            message.borrow_mut().push_str(&t.to_string());
-            println!("{}", t.to_string());
-            window
-                .emit(
-                    "message",
-                    Payload {
-                        id: params.id.clone(),
-                        message: message
-                            .borrow_mut()
-                            .strip_prefix(&params.prompt)
-                            .unwrap_or("")
-                            .to_string(),
-                    },
-                )
-                .unwrap();
-            Ok(())
-        },
-    );
-
-    match res {
-        Ok(_) => (),
-        Err(llama_rs::InferenceError::ContextFull) => {
-            log::warn!("Context window full, stopping inference.")
+pub fn start_model(window: Window, path: String, state: tauri::State<State>) {
+    let rx = {
+        let mut app_state = state.0.lock().unwrap();
+        println!("Sender: {:?}", app_state.sender.is_some());
+        if app_state.sender.is_some() {
+            return;
         }
-        Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+        let (tx, rx) = flume::unbounded::<SenderProps>();
+        app_state.sender = Some(tx);
+        rx
+    };
+
+    std::thread::spawn(move || {
+        let (model, vocab) =
+            llama_rs::Model::load(path, 512, |_| {}).expect("Could not load model");
+        let mut rng = rand::rngs::StdRng::from_entropy();
+        let mut session = model.start_session(64);
+
+        loop {
+            let props = rx.recv().unwrap();
+            if let Some(params) = props.params {
+                let inference_params = InferenceParameters {
+                    n_threads: params.n_threads.unwrap_or_default() as i32,
+                    n_batch: params.n_batch.unwrap_or_default(),
+                    top_k: params.top_k.unwrap_or_default(),
+                    top_p: params.top_p.unwrap_or_default(),
+                    repeat_penalty: params.repeat_penalty.unwrap_or_default(),
+                    temp: params.temp.unwrap_or_default(),
+                };
+                let message = RefCell::new(String::new());
+                let res = session.inference_with_prompt::<Infallible>(
+                    &model,
+                    &vocab,
+                    &inference_params,
+                    &params.prompt,
+                    Some(params.num_predict.unwrap_or_default()),
+                    &mut rng,
+                    |t| {
+                        message.borrow_mut().push_str(&t.to_string());
+                        println!("{}", t.to_string());
+                        let borrow = message.borrow();
+                        let split = borrow.split(&params.prompt);
+                        let res = match split.clone().count() {
+                            1 => "",
+                            _ => split.last().unwrap(),
+                        };
+                        window
+                            .emit(
+                                "message",
+                                Payload {
+                                    id: params.id.clone(),
+                                    message: res.to_string(),
+                                },
+                            )
+                            .unwrap();
+                        Ok(())
+                    },
+                );
+
+                match res {
+                    Ok(_) => (),
+                    Err(llama_rs::InferenceError::ContextFull) => {
+                        log::warn!("Context window full, stopping inference.")
+                    }
+                    Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+                }
+            }
+            if props.stop.unwrap_or_default() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    });
+}
+
+#[tauri::command(async)]
+pub fn complete(window: Window, params: Params, state: tauri::State<State>) {
+    {
+        if state.0.lock().unwrap().sender.is_none() {
+            start_model(window, params.path.clone(), state.clone())
+        }
     }
-    return message.borrow_mut().to_string();
+    state
+        .0
+        .lock()
+        .unwrap()
+        .sender
+        .as_mut()
+        .unwrap()
+        .send(SenderProps {
+            params: Some(params),
+            stop: None,
+        })
+        .unwrap();
+}
+
+#[tauri::command(async)]
+pub fn stop_model(state: tauri::State<State>) {
+    let mut app_state = state.0.lock().unwrap();
+    if app_state.sender.is_some() {
+        app_state
+            .sender
+            .as_mut()
+            .unwrap()
+            .send(SenderProps {
+                params: None,
+                stop: Some(true),
+            })
+            .unwrap();
+        app_state.sender = None;
+    }
 }

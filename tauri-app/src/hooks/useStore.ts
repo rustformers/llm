@@ -51,6 +51,9 @@ export type Store = {
   isGenerating: boolean;
   setIsGenerating: (isGenerating: boolean) => void;
 
+  isActive: boolean;
+  setIsActive: (isActive: boolean) => void;
+
   selectedModel?: string;
   setSelectedModel: (id: string) => void;
 
@@ -73,6 +76,8 @@ export const useStore = create(
       params: defaultParams,
       setParams: (params) => set((state) => ({ params: { ...state.params, ...params } })),
 
+      isActive: false,
+      setIsActive: (isActive) => set({ isActive }),
       prompt: defaultPrompt,
       setPrompt: (prompt) => set({ prompt }),
       resetPrompt: () => set({ prompt: defaultPrompt }),
