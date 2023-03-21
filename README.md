@@ -32,14 +32,6 @@ Make sure you have a rust toolchain set up.
 3. Build (`cargo build --release`)
 4. Run with `cargo run --release -- <ARGS>`
 
-Some additional things to try:
-
-- Use `--help` to see a list of available options.
-- Prompt files can be precomputed to speed up processing using the
-  `--cache-prompt` and `--restore-prompt` flags.
-
-[^1]: The only legal source to get the weights at the time of writing is [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama). The choice of words also may or may not hint at the existence of other kinds of sources.
-
 **NOTE**: For best results, make sure to build and run in release mode. Debug builds are going to be very slow.
 
 For example, you try the following prompt:
@@ -47,6 +39,23 @@ For example, you try the following prompt:
 ```shell
 cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
 ```
+
+Some additional things to try:
+
+- Use `--help` to see a list of available options.
+- If you have the [alpaca-lora](https://github.com/tloen/alpaca-lora) weights,
+  try `--repl` mode! `cargo run --release -- -m <path>/ggml-alpaca-7b-q4.bin
+  -f examples/alpaca_prompt.txt --repl`.
+
+  ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
+
+- Prompt files can be precomputed to speed up processing using the
+  `--cache-prompt` and `--restore-prompt` flags so you can save processing time
+  for lengthy prompts. 
+
+  ![Gif showcasing prompt caching](./doc/resources/prompt_caching_screencap.gif)
+
+[^1]: The only legal source to get the weights at the time of writing is [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama). The choice of words also may or may not hint at the existence of other kinds of sources.
 
 ## Q&A
 
