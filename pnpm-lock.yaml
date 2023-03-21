@@ -8,7 +8,7 @@ importers:
     dependencies:
       '@tauri-apps/cli': 1.2.3
 
-  tauri-app:
+  llama-app:
     specifiers:
       '@tauri-apps/api': ^1.2.0
       '@tauri-apps/cli': ^1.2.2
