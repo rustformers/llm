@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use clap::Parser;
+use once_cell::sync::Lazy;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -54,30 +53,20 @@ pub struct Args {
     #[arg(long, default_value_t = 40)]
     pub top_k: usize,
 
-    /// Top-p: The cumulative probability after which no more words are kept
+    /// Top-p: The cummulative probability after which no more words are kept
     /// for sampling.
     #[arg(long, default_value_t = 0.95)]
     pub top_p: f32,
 
-    /// Saves an inference session at the given path. The same session can then be
-    /// loaded from disk using `--load-session`.
-    ///
-    /// Use this with `-n 0` to save just the prompt
+    /// Stores a cached prompt at the given path. The same prompt can then be
+    /// loaded from disk using --restore-prompt
     #[arg(long, default_value = None)]
-    pub save_session: Option<PathBuf>,
+    pub cache_prompt: Option<String>,
 
-    /// Loads a saved inference session from the given path, previously saved using
-    /// `--save-session`
+    /// Restores a cached prompt at the given path, previously using
+    /// --cache-prompt
     #[arg(long, default_value = None)]
-    pub load_session: Option<PathBuf>,
-
-    /// Loads an inference session from the given path if present, and then saves
-    /// the result to the same path after inference is completed.
-    ///
-    /// Equivalent to `--load-session` and `--save-session` with the same path,
-    /// but will not error if the path does not exist
-    #[arg(long, default_value = None)]
-    pub persist_session: Option<PathBuf>,
+    pub restore_prompt: Option<String>,
 
     /// Specifies the seed to use during sampling. Note that, depending on
     /// hardware, the same seed may lead to different results on two separate
@@ -85,3 +74,7 @@ pub struct Args {
     #[arg(long, default_value = None)]
     pub seed: Option<u64>,
 }
+
+/// CLI args are stored in a lazy static variable so they're accessible from
+/// everywhere. Arguments are parsed on first access.
+pub static CLI_ARGS: Lazy<Args> = Lazy::new(Args::parse);
