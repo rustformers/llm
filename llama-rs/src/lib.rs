@@ -67,6 +67,9 @@ pub struct InferenceSession {
     // Must be kept alive for the model
     _session_ctx: ggml::Context,
 
+    // Parameters for the session.
+    params: InferenceSessionParameters,
+
     memory_k: ggml::Tensor,
     memory_v: ggml::Tensor,
 
@@ -83,6 +86,41 @@ pub struct InferenceSession {
 
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     last_logits: Vec<f32>,
+}
+
+// Allowed types for the model memory K/V tensors.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ModelKVMemoryType {
+    Float16,
+    Float32,
+}
+
+impl From<ModelKVMemoryType> for i32 {
+    fn from(value: ModelKVMemoryType) -> Self {
+        match value {
+            ModelKVMemoryType::Float16 => ggml::TYPE_F16,
+            ModelKVMemoryType::Float32 => ggml::TYPE_F32,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+// Parameters for an inference session.
+pub struct InferenceSessionParameters {
+    pub last_n_size: usize,
+    pub memory_k_type: ModelKVMemoryType,
+    pub memory_v_type: ModelKVMemoryType,
+}
+
+impl Default for InferenceSessionParameters {
+    fn default() -> Self {
+        Self {
+            last_n_size: 512,
+            memory_k_type: ModelKVMemoryType::Float32,
+            memory_v_type: ModelKVMemoryType::Float32,
+        }
+    }
 }
 
 /// The parameters that drive text generation.
@@ -155,6 +193,8 @@ pub struct Vocabulary {
 pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
+    // Parameters associated with the saved inference session.
+    pub session_params: InferenceSessionParameters,
     /// The contents of the 'key' memory tensor
     pub memory_k: &'a [u8],
     /// The contents of the 'value' memory tensor
@@ -171,6 +211,8 @@ pub struct InferenceSnapshotRef<'a> {
 pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
+    // Parameters associated with the saved inference session.
+    pub session_params: InferenceSessionParameters,
     /// The contents of the 'key' memory tensor
     pub memory_k: Vec<u8>,
     /// The contents of the 'value' memory tensor
@@ -774,7 +816,7 @@ impl Model {
     }
 
     /// Starts a new `InferenceSession` for this model.
-    pub fn start_session(&self, last_n_size: usize) -> InferenceSession {
+    pub fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         let Hyperparameters {
             n_ctx,
             n_embd,
@@ -785,8 +827,18 @@ impl Model {
 
         let ctx_size = {
             let mut ctx_size = 0;
-            ctx_size += mulf!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_k
-            ctx_size += mulf!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_v
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_k_type.into())
+            ); // memory_k
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_v_type.into())
+            ); // memory_v
             ctx_size += (5 + 10 * n_layer as u64) * 256; // object overhead
             ctx_size
         };
@@ -796,16 +848,17 @@ impl Model {
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(ggml::TYPE_F32, n_elements);
-        let memory_v = session_ctx.new_tensor_1d(ggml::TYPE_F32, n_elements);
+        let memory_k = session_ctx.new_tensor_1d(params.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(params.memory_v_type.into(), n_elements);
 
         InferenceSession {
             _session_ctx: session_ctx,
+            params,
             memory_k,
             memory_v,
             n_past: 0,
             mem_per_token: 0,
-            last_n_tokens: VecDeque::from(vec![0; last_n_size]),
+            last_n_tokens: VecDeque::from(vec![0; params.last_n_size]),
             last_logits: vec![0.0; n_vocab as usize],
         }
     }
@@ -1170,7 +1223,10 @@ impl Model {
         &mut self,
         snapshot: InferenceSnapshot,
     ) -> Result<InferenceSession, SnapshotError> {
-        let mut session = self.start_session(snapshot.last_n_tokens.len());
+        let mut session = self.start_session(InferenceSessionParameters {
+            last_n_size: snapshot.last_n_tokens.len(),
+            ..snapshot.session_params
+        });
 
         if session.memory_k.nbytes() != snapshot.memory_k.len()
             || session.memory_v.nbytes() != snapshot.memory_v.len()
@@ -1325,6 +1381,7 @@ impl InferenceSession {
 
         InferenceSnapshotRef {
             npast: self.n_past,
+            session_params: self.params,
             memory_k,
             memory_v,
             last_n_tokens: self.last_n_tokens.clone(),
