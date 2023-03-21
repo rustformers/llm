@@ -169,7 +169,9 @@ fn main() {
         println!();
 
         match res {
-            Ok(_) => (),
+            Ok(stats) => {
+                println!("{}", stats);
+            }
             Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }

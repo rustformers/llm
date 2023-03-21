@@ -5,6 +5,7 @@ use std::{
     fmt::Display,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    time,
 };
 
 use thiserror::Error;
@@ -104,6 +105,38 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temp: 0.80,
         }
+    }
+}
+
+pub struct InferenceStats {
+    pub feed_prompt_duration: std::time::Duration,
+    pub prompt_tokens: usize,
+    pub predict_duration: std::time::Duration,
+    pub predict_tokens: usize,
+}
+
+impl Default for InferenceStats {
+    fn default() -> Self {
+        Self {
+            feed_prompt_duration: std::time::Duration::from_secs(0),
+            prompt_tokens: 0,
+            predict_duration: std::time::Duration::from_secs(0),
+            predict_tokens: 0,
+        }
+    }
+}
+
+impl Display for InferenceStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "feed_prompt_duration: {}ms\nprompt_tokens: {}\npredict_duration: {}ms\npredict_tokens: {}\nper_token_duration: {:.3}ms",
+            self.feed_prompt_duration.as_millis(),
+            self.prompt_tokens,
+            self.predict_duration.as_millis(),
+            self.predict_tokens,
+            (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64),
+        )
     }
 }
 
@@ -1236,10 +1269,16 @@ impl InferenceSession {
         maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
         callback: impl Fn(OutputToken) -> Result<(), E>,
-    ) -> Result<(), InferenceError> {
+    ) -> Result<InferenceStats, InferenceError> {
+        let mut stats = InferenceStats::default();
+
+        let start_at = time::SystemTime::now();
+
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
         self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;
+        stats.feed_prompt_duration = start_at.elapsed().unwrap();
+        stats.prompt_tokens = self.n_past;
 
         // After the prompt is consumed, sample tokens by repeatedly calling
         // `infer_next_token`. We generate tokens until the model returns an
@@ -1261,8 +1300,10 @@ impl InferenceSession {
                 break;
             }
         }
+        stats.predict_duration = start_at.elapsed().unwrap();
+        stats.predict_tokens = self.n_past;
 
-        Ok(())
+        Ok(stats)
     }
 
     /// Obtains a serializable snapshot of the current inference status. This
