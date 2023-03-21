@@ -30,7 +30,8 @@ Make sure you have a rust toolchain set up.
 1. Get a copy of the model's weights[^1]
 2. Clone the repository
 3. Build (`cargo build --release`)
-4. Run with `cargo run --release -- <ARGS>`
+4. Find the binary in `llama-rs/target/release/llama-cli` and move it to where you need it to be
+4. Run with `./llama-cli <ARGS>`
 
 Some additional things to try:
 
@@ -45,7 +46,7 @@ Some additional things to try:
 For example, you try the following prompt:
 
 ```shell
-cargo run --release -- -m /data/Llama/LLaMA/7B/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
+./llama-cli -m ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
 ```
 
 ## Q&A
