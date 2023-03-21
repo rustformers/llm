@@ -3,10 +3,7 @@ lockfileVersion: 5.4
 importers:
 
   .:
-    specifiers:
-      '@tauri-apps/cli': ^1.2.3
-    dependencies:
-      '@tauri-apps/cli': 1.2.3
+    specifiers: {}
 
   llama-app:
     specifiers:
@@ -545,6 +542,7 @@ packages:
     cpu: [arm64]
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-darwin-x64/1.2.3:
@@ -553,6 +551,7 @@ packages:
     cpu: [x64]
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-linux-arm-gnueabihf/1.2.3:
@@ -561,6 +560,7 @@ packages:
     cpu: [arm]
     os: [linux]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-linux-arm64-gnu/1.2.3:
@@ -569,6 +569,7 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-linux-arm64-musl/1.2.3:
@@ -577,6 +578,7 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-linux-x64-gnu/1.2.3:
@@ -585,6 +587,7 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-linux-x64-musl/1.2.3:
@@ -593,6 +596,7 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-win32-ia32-msvc/1.2.3:
@@ -601,6 +605,7 @@ packages:
     cpu: [ia32]
     os: [win32]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli-win32-x64-msvc/1.2.3:
@@ -609,6 +614,7 @@ packages:
     cpu: [x64]
     os: [win32]
     requiresBuild: true
+    dev: true
     optional: true
 
   /@tauri-apps/cli/1.2.3:
@@ -625,6 +631,7 @@ packages:
       '@tauri-apps/cli-linux-x64-musl': 1.2.3
       '@tauri-apps/cli-win32-ia32-msvc': 1.2.3
       '@tauri-apps/cli-win32-x64-msvc': 1.2.3
+    dev: true
 
   /@types/node/18.15.3:
     resolution: {integrity: sha512-p6ua9zBxz5otCmbpb5D3U4B5Nanw6Pk3PPyX05xnxbB/fRv71N7CPmORg7uAD5P70T0xmx1pzAx/FUfa5X+3cw==}

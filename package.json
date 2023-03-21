@@ -1,11 +1,8 @@
 {
   "name": "llama-rs",
   "scripts": {
-    "dev": "cd llama-app; tauri dev",
-    "build": "cd llama-app; tauri build",
-    "tauri": "cd llama-app; tauri"
-  },
-  "dependencies": {
-    "@tauri-apps/cli": "^1.2.3"
+    "dev": "cd llama-app && pnpm tauri dev",
+    "build": "cd llama-app && pnpm tauri build",
+    "tauri": "cd llama-app && pnpm tauri"
   }
 }
