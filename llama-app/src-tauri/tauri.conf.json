@@ -7,16 +7,11 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "tauri-app",
+    "productName": "LLaMa",
     "version": "0.0.0"
   },
   "tauri": {
     "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "open": true
-      },
       "dialog": {
         "open": true,
         "save": true
@@ -44,7 +39,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "tauri-app",
+        "title": "LLaMa",
         "width": 800,
         "height": 600
       }

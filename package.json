@@ -1,11 +1,11 @@
 {
   "name": "llama-rs",
   "scripts": {
-    "dev": "cd tauri-app; tauri dev",
-    "build": "cd tauri-app; tauri build"
+    "dev": "cd llama-app; tauri dev",
+    "build": "cd llama-app; tauri build"
   },
   "workspaces": [
-    "tauri-app"
+    "llama-app"
   ],
   "dependencies": {
     "@tauri-apps/cli": "^1.2.3"

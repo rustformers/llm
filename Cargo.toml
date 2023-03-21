@@ -3,7 +3,7 @@ members = [
     "ggml-raw",
     "llama-rs",
     "llama-cli",
-    "tauri-app/src-tauri",
+    "llama-app/src-tauri",
     "llama-http"
 ]
 
