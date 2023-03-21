@@ -4,54 +4,13 @@ import { immer } from "zustand/middleware/immer";
 import { open } from "@tauri-apps/api/dialog";
 import { getPrompt, getRandomId } from "../helpers";
 import { defaultParams, defaultPrompt } from "../config";
-import { complete } from "./useListener";
-
-export type Model = {
-  name: string;
-  path: string;
-  id: string;
-};
-
-export type Params = {
-  n_batch?: number;
-  n_threads?: number;
-  top_k?: number;
-  top_p?: number;
-  repeat_penalty?: number;
-  temp?: number;
-  num_predict?: number;
-};
-export type Prompt = {
-  instruction: string;
-  userPrefix: string;
-  assistantPrefix: string;
-};
-export type InputParams = Params & {
-  path: string;
-  prompt: string;
-  id: string;
-};
-
-export const parameterProps: { [id in keyof Params]: { label: string; placeholder?: string } } = {
-  n_batch: { label: "Batch size" },
-  n_threads: { label: "Threads", placeholder: "Max" },
-  top_k: { label: "Top K" },
-  top_p: { label: "Top P" },
-  repeat_penalty: { label: "Repeat penalty" },
-  temp: { label: "Temperature" },
-  num_predict: { label: "Number of predictions" },
-};
-export type MessageType = "user" | "asssistant";
-export type Message = {
-  id: string;
-  message: string;
-  type: MessageType;
-  index: number;
-};
+import { InputParams, Message, MessageType, Model, Params, Prompt } from "../types";
+import { invoke } from "@tauri-apps/api";
 
 export type Store = {
   params: Params;
   setParams: (params: Partial<Params>) => void;
+
   messageCounter: number;
 
   prompt: Prompt;
@@ -75,6 +34,7 @@ export type Store = {
   editMessage: (id: string, message: string) => void;
   removeMessage: (id: string) => void;
   clearMessages: () => void;
+
   send: (message: Message) => Promise<void>;
 };
 
@@ -155,7 +115,8 @@ export const useStore = create(
         const model = get().models[get().selectedModel || ""];
         const { id } = get().addMessage("", "asssistant");
         const inputPrompt = getPrompt(get().prompt, input.message, input.index === 0);
-        await complete({ prompt: inputPrompt, id, path: model.path, ...get().params });
+        const params: InputParams = { prompt: inputPrompt, id, path: model.path, ...get().params };
+        return await invoke("complete", { params: { ...defaultParams, ...params } });
       },
     })),
     { name: "llama-rs" }

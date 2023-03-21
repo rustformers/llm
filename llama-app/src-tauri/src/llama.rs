@@ -105,8 +105,8 @@ pub fn start_model(window: Window, path: String, state: tauri::State<State>) {
                     Some(params.num_predict.unwrap_or_default()),
                     &mut rng,
                     |t| {
-                        message.borrow_mut().push_str(&t.to_string());
                         println!("{}", t.to_string());
+                        message.borrow_mut().push_str(&t.to_string());
                         let borrow = message.borrow();
                         let split = borrow.split(&params.prompt);
                         let res = match split.clone().count() {

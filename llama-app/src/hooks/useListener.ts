@@ -1,12 +1,10 @@
-import { invoke } from "@tauri-apps/api";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
-import { defaultParams } from "../config";
-import { InputParams, useStore } from "./useStore";
+import { useStore } from "./useStore";
 import { toast } from "sonner";
+import { InputParams } from "../types";
 
 export const complete = async (params: InputParams) => {
-  return await invoke("complete", { params: { ...defaultParams, ...params } });
 };
 type Payload = {
   message: string;

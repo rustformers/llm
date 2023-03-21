@@ -1,15 +1,16 @@
-import { defaultParams } from "../../config";
-import { parameterProps, useStore, Params as ParamsType } from "../../hooks/useStore";
+import { parameterDetails, defaultParams } from "../../config";
+import { useStore } from "../../hooks/useStore";
 import { Section } from "./Section";
+import { Params as ParamsType } from "../../types";
 
 export const Params = () => {
   const params = useStore((state) => state.params);
   const setParams = useStore((state) => state.setParams);
   return (
     <Section title="Params" className="flex flex-col space-y-2 p-2">
-      {Object.keys(parameterProps).map((id) => {
+      {Object.keys(parameterDetails).map((id) => {
         const key = id as keyof ParamsType;
-        const props = parameterProps[key];
+        const props = parameterDetails[key];
         const label = props?.label;
         const value = params[key];
         const placeholder = props?.placeholder || defaultParams[key];

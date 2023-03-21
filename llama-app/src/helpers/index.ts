@@ -1,4 +1,4 @@
-import { Prompt } from "../hooks/useStore";
+import { Prompt } from "../types";
 
 export const getRandomId = () => `${Math.random()}`.slice(2);
 
