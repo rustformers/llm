@@ -8,7 +8,7 @@ export const Main = () => {
   const model = useModel();
   if (!model) return <NoModel />;
   return (
-    <div className="col-span-2 flex flex-col">
+    <div className="col-span-2 flex flex-col h-screen">
       <Title />
       <Messages />
       <Input />
