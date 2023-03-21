@@ -23,8 +23,8 @@ jobs:
         run: echo "PACKAGE_VERSION=$(node -p "require('./llama-app/package.json').version")" >> $GITHUB_ENV
       - name: check if tag exists
         run: |
-          if git rev-parse "app-v${process.env.PACKAGE_VERSION}" >/dev/null 2>&1; then
-            echo "Tag app-v${process.env.PACKAGE_VERSION} exists. Stopping workflow."
+          if git rev-parse `app-v${process.env.PACKAGE_VERSION}` >/dev/null 2>&1; then
+            echo `Tag app-v${process.env.PACKAGE_VERSION} exists. Stopping workflow.`
             failure
           fi
       - name: create release
