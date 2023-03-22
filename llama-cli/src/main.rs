@@ -1,8 +1,10 @@
 use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
-use llama_rs::{InferenceError, InferenceParameters, InferenceSnapshot};
-use llama_rs::{InferenceSessionParameters, ModelKVMemoryType};
+use llama_rs::{
+    InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
+    ModelKVMemoryType,
+};
 use rand::thread_rng;
 use rand::SeedableRng;
 use rustyline::error::ReadlineError;
@@ -79,7 +81,7 @@ fn main() {
         temp: args.temp,
     };
     let inference_session_params = {
-        let mem_typ = if args.float_16 {
+        let mem_typ = if args.float16 {
             ModelKVMemoryType::Float16
         } else {
             ModelKVMemoryType::Float32
