@@ -1,10 +1,34 @@
+use crate::cli_args::CLI_ARGS;
+use llama_rs::{InferenceError, InferenceParameters};
 use rand::thread_rng;
 use rustyline::error::ReadlineError;
 use std::{convert::Infallible, io::Write};
-use llama_rs::{InferenceError, InferenceParameters};
-use crate::cli_args::CLI_ARGS;
 
-pub fn repl_mode(
+    pub struct Cmd {
+        /// Run in REPL mode.
+        #[arg(long, short = 'R', default_value_t = false)]
+        repl: bool,
+
+        // Run in interactive mode.
+        #[arg(long, short = 'i', default_value_t = false)]
+        interactive: bool,
+    }
+
+impl Cmd {
+
+ fn interactive_mode(&self, model: &llama_rs::Model, vocab: &llama_rs::Vocabulary) {
+    println!("activated")
+    // create a sliding window of context
+    // convert initial prompt into tokens
+    // convert ai answer into tokens and add into total token count
+    // wait for user response
+    // repeat
+    // issue a warning after the total context is > 2048 tokens
+}
+
+
+ fn repl_mode(
+     &self,
     prompt: &str,
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
@@ -54,4 +78,5 @@ pub fn repl_mode(
             }
         }
     }
+}
 }
