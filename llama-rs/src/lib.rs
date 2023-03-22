@@ -73,6 +73,9 @@ pub struct InferenceSession {
     /// How many tokens have been fed into the model's working memory so far.
     n_past: usize,
 
+    /// By how many tokens the window has been slided
+    n_slide: usize,
+
     /// How much memory is required per token for the temporary context used
     /// during inference.
     mem_per_token: usize,
@@ -776,6 +779,7 @@ impl Model {
             memory_k,
             memory_v,
             n_past: 0,
+            n_slide: 0,
             mem_per_token: 0,
             last_n_tokens: VecDeque::from(vec![0; last_n_size]),
             last_logits: vec![0.0; n_vocab as usize],
@@ -874,6 +878,8 @@ impl Model {
         let n = input_tokens.len();
         let n_past = session.n_past as i32;
 
+        //dbg!(session.n_past + session.n_slide);
+
         let Hyperparameters {
             n_vocab,
             n_ctx,
@@ -946,7 +952,7 @@ impl Model {
                             &q_current,
                             &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
                         ),
-                        n_past,
+                        n_past + session.n_slide as i32,
                         n_rot,
                         0,
                     ),
@@ -971,7 +977,7 @@ impl Model {
                             n_head,
                             n_past + n as i32,
                         ),
-                        n_past,
+                        n_past + session.n_slide as i32,
                         n_rot,
                         1,
                     ),
@@ -1397,7 +1403,7 @@ impl InferenceSession {
         )
         .unwrap();*/
 
-            print!("|");
+        self.n_slide += num_tokens;
     }
 
     /// Sets this session to use a sliding context window. Once the context
