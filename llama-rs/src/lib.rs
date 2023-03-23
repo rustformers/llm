@@ -147,7 +147,6 @@ type Token = String;
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding string
     mapping: Vec<Token>,
-    score: Vec<f32>,
 }
 
 #[derive(serde::Serialize)]
@@ -254,12 +253,8 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 
-    #[error("file is pre-versioned, generate another please! at {path:?}")]
-    PreVersioned { path: PathBuf },
     #[error("invalid magic number for {path:?}")]
     InvalidMagic { path: PathBuf },
-    #[error("invalid version number for {path:?}")]
-    InvalidVersion { path: PathBuf },
     #[error("invalid value {value} for `f16` in hyperparameters")]
     HyperparametersF16Invalid { value: i32 },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
@@ -349,24 +344,8 @@ impl Model {
         // Verify magic
         {
             let magic = read_i32(&mut reader)?;
-            if magic == 0x67676d6c {
-                return Err(LoadError::PreVersioned {
-                    path: main_path.to_owned(),
-                });
-            }
-
-            if magic != 0x67676d66 {
+            if magic != 0x67676d6c {
                 return Err(LoadError::InvalidMagic {
-                    path: main_path.to_owned(),
-                });
-            }
-        }
-
-        // Verify the version
-        {
-            let format_version = read_i32(&mut reader)?;
-            if format_version != 1 {
-                return Err(LoadError::InvalidVersion {
                     path: main_path.to_owned(),
                 });
             }
@@ -394,7 +373,9 @@ impl Model {
 
         load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
 
+        // ===============
         // Load vocabulary
+        // ===============
         let mut vocab = Vocabulary::default();
         for i in 0..hparams.n_vocab {
             let len = read_i32(&mut reader)?;
@@ -406,10 +387,8 @@ impl Model {
                 });
                 vocab.mapping.push("�".to_string());
             }
-
-            let score: f32 = read_i32(&mut reader)? as f32;
-            vocab.score.push(score);
         }
+
         // for the big tensors, we have the option to store the data in 16-bit
         // floats or quantized in order to save memory and also to speed up the
         // computation
