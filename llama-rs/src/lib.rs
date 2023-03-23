@@ -385,15 +385,15 @@ impl Model {
         }
 
         fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-            return Ok(i32::from_le_bytes(read_bytes::<4>(reader)?));
+            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
         }
 
         fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
-            return Ok(u32::from_le_bytes(read_bytes::<4>(reader)?));
+            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
         }
 
         fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
-            return Ok(f32::from_le_bytes(read_bytes::<4>(reader)?));
+            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
