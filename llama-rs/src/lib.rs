@@ -377,7 +377,10 @@ impl Model {
             let mut bytes = [0u8; N];
             reader
                 .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed { source: e, bytes: N })?;
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: N,
+                })?;
             Ok(bytes)
         }
 
@@ -410,7 +413,11 @@ impl Model {
         let is_legacy_model: bool = match read_i32(&mut reader)? {
             ggml::FILE_MAGIC => false,
             ggml::FILE_MAGIC_UNVERSIONED => true,
-            _ => return Err(LoadError::InvalidMagic { path: main_path.to_owned() }),
+            _ => {
+                return Err(LoadError::InvalidMagic {
+                    path: main_path.to_owned(),
+                })
+            }
         };
 
         // Load format version
