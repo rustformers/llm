@@ -180,10 +180,15 @@ impl Display for InferenceStats {
 
 type TokenId = i32;
 type Token = String;
+type TokenScore = f32;
 
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding token
     id_to_token: Vec<Token>,
+
+    /// Maps every integer (index) token id to corresponding score
+    #[allow(dead_code)]
+    id_to_token_score: Vec<TokenScore>,
 
     /// Maps a token to a token id
     token_to_id: HashMap<Token, TokenId>,
@@ -300,8 +305,12 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 
+    #[error("unversioned magic number, regenerate your ggml models")]
+    UnversionedMagic,
     #[error("invalid magic number for {path:?}")]
     InvalidMagic { path: PathBuf },
+    #[error("invalid file format version {value}")]
+    InvalidFormatVersion { value: u32 },
     #[error("invalid value {value} for `f16` in hyperparameters")]
     HyperparametersF16Invalid { value: i32 },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
@@ -345,6 +354,28 @@ macro_rules! mulf {
     };
 }
 
+trait FromLeBytes {
+    fn from_le_bytes(bytes: [u8; 4]) -> Self;
+}
+
+impl FromLeBytes for u32 {
+    fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        return u32::from_le_bytes(bytes);
+    }
+}
+
+impl FromLeBytes for i32 {
+    fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        return i32::from_le_bytes(bytes);
+    }
+}
+
+impl FromLeBytes for f32 {
+    fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        return f32::from_le_bytes(bytes);
+    }
+}
+
 impl Model {
     pub fn load(
         path: impl AsRef<Path>,
@@ -364,8 +395,7 @@ impl Model {
                 })?,
             );
 
-        /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
+        fn read_int<T: FromLeBytes>(reader: &mut impl BufRead) -> Result<T, LoadError> {
             let mut bytes = [0u8; 4];
             reader
                 .read_exact(&mut bytes)
@@ -373,8 +403,12 @@ impl Model {
                     source: e,
                     bytes: bytes.len(),
                 })?;
-            Ok(i32::from_le_bytes(bytes))
+            Ok(T::from_le_bytes(bytes))
         }
+
+        let read_i32 = read_int::<i32>;
+        let read_u32 = read_int::<u32>;
+        let read_f32 = read_int::<f32>;
 
         /// Helper function. Reads a string from the buffer and returns it.
         fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
@@ -391,12 +425,20 @@ impl Model {
 
         // Verify magic
         {
-            let magic = read_i32(&mut reader)?;
-            if magic != 0x67676d6c {
-                return Err(LoadError::InvalidMagic {
-                    path: main_path.to_owned(),
-                });
-            }
+            match read_i32(&mut reader)? {
+                ggml::FILE_MAGIC => true,
+                ggml::FILE_MAGIC_UNVERSIONED => return Err(LoadError::UnversionedMagic),
+                _ => return Err(LoadError::InvalidMagic { path: main_path.to_owned() }),
+            };
+        }
+
+        // Load format version
+        {
+            #[allow(unused_variables)]
+            let version: u32 = match read_u32(&mut reader)? {
+                ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
+                version => return Err(LoadError::InvalidFormatVersion { value: version }),
+            };
         }
 
         // =================
@@ -426,6 +468,7 @@ impl Model {
         // ===============
         let vocab = {
             let mut id_to_token = vec![];
+            let mut id_to_token_score = vec![];
             let mut token_to_id = HashMap::new();
             let mut max_token_length = 0;
 
@@ -441,10 +484,16 @@ impl Model {
                     });
                     id_to_token.push("�".to_string());
                 }
+
+                // Token score, currently unused
+                if let Ok(score) = read_f32(&mut reader) {
+                    id_to_token_score.push(score);
+                }
             }
 
             Vocabulary {
                 id_to_token,
+                id_to_token_score,
                 token_to_id,
                 max_token_length,
             }
