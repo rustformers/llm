@@ -424,16 +424,14 @@ impl Model {
         }
 
         // Verify magic
-        {
-            match read_i32(&mut reader)? {
-                ggml::FILE_MAGIC => true,
-                ggml::FILE_MAGIC_UNVERSIONED => return Err(LoadError::UnversionedMagic),
-                _ => return Err(LoadError::InvalidMagic { path: main_path.to_owned() }),
-            };
-        }
+        let is_legacy_model: bool = match read_i32(&mut reader)? {
+            ggml::FILE_MAGIC => false,
+            ggml::FILE_MAGIC_UNVERSIONED => true,
+            _ => return Err(LoadError::InvalidMagic { path: main_path.to_owned() }),
+        };
 
         // Load format version
-        {
+        if !is_legacy_model {
             #[allow(unused_variables)]
             let version: u32 = match read_u32(&mut reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
@@ -486,8 +484,13 @@ impl Model {
                 }
 
                 // Token score, currently unused
-                if let Ok(score) = read_f32(&mut reader) {
-                    id_to_token_score.push(score);
+                if !is_legacy_model {
+                    if let Ok(score) = read_f32(&mut reader) {
+                        id_to_token_score.push(score);
+                    }
+                } else {
+                    // Legacy model, set empty score
+                    id_to_token_score.push(0.);
                 }
             }
 
