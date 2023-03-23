@@ -77,6 +77,11 @@ pub struct Args {
     /// machines.
     #[arg(long, default_value = None)]
     pub seed: Option<u64>,
+
+    /// Use 16-bit floats for model memory key and value. Ignored when restoring
+    /// from the cache.
+    #[arg(long, default_value_t = false)]
+    pub float16: bool,
 }
 
 /// CLI args are stored in a lazy static variable so they're accessible from
