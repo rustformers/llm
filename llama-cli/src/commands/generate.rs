@@ -47,4 +47,4 @@
         /// machines.
         #[arg(long, default_value = None)]
         seed: Option<u64>,
-    },
+    }

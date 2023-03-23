@@ -1,47 +1,43 @@
-use std::{convert::Infallible, io::Write};
-use crate::mode::{repl::repl_mode, interactive::interactive_mode};
-use cli_args::CLI_ARGS;
-use llama_rs::{InferenceError, InferenceParameters, InferenceSnapshot};
+use llama_rs::{InferenceError, InferenceParameters, InferenceSnapshot, Model, Vocabulary};
 use rand::SeedableRng;
+use std::{convert::Infallible, io::Write};
+use clap::{Parser, Subcommand};
+use once_cell::sync::Lazy;
 
-mod cli_args;
-mod mode;
 
+use Commands::LlamaCmd;
+mod Commands;
 
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+    #[command(subcommand)]
+    pub cmds: LlamaCmd,
+}
 
-fn main() {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .parse_default_env()
-        .init();
+/// CLI args are stored in a lazy static variable so they're accessible from
+/// everywhere. Arguments are parsed on first access.
+pub static CLI_ARGS: Lazy<Args> = Lazy::new(Args::parse);
 
-    let args = &*CLI_ARGS;
-
-    let inference_params = InferenceParameters {
-        n_threads: args.num_threads as i32,
-        n_batch: args.batch_size,
-        top_k: args.top_k,
-        top_p: args.top_p,
-        repeat_penalty: args.repeat_penalty,
-        temp: args.temp,
-    };
-
-    let prompt = if let Some(path) = &args.prompt_file {
-        match std::fs::read_to_string(path) {
-            Ok(prompt) => prompt,
-            Err(err) => {
-                log::error!("Could not read prompt file at {path}. Error {err}");
-                std::process::exit(1);
-            }
+fn read_prompt_from_file(path: &str) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(prompt) => Ok(prompt),
+        Err(err) => {
+            log::error!("Could not read prompt file at {}. Error: {}", path, err);
+            return Err(format!(
+                "Could not read prompt file at {}. Error: {}",
+                path, err
+            ));
         }
-    } else if let Some(prompt) = &args.prompt {
-        prompt.clone()
-    } else {
-        log::error!("No prompt or prompt file was provided. See --help");
-        std::process::exit(1);
-    };
+    }
+}
 
-    let (mut model, vocab) =
+fn create_prompt(prompt: &str) -> Result<&str, String> {
+    Ok(prompt)
+}
+
+fn select_model_and_vocab(args: &Args) -> Result<(Model, Vocabulary), String> {
+    let (model, vocab) =
         llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
             use llama_rs::LoadProgress;
             match progress {
@@ -96,13 +92,39 @@ fn main() {
         .expect("Could not load model");
 
     log::info!("Model fully loaded!");
+    Ok((model, vocab))
+}
 
+fn main() {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
+
+    let args = &*CLI_ARGS;
+
+    let inference_params = InferenceParameters {
+        n_threads: args.num_threads as i32,
+        n_batch: args.batch_size,
+        top_k: args.top_k,
+        top_p: args.top_p,
+        repeat_penalty: args.repeat_penalty,
+        temp: args.temp,
+    };
+
+    let prompt = create_prompt(prompt).unwrap();
+    let (mut model, vocab) = select_model_and_vocab(args).unwrap();
+
+    fn create_seed(seed: u64) -> Result<String, String> {}
+
+    // seed flag
     let mut rng = if let Some(seed) = CLI_ARGS.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
     } else {
         rand::rngs::StdRng::from_entropy()
     };
 
+    // restore_prompt flag
     let mut session = if let Some(restore_path) = &args.restore_prompt {
         let snapshot = InferenceSnapshot::load_from_disk(restore_path);
         match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
@@ -119,7 +141,9 @@ fn main() {
         model.start_session(args.repeat_last_n)
     };
 
-    if args.repl {
+    if args.interactive {
+        interactive_mode(&model, &vocab)
+    } else if args.repl {
         repl_mode(&prompt, &model, &vocab, &inference_params);
     } else if let Some(cache_path) = &args.cache_prompt {
         let res =

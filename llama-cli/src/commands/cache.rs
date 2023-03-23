@@ -1,4 +1,3 @@
-
     pub struct Cmd {
         /// Stores a cached prompt at the given path. The same prompt can then be
         /// loaded from disk using --restore-prompt
@@ -9,4 +8,4 @@
         /// --cache-prompt
         #[arg(long, default_value = None)]
         restore_prompt: Option<String>,
-    },
+    }
