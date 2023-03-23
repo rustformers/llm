@@ -932,7 +932,7 @@ impl Model {
             f16_: _,
         } = self.hparams;
 
-        let mut buf_size = 512 * 1024 * 1024;
+        let mut buf_size = 1024 * 1024 * 1024;
         if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
