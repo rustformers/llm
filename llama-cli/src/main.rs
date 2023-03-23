@@ -3,7 +3,7 @@ use std::{convert::Infallible, io::Write};
 use cli_args::CLI_ARGS;
 use llama_rs::{
     InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
-    ModelKVMemoryType, Vocabulary,
+    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
 };
 use rand::thread_rng;
 use rand::SeedableRng;
@@ -105,7 +105,13 @@ fn main() {
         top_p: args.top_p,
         repeat_penalty: args.repeat_penalty,
         temp: args.temp,
-        bias_tokens: args.bias_tokens.clone().unwrap_or_default(),
+        bias_tokens: args.token_bias.clone().unwrap_or_else(|| {
+            if args.ignore_eos {
+                TokenBias::new(vec![(EOD_TOKEN_ID, -1.0)])
+            } else {
+                TokenBias::default()
+            }
+        }),
     };
     let inference_session_params = {
         let mem_typ = if args.float16 {

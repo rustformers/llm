@@ -14,6 +14,8 @@ use thiserror::Error;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
+pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
+
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hyperparameters {
     n_vocab: i32,
@@ -1361,11 +1363,11 @@ impl InferenceSession {
         model.evaluate(self, params.n_threads, &[next_token]);
 
         // Return the next token
-        if next_token == 2 {
-            Ok(OutputToken::EndOfText)
+        Ok(if next_token as TokenId == EOD_TOKEN_ID {
+            OutputToken::EndOfText
         } else {
-            Ok(OutputToken::Token(&vocab.id_to_token[next_token as usize]))
-        }
+            OutputToken::Token(&vocab.id_to_token[next_token as usize])
+        })
     }
 
     // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?

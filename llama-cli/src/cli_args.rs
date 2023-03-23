@@ -91,7 +91,13 @@ pub struct Args {
     /// (start of document) and 2 (end of document) to -1.0 which effectively
     /// disables the model from generating responses containing those token IDs.
     #[arg(long, default_value = None, value_parser = parse_bias)]
-    pub bias_tokens: Option<TokenBias>,
+    pub token_bias: Option<TokenBias>,
+
+    /// Prevent the end of stream (EOS/EOD) token from being generated. This will allow the
+    /// model to generate text until it runs out of context space. Note: The --token-bias
+    /// option will override this if specified.
+    #[arg(long, default_value_t = false)]
+    pub ignore_eos: bool,
 
     /// Dumps the prompt to console and exits, first as a comma seperated list of token IDs
     /// and then as a list of comma seperated string keys and token ID values.
