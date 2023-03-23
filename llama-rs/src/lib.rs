@@ -143,10 +143,15 @@ impl Display for InferenceStats {
 type TokenId = i32;
 type Token = String;
 
-#[derive(Default)]
 pub struct Vocabulary {
-    /// Maps every integer (index) token id to its corresponding string
-    mapping: Vec<Token>,
+    /// Maps every integer (index) token id to its corresponding token
+    id_to_token: Vec<Token>,
+
+    /// Maps a token to a token id
+    token_to_id: HashMap<Token, TokenId>,
+
+    /// The longest token in this vocabulary
+    max_token_length: usize,
 }
 
 #[derive(serde::Serialize)]
@@ -277,9 +282,10 @@ pub enum SnapshotError {
 
 #[derive(Error, Debug)]
 pub enum InferenceError {
+    #[error("an invalid token was encountered during tokenization")]
+    TokenizationFailed,
     #[error("the context window is full")]
     ContextFull,
-
     #[error("the user-specified callback returned an error")]
     UserCallback(Box<dyn std::error::Error>),
 }
@@ -376,18 +382,31 @@ impl Model {
         // ===============
         // Load vocabulary
         // ===============
-        let mut vocab = Vocabulary::default();
-        for i in 0..hparams.n_vocab {
-            let len = read_i32(&mut reader)?;
-            if let Ok(word) = read_string(&mut reader, len as usize) {
-                vocab.mapping.push(word);
-            } else {
-                load_progress_callback(LoadProgress::BadToken {
-                    index: i.try_into()?,
-                });
-                vocab.mapping.push("�".to_string());
+        let vocab = {
+            let mut id_to_token = vec![];
+            let mut token_to_id = HashMap::new();
+            let mut max_token_length = 0;
+
+            for i in 0..hparams.n_vocab {
+                let len = read_i32(&mut reader)?;
+                if let Ok(word) = read_string(&mut reader, len as usize) {
+                    max_token_length = max_token_length.max(word.len());
+                    id_to_token.push(word.clone());
+                    token_to_id.insert(word, i);
+                } else {
+                    load_progress_callback(LoadProgress::BadToken {
+                        index: i.try_into()?,
+                    });
+                    id_to_token.push("�".to_string());
+                }
             }
-        }
+
+            Vocabulary {
+                id_to_token,
+                token_to_id,
+                max_token_length,
+            }
+        };
 
         // for the big tensors, we have the option to store the data in 16-bit
         // floats or quantized in order to save memory and also to speed up the
@@ -1129,40 +1148,60 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
-        let mut res = Vec::new();
+    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
+    pub fn tokenize(
+        &self,
+        vocab: &Vocabulary,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<TokenId>, InferenceError> {
+        let len = text.len();
+
+        let mut score = vec![0usize; len + 1];
+        let mut prev = vec![TokenId::default(); len + 1];
+
+        for i in 0..len {
+            let max_len = (len - i).min(vocab.max_token_length);
+            for sub_len in 1..=max_len {
+                let sub = &text.as_bytes()[i..i + sub_len];
+                let Ok(sub) = std::str::from_utf8(sub) else { continue; };
+                let token = vocab.token_to_id.get(sub);
+
+                if let Some(token) = token {
+                    let token_score = sub.len() * sub.len();
+                    let local_score = score[i] + token_score;
+                    let next = i + sub_len;
+
+                    if score[next] < local_score {
+                        score[next] = local_score;
+                        prev[next] = *token;
+                    }
+                }
+            }
+        }
+
+        // Backward pass
+        let mut res = vec![];
+        let mut i = len;
+        while i > 0 {
+            let token_id = prev[i];
+            if token_id == 0 {
+                return Err(InferenceError::TokenizationFailed);
+            }
+            res.push(token_id);
+            let token = &vocab.id_to_token[token_id as usize];
+            i -= token.len();
+        }
+
         if bos {
-            res.push(1 as TokenId); // TODO: replace with vocab.bos
+            // TODO: replace with vocab.bos
+            res.push(1);
         }
 
-        // Find the longest token that matches the text
-        let mut pos = 0;
-        loop {
-            let mut l = 0;
-            let mut t = 0;
+        // Pieces are in reverse order so correct that
+        res.reverse();
 
-            for (tk_id, tk) in vocab.mapping.iter().enumerate() {
-                if tk.len() < l {
-                    continue;
-                }
-                if tk.len() > text.len() - pos {
-                    continue;
-                }
-                if text[pos..].starts_with(tk) {
-                    l = tk.len();
-                    t = tk_id;
-                }
-            }
-
-            if l == 0 {
-                break;
-            }
-
-            res.push(t as TokenId);
-            pos += l;
-        }
-
-        res
+        Ok(res)
     }
 
     /// Sets the state of the model, from a previously obtained InferenceSnapshot
@@ -1207,7 +1246,7 @@ impl InferenceSession {
         callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
-        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
+        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence)?;
 
         if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
             return Err(InferenceError::ContextFull);
@@ -1218,7 +1257,7 @@ impl InferenceSession {
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
-                if let Err(e) = callback(OutputToken::Token(&vocab.mapping[tk as usize])) {
+                if let Err(e) = callback(OutputToken::Token(&vocab.id_to_token[tk as usize])) {
                     return Err(InferenceError::UserCallback(Box::new(e)));
                 }
 
@@ -1254,7 +1293,7 @@ impl InferenceSession {
         if next_token == 2 {
             Ok(OutputToken::EndOfText)
         } else {
-            Ok(OutputToken::Token(&vocab.mapping[next_token as usize]))
+            Ok(OutputToken::Token(&vocab.id_to_token[next_token as usize]))
         }
     }
 
