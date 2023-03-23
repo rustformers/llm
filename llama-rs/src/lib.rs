@@ -5,6 +5,7 @@ use std::{
     fmt::Display,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    str::FromStr,
     time,
 };
 
@@ -12,6 +13,8 @@ use thiserror::Error;
 
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
+
+pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hyperparameters {
@@ -131,6 +134,7 @@ pub struct InferenceParameters {
     pub top_p: f32,
     pub repeat_penalty: f32,
     pub temp: f32,
+    pub bias_tokens: TokenBias,
 }
 
 impl Default for InferenceParameters {
@@ -142,6 +146,7 @@ impl Default for InferenceParameters {
             top_p: 0.95,
             repeat_penalty: 1.30,
             temp: 0.80,
+            bias_tokens: TokenBias::default(),
         }
     }
 }
@@ -243,6 +248,56 @@ impl Display for OutputToken<'_> {
                 OutputToken::EndOfText => "[end of text]",
             }
         )
+    }
+}
+
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct TokenBias(Vec<(TokenId, f32)>);
+
+impl TokenBias {
+    pub fn new(mut v: Vec<(TokenId, f32)>) -> Self {
+        v.sort_by_cached_key(|(tid, _)| *tid);
+        v.dedup_by_key(|(tid, _)| *tid);
+        Self(v)
+    }
+
+    pub fn get(&self, tid: TokenId) -> Option<f32> {
+        self.0
+            .binary_search_by_key(&tid, |(tid, _)| *tid)
+            .map(|idx| self.0[idx].1)
+            .ok()
+    }
+}
+
+impl FromStr for TokenBias {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let x = s
+            .split(',')
+            .map(|kv| {
+                let (k, v) = kv
+                    .trim()
+                    .split_once('=')
+                    .ok_or_else(|| "Missing '=' in bias item".to_owned())?;
+                let tid: TokenId = k
+                    .trim()
+                    .parse()
+                    .map_err(|e: std::num::ParseIntError| e.to_string())?;
+                let bias: f32 = v
+                    .trim()
+                    .parse()
+                    .map_err(|e: std::num::ParseFloatError| e.to_string())?;
+                Result::<_, String>::Ok((tid, bias))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(TokenBias::new(x))
+    }
+}
+
+impl std::fmt::Display for TokenBias {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
     }
 }
 
@@ -895,18 +950,23 @@ impl Model {
         {
             let scale = 1.0 / params.temp;
             for (i, &logit) in logits.iter().enumerate() {
+                let tid = i as TokenId;
+
                 // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                 // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-                if session.last_n_tokens.contains(&(i as TokenId)) {
+                let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
+                    logit_override
+                } else if session.last_n_tokens.contains(&tid) {
                     // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
                     if logits[i] < 0.0 {
-                        logits_id.push((logit * scale * params.repeat_penalty, i as TokenId));
+                        logit * scale * params.repeat_penalty
                     } else {
-                        logits_id.push((logit * scale / params.repeat_penalty, i as TokenId));
+                        logit * scale / params.repeat_penalty
                     }
                 } else {
-                    logits_id.push((logit * scale, i as TokenId));
-                }
+                    logit * scale
+                };
+                logits_id.push((val, tid));
             }
         }
 
@@ -1201,60 +1261,17 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
     pub fn tokenize(
         &self,
         vocab: &Vocabulary,
         text: &str,
         bos: bool,
     ) -> Result<Vec<TokenId>, InferenceError> {
-        let len = text.len();
-
-        let mut score = vec![0usize; len + 1];
-        let mut prev = vec![TokenId::default(); len + 1];
-
-        for i in 0..len {
-            let max_len = (len - i).min(vocab.max_token_length);
-            for sub_len in 1..=max_len {
-                let sub = &text.as_bytes()[i..i + sub_len];
-                let Ok(sub) = std::str::from_utf8(sub) else { continue; };
-                let token = vocab.token_to_id.get(sub);
-
-                if let Some(token) = token {
-                    let token_score = sub.len() * sub.len();
-                    let local_score = score[i] + token_score;
-                    let next = i + sub_len;
-
-                    if score[next] < local_score {
-                        score[next] = local_score;
-                        prev[next] = *token;
-                    }
-                }
-            }
-        }
-
-        // Backward pass
-        let mut res = vec![];
-        let mut i = len;
-        while i > 0 {
-            let token_id = prev[i];
-            if token_id == 0 {
-                return Err(InferenceError::TokenizationFailed);
-            }
-            res.push(token_id);
-            let token = &vocab.id_to_token[token_id as usize];
-            i -= token.len();
-        }
-
-        if bos {
-            // TODO: replace with vocab.bos
-            res.push(1);
-        }
-
-        // Pieces are in reverse order so correct that
-        res.reverse();
-
-        Ok(res)
+        Ok(vocab
+            .tokenize(text, bos)?
+            .iter()
+            .map(|(_, tid)| *tid)
+            .collect::<Vec<TokenId>>())
     }
 
     /// Sets the state of the model, from a previously obtained InferenceSnapshot
@@ -1346,11 +1363,11 @@ impl InferenceSession {
         model.evaluate(self, params.n_threads, &[next_token]);
 
         // Return the next token
-        if next_token == 2 {
-            Ok(OutputToken::EndOfText)
+        Ok(if next_token as TokenId == EOD_TOKEN_ID {
+            OutputToken::EndOfText
         } else {
-            Ok(OutputToken::Token(&vocab.id_to_token[next_token as usize]))
-        }
+            OutputToken::Token(&vocab.id_to_token[next_token as usize])
+        })
     }
 
     // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
@@ -1458,5 +1475,62 @@ impl InferenceSnapshot {
         let mut reader = BufReader::new(File::open(path)?);
 
         Self::read(&mut reader)
+    }
+}
+
+impl Vocabulary {
+    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
+    pub fn tokenize<'a>(
+        &'a self,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<(&'a str, TokenId)>, InferenceError> {
+        let len = text.len();
+
+        let mut score = vec![0usize; len + 1];
+        let mut prev = vec![TokenId::default(); len + 1];
+
+        for i in 0..len {
+            let max_len = (len - i).min(self.max_token_length);
+            for sub_len in 1..=max_len {
+                let sub = &text.as_bytes()[i..i + sub_len];
+                let Ok(sub) = std::str::from_utf8(sub) else { continue; };
+                let token = self.token_to_id.get(sub);
+
+                if let Some(token) = token {
+                    let token_score = sub.len() * sub.len();
+                    let local_score = score[i] + token_score;
+                    let next = i + sub_len;
+
+                    if score[next] < local_score {
+                        score[next] = local_score;
+                        prev[next] = *token;
+                    }
+                }
+            }
+        }
+
+        // Backward pass
+        let mut res = vec![];
+        let mut i = len;
+        while i > 0 {
+            let token_id = prev[i];
+            if token_id == 0 {
+                return Err(InferenceError::TokenizationFailed);
+            }
+            let token = self.id_to_token[token_id as usize].as_str();
+            res.push((token, token_id));
+            i -= token.len();
+        }
+
+        if bos {
+            // TODO: replace with vocab.bos
+            res.push(("", 1));
+        }
+
+        // Pieces are in reverse order so correct that
+        res.reverse();
+
+        Ok(res)
     }
 }
