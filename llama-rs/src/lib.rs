@@ -5,6 +5,7 @@ use std::{
     fmt::Display,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    str::FromStr,
     time,
 };
 
@@ -12,6 +13,8 @@ use thiserror::Error;
 
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
+
+pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hyperparameters {
@@ -67,6 +70,9 @@ pub struct InferenceSession {
     // Must be kept alive for the model
     _session_ctx: ggml::Context,
 
+    // Parameters for the session.
+    params: InferenceSessionParameters,
+
     memory_k: ggml::Tensor,
     memory_v: ggml::Tensor,
 
@@ -85,6 +91,41 @@ pub struct InferenceSession {
     last_logits: Vec<f32>,
 }
 
+// Allowed types for the model memory K/V tensors.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ModelKVMemoryType {
+    Float16,
+    Float32,
+}
+
+impl From<ModelKVMemoryType> for i32 {
+    fn from(value: ModelKVMemoryType) -> Self {
+        match value {
+            ModelKVMemoryType::Float16 => ggml::TYPE_F16,
+            ModelKVMemoryType::Float32 => ggml::TYPE_F32,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+// Parameters for an inference session.
+pub struct InferenceSessionParameters {
+    pub last_n_size: usize,
+    pub memory_k_type: ModelKVMemoryType,
+    pub memory_v_type: ModelKVMemoryType,
+}
+
+impl Default for InferenceSessionParameters {
+    fn default() -> Self {
+        Self {
+            last_n_size: 512,
+            memory_k_type: ModelKVMemoryType::Float32,
+            memory_v_type: ModelKVMemoryType::Float32,
+        }
+    }
+}
+
 /// The parameters that drive text generation.
 pub struct InferenceParameters {
     pub n_threads: i32,
@@ -93,6 +134,7 @@ pub struct InferenceParameters {
     pub top_p: f32,
     pub repeat_penalty: f32,
     pub temp: f32,
+    pub bias_tokens: TokenBias,
 }
 
 impl Default for InferenceParameters {
@@ -104,6 +146,7 @@ impl Default for InferenceParameters {
             top_p: 0.95,
             repeat_penalty: 1.30,
             temp: 0.80,
+            bias_tokens: TokenBias::default(),
         }
     }
 }
@@ -142,11 +185,21 @@ impl Display for InferenceStats {
 
 type TokenId = i32;
 type Token = String;
+type TokenScore = f32;
 
-#[derive(Default)]
 pub struct Vocabulary {
-    /// Maps every integer (index) token id to its corresponding string
-    mapping: Vec<Token>,
+    /// Maps every integer (index) token id to its corresponding token
+    id_to_token: Vec<Token>,
+
+    /// Maps every integer (index) token id to corresponding score
+    #[allow(dead_code)]
+    id_to_token_score: Vec<TokenScore>,
+
+    /// Maps a token to a token id
+    token_to_id: HashMap<Token, TokenId>,
+
+    /// The longest token in this vocabulary
+    max_token_length: usize,
 }
 
 #[derive(serde::Serialize)]
@@ -155,6 +208,8 @@ pub struct Vocabulary {
 pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
+    // Parameters associated with the saved inference session.
+    pub session_params: InferenceSessionParameters,
     /// The contents of the 'key' memory tensor
     pub memory_k: &'a [u8],
     /// The contents of the 'value' memory tensor
@@ -171,6 +226,8 @@ pub struct InferenceSnapshotRef<'a> {
 pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
+    // Parameters associated with the saved inference session.
+    pub session_params: InferenceSessionParameters,
     /// The contents of the 'key' memory tensor
     pub memory_k: Vec<u8>,
     /// The contents of the 'value' memory tensor
@@ -196,6 +253,56 @@ impl Display for OutputToken<'_> {
                 OutputToken::EndOfText => "[end of text]",
             }
         )
+    }
+}
+
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct TokenBias(Vec<(TokenId, f32)>);
+
+impl TokenBias {
+    pub fn new(mut v: Vec<(TokenId, f32)>) -> Self {
+        v.sort_by_cached_key(|(tid, _)| *tid);
+        v.dedup_by_key(|(tid, _)| *tid);
+        Self(v)
+    }
+
+    pub fn get(&self, tid: TokenId) -> Option<f32> {
+        self.0
+            .binary_search_by_key(&tid, |(tid, _)| *tid)
+            .map(|idx| self.0[idx].1)
+            .ok()
+    }
+}
+
+impl FromStr for TokenBias {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let x = s
+            .split(',')
+            .map(|kv| {
+                let (k, v) = kv
+                    .trim()
+                    .split_once('=')
+                    .ok_or_else(|| "Missing '=' in bias item".to_owned())?;
+                let tid: TokenId = k
+                    .trim()
+                    .parse()
+                    .map_err(|e: std::num::ParseIntError| e.to_string())?;
+                let bias: f32 = v
+                    .trim()
+                    .parse()
+                    .map_err(|e: std::num::ParseFloatError| e.to_string())?;
+                Result::<_, String>::Ok((tid, bias))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(TokenBias::new(x))
+    }
+}
+
+impl std::fmt::Display for TokenBias {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
     }
 }
 
@@ -253,8 +360,12 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 
+    #[error("unversioned magic number, regenerate your ggml models")]
+    UnversionedMagic,
     #[error("invalid magic number for {path:?}")]
     InvalidMagic { path: PathBuf },
+    #[error("invalid file format version {value}")]
+    InvalidFormatVersion { value: u32 },
     #[error("invalid value {value} for `f16` in hyperparameters")]
     HyperparametersF16Invalid { value: i32 },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
@@ -277,9 +388,10 @@ pub enum SnapshotError {
 
 #[derive(Error, Debug)]
 pub enum InferenceError {
+    #[error("an invalid token was encountered during tokenization")]
+    TokenizationFailed,
     #[error("the context window is full")]
     ContextFull,
-
     #[error("the user-specified callback returned an error")]
     UserCallback(Box<dyn std::error::Error>),
 }
@@ -316,16 +428,27 @@ impl Model {
                 })?,
             );
 
-        /// Helper function. Reads an int from the buffer and returns it.
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-            let mut bytes = [0u8; 4];
+        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
+            let mut bytes = [0u8; N];
             reader
                 .read_exact(&mut bytes)
                 .map_err(|e| LoadError::ReadExactFailed {
                     source: e,
-                    bytes: bytes.len(),
+                    bytes: N,
                 })?;
-            Ok(i32::from_le_bytes(bytes))
+            Ok(bytes)
+        }
+
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
+            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
+        }
+
+        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
+            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
+        }
+
+        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
+            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
         }
 
         /// Helper function. Reads a string from the buffer and returns it.
@@ -342,13 +465,23 @@ impl Model {
         }
 
         // Verify magic
-        {
-            let magic = read_i32(&mut reader)?;
-            if magic != 0x67676d6c {
+        let is_legacy_model: bool = match read_i32(&mut reader)? {
+            ggml::FILE_MAGIC => false,
+            ggml::FILE_MAGIC_UNVERSIONED => true,
+            _ => {
                 return Err(LoadError::InvalidMagic {
                     path: main_path.to_owned(),
-                });
+                })
             }
+        };
+
+        // Load format version
+        if !is_legacy_model {
+            #[allow(unused_variables)]
+            let version: u32 = match read_u32(&mut reader)? {
+                ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
+                version => return Err(LoadError::InvalidFormatVersion { value: version }),
+            };
         }
 
         // =================
@@ -376,18 +509,43 @@ impl Model {
         // ===============
         // Load vocabulary
         // ===============
-        let mut vocab = Vocabulary::default();
-        for i in 0..hparams.n_vocab {
-            let len = read_i32(&mut reader)?;
-            if let Ok(word) = read_string(&mut reader, len as usize) {
-                vocab.mapping.push(word);
-            } else {
-                load_progress_callback(LoadProgress::BadToken {
-                    index: i.try_into()?,
-                });
-                vocab.mapping.push("�".to_string());
+        let vocab = {
+            let mut id_to_token = vec![];
+            let mut id_to_token_score = vec![];
+            let mut token_to_id = HashMap::new();
+            let mut max_token_length = 0;
+
+            for i in 0..hparams.n_vocab {
+                let len = read_i32(&mut reader)?;
+                if let Ok(word) = read_string(&mut reader, len as usize) {
+                    max_token_length = max_token_length.max(word.len());
+                    id_to_token.push(word.clone());
+                    token_to_id.insert(word, i);
+                } else {
+                    load_progress_callback(LoadProgress::BadToken {
+                        index: i.try_into()?,
+                    });
+                    id_to_token.push("�".to_string());
+                }
+
+                // Token score, currently unused
+                if !is_legacy_model {
+                    if let Ok(score) = read_f32(&mut reader) {
+                        id_to_token_score.push(score);
+                    }
+                } else {
+                    // Legacy model, set empty score
+                    id_to_token_score.push(0.);
+                }
             }
-        }
+
+            Vocabulary {
+                id_to_token,
+                id_to_token_score,
+                token_to_id,
+                max_token_length,
+            }
+        };
 
         // for the big tensors, we have the option to store the data in 16-bit
         // floats or quantized in order to save memory and also to speed up the
@@ -774,7 +932,7 @@ impl Model {
     }
 
     /// Starts a new `InferenceSession` for this model.
-    pub fn start_session(&self, last_n_size: usize) -> InferenceSession {
+    pub fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         let Hyperparameters {
             n_ctx,
             n_embd,
@@ -785,8 +943,18 @@ impl Model {
 
         let ctx_size = {
             let mut ctx_size = 0;
-            ctx_size += mulf!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_k
-            ctx_size += mulf!(n_ctx, n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // memory_v
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_k_type.into())
+            ); // memory_k
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_v_type.into())
+            ); // memory_v
             ctx_size += (5 + 10 * n_layer as u64) * 256; // object overhead
             ctx_size
         };
@@ -796,16 +964,17 @@ impl Model {
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(ggml::TYPE_F32, n_elements);
-        let memory_v = session_ctx.new_tensor_1d(ggml::TYPE_F32, n_elements);
+        let memory_k = session_ctx.new_tensor_1d(params.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(params.memory_v_type.into(), n_elements);
 
         InferenceSession {
             _session_ctx: session_ctx,
+            params,
             memory_k,
             memory_v,
             n_past: 0,
             mem_per_token: 0,
-            last_n_tokens: VecDeque::from(vec![0; last_n_size]),
+            last_n_tokens: VecDeque::from(vec![0; params.last_n_size]),
             last_logits: vec![0.0; n_vocab as usize],
         }
     }
@@ -823,18 +992,23 @@ impl Model {
         {
             let scale = 1.0 / params.temp;
             for (i, &logit) in logits.iter().enumerate() {
+                let tid = i as TokenId;
+
                 // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                 // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-                if session.last_n_tokens.contains(&(i as TokenId)) {
+                let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
+                    logit_override
+                } else if session.last_n_tokens.contains(&tid) {
                     // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
                     if logits[i] < 0.0 {
-                        logits_id.push((logit * scale * params.repeat_penalty, i as TokenId));
+                        logit * scale * params.repeat_penalty
                     } else {
-                        logits_id.push((logit * scale / params.repeat_penalty, i as TokenId));
+                        logit * scale / params.repeat_penalty
                     }
                 } else {
-                    logits_id.push((logit * scale, i as TokenId));
-                }
+                    logit * scale
+                };
+                logits_id.push((val, tid));
             }
         }
 
@@ -1129,40 +1303,17 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    pub fn tokenize(&self, vocab: &Vocabulary, text: &str, bos: bool) -> Vec<TokenId> {
-        let mut res = Vec::new();
-        if bos {
-            res.push(1 as TokenId); // TODO: replace with vocab.bos
-        }
-
-        // Find the longest token that matches the text
-        let mut pos = 0;
-        loop {
-            let mut l = 0;
-            let mut t = 0;
-
-            for (tk_id, tk) in vocab.mapping.iter().enumerate() {
-                if tk.len() < l {
-                    continue;
-                }
-                if tk.len() > text.len() - pos {
-                    continue;
-                }
-                if text[pos..].starts_with(tk) {
-                    l = tk.len();
-                    t = tk_id;
-                }
-            }
-
-            if l == 0 {
-                break;
-            }
-
-            res.push(t as TokenId);
-            pos += l;
-        }
-
-        res
+    pub fn tokenize(
+        &self,
+        vocab: &Vocabulary,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<TokenId>, InferenceError> {
+        Ok(vocab
+            .tokenize(text, bos)?
+            .iter()
+            .map(|(_, tid)| *tid)
+            .collect::<Vec<TokenId>>())
     }
 
     /// Sets the state of the model, from a previously obtained InferenceSnapshot
@@ -1170,7 +1321,10 @@ impl Model {
         &mut self,
         snapshot: InferenceSnapshot,
     ) -> Result<InferenceSession, SnapshotError> {
-        let mut session = self.start_session(snapshot.last_n_tokens.len());
+        let mut session = self.start_session(InferenceSessionParameters {
+            last_n_size: snapshot.last_n_tokens.len(),
+            ..snapshot.session_params
+        });
 
         if session.memory_k.nbytes() != snapshot.memory_k.len()
             || session.memory_v.nbytes() != snapshot.memory_v.len()
@@ -1207,7 +1361,7 @@ impl InferenceSession {
         callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
-        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence);
+        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence)?;
 
         if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
             return Err(InferenceError::ContextFull);
@@ -1218,7 +1372,7 @@ impl InferenceSession {
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
-                if let Err(e) = callback(OutputToken::Token(&vocab.mapping[tk as usize])) {
+                if let Err(e) = callback(OutputToken::Token(&vocab.id_to_token[tk as usize])) {
                     return Err(InferenceError::UserCallback(Box::new(e)));
                 }
 
@@ -1251,11 +1405,11 @@ impl InferenceSession {
         model.evaluate(self, params.n_threads, &[next_token]);
 
         // Return the next token
-        if next_token == 2 {
-            Ok(OutputToken::EndOfText)
+        Ok(if next_token as TokenId == EOD_TOKEN_ID {
+            OutputToken::EndOfText
         } else {
-            Ok(OutputToken::Token(&vocab.mapping[next_token as usize]))
-        }
+            OutputToken::Token(&vocab.id_to_token[next_token as usize])
+        })
     }
 
     // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
@@ -1325,6 +1479,7 @@ impl InferenceSession {
 
         InferenceSnapshotRef {
             npast: self.n_past,
+            session_params: self.params,
             memory_k,
             memory_v,
             last_n_tokens: self.last_n_tokens.clone(),
@@ -1362,5 +1517,62 @@ impl InferenceSnapshot {
         let mut reader = BufReader::new(File::open(path)?);
 
         Self::read(&mut reader)
+    }
+}
+
+impl Vocabulary {
+    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
+    pub fn tokenize<'a>(
+        &'a self,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<(&'a str, TokenId)>, InferenceError> {
+        let len = text.len();
+
+        let mut score = vec![0usize; len + 1];
+        let mut prev = vec![TokenId::default(); len + 1];
+
+        for i in 0..len {
+            let max_len = (len - i).min(self.max_token_length);
+            for sub_len in 1..=max_len {
+                let sub = &text.as_bytes()[i..i + sub_len];
+                let Ok(sub) = std::str::from_utf8(sub) else { continue; };
+                let token = self.token_to_id.get(sub);
+
+                if let Some(token) = token {
+                    let token_score = sub.len() * sub.len();
+                    let local_score = score[i] + token_score;
+                    let next = i + sub_len;
+
+                    if score[next] < local_score {
+                        score[next] = local_score;
+                        prev[next] = *token;
+                    }
+                }
+            }
+        }
+
+        // Backward pass
+        let mut res = vec![];
+        let mut i = len;
+        while i > 0 {
+            let token_id = prev[i];
+            if token_id == 0 {
+                return Err(InferenceError::TokenizationFailed);
+            }
+            let token = self.id_to_token[token_id as usize].as_str();
+            res.push((token, token_id));
+            i -= token.len();
+        }
+
+        if bos {
+            // TODO: replace with vocab.bos
+            res.push(("", 1));
+        }
+
+        // Pieces are in reverse order so correct that
+        res.reverse();
+
+        Ok(res)
     }
 }

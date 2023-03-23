@@ -1,7 +1,10 @@
 use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
-use llama_rs::{InferenceError, InferenceParameters, InferenceSnapshot};
+use llama_rs::{
+    InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
+    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+};
 use rand::thread_rng;
 use rand::SeedableRng;
 use rustyline::error::ReadlineError;
@@ -13,13 +16,14 @@ fn repl_mode(
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
+    session_params: &InferenceSessionParameters,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let mut session = model.start_session(CLI_ARGS.repeat_last_n);
+                let mut session = model.start_session(*session_params);
                 let prompt = prompt.replace("$PROMPT", &line);
                 let mut rng = thread_rng();
 
@@ -60,6 +64,32 @@ fn repl_mode(
     }
 }
 
+fn dump_tokens(text: &str, vocab: &Vocabulary) -> Result<(), InferenceError> {
+    let toks = match vocab.tokenize(text, false) {
+        Ok(toks) => toks,
+        Err(e) => {
+            log::error!("Could not tokenize prompt: {e}");
+            return Err(e);
+        }
+    };
+    log::info!("=== Dumping prompt tokens:");
+    log::info!(
+        "{}",
+        toks.iter()
+            .map(|(_, tid)| tid.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    log::info!(
+        "{}",
+        toks.iter()
+            .map(|(s, tid)| format!("{s:?}:{tid}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(())
+}
+
 fn main() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
@@ -75,6 +105,25 @@ fn main() {
         top_p: args.top_p,
         repeat_penalty: args.repeat_penalty,
         temp: args.temp,
+        bias_tokens: args.token_bias.clone().unwrap_or_else(|| {
+            if args.ignore_eos {
+                TokenBias::new(vec![(EOD_TOKEN_ID, -1.0)])
+            } else {
+                TokenBias::default()
+            }
+        }),
+    };
+    let inference_session_params = {
+        let mem_typ = if args.float16 {
+            ModelKVMemoryType::Float16
+        } else {
+            ModelKVMemoryType::Float32
+        };
+        InferenceSessionParameters {
+            memory_k_type: mem_typ,
+            memory_v_type: mem_typ,
+            last_n_size: args.repeat_last_n,
+        }
     };
 
     let prompt = if let Some(path) = &args.prompt_file {
@@ -148,6 +197,11 @@ fn main() {
 
     log::info!("Model fully loaded!");
 
+    if args.dump_prompt_tokens {
+        dump_tokens(&prompt, &vocab).ok();
+        return;
+    }
+
     let mut rng = if let Some(seed) = CLI_ARGS.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
     } else {
@@ -167,11 +221,17 @@ fn main() {
             }
         }
     } else {
-        model.start_session(args.repeat_last_n)
+        model.start_session(inference_session_params)
     };
 
     if args.repl {
-        repl_mode(&prompt, &model, &vocab, &inference_params);
+        repl_mode(
+            &prompt,
+            &model,
+            &vocab,
+            &inference_params,
+            &inference_session_params,
+        );
     } else if let Some(cache_path) = &args.cache_prompt {
         let res =
             session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
@@ -190,7 +250,11 @@ fn main() {
                     "Context is not large enough to fit the prompt. Saving intermediate state."
                 );
             }
-            Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+            Err(llama_rs::InferenceError::TokenizationFailed) => {
+                log::error!("Failed to tokenize initial prompt. Exiting.");
+                return;
+            }
+            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
 
         // Write the memory to the cache file
@@ -231,7 +295,10 @@ fn main() {
             Err(llama_rs::InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }
-            Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+            Err(llama_rs::InferenceError::TokenizationFailed) => {
+                log::error!("Failed to tokenize initial prompt.");
+            }
+            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
     }
 }
