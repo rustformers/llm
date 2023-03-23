@@ -354,28 +354,6 @@ macro_rules! mulf {
     };
 }
 
-trait FromLeBytes {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self;
-}
-
-impl FromLeBytes for u32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        return u32::from_le_bytes(bytes);
-    }
-}
-
-impl FromLeBytes for i32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        return i32::from_le_bytes(bytes);
-    }
-}
-
-impl FromLeBytes for f32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        return f32::from_le_bytes(bytes);
-    }
-}
-
 impl Model {
     pub fn load(
         path: impl AsRef<Path>,
@@ -395,20 +373,25 @@ impl Model {
                 })?,
             );
 
-        fn read_int<T: FromLeBytes>(reader: &mut impl BufRead) -> Result<T, LoadError> {
-            let mut bytes = [0u8; 4];
+        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
+            let mut bytes = [0u8; N];
             reader
                 .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: bytes.len(),
-                })?;
-            Ok(T::from_le_bytes(bytes))
+                .map_err(|e| LoadError::ReadExactFailed { source: e, bytes: N })?;
+            Ok(bytes)
         }
 
-        let read_i32 = read_int::<i32>;
-        let read_u32 = read_int::<u32>;
-        let read_f32 = read_int::<f32>;
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
+            return Ok(i32::from_le_bytes(read_bytes::<4>(reader)?));
+        }
+
+        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
+            return Ok(u32::from_le_bytes(read_bytes::<4>(reader)?));
+        }
+
+        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
+            return Ok(f32::from_le_bytes(read_bytes::<4>(reader)?));
+        }
 
         /// Helper function. Reads a string from the buffer and returns it.
         fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
