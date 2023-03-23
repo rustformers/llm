@@ -3,7 +3,7 @@ use std::{convert::Infallible, io::Write};
 use cli_args::CLI_ARGS;
 use llama_rs::{
     InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
-    ModelKVMemoryType,
+    ModelKVMemoryType, Vocabulary,
 };
 use rand::thread_rng;
 use rand::SeedableRng;
@@ -64,6 +64,32 @@ fn repl_mode(
     }
 }
 
+fn dump_tokens(text: &str, vocab: &Vocabulary) -> Result<(), InferenceError> {
+    let toks = match vocab.tokenize(text, false) {
+        Ok(toks) => toks,
+        Err(e) => {
+            log::error!("Could not tokenize prompt: {e}");
+            return Err(e);
+        }
+    };
+    log::info!("=== Dumping prompt tokens:");
+    log::info!(
+        "{}",
+        toks.iter()
+            .map(|(_, tid)| tid.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    log::info!(
+        "{}",
+        toks.iter()
+            .map(|(s, tid)| format!("{s:?}:{tid}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(())
+}
+
 fn main() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
@@ -79,6 +105,7 @@ fn main() {
         top_p: args.top_p,
         repeat_penalty: args.repeat_penalty,
         temp: args.temp,
+        bias_tokens: args.bias_tokens.clone().unwrap_or_default(),
     };
     let inference_session_params = {
         let mem_typ = if args.float16 {
@@ -163,6 +190,11 @@ fn main() {
         .expect("Could not load model");
 
     log::info!("Model fully loaded!");
+
+    if args.dump_prompt_tokens {
+        dump_tokens(&prompt, &vocab).ok();
+        return;
+    }
 
     let mut rng = if let Some(seed) = CLI_ARGS.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
