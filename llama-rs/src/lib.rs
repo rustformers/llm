@@ -259,10 +259,11 @@ impl TokenBias {
         Self(v)
     }
 
-    pub fn get(&self, tid: TokenId) -> f32 {
+    pub fn get(&self, tid: TokenId) -> Option<f32> {
         self.0
             .binary_search_by_key(&tid, |(tid, _)| *tid)
-            .map_or(0.0, |idx| self.0[idx].1)
+            .map(|idx| self.0[idx].1)
+            .ok()
     }
 }
 
@@ -948,12 +949,11 @@ impl Model {
             let scale = 1.0 / params.temp;
             for (i, &logit) in logits.iter().enumerate() {
                 let tid = i as TokenId;
-                let bias = params.bias_tokens.get(tid);
 
                 // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                 // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-                let val = if bias != 0.0 {
-                    bias
+                let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
+                    logit_override
                 } else if session.last_n_tokens.contains(&tid) {
                     // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
                     if logits[i] < 0.0 {
