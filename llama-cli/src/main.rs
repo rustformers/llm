@@ -112,6 +112,7 @@ fn main() {
             }
         }),
         play_back_previous_tokens: false,
+        ..Default::default()
     };
     let inference_session_params = {
         let mem_typ = if args.float16 {
