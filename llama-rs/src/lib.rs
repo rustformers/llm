@@ -1,5 +1,6 @@
 mod ggml;
 
+use core::slice;
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Display,
@@ -394,6 +395,17 @@ pub enum InferenceError {
     ContextFull,
     #[error("the user-specified callback returned an error")]
     UserCallback(Box<dyn std::error::Error>),
+}
+
+/// Used in a call to `evaluate` to request information from the transformer.
+#[derive(Default)]
+pub struct EvaluateOutputRequest {
+    /// Returns all the logits for the provided batch of tokens.
+    /// Output shape is n_batch * n_vocab
+    all_logits: Option<Vec<f32>>,
+    /// Returns the embeddings for the provided batch of tokens
+    /// Output shape is n_batch * n_embd
+    embeddings: Option<Vec<f32>>,
 }
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
@@ -1065,11 +1077,15 @@ impl Model {
     }
 
     /// Evaluates the transformer.
+    ///
+    /// The provided `output_request` struct lets you specify which additional
+    /// data you are interested in fetching from the transformer. Setting a field to a `Some` value will fill the
     pub fn evaluate(
         &self,
         session: &mut InferenceSession,
         n_threads: i32,
         input_tokens: &[TokenId],
+        output_request: &mut EvaluateOutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past as i32;
@@ -1266,12 +1282,16 @@ impl Model {
             input_layer = current;
         }
 
+        // Used at the end to optionally extract the embeddings.
+        let embeddings_tensor;
+
         // norm
         {
             input_layer = ctx0.op_norm(&input_layer);
 
             // inpL = norm*inpL
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+            embeddings_tensor = input_layer.share();
         }
 
         // lm_head
@@ -1295,6 +1315,30 @@ impl Model {
                 bytemuck::cast_slice_mut(&mut session.last_logits),
             )
         };
+
+        // Extract logits
+        if let Some(all_logits) = &mut output_request.all_logits {
+            all_logits.resize(n_vocab as usize * n, 0.0);
+            // SAFETY: Data can be read (properly aligned, initialized, data
+            // will not be mutated or otherwise aliased while the slice lives),
+            // and we're not reading past the end of the slice.
+            assert_eq!(input_layer.nelements(), n_vocab * n as i32);
+            let logits_slice = unsafe {
+                slice::from_raw_parts(input_layer.data() as *const f32, n_vocab as usize * n)
+            };
+            all_logits.copy_from_slice(logits_slice);
+        }
+
+        // Extract embeddings
+        if let Some(embeddings) = &mut output_request.embeddings {
+            embeddings.resize(n_embd as usize * n, 0.0);
+            // SAFETY: Same rationale as for the "Extract logits" section applies.
+            assert_eq!(embeddings_tensor.nelements(), n_embd * n as i32);
+            let embeddings_slice = unsafe {
+                slice::from_raw_parts(embeddings_tensor.data() as *const f32, n_embd as usize * n)
+            };
+            embeddings.copy_from_slice(embeddings_slice);
+        }
 
         // Adjust the required memory per token if we didn't know that already
         if session.mem_per_token == 0 {
@@ -1370,7 +1414,12 @@ impl InferenceSession {
         }
 
         for batch in prompt_tokens.chunks(8) {
-            model.evaluate(self, params.n_threads, batch);
+            model.evaluate(
+                self,
+                params.n_threads,
+                batch,
+                &mut EvaluateOutputRequest::default(),
+            );
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
@@ -1404,7 +1453,12 @@ impl InferenceSession {
         self.last_n_tokens.push_front(next_token);
 
         // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(self, params.n_threads, &[next_token]);
+        model.evaluate(
+            self,
+            params.n_threads,
+            &[next_token],
+            &mut EvaluateOutputRequest::default(),
+        );
 
         // Return the next token
         Ok(if next_token as TokenId == EOD_TOKEN_ID {
@@ -1471,7 +1525,6 @@ impl InferenceSession {
     /// ggml context. While the provided `InferenceSnapshotRef` object is alive,
     /// no other methods for this model object should be called.
     pub unsafe fn get_snapshot(&mut self) -> InferenceSnapshotRef<'_> {
-        use core::slice;
         let memory_k = unsafe {
             slice::from_raw_parts(self.memory_k.data() as *mut u8, self.memory_k.nbytes())
         };
