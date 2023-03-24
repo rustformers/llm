@@ -1,6 +1,7 @@
 use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
+use llama_rs::EvaluateOutputRequest;
 use llama_rs::{
     InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
     ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
@@ -97,6 +98,8 @@ fn main() {
         .init();
 
     let args = &*CLI_ARGS;
+
+    ad_hoc_test();
 
     let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
@@ -313,4 +316,82 @@ fn main() {
             Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
     }
+}
+
+fn ad_hoc_test() {
+    let (mut model, vocab) = llama_rs::Model::load(&CLI_ARGS.model_path, 2048, |_| {}).unwrap();
+    let mut session = model.start_session(InferenceSessionParameters {
+        last_n_size: 64,
+        memory_k_type: ModelKVMemoryType::Float32,
+        memory_v_type: ModelKVMemoryType::Float32,
+    });
+
+    let inference_params = InferenceParameters {
+        n_threads: 8,
+        n_batch: 8,
+        top_k: 40,
+        top_p: 0.95,
+        repeat_penalty: 1.30,
+        temp: 0.80,
+        bias_tokens: TokenBias::default(),
+    };
+
+    session.feed_prompt::<Infallible>(
+        &model,
+        &vocab,
+        &inference_params,
+        "My favourite animal is the ",
+        |_| Ok(()),
+    );
+
+    let mut output_request = EvaluateOutputRequest {
+        all_logits: None,
+        embeddings: Some(Vec::new()),
+    };
+
+    let dog = model.tokenize(&vocab, "dog", false).unwrap();
+    model.evaluate(&mut session, 8, &dog, &mut output_request);
+
+    println!("Embeddings for 'dog' (1):");
+    for x in output_request.embeddings.as_ref().unwrap() {
+        //print!("{x:.2} ")
+    }
+    println!();
+
+    let mut session2 = model.start_session(InferenceSessionParameters {
+        last_n_size: 64,
+        memory_k_type: ModelKVMemoryType::Float32,
+        memory_v_type: ModelKVMemoryType::Float32,
+    });
+    session2.feed_prompt::<Infallible>(
+        &model,
+        &vocab,
+        &inference_params,
+        "I have just adopted a cute ",
+        |_| Ok(()),
+    );
+    let mut output_request2 = EvaluateOutputRequest {
+        all_logits: None,
+        embeddings: Some(Vec::new()),
+    };
+
+    // Try other words: 'dog', 'cat', 'potato', '$' -> To see decreasingly lower dot product values.
+    let dog2 = model.tokenize(&vocab, "dog", false).unwrap();
+    model.evaluate(&mut session2, 8, &dog2, &mut output_request2);
+
+    // Compute the dot product between embeddings from output_request and output_request2
+    let mut dot_product = 0.0;
+    for (x, y) in output_request
+        .embeddings
+        .as_ref()
+        .unwrap()
+        .iter()
+        .zip(output_request2.embeddings.as_ref().unwrap())
+    {
+        dot_product += x * y;
+    }
+
+    println!("Dot product {dot_product}");
+
+    std::process::exit(0);
 }

@@ -402,10 +402,10 @@ pub enum InferenceError {
 pub struct EvaluateOutputRequest {
     /// Returns all the logits for the provided batch of tokens.
     /// Output shape is n_batch * n_vocab
-    all_logits: Option<Vec<f32>>,
+    pub all_logits: Option<Vec<f32>>,
     /// Returns the embeddings for the provided batch of tokens
     /// Output shape is n_batch * n_embd
-    embeddings: Option<Vec<f32>>,
+    pub embeddings: Option<Vec<f32>>,
 }
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
