@@ -179,6 +179,7 @@ pub struct InferenceParameters {
     pub repeat_penalty: f32,
     pub temp: f32,
     pub bias_tokens: TokenBias,
+    pub play_back_previous_tokens: bool,
 }
 
 impl Default for InferenceParameters {
@@ -191,6 +192,7 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temp: 0.80,
             bias_tokens: TokenBias::default(),
+            play_back_previous_tokens: false,
         }
     }
 }
@@ -1449,12 +1451,14 @@ impl InferenceSession {
         rng: &mut impl rand::Rng,
         callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
-        // "Play back" the existing tokens, so that loading from an inference snapshot works
-        // as expected.
-        for token_id in &self.tokens {
-            let token = OutputToken::from_id(vocab, *token_id);
-            if let Err(e) = callback(token) {
-                return Err(InferenceError::UserCallback(Box::new(e)));
+        if params.play_back_previous_tokens {
+            // "Play back" the existing tokens, so that loading from an inference snapshot works
+            // as expected.
+            for token_id in &self.tokens {
+                let token = OutputToken::from_id(vocab, *token_id);
+                if let Err(e) = callback(token) {
+                    return Err(InferenceError::UserCallback(Box::new(e)));
+                }
             }
         }
 

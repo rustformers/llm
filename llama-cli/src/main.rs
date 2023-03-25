@@ -111,6 +111,7 @@ fn main() {
                 TokenBias::default()
             }
         }),
+        play_back_previous_tokens: false,
     };
     let inference_session_params = {
         let mem_typ = if args.float16 {
@@ -219,7 +220,7 @@ fn main() {
         rand::rngs::StdRng::from_entropy()
     };
 
-    let mut session = {
+    let (mut session, session_loaded) = {
         fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
             let snapshot = InferenceSnapshot::load_from_disk(path);
             match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
@@ -235,9 +236,9 @@ fn main() {
         }
 
         match (&args.persist_session, &args.load_session) {
-            (Some(path), _) if path.exists() => load_snapshot_from_disk(&model, path),
-            (_, Some(path)) => load_snapshot_from_disk(&model, path),
-            _ => model.start_session(inference_session_params),
+            (Some(path), _) if path.exists() => (load_snapshot_from_disk(&model, path), true),
+            (_, Some(path)) => (load_snapshot_from_disk(&model, path), true),
+            _ => (model.start_session(inference_session_params), false),
         }
     };
 
@@ -250,6 +251,15 @@ fn main() {
             &inference_session_params,
         );
     } else {
+        let inference_params = if session_loaded {
+            InferenceParameters {
+                play_back_previous_tokens: true,
+                ..inference_params
+            }
+        } else {
+            inference_params
+        };
+
         let res = session.inference_with_prompt::<Infallible>(
             &model,
             &vocab,
