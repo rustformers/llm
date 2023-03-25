@@ -2,8 +2,8 @@ use std::{convert::Infallible, io::Write, path::Path};
 
 use cli_args::CLI_ARGS;
 use llama_rs::{
-    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters,
-    InferenceSnapshot, Model, ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
+    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
 };
 use rand::{thread_rng, SeedableRng};
 use rustyline::error::ReadlineError;
@@ -222,7 +222,7 @@ fn main() {
 
     let (mut session, session_loaded) = {
         fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
-            let snapshot = InferenceSnapshot::load_from_disk(path);
+            let snapshot = snapshot::load_from_disk(path);
             match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
                 Ok(session) => {
                     log::info!("Loaded inference session from {path:?}");
@@ -291,8 +291,7 @@ fn main() {
             // Write the memory to the cache file
             // SAFETY: no other model functions used inside the block
             unsafe {
-                let memory = session.get_snapshot();
-                match memory.write_to_disk(session_path) {
+                match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
                     Ok(_) => {
                         log::info!("Successfully wrote session to {session_path:?}");
                     }
@@ -303,5 +302,55 @@ fn main() {
                 }
             }
         }
+    }
+}
+
+mod snapshot {
+    use llama_rs::{InferenceSnapshot, InferenceSnapshotRef, SnapshotError};
+    use std::{
+        fs::File,
+        io::{BufReader, BufWriter, Read, Write},
+        path::Path,
+    };
+    use zstd::{
+        stream::{raw, zio},
+        zstd_safe::{CParameter, CompressionLevel, Strategy},
+    };
+
+    const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
+
+    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<InferenceSnapshot, SnapshotError> {
+        let mut reader = BufReader::new(File::open(path.as_ref())?);
+
+        let mut snap = InferenceSnapshot::read(&mut reader)?;
+        let mut zr = zio::Reader::new(reader, raw::Decoder::new()?);
+
+        // Note: read_exact requires an initialized buffer, so it's not possible to only set the Vec
+        // capacity alone.
+        snap.memory_k.resize(snap.memory_k_len as usize, 0);
+        snap.memory_v.resize(snap.memory_v_len as usize, 0);
+        zr.read_exact(&mut snap.memory_k)?;
+        zr.read_exact(&mut snap.memory_v)?;
+        Ok(snap)
+    }
+
+    pub fn write_to_disk(
+        snap: &InferenceSnapshotRef<'_>,
+        path: impl AsRef<Path>,
+    ) -> Result<(), SnapshotError> {
+        let mut ze = raw::Encoder::new(SNAPSHOT_COMPRESSION_LEVEL)?;
+        ze.set_parameter(CParameter::Strategy(Strategy::ZSTD_fast))?;
+        // It seems like setting the strategy overwrites the level, so that's why this is here.
+        ze.set_parameter(CParameter::CompressionLevel(SNAPSHOT_COMPRESSION_LEVEL))?;
+        ze.set_pledged_src_size(Some((snap.memory_k.len() + snap.memory_v.len()) as u64))?;
+
+        let mut writer = BufWriter::new(File::create(path.as_ref())?);
+
+        snap.write(&mut writer)?;
+
+        let mut zw = zio::Writer::new(writer, ze);
+        zw.write_all(snap.memory_k)?;
+        zw.write_all(snap.memory_v)?;
+        Ok(zw.finish()?)
     }
 }
