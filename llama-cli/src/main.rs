@@ -2,8 +2,8 @@ use std::{convert::Infallible, io::Write, path::Path};
 
 use cli_args::CLI_ARGS;
 use llama_rs::{
-    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters,
-    InferenceSnapshot, Model, ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
+    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
 };
 use rand::{thread_rng, SeedableRng};
 use rustyline::error::ReadlineError;
@@ -222,7 +222,7 @@ fn main() {
 
     let (mut session, session_loaded) = {
         fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
-            let snapshot = InferenceSnapshot::load_from_disk(path);
+            let snapshot = snapshot::load_from_disk(path);
             match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
                 Ok(session) => {
                     log::info!("Loaded inference session from {path:?}");
@@ -291,8 +291,7 @@ fn main() {
             // Write the memory to the cache file
             // SAFETY: no other model functions used inside the block
             unsafe {
-                let memory = session.get_snapshot();
-                match memory.write_to_disk(session_path) {
+                match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
                     Ok(_) => {
                         log::info!("Successfully wrote session to {session_path:?}");
                     }
@@ -303,5 +302,36 @@ fn main() {
                 }
             }
         }
+    }
+}
+
+mod snapshot {
+    use llama_rs::{InferenceSnapshot, InferenceSnapshotRef, SnapshotError};
+    use std::{
+        fs::File,
+        io::{BufReader, BufWriter},
+        path::Path,
+    };
+    use zstd::zstd_safe::CompressionLevel;
+
+    const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
+
+    pub fn load_from_disk(path: impl AsRef<Path>) -> Result<InferenceSnapshot, SnapshotError> {
+        let mut reader =
+            zstd::stream::read::Decoder::new(BufReader::new(File::open(path.as_ref())?))?;
+        InferenceSnapshot::read(&mut reader)
+    }
+
+    pub fn write_to_disk(
+        snap: &InferenceSnapshotRef<'_>,
+        path: impl AsRef<Path>,
+    ) -> Result<(), SnapshotError> {
+        let mut writer = zstd::stream::write::Encoder::new(
+            BufWriter::new(File::create(path.as_ref())?),
+            SNAPSHOT_COMPRESSION_LEVEL,
+        )?
+        .auto_finish();
+
+        snap.write(&mut writer)
     }
 }
