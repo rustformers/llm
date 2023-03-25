@@ -1,4 +1,4 @@
-use clap::{Parser,Args};
+use clap::Parser;
 use llama_rs::{InferenceError, InferenceParameters};
 use rand::thread_rng;
 use rustyline::error::ReadlineError;
@@ -37,15 +37,20 @@ impl Mode {
         vocab: &llama_rs::Vocabulary,
         params: &InferenceParameters,
     ) {
+        // TODO: refactor this to decouple model generation
+        // TODO: check run model then store prompt if successful
         let mut rl = rustyline::DefaultEditor::new().unwrap();
         loop {
             let readline = rl.readline(">> ");
             match readline {
                 Ok(line) => {
+                    // model generation
                     let mut session = model.start_session(CLI_ARGS.repeat_last_n);
+                    // why this?
                     let prompt = prompt.replace("$PROMPT", &line);
                     let mut rng = thread_rng();
 
+                    // TODO: create UI for cli in seperate struct
                     let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                     if let Err(InferenceError::ContextFull) =
                         session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
@@ -87,7 +92,6 @@ impl Mode {
         match self {
             Self::Repl { repl } => self.repl_mode(),
             Self::Interactive { interactive } => self.interactive_mode(),
-            _ => {}
         }
     }
 }

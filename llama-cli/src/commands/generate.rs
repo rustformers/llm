@@ -1,6 +1,8 @@
 use clap::Args;
-use llama_rs::{InferenceError, InferenceParameters, InferenceSnapshot, Model, Vocabulary};
+use llama_rs::{InferenceError, InferenceParameters, Model, Vocabulary};
+use rand::rngs::StdRng;
 use rand::SeedableRng;
+use std::convert::Infallible;
 
 #[derive(Debug, Args)]
 pub struct Generate {
@@ -58,15 +60,14 @@ pub struct Generate {
 }
 
 impl Generate {
-    fn create_seed(&self) -> rand::rngs::StdRng {
-        if self.seed.is_some() {
-            rand::rngs::StdRng::seed_from_u64(self.seed)
-        } else {
-            rand::rngs::StdRng::from_entropy()
+    fn create_seed(&self) -> StdRng {
+        match self.seed {
+            Some(seed) => StdRng::seed_from_u64(seed),
+            None => StdRng::from_entropy(),
         }
     }
 
-    fn select_model_and_vocab(&self) -> Result<(Model, Vocabulary), String> {
+    fn load_model(&self) -> Result<(Model, Vocabulary), String> {
         let (model, vocab) =
             llama_rs::Model::load(&self.model_path, self.num_ctx_tokens as i32, |progress| {
                 use llama_rs::LoadProgress;
@@ -126,8 +127,10 @@ impl Generate {
         Ok((model, vocab))
     }
 
-    fn create_inference_parameters(&self) -> InferenceParameters {
-        InferenceParameters {
+    fn run(&self, prompt: &String) -> Result<String, String> {
+        // model start session
+
+        let inference_params = InferenceParameters {
             n_threads: self.num_threads as i32,
             n_batch: self.batch_size,
             top_k: self.top_k,
@@ -135,5 +138,36 @@ impl Generate {
             repeat_penalty: self.repeat_penalty,
             temp: self.temp,
         };
+
+        let (mut model, vocab) = self.load_model()?;
+        let rng = self.create_seed();
+        let session = model.start_session(self.repeat_last_n);
+        let res = session.inference_with_prompt::<Infallible>(
+            &model,
+            &vocab,
+            &inference_params,
+            &prompt,
+            self.num_predict,
+            &mut rng,
+            |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+
+                Ok(())
+            },
+        );
+
+        println!();
+
+        match res {
+            Ok(stats) => {
+                println!("{}", stats);
+            }
+            Err(llama_rs::InferenceError::ContextFull) => {
+                log::warn!("Context window full, stopping inference.")
+            }
+            Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+        }
+        Ok(())
     }
 }
