@@ -110,15 +110,11 @@ pub struct InferenceSnapshotRef<'a> {
     pub tokens: Vec<TokenId>,
     /// The vector of logits that was produced after the last inference
     pub logits: Vec<f32>,
-    /// The length of the 'key' memory tensor as u64
-    pub memory_k_len: u64,
-    /// The length of the 'value' memory tensor as u64
-    pub memory_v_len: u64,
-    /// The contents of the 'key' memory tensor (serialized separately)
-    #[serde(skip)]
+    /// The contents of the 'key' memory tensor
+    #[serde(with = "serde_bytes")]
     pub memory_k: &'a [u8],
-    /// The contents of the 'value' memory tensor (serialized separately)
-    #[serde(skip)]
+    /// The contents of the 'value' memory tensor
+    #[serde(with = "serde_bytes")]
     pub memory_v: &'a [u8],
 }
 
@@ -135,15 +131,11 @@ pub struct InferenceSnapshot {
     pub tokens: Vec<TokenId>,
     /// The vector of logits that was produced after the last inference
     pub last_logits: Vec<f32>,
-    /// The length of the 'key' memory tensor as u64
-    pub memory_k_len: u64,
-    /// The length of the 'value' memory tensor as u64
-    pub memory_v_len: u64,
-    /// The contents of the 'key' memory tensor (deserialized separately)
-    #[serde(skip)]
+    /// The contents of the 'key' memory tensor
+    #[serde(with = "serde_bytes")]
     pub memory_k: Vec<u8>,
-    /// The contents of the 'value' memory tensor (deserialized separately)
-    #[serde(skip)]
+    /// The contents of the 'value' memory tensor
+    #[serde(with = "serde_bytes")]
     pub memory_v: Vec<u8>,
 }
 
@@ -1527,8 +1519,6 @@ impl InferenceSession {
         InferenceSnapshotRef {
             npast: self.n_past,
             session_params: self.params,
-            memory_k_len: memory_k.len() as u64,
-            memory_v_len: memory_v.len() as u64,
             tokens: self.tokens.clone(),
             logits: self.last_logits.clone(),
             memory_k,

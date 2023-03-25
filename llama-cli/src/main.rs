@@ -309,48 +309,29 @@ mod snapshot {
     use llama_rs::{InferenceSnapshot, InferenceSnapshotRef, SnapshotError};
     use std::{
         fs::File,
-        io::{BufReader, BufWriter, Read, Write},
+        io::{BufReader, BufWriter},
         path::Path,
     };
-    use zstd::{
-        stream::{raw, zio},
-        zstd_safe::{CParameter, CompressionLevel, Strategy},
-    };
+    use zstd::zstd_safe::CompressionLevel;
 
     const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
 
     pub fn load_from_disk(path: impl AsRef<Path>) -> Result<InferenceSnapshot, SnapshotError> {
-        let mut reader = BufReader::new(File::open(path.as_ref())?);
-
-        let mut snap = InferenceSnapshot::read(&mut reader)?;
-        let mut zr = zio::Reader::new(reader, raw::Decoder::new()?);
-
-        // Note: read_exact requires an initialized buffer, so it's not possible to only set the Vec
-        // capacity alone.
-        snap.memory_k.resize(snap.memory_k_len as usize, 0);
-        snap.memory_v.resize(snap.memory_v_len as usize, 0);
-        zr.read_exact(&mut snap.memory_k)?;
-        zr.read_exact(&mut snap.memory_v)?;
-        Ok(snap)
+        let mut reader =
+            zstd::stream::read::Decoder::new(BufReader::new(File::open(path.as_ref())?))?;
+        InferenceSnapshot::read(&mut reader)
     }
 
     pub fn write_to_disk(
         snap: &InferenceSnapshotRef<'_>,
         path: impl AsRef<Path>,
     ) -> Result<(), SnapshotError> {
-        let mut ze = raw::Encoder::new(SNAPSHOT_COMPRESSION_LEVEL)?;
-        ze.set_parameter(CParameter::Strategy(Strategy::ZSTD_fast))?;
-        // It seems like setting the strategy overwrites the level, so that's why this is here.
-        ze.set_parameter(CParameter::CompressionLevel(SNAPSHOT_COMPRESSION_LEVEL))?;
-        ze.set_pledged_src_size(Some((snap.memory_k.len() + snap.memory_v.len()) as u64))?;
+        let mut writer = zstd::stream::write::Encoder::new(
+            BufWriter::new(File::create(path.as_ref())?),
+            SNAPSHOT_COMPRESSION_LEVEL,
+        )?
+        .auto_finish();
 
-        let mut writer = BufWriter::new(File::create(path.as_ref())?);
-
-        snap.write(&mut writer)?;
-
-        let mut zw = zio::Writer::new(writer, ze);
-        zw.write_all(snap.memory_k)?;
-        zw.write_all(snap.memory_v)?;
-        Ok(zw.finish()?)
+        snap.write(&mut writer)
     }
 }
