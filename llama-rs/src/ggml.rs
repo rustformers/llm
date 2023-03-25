@@ -6,6 +6,11 @@ use std::{
 
 pub use ggml_raw::ggml_type as Type;
 
+pub const FILE_MAGIC: i32 = 0x67676d66;
+pub const FILE_MAGIC_UNVERSIONED: i32 = 0x67676d6c;
+
+pub const FORMAT_VERSION: u32 = 1;
+
 pub const TYPE_Q4_0: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_Q4_0;
 pub const TYPE_Q4_1: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_Q4_1;
 pub const TYPE_I32: ggml_raw::ggml_type = ggml_raw::GGML_TYPE_I32;
