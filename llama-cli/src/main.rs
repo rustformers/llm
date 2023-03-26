@@ -19,11 +19,12 @@ fn repl_mode(
     session_params: &InferenceSessionParameters,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
+    let mut session = model.start_session(*session_params);
+
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let mut session = model.start_session(*session_params);
                 let prompt = prompt.replace("$PROMPT", &line);
                 let mut rng = thread_rng();
 
@@ -48,10 +49,12 @@ fn repl_mode(
                         Ok(())
                     },
                 );
+
                 println!();
 
                 if let Err(InferenceError::ContextFull) = res {
-                    log::error!("Reply exceeds context window length");
+                    log::error!("Reply exceeds context window length. Resetting context.");
+                    session = model.start_session(*session_params);
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
