@@ -1,4 +1,5 @@
 use clap::Parser;
+use llama_rs::TokenBias;
 use once_cell::sync::Lazy;
 
 #[derive(Parser, Debug)]
@@ -15,6 +16,10 @@ pub struct Args {
     /// A file to read the prompt from. Takes precedence over `prompt` if set.
     #[arg(long, short = 'f', default_value = None)]
     pub prompt_file: Option<String>,
+
+    /// Run in REPL mode.
+    #[arg(long, short = 'R', default_value_t = false)]
+    pub repl: bool,
 
     /// Sets the number of threads to use
     #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]
@@ -67,6 +72,41 @@ pub struct Args {
     /// --cache-prompt
     #[arg(long, default_value = None)]
     pub restore_prompt: Option<String>,
+
+    /// Specifies the seed to use during sampling. Note that, depending on
+    /// hardware, the same seed may lead to different results on two separate
+    /// machines.
+    #[arg(long, default_value = None)]
+    pub seed: Option<u64>,
+
+    /// Use 16-bit floats for model memory key and value. Ignored when restoring
+    /// from the cache.
+    #[arg(long, default_value_t = false)]
+    pub float16: bool,
+
+    /// A comma separated list of token biases. The list should be in the format
+    /// "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS is a
+    /// floating point number.
+    /// For example, "1=-1.0,2=-1.0" sets the bias for token IDs 1
+    /// (start of document) and 2 (end of document) to -1.0 which effectively
+    /// disables the model from generating responses containing those token IDs.
+    #[arg(long, default_value = None, value_parser = parse_bias)]
+    pub token_bias: Option<TokenBias>,
+
+    /// Prevent the end of stream (EOS/EOD) token from being generated. This will allow the
+    /// model to generate text until it runs out of context space. Note: The --token-bias
+    /// option will override this if specified.
+    #[arg(long, default_value_t = false)]
+    pub ignore_eos: bool,
+
+    /// Dumps the prompt to console and exits, first as a comma seperated list of token IDs
+    /// and then as a list of comma seperated string keys and token ID values.
+    #[arg(long, default_value_t = false)]
+    pub dump_prompt_tokens: bool,
+}
+
+fn parse_bias(s: &str) -> Result<TokenBias, String> {
+    s.parse()
 }
 
 /// CLI args are stored in a lazy static variable so they're accessible from
