@@ -90,11 +90,13 @@ Some additional things to try:
 
   ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
 
-- Prompt files can be precomputed to speed up processing using the
-  `--cache-prompt` and `--restore-prompt` flags so you can save processing time
-  for lengthy prompts.
+- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file. To automatically load
+  and save the same session, use `--persist-session`. This can be used to cache prompts to reduce load
+  time, too:
 
   ![Gif showcasing prompt caching](./doc/resources/prompt_caching_screencap.gif)
+
+  (This GIF shows an older version of the flags, but the mechanics are still the same.)
 
 [^1]:
     A modern-ish C toolchain is required to compile `ggml`. A C++ toolchain
