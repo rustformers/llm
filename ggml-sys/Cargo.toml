@@ -8,4 +8,4 @@ description = "Low level bindings for ggml"
 edition = "2021"
 license = "MIT"
 name = "ggml-sys"
-version = "0.1.0"
+version = { workspace = true }
