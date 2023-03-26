@@ -1,5 +1,3 @@
-mod ggml;
-
 use core::slice;
 use std::{
     collections::HashMap,

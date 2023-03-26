@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "ggml-sys",
+    "ggml",
     "llama-rs",
     "llama-cli"
 ]
