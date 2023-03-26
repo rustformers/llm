@@ -1526,22 +1526,6 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    /// Tokenize a `text` with the given `vocab`.
-    ///
-    /// `bos` controls whether a beginning-of-string token should be inserted.
-    pub fn tokenize(
-        &self,
-        vocab: &Vocabulary,
-        text: &str,
-        bos: bool,
-    ) -> Result<Vec<TokenId>, InferenceError> {
-        Ok(vocab
-            .tokenize(text, bos)?
-            .iter()
-            .map(|(_, tid)| *tid)
-            .collect::<Vec<TokenId>>())
-    }
-
     /// Hydrates a previously obtained InferenceSnapshot for this model
     pub fn session_from_snapshot(
         &self,
@@ -1585,7 +1569,11 @@ impl InferenceSession {
         callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
-        let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence)?;
+        let prompt_tokens: Vec<TokenId> = vocab
+            .tokenize(prompt, beginning_of_sentence)?
+            .iter()
+            .map(|(_, tok)| *tok)
+            .collect();
 
         if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
             return Err(InferenceError::ContextFull);
