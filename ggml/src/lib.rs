@@ -17,9 +17,9 @@ use std::{
 pub use ggml_sys::ggml_type as Type;
 
 /// Magic constant for `ggml` files (versioned).
-pub const FILE_MAGIC: i32 = 0x67676d66;
+pub const FILE_MAGIC: u32 = 0x67676d66;
 /// Magic constant for `ggml` files (unversioned).
-pub const FILE_MAGIC_UNVERSIONED: i32 = 0x67676d6c;
+pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;
@@ -69,20 +69,42 @@ impl Context {
     }
 
     /// Creates a new 1D tensor.
-    pub fn new_tensor_1d(&self, typ: ggml_sys::ggml_type, ne0: i32) -> Tensor {
-        let raw = unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ, ne0) };
+    pub fn new_tensor_1d(&self, typ: ggml_sys::ggml_type, ne0: usize) -> Tensor {
+        let raw =
+            unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ, usize_to_i32(ne0)) };
         self.new_tensor_raw(raw)
     }
 
     /// Creates a new 2D tensor.
-    pub fn new_tensor_2d(&self, typ: ggml_sys::ggml_type, ne0: i32, ne1: i32) -> Tensor {
-        let raw = unsafe { ggml_sys::ggml_new_tensor_2d(self.ptr.as_ptr(), typ, ne0, ne1) };
+    pub fn new_tensor_2d(&self, typ: ggml_sys::ggml_type, ne0: usize, ne1: usize) -> Tensor {
+        let raw = unsafe {
+            ggml_sys::ggml_new_tensor_2d(
+                self.ptr.as_ptr(),
+                typ,
+                usize_to_i32(ne0),
+                usize_to_i32(ne1),
+            )
+        };
         self.new_tensor_raw(raw)
     }
 
     /// Creates a new 3D tensor.
-    pub fn new_tensor_3d(&self, typ: ggml_sys::ggml_type, ne0: i32, ne1: i32, ne2: i32) -> Tensor {
-        let raw = unsafe { ggml_sys::ggml_new_tensor_3d(self.ptr.as_ptr(), typ, ne0, ne1, ne2) };
+    pub fn new_tensor_3d(
+        &self,
+        typ: ggml_sys::ggml_type,
+        ne0: usize,
+        ne1: usize,
+        ne2: usize,
+    ) -> Tensor {
+        let raw = unsafe {
+            ggml_sys::ggml_new_tensor_3d(
+                self.ptr.as_ptr(),
+                typ,
+                usize_to_i32(ne0),
+                usize_to_i32(ne1),
+                usize_to_i32(ne2),
+            )
+        };
         self.new_tensor_raw(raw)
     }
 
@@ -153,9 +175,10 @@ impl Context {
     }
 
     /// In-place, sets the elements above the diagonal to -INF.
-    pub fn op_diag_mask_inf(&self, a: &Tensor, n_past: i32) -> Tensor {
-        let tensor =
-            unsafe { ggml_sys::ggml_diag_mask_inf(self.ptr.as_ptr(), a.ptr.as_ptr(), n_past) };
+    pub fn op_diag_mask_inf(&self, a: &Tensor, n_past: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_diag_mask_inf(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past))
+        };
         self.new_tensor_raw(tensor)
     }
 
@@ -166,9 +189,10 @@ impl Context {
     }
 
     /// Creates a 1D view over `a`.
-    pub fn op_view_1d(&self, a: &Tensor, ne0: i32, offset: usize) -> Tensor {
-        let tensor =
-            unsafe { ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), ne0, offset) };
+    pub fn op_view_1d(&self, a: &Tensor, ne0: usize, offset: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(ne0), offset)
+        };
         self.new_tensor_raw(tensor)
     }
 
@@ -180,31 +204,52 @@ impl Context {
     }
 
     /// Creates a new tensor with the axes of `a` permuted as described by the parameters.
-    pub fn op_permute(&self, a: &Tensor, axis0: i32, axis1: i32, axis2: i32, axis3: i32) -> Tensor {
+    pub fn op_permute(
+        &self,
+        a: &Tensor,
+        axis0: usize,
+        axis1: usize,
+        axis2: usize,
+        axis3: usize,
+    ) -> Tensor {
         let tensor = unsafe {
             ggml_sys::ggml_permute(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
-                axis0,
-                axis1,
-                axis2,
-                axis3,
+                usize_to_i32(axis0),
+                usize_to_i32(axis1),
+                usize_to_i32(axis2),
+                usize_to_i32(axis3),
             )
         };
         self.new_tensor_raw(tensor)
     }
 
     /// In-place; reshapes `a` in accordance with the specified dimensions.
-    pub fn op_reshape_3d(&self, a: &Tensor, ne0: i32, ne1: i32, ne2: i32) -> Tensor {
-        let tensor =
-            unsafe { ggml_sys::ggml_reshape_3d(self.ptr.as_ptr(), a.ptr.as_ptr(), ne0, ne1, ne2) };
+    pub fn op_reshape_3d(&self, a: &Tensor, ne0: usize, ne1: usize, ne2: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_reshape_3d(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i32(ne0),
+                usize_to_i32(ne1),
+                usize_to_i32(ne2),
+            )
+        };
         self.new_tensor_raw(tensor)
     }
 
     /// In-place; applies ROtary Positional Encoding.
-    pub fn op_rope(&self, a: &Tensor, npast: i32, ndims: i32, mode: i32) -> Tensor {
-        let tensor =
-            unsafe { ggml_sys::ggml_rope(self.ptr.as_ptr(), a.ptr.as_ptr(), npast, ndims, mode) };
+    pub fn op_rope(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_rope(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i32(npast),
+                usize_to_i32(ndims),
+                mode,
+            )
+        };
         self.new_tensor_raw(tensor)
     }
 
@@ -276,10 +321,10 @@ impl Tensor {
     }
 
     /// Number of elements in this tensor.
-    pub fn nelements(&self) -> i32 {
+    pub fn nelements(&self) -> usize {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
-            unsafe { ggml_sys::ggml_nelements(self.ptr.as_ptr()) }
+            i32_to_usize(unsafe { ggml_sys::ggml_nelements(self.ptr.as_ptr()) })
         })
     }
 
@@ -335,10 +380,10 @@ pub struct ComputationGraph {
 
 impl ComputationGraph {
     /// Create a new [ComputationGraph] with the specified `n_threads`.
-    pub fn new(n_threads: i32) -> Self {
+    pub fn new(n_threads: usize) -> Self {
         Self {
             inner: ggml_sys::ggml_cgraph {
-                n_threads,
+                n_threads: usize_to_i32(n_threads),
                 // SAFETY: This should be safe to zero. The original C++ impl
                 // just leaves it uninitialized
                 ..unsafe { std::mem::zeroed::<ggml_sys::ggml_cgraph>() }
@@ -363,6 +408,14 @@ pub fn type_sizef(x: ggml_sys::ggml_type) -> f64 {
 }
 
 /// The size of a block for `t`. Only relevant for quantized types.
-pub fn blck_size(t: Type) -> i32 {
-    unsafe { ggml_sys::ggml_blck_size(t) }
+pub fn blck_size(t: Type) -> usize {
+    i32_to_usize(unsafe { ggml_sys::ggml_blck_size(t) })
+}
+
+fn usize_to_i32(val: usize) -> i32 {
+    i32::try_from(val).unwrap()
+}
+
+fn i32_to_usize(val: i32) -> usize {
+    usize::try_from(val).unwrap()
 }

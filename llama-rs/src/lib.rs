@@ -23,14 +23,14 @@ pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 /// The hyperparameters of the model.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hyperparameters {
-    n_vocab: i32,
-    n_ctx: i32,
-    n_embd: i32,
-    n_mult: i32,
-    n_head: i32,
-    n_layer: i32,
-    n_rot: i32,
-    f16_: i32,
+    n_vocab: usize,
+    n_ctx: usize,
+    n_embd: usize,
+    n_mult: usize,
+    n_head: usize,
+    n_layer: usize,
+    n_rot: usize,
+    f16_: u32,
 }
 
 struct Layer {
@@ -145,7 +145,6 @@ pub struct InferenceSnapshot {
 }
 
 /// Allowed types for the model memory K/V tensors.
-#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ModelKVMemoryType {
     /// 16-bit float.
@@ -153,7 +152,6 @@ pub enum ModelKVMemoryType {
     /// 32-bit float.
     Float32,
 }
-
 impl From<ModelKVMemoryType> for i32 {
     fn from(value: ModelKVMemoryType) -> Self {
         match value {
@@ -188,7 +186,7 @@ impl Default for InferenceSessionParameters {
 /// The parameters that drive text generation.
 pub struct InferenceParameters {
     /// The number of threads to use.
-    pub n_threads: i32,
+    pub n_threads: usize,
     /// [InferenceSession::feed_prompt] processes the prompt in batches of tokens.
     /// This controls how large an individual batch is.
     pub n_batch: usize,
@@ -476,11 +474,11 @@ pub enum LoadError {
         /// The version that was encountered.
         value: u32,
     },
-    #[error("invalid value {value} for `f16` in hyperparameters")]
+    #[error("invalid value {ftype} for `f16` in hyperparameters")]
     /// The `f16` hyperparameter had an invalid value.
     HyperparametersF16Invalid {
         /// The format type that was encountered.
-        value: i32,
+        ftype: u32,
     },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
     /// The tensor `tensor_name` was encountered during the loading of `path`, but was not seen during
@@ -505,7 +503,7 @@ pub enum LoadError {
         /// The name of the tensor.
         tensor_name: String,
         /// The format type that was encountered.
-        ftype: i32,
+        ftype: u32,
         /// The path that failed.
         path: PathBuf,
     },
@@ -569,12 +567,12 @@ macro_rules! mulf {
 }
 
 impl Model {
-    /// Load the model from `path` with `n_ctx` context tokens.
+    /// Load the model from `path` with `n_context_tokens` context tokens.
     ///
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: impl AsRef<Path>,
-        n_ctx: i32,
+        n_context_tokens: usize,
         load_progress_callback: impl Fn(LoadProgress),
     ) -> Result<(Model, Vocabulary), LoadError> {
         use std::fs::File;
@@ -627,7 +625,7 @@ impl Model {
         }
 
         // Verify magic
-        let is_legacy_model: bool = match read_i32(&mut reader)? {
+        let is_legacy_model: bool = match read_u32(&mut reader)? {
             ggml::FILE_MAGIC => false,
             ggml::FILE_MAGIC_UNVERSIONED => true,
             _ => {
@@ -653,14 +651,14 @@ impl Model {
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
         let hparams = Hyperparameters {
-            n_vocab: read_i32(&mut reader)?,
-            n_ctx,
-            n_embd: read_i32(&mut reader)?,
-            n_mult: read_i32(&mut reader)?,
-            n_head: read_i32(&mut reader)?,
-            n_layer: read_i32(&mut reader)?,
-            n_rot: read_i32(&mut reader)?,
-            f16_: read_i32(&mut reader)?,
+            n_vocab: read_i32(&mut reader)?.try_into()?,
+            n_ctx: n_context_tokens,
+            n_embd: read_i32(&mut reader)?.try_into()?,
+            n_mult: read_i32(&mut reader)?.try_into()?,
+            n_head: read_i32(&mut reader)?.try_into()?,
+            n_layer: read_i32(&mut reader)?.try_into()?,
+            n_rot: read_i32(&mut reader)?.try_into()?,
+            f16_: read_i32(&mut reader)?.try_into()?,
         };
 
         let n_ff =
@@ -682,11 +680,9 @@ impl Model {
                 if let Ok(word) = read_string(&mut reader, len as usize) {
                     max_token_length = max_token_length.max(word.len());
                     id_to_token.push(word.clone());
-                    token_to_id.insert(word, i);
+                    token_to_id.insert(word, TokenId::try_from(i)?);
                 } else {
-                    load_progress_callback(LoadProgress::BadToken {
-                        index: i.try_into()?,
-                    });
+                    load_progress_callback(LoadProgress::BadToken { index: i });
                     id_to_token.push("�".to_string());
                 }
 
@@ -717,7 +713,7 @@ impl Model {
             1 => ggml::TYPE_F16,
             2 => ggml::TYPE_Q4_0,
             3 => ggml::TYPE_Q4_1,
-            invalid => return Err(LoadError::HyperparametersF16Invalid { value: invalid }),
+            invalid => return Err(LoadError::HyperparametersF16Invalid { ftype: invalid }),
         };
 
         let n_embd = hparams.n_embd;
@@ -887,15 +883,17 @@ impl Model {
                     break;
                 }
 
-                let n_dims = read_i32(&mut part_reader)?;
+                let n_dims = usize::try_from(read_i32(&mut part_reader)?)?;
                 let length = read_i32(&mut part_reader)?;
-                let ftype = read_i32(&mut part_reader)?;
+                let ftype = read_u32(&mut part_reader)?;
 
                 let mut nelements = 1;
                 let mut ne = [1i32, 1i32];
+
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..n_dims {
-                    ne[i as usize] = read_i32(&mut part_reader)?;
-                    nelements *= ne[i as usize];
+                    ne[i] = read_i32(&mut part_reader)?;
+                    nelements *= usize::try_from(ne[i])?;
                 }
 
                 let tensor_name = read_string(&mut part_reader, length as usize)?;
@@ -946,7 +944,7 @@ impl Model {
                             path: part_path,
                         });
                     }
-                } else if tensor.nelements() / i32::try_from(n_parts)? != nelements {
+                } else if tensor.nelements() / n_parts != nelements {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
@@ -999,9 +997,7 @@ impl Model {
                 };
 
                 if n_dims == 1 || n_parts == 1 {
-                    if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
-                        != tensor.nbytes()
-                    {
+                    if (nelements * bpe) / ggml::blck_size(tensor.get_type()) != tensor.nbytes() {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
@@ -1021,7 +1017,7 @@ impl Model {
 
                     total_size += tensor.nbytes();
                 } else {
-                    if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
+                    if (nelements * bpe) / ggml::blck_size(tensor.get_type())
                         != tensor.nbytes() / n_parts
                     {
                         return Err(LoadError::TensorWrongSize {
@@ -1032,8 +1028,8 @@ impl Model {
 
                     if split_type == 0 {
                         let np0 = ne[0];
-                        let row_size = (tensor.get_ne()[0] / ggml::blck_size(tensor.get_type()))
-                            as usize
+                        let row_size = (usize::try_from(tensor.get_ne()[0])?
+                            / ggml::blck_size(tensor.get_type()))
                             * ggml::type_size(tensor.get_type());
 
                         assert_eq!(row_size, tensor.get_nb()[1]);
@@ -1041,8 +1037,7 @@ impl Model {
                         for i1 in 0..ne[1] {
                             let offset_row = i1 as usize * row_size;
                             let offset = offset_row
-                                + ((part_id * np0 as usize)
-                                    / ggml::blck_size(tensor.get_type()) as usize)
+                                + ((part_id * np0 as usize) / ggml::blck_size(tensor.get_type()))
                                     * ggml::type_size(tensor.get_type());
                             // SAFETY: yolo, same as original code
                             unsafe {
@@ -1056,8 +1051,8 @@ impl Model {
                         }
                     } else {
                         let np1 = ne[1];
-                        let row_size = (tensor.get_ne()[0] / ggml::blck_size(tensor.get_type()))
-                            as usize
+                        let row_size = (usize::try_from(tensor.get_ne()[0])?
+                            / ggml::blck_size(tensor.get_type()))
                             * ggml::type_size(tensor.get_type());
 
                         for i1 in 0..ne[1] {
@@ -1137,7 +1132,7 @@ impl Model {
             n_past: 0,
             mem_per_token: 0,
             tokens: vec![],
-            last_logits: vec![0.0; n_vocab as usize],
+            last_logits: vec![0.0; n_vocab],
         }
     }
 
@@ -1155,7 +1150,7 @@ impl Model {
         output_request: &mut EvaluateOutputRequest,
     ) {
         let n = input_tokens.len();
-        let n_past = session.n_past as i32;
+        let n_past = session.n_past;
         let n_threads = params.n_threads;
         let increased_determinism = params.increased_determinism;
 
@@ -1181,7 +1176,7 @@ impl Model {
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n as i32);
+        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -1193,12 +1188,12 @@ impl Model {
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         &session.memory_v,
-                        (n_past + n as i32) * n_embd,
-                        il * n_ctx as usize * session.memory_v.element_size() * n_embd as usize,
+                        (n_past + n) * n_embd,
+                        il * n_ctx * session.memory_v.element_size() * n_embd,
                     ),
                     n_embd / n_head,
                     n_head,
-                    n_past + n as i32,
+                    n_past + n,
                 ),
                 1,
                 2,
@@ -1207,7 +1202,7 @@ impl Model {
             )
         };
 
-        for il in 0..n_layer as usize {
+        for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
 
@@ -1232,16 +1227,14 @@ impl Model {
                 if n >= 1 {
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
-                        n as i32 * n_embd,
-                        (session.memory_k.element_size() * n_embd as usize)
-                            * (il * n_ctx as usize + n_past as usize),
+                        n * n_embd,
+                        (session.memory_k.element_size() * n_embd) * (il * n_ctx + n_past),
                     );
 
                     let v = ctx0.op_view_1d(
                         &session.memory_v,
-                        n as i32 * n_embd,
-                        (session.memory_v.element_size() * n_embd as usize)
-                            * (il * n_ctx as usize + n_past as usize),
+                        n * n_embd,
+                        (session.memory_v.element_size() * n_embd) * (il * n_ctx + n_past),
                     );
 
                     gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
@@ -1253,7 +1246,7 @@ impl Model {
                     &ctx0.op_rope(
                         &ctx0.op_cpy(
                             &q_current,
-                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
+                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n),
                         ),
                         n_past,
                         n_rot,
@@ -1271,14 +1264,12 @@ impl Model {
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
                                 &session.memory_k,
-                                (n_past + n as i32) * n_embd,
-                                il * n_ctx as usize
-                                    * session.memory_k.element_size()
-                                    * n_embd as usize,
+                                (n_past + n) * n_embd,
+                                il * n_ctx * session.memory_k.element_size() * n_embd,
                             ),
                             n_embd / n_head,
                             n_head,
-                            n_past + n as i32,
+                            n_past + n,
                         ),
                         n_past,
                         n_rot,
@@ -1314,7 +1305,7 @@ impl Model {
                             &vtrans_fun(il),
                             &ctx0.new_tensor_3d(
                                 ggml::TYPE_F32,
-                                n_past + n as i32,
+                                n_past + n,
                                 n_embd / n_head,
                                 n_head,
                             ),
@@ -1331,7 +1322,7 @@ impl Model {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n as i32),
+                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n),
                 );
 
                 // projection (no bias)
@@ -1397,21 +1388,21 @@ impl Model {
 
         // return result for just the last token
         // SAFETY: yolo
-        assert_eq!(session.last_logits.len(), n_vocab as usize);
+        assert_eq!(session.last_logits.len(), n_vocab);
         unsafe {
             input_layer.read_data(
-                n_vocab as usize * (n - 1) * std::mem::size_of::<f32>(),
+                n_vocab * (n - 1) * std::mem::size_of::<f32>(),
                 bytemuck::cast_slice_mut(&mut session.last_logits),
             )
         };
 
         // Extract logits
         if let Some(all_logits) = &mut output_request.all_logits {
-            all_logits.resize(n_vocab as usize * n, 0.0);
+            all_logits.resize(n_vocab * n, 0.0);
             // SAFETY: Tensor data can be read (properly aligned, initialized,
             // data will not be mutated or otherwise aliased during the copy),
             // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n as i32);
+            assert_eq!(input_layer.nelements(), n_vocab * n);
             unsafe {
                 input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
             }
@@ -1419,9 +1410,9 @@ impl Model {
 
         // Extract embeddings
         if let Some(embeddings) = &mut output_request.embeddings {
-            embeddings.resize(n_embd as usize * n, 0.0);
+            embeddings.resize(n_embd * n, 0.0);
             // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embeddings_tensor.nelements(), n_embd * n as i32);
+            assert_eq!(embeddings_tensor.nelements(), n_embd * n);
             unsafe {
                 embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(embeddings));
             }
@@ -1485,7 +1476,7 @@ impl InferenceSession {
             .map(|(_, tok)| *tok)
             .collect();
 
-        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
+        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx {
             return Err(InferenceError::ContextFull);
         }
 
@@ -1514,7 +1505,7 @@ impl InferenceSession {
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<OutputToken<'v>, InferenceError> {
-        if self.n_past + 1 >= model.hparams.n_ctx as usize {
+        if self.n_past + 1 >= model.hparams.n_ctx {
             return Err(InferenceError::ContextFull);
         }
 
