@@ -114,6 +114,11 @@ async fn handle_request(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
+
     let args = &*CLI_ARGS;
 
     let request_tx = inference::initialize_model_and_handle_inferences();
@@ -131,10 +136,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         async move { Ok::<_, hyper::Error>(service) }
     }));
 
-    println!("Listening on http://{}", addr);
+    log::info!("Listening on http://{}", addr);
 
     if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
+        log::error!("server error: {}", e);
     }
 
     Ok(())

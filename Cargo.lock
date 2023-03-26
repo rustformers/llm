@@ -515,6 +515,7 @@ name = "llama-http"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "env_logger",
  "flume",
  "futures",
  "hyper",
