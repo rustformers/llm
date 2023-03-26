@@ -1323,10 +1323,9 @@ impl Model {
             // will not be mutated or otherwise aliased while the slice lives),
             // and we're not reading past the end of the slice.
             assert_eq!(input_layer.nelements(), n_vocab * n as i32);
-            let logits_slice = unsafe {
-                slice::from_raw_parts(input_layer.data() as *const f32, n_vocab as usize * n)
-            };
-            all_logits.copy_from_slice(logits_slice);
+            unsafe {
+                input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
+            }
         }
 
         // Extract embeddings
@@ -1334,10 +1333,9 @@ impl Model {
             embeddings.resize(n_embd as usize * n, 0.0);
             // SAFETY: Same rationale as for the "Extract logits" section applies.
             assert_eq!(embeddings_tensor.nelements(), n_embd * n as i32);
-            let embeddings_slice = unsafe {
-                slice::from_raw_parts(embeddings_tensor.data() as *const f32, n_embd as usize * n)
-            };
-            embeddings.copy_from_slice(embeddings_slice);
+            unsafe {
+                embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(embeddings));
+            }
         }
 
         // Adjust the required memory per token if we didn't know that already
