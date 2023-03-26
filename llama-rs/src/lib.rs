@@ -1141,96 +1141,6 @@ impl Model {
         }
     }
 
-    /// Sample from the model using the given parameters.
-    pub fn sample_top_p_top_k(
-        &self,
-        session: &InferenceSession,
-        params: &InferenceParameters,
-        rng: &mut impl rand::Rng,
-    ) -> TokenId {
-        let logits = &session.last_logits;
-        let n_logits = logits.len();
-        let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
-
-        {
-            let scale = 1.0 / params.temperature;
-            for (i, &logit) in logits.iter().enumerate() {
-                let tid = i as TokenId;
-
-                let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
-                    logit_override
-                } else if session
-                    .repetition_penalty_tokens()
-                    .contains(&(i as TokenId))
-                {
-                    // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
-                    // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-
-                    // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
-                    if logits[i] < 0.0 {
-                        logit * scale * params.repeat_penalty
-                    } else {
-                        logit * scale / params.repeat_penalty
-                    }
-                } else {
-                    logit * scale
-                };
-                logits_id.push((val, tid));
-            }
-        }
-
-        // find the top K tokens
-        {
-            logits_id.partial_sort(params.top_k, |a, b| {
-                // Sort descending
-                b.0.total_cmp(&a.0)
-            });
-            logits_id.truncate(params.top_k);
-        }
-
-        let maxl = logits_id
-            .iter()
-            .map(|x| x.0)
-            .max_by(f32::total_cmp)
-            .unwrap();
-
-        // compute probs for the top K tokens
-        let mut probs: Vec<f32> = logits_id
-            .iter()
-            .copied()
-            .map(|(k, _)| (k - maxl).exp())
-            .collect();
-        let sum: f32 = probs.iter().copied().sum();
-
-        // Normalize the probs
-        for p in probs.iter_mut() {
-            *p /= sum;
-        }
-
-        // Top p sampling
-        if params.top_p < 1.0 {
-            let mut cumsum = 0.0;
-            for i in 0..probs.len() {
-                cumsum += probs[i];
-                if cumsum >= params.top_p {
-                    probs.truncate(i + 1);
-                    logits_id.truncate(i + 1);
-                    break;
-                }
-            }
-
-            cumsum = 1.0 / cumsum;
-            for p in probs.iter_mut() {
-                *p *= cumsum;
-            }
-        }
-
-        let dist = WeightedIndex::new(&probs).expect("WeightedIndex error");
-        let idx = dist.sample(rng);
-
-        logits_id[idx].1
-    }
-
     /// Evaluates the transformer.
     ///
     /// The provided `output_request` struct lets you specify which additional
@@ -1609,7 +1519,7 @@ impl InferenceSession {
         }
 
         // First, sample the next token, using the stored last_logits;
-        let next_token = model.sample_top_p_top_k(self, params, rng);
+        let next_token = self.sample_top_p_top_k(params, rng);
 
         // Update the tokens for this session
         self.tokens.push(next_token);
@@ -1690,6 +1600,92 @@ impl InferenceSession {
         stats.predict_tokens = self.n_past;
 
         Ok(stats)
+    }
+
+    /// Sample a token using Top-P/Top-K sampling and the last logits from this session.
+    pub fn sample_top_p_top_k(
+        &self,
+        params: &InferenceParameters,
+        rng: &mut impl rand::Rng,
+    ) -> TokenId {
+        let logits = &self.last_logits;
+        let n_logits = logits.len();
+        let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
+
+        {
+            let scale = 1.0 / params.temperature;
+            for (i, &logit) in logits.iter().enumerate() {
+                let tid = i as TokenId;
+
+                let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
+                    logit_override
+                } else if self.repetition_penalty_tokens().contains(&(i as TokenId)) {
+                    // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
+                    // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
+
+                    // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
+                    if logits[i] < 0.0 {
+                        logit * scale * params.repeat_penalty
+                    } else {
+                        logit * scale / params.repeat_penalty
+                    }
+                } else {
+                    logit * scale
+                };
+                logits_id.push((val, tid));
+            }
+        }
+
+        // find the top K tokens
+        {
+            logits_id.partial_sort(params.top_k, |a, b| {
+                // Sort descending
+                b.0.total_cmp(&a.0)
+            });
+            logits_id.truncate(params.top_k);
+        }
+
+        let maxl = logits_id
+            .iter()
+            .map(|x| x.0)
+            .max_by(f32::total_cmp)
+            .unwrap();
+
+        // compute probs for the top K tokens
+        let mut probs: Vec<f32> = logits_id
+            .iter()
+            .copied()
+            .map(|(k, _)| (k - maxl).exp())
+            .collect();
+        let sum: f32 = probs.iter().copied().sum();
+
+        // Normalize the probs
+        for p in probs.iter_mut() {
+            *p /= sum;
+        }
+
+        // Top p sampling
+        if params.top_p < 1.0 {
+            let mut cumsum = 0.0;
+            for i in 0..probs.len() {
+                cumsum += probs[i];
+                if cumsum >= params.top_p {
+                    probs.truncate(i + 1);
+                    logits_id.truncate(i + 1);
+                    break;
+                }
+            }
+
+            cumsum = 1.0 / cumsum;
+            for p in probs.iter_mut() {
+                *p *= cumsum;
+            }
+        }
+
+        let dist = WeightedIndex::new(&probs).expect("WeightedIndex error");
+        let idx = dist.sample(rng);
+
+        logits_id[idx].1
     }
 
     /// Obtains a serializable snapshot of the current inference status. This
