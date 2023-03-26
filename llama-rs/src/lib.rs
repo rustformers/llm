@@ -1319,9 +1319,9 @@ impl Model {
         // Extract logits
         if let Some(all_logits) = &mut output_request.all_logits {
             all_logits.resize(n_vocab as usize * n, 0.0);
-            // SAFETY: Data can be read (properly aligned, initialized, data
-            // will not be mutated or otherwise aliased while the slice lives),
-            // and we're not reading past the end of the slice.
+            // SAFETY: Tensor data can be read (properly aligned, initialized,
+            // data will not be mutated or otherwise aliased during the copy),
+            // and we're not reading past the end of the tensor data.
             assert_eq!(input_layer.nelements(), n_vocab * n as i32);
             unsafe {
                 input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
