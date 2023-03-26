@@ -1079,7 +1079,9 @@ impl Model {
     /// Evaluates the transformer.
     ///
     /// The provided `output_request` struct lets you specify which additional
-    /// data you are interested in fetching from the transformer. Setting a field to a `Some` value will fill the
+    /// data you are interested in fetching from the transformer. Setting a
+    /// field to a `Some` value will clear and fill the provided vector with
+    /// data. The provided vector will be resized to the exact output size.
     pub fn evaluate(
         &self,
         session: &mut InferenceSession,
