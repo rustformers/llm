@@ -881,11 +881,10 @@ impl Model {
                         });
                     }
 
-                    let data = tensor.data();
-
                     if part_id == 0 {
                         // SAFETY: yolo, same as original code
                         let slice = unsafe {
+                            let data = tensor.data();
                             std::slice::from_raw_parts_mut(data as *mut u8, tensor.nbytes())
                         };
                         part_reader.read_exact(slice)?;
