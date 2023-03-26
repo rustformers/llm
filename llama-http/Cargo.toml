@@ -17,3 +17,4 @@ llama-rs = { path = "../llama-rs" }
 rand = { workspace = true }
 serde = "*"
 serde_json = "*"
+log = "0.4"

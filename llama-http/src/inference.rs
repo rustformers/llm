@@ -1,6 +1,6 @@
 use llama_rs::{
-    InferenceParameters, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
-    TokenBias,
+    InferenceParameters, InferenceSessionParameters, InferenceSnapshot, LoadProgress,
+    ModelKVMemoryType, TokenBias,
 };
 use rand::thread_rng;
 use std::convert::Infallible;
@@ -32,8 +32,55 @@ pub fn initialize_model_and_handle_inferences() -> Sender<InferenceRequest> {
 
         // Load model
         let (mut model, vocabulary) =
-            llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |_progress| {
-                println!("Loading model...");
+            llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
+                match progress {
+                    LoadProgress::HyperparametersLoaded(hparams) => {
+                        log::debug!("Loaded HyperParams {hparams:#?}")
+                    }
+                    LoadProgress::BadToken { index } => {
+                        log::info!("Warning: Bad token in vocab at index {index}")
+                    }
+                    LoadProgress::ContextSize { bytes } => log::info!(
+                        "ggml ctx size = {:.2} MB\n",
+                        bytes as f64 / (1024.0 * 1024.0)
+                    ),
+                    LoadProgress::MemorySize { bytes, n_mem } => log::info!(
+                        "Memory size: {} MB {}",
+                        bytes as f32 / 1024.0 / 1024.0,
+                        n_mem
+                    ),
+                    LoadProgress::PartLoading {
+                        file,
+                        current_part,
+                        total_parts,
+                    } => log::info!(
+                        "Loading model part {}/{} from '{}'\n",
+                        current_part,
+                        total_parts,
+                        file.to_string_lossy(),
+                    ),
+                    LoadProgress::PartTensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        if current_tensor % 8 == 0 {
+                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                        }
+                    }
+                    LoadProgress::PartLoaded {
+                        file,
+                        byte_size,
+                        tensor_count,
+                    } => {
+                        log::info!("Loading of '{}' complete", file.to_string_lossy());
+                        log::info!(
+                            "Model size = {:.2} MB / num tensors = {}",
+                            byte_size as f64 / 1024.0 / 1024.0,
+                            tensor_count
+                        );
+                    }
+                }
             })
             .expect("Could not load model");
 
@@ -41,11 +88,11 @@ pub fn initialize_model_and_handle_inferences() -> Sender<InferenceRequest> {
             let snapshot = InferenceSnapshot::load_from_disk(restore_path);
             match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
                 Ok(session) => {
-                    println!("Restored cached memory from {restore_path}");
+                    log::info!("Restored cached memory from {restore_path}");
                     session
                 }
                 Err(err) => {
-                    eprintln!("Could not restore from snapshot. Error: {err}");
+                    log::error!("Could not restore from snapshot. Error: {err}");
                     std::process::exit(1);
                 }
             }
@@ -96,11 +143,11 @@ pub fn initialize_model_and_handle_inferences() -> Sender<InferenceRequest> {
                                 let text = t.to_string();
                                 match tx_tokens.send(Ok(text)) {
                                     Ok(_) => {
-                                        println!("Sent token {} to receiver.", t);
+                                        log::debug!("Sent token {} to receiver.", t);
                                     }
                                     Err(_) => {
                                         // The receiver has been dropped.
-                                        println!("Could not send token to receiver.");
+                                        log::warn!("Could not send token to receiver.");
                                     }
                                 }
 
