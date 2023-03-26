@@ -1,7 +1,6 @@
 use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
-use llama_rs::EvaluateOutputRequest;
 use llama_rs::{
     InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
     ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
