@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use llama_rs::TokenBias;
 use once_cell::sync::Lazy;
@@ -58,20 +60,30 @@ pub struct Args {
     #[arg(long, default_value_t = 40)]
     pub top_k: usize,
 
-    /// Top-p: The cummulative probability after which no more words are kept
+    /// Top-p: The cumulative probability after which no more words are kept
     /// for sampling.
     #[arg(long, default_value_t = 0.95)]
     pub top_p: f32,
 
-    /// Stores a cached prompt at the given path. The same prompt can then be
-    /// loaded from disk using --restore-prompt
+    /// Saves an inference session at the given path. The same session can then be
+    /// loaded from disk using `--load-session`.
+    ///
+    /// Use this with `-n 0` to save just the prompt
     #[arg(long, default_value = None)]
-    pub cache_prompt: Option<String>,
+    pub save_session: Option<PathBuf>,
 
-    /// Restores a cached prompt at the given path, previously using
-    /// --cache-prompt
+    /// Loads a saved inference session from the given path, previously saved using
+    /// `--save-session`
     #[arg(long, default_value = None)]
-    pub restore_prompt: Option<String>,
+    pub load_session: Option<PathBuf>,
+
+    /// Loads an inference session from the given path if present, and then saves
+    /// the result to the same path after inference is completed.
+    ///
+    /// Equivalent to `--load-session` and `--save-session` with the same path,
+    /// but will not error if the path does not exist
+    #[arg(long, default_value = None)]
+    pub persist_session: Option<PathBuf>,
 
     /// Specifies the seed to use during sampling. Note that, depending on
     /// hardware, the same seed may lead to different results on two separate

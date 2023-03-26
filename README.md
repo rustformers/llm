@@ -45,13 +45,13 @@ Some additional things to try:
 - Use `--help` to see a list of available options.
 - If you have the [alpaca-lora](https://github.com/tloen/alpaca-lora) weights,
   try `--repl` mode! `cargo run --release -- -m <path>/ggml-alpaca-7b-q4.bin
-  -f examples/alpaca_prompt.txt --repl`.
+-f examples/alpaca_prompt.txt --repl`.
 
   ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
 
-- Prompt files can be precomputed to speed up processing using the
-  `--cache-prompt` and `--restore-prompt` flags so you can save processing time
-  for lengthy prompts. 
+- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file. To automatically load
+  and save the same session, use `--persist-session`. This can be used to cache prompts to reduce load
+  time, too:
 
   ![Gif showcasing prompt caching](./doc/resources/prompt_caching_screencap.gif)
 
