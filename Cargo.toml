@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "ggml-raw",
+    "ggml-sys",
     "llama-rs",
     "llama-cli"
 ]

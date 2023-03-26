@@ -189,7 +189,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ggml-raw"
+name = "ggml-sys"
 version = "0.1.0"
 dependencies = [
  "cc",
@@ -293,7 +293,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytemuck",
- "ggml-raw",
+ "ggml-sys",
  "partial_sort",
  "rand",
  "serde",
