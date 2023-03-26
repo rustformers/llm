@@ -3,7 +3,7 @@ use std::{convert::Infallible, io::Write, path::Path};
 use cli_args::CLI_ARGS;
 use llama_rs::{
     InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
-    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    ModelKVMemoryType, TokenBias, Vocabulary, EOT_TOKEN_ID,
 };
 use rand::{thread_rng, SeedableRng};
 use rustyline::error::ReadlineError;
@@ -103,10 +103,10 @@ fn main() {
         top_k: args.top_k,
         top_p: args.top_p,
         repeat_penalty: args.repeat_penalty,
-        temp: args.temp,
+        temperature: args.temp,
         bias_tokens: args.token_bias.clone().unwrap_or_else(|| {
             if args.ignore_eos {
-                TokenBias::new(vec![(EOD_TOKEN_ID, -1.0)])
+                TokenBias::new(vec![(EOT_TOKEN_ID, -1.0)])
             } else {
                 TokenBias::default()
             }
@@ -168,26 +168,25 @@ fn main() {
                     "ggml ctx size = {:.2} MB\n",
                     bytes as f64 / (1024.0 * 1024.0)
                 ),
-                LoadProgress::MemorySize { bytes, n_mem } => log::info!(
-                    "Memory size: {} MB {}",
-                    bytes as f32 / 1024.0 / 1024.0,
-                    n_mem
-                ),
                 LoadProgress::PartLoading {
                     file,
                     current_part,
                     total_parts,
-                } => log::info!(
-                    "Loading model part {}/{} from '{}'\n",
-                    current_part,
-                    total_parts,
-                    file.to_string_lossy(),
-                ),
+                } => {
+                    let current_part = current_part + 1;
+                    log::info!(
+                        "Loading model part {}/{} from '{}'\n",
+                        current_part,
+                        total_parts,
+                        file.to_string_lossy(),
+                    )
+                }
                 LoadProgress::PartTensorLoaded {
                     current_tensor,
                     tensor_count,
                     ..
                 } => {
+                    let current_tensor = current_tensor + 1;
                     if current_tensor % 8 == 0 {
                         log::info!("Loaded tensor {current_tensor}/{tensor_count}");
                     }
