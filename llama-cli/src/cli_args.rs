@@ -9,7 +9,16 @@ pub struct Args {
     #[arg(long, short = 'm')]
     pub model_path: String,
 
-    /// The prompt to feed the generator
+    /// The initial prompt to feed the generator. This is fed once for repl environments.
+    #[arg(long, short = 'i', default_value = None)]
+    pub initial_prompt: Option<String>,
+
+    /// The initial prompt file to feed the generator. This is fed once for repl environments.
+    /// Takes priority over 'initial_prompt'.
+    #[arg(long, short = 'F', default_value = None)]
+    pub initial_prompt_file: Option<String>,
+
+    /// The prompt to feed the generator. Used for every query in repl mode.
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
 

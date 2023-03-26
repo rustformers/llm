@@ -2,7 +2,7 @@ use std::{convert::Infallible, io::Write};
 
 use cli_args::CLI_ARGS;
 use llama_rs::{
-    InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
+    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, InferenceSnapshot,
     ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
 };
 use rand::thread_rng;
@@ -11,28 +11,51 @@ use rustyline::error::ReadlineError;
 
 mod cli_args;
 
+fn initialize_model_prompt(
+    initial_prompt: &str,
+    model: &llama_rs::Model,
+    vocab: &llama_rs::Vocabulary,
+    params: &InferenceParameters,
+    session_params: &InferenceSessionParameters,
+) -> InferenceSession {
+    let mut session = model.start_session(*session_params);
+
+    let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
+    if let Err(InferenceError::ContextFull) =
+        session.feed_prompt::<Infallible>(model, vocab, params, &initial_prompt, |_| Ok(()))
+    {
+        log::error!("Initial prompt exceeds context window length. Try increasing --num_ctx_tokens.");
+    };
+    sp.stop();
+
+    session
+}
+
 fn repl_mode(
-    prompt: &str,
+    initial_prompt: &str,
+    user_prompt: &str,
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,
 ) {
+    let mut session = initialize_model_prompt(initial_prompt, model, vocab, params, session_params);
     let mut rl = rustyline::DefaultEditor::new().unwrap();
-    let mut session = model.start_session(*session_params);
 
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let prompt = prompt.replace("$PROMPT", &line);
+                let prompt = user_prompt.replace("$PROMPT", &line);
                 let mut rng = thread_rng();
 
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) =
                     session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
                 {
-                    log::error!("Prompt exceeds context window length.")
+                    log::error!("Input exceeds context window length. To maintain more context increase --num_ctx_tokens. Resetting context.");
+                    session = initialize_model_prompt(initial_prompt, model, vocab, params, session_params);
+                    continue;
                 };
                 sp.stop();
 
@@ -53,8 +76,8 @@ fn repl_mode(
                 println!();
 
                 if let Err(InferenceError::ContextFull) = res {
-                    log::error!("Reply exceeds context window length. Resetting context.");
-                    session = model.start_session(*session_params);
+                    log::error!("Reply exceeds context window length. To maintain more context increase --num_ctx_tokens. Resetting context.");
+                    session = initialize_model_prompt(initial_prompt, model, vocab, params, session_params);
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
@@ -127,6 +150,32 @@ fn main() {
             memory_v_type: mem_typ,
             last_n_size: args.repeat_last_n,
         }
+    };
+
+    let initial_prompt = if let Some(path) = &args.initial_prompt_file {
+        match std::fs::read_to_string(path) {
+            Ok(mut initial_prompt) => {
+                // Strip off the last character if it's exactly newline. Also strip off a single
+                // carriage return if it's there. Since String must be valid UTF-8 it should be
+                // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
+                // bytes will always the high bit set.
+                if matches!(initial_prompt.as_bytes().last(), Some(b'\n')) {
+                    initial_prompt.pop();
+                }
+                if matches!(initial_prompt.as_bytes().last(), Some(b'\r')) {
+                    initial_prompt.pop();
+                }
+                initial_prompt
+            }
+            Err(err) => {
+                log::error!("Could not read prompt file at {path}. Error {err}");
+                std::process::exit(1);
+            }
+        }
+    } else if let Some(initial_prompt) = &args.initial_prompt {
+        initial_prompt.clone()
+    } else {
+        "".to_string()
     };
 
     let prompt = if let Some(path) = &args.prompt_file {
@@ -241,6 +290,7 @@ fn main() {
 
     if args.repl {
         repl_mode(
+            &initial_prompt,
             &prompt,
             &model,
             &vocab,
