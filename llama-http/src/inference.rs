@@ -1,4 +1,7 @@
-use llama_rs::{InferenceParameters, InferenceSnapshot};
+use llama_rs::{
+    InferenceParameters, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
+    TokenBias,
+};
 use rand::thread_rng;
 use std::convert::Infallible;
 
@@ -27,8 +30,6 @@ pub fn initialize_model_and_handle_inferences() -> Sender<InferenceRequest> {
     std::thread::spawn(move || {
         let args = &*CLI_ARGS;
 
-        // TODO Preload prompt
-
         // Load model
         let (mut model, vocabulary) =
             llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |_progress| {
@@ -44,12 +45,24 @@ pub fn initialize_model_and_handle_inferences() -> Sender<InferenceRequest> {
                     session
                 }
                 Err(err) => {
-                    eprintln!("Could not restore prompt. Error: {err}");
+                    eprintln!("Could not restore from snapshot. Error: {err}");
                     std::process::exit(1);
                 }
             }
         } else {
-            model.start_session(args.repeat_last_n)
+            let inference_session_params = {
+                let mem_typ = if args.float16 {
+                    ModelKVMemoryType::Float16
+                } else {
+                    ModelKVMemoryType::Float32
+                };
+                InferenceSessionParameters {
+                    memory_k_type: mem_typ,
+                    memory_v_type: mem_typ,
+                    last_n_size: args.repeat_last_n,
+                }
+            };
+            model.start_session(inference_session_params)
         };
 
         let mut rng = thread_rng();
@@ -65,6 +78,7 @@ pub fn initialize_model_and_handle_inferences() -> Sender<InferenceRequest> {
                         .repeat_penalty
                         .unwrap_or(args.repeat_penalty),
                     temp: inference_request.temp.unwrap_or(args.temp),
+                    bias_tokens: TokenBias::default(),
                 };
 
                 // Run inference
