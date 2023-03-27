@@ -11,20 +11,24 @@ pub struct Args {
     #[arg(long, short = 'm')]
     pub model_path: String,
 
-    /// The chat rules to feed the generator. This is fed once for repl environments.
-    #[arg(long, short = 'i', default_value = None)]
+    /// The chat rules to feed the generator. This is fed once for repl environments. If
+    /// set, repl will maintain state between prompts.
+    #[arg(long, short = 'r', default_value = None)]
     pub chat_rules: Option<String>,
 
     /// The chat rules file to feed the generator. This is fed once for repl environments.
-    /// Takes priority over 'initial_prompt'.
+    ///  If set, repl will maintain state between prompts. Takes priority over 'chat_rules'.
     #[arg(long, short = 'F', default_value = None)]
     pub chat_rules_file: Option<String>,
 
     /// The prompt to feed the generator. Used for every query in repl mode.
+    /// Session is reset every query by default. To keep state, also use 'chat_rules' or
+    /// 'chat_rules_file'.
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
 
-    /// A file to read the prompt from. Takes precedence over `prompt` if set.
+    /// A file to read the prompt from. To keep state, also use 'chat_rules' or
+    /// 'chat_rules_file'. Takes precedence over `prompt` if set.
     #[arg(long, short = 'f', default_value = None)]
     pub prompt_file: Option<String>,
 
