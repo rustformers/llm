@@ -1,4 +1,5 @@
 mod ggml;
+mod quantize;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -14,6 +15,7 @@ use thiserror::Error;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
+pub use quantize::llama_model_quantize;
 pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -345,6 +347,11 @@ pub enum LoadError {
         source: std::io::Error,
         path: PathBuf,
     },
+    #[error("could not create file {path:?}")]
+    CreateFileFailed {
+        source: std::io::Error,
+        path: PathBuf,
+    },
     #[error("no parent path for {path:?}")]
     NoParentPath { path: PathBuf },
     #[error("unable to read exactly {bytes} bytes")]
@@ -374,6 +381,8 @@ pub enum LoadError {
     TensorWrongSize { tensor_name: String, path: PathBuf },
     #[error("invalid ftype {ftype} in {path:?}")]
     InvalidFtype { ftype: i32, path: PathBuf },
+    #[error("itype supplied was invalid: {0}")]
+    InvalidItype(u8),
 }
 
 #[derive(Error, Debug)]
@@ -465,7 +474,7 @@ impl Model {
         }
 
         // Verify magic
-        let is_legacy_model: bool = match read_i32(&mut reader)? {
+        let is_legacy_model: bool = match read_u32(&mut reader)? {
             ggml::FILE_MAGIC => false,
             ggml::FILE_MAGIC_UNVERSIONED => true,
             _ => {

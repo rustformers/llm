@@ -228,4 +228,24 @@ extern "C" {
     pub fn ggml_build_forward_expand(cgraph: *mut ggml_cgraph, tensor: *mut ggml_tensor);
 
     pub fn ggml_graph_compute(ctx: *mut ggml_context, cgraph: *mut ggml_cgraph);
+
+    pub fn ggml_quantize_q4_0(
+        src: *mut f32,
+        work: *mut c_void,
+        n: i32,
+        k: i32,
+        qk: i32,
+        hist: *mut i64,
+    ) -> usize;
+
+    pub fn ggml_quantize_q4_1(
+        src: *mut f32,
+        work: *mut c_void,
+        n: i32,
+        k: i32,
+        qk: i32,
+        hist: *mut i64,
+    ) -> usize;
+
+    pub fn ggml_fp16_to_fp32(x: u16) -> f32;
 }

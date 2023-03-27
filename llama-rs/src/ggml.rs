@@ -6,8 +6,8 @@ use std::{
 
 pub use ggml_raw::ggml_type as Type;
 
-pub const FILE_MAGIC: i32 = 0x67676d66;
-pub const FILE_MAGIC_UNVERSIONED: i32 = 0x67676d6c;
+pub const FILE_MAGIC: u32 = 0x67676d66;
+pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 
 pub const FORMAT_VERSION: u32 = 1;
 
@@ -290,4 +290,48 @@ pub fn type_sizef(x: ggml_raw::ggml_type) -> f64 {
 
 pub fn blck_size(t: Type) -> i32 {
     unsafe { ggml_raw::ggml_blck_size(t) }
+}
+
+pub fn quantize_q4_0(
+    src: &mut Vec<f32>,
+    work: &mut Vec<f32>,
+    n: i32,
+    k: i32,
+    qk: i32,
+    hist: &mut Vec<i64>,
+) -> usize {
+    unsafe {
+        ggml_raw::ggml_quantize_q4_0(
+            src.as_mut_ptr(),
+            work.as_mut_ptr() as *mut c_void,
+            n,
+            k,
+            qk,
+            hist.as_mut_ptr(),
+        )
+    }
+}
+
+pub fn quantize_q4_1(
+    src: &mut Vec<f32>,
+    work: &mut Vec<f32>,
+    n: i32,
+    k: i32,
+    qk: i32,
+    hist: &mut Vec<i64>,
+) -> usize {
+    unsafe {
+        ggml_raw::ggml_quantize_q4_1(
+            src.as_mut_ptr(),
+            work.as_mut_ptr() as *mut c_void,
+            n,
+            k,
+            qk,
+            hist.as_mut_ptr(),
+        )
+    }
+}
+
+pub fn ggml_fp16_to_fp32(x: u16) -> f32 {
+    unsafe { ggml_raw::ggml_fp16_to_fp32(x) }
 }

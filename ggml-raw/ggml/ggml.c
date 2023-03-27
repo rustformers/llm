@@ -397,6 +397,53 @@ static inline __m128i packNibbles( __m256i bytes )
 }
 #endif
 
+// method 5
+// blocks of QK elements
+// represented with a single float (delta) and QK/2 8-bit ints (i.e QK 4-bit signed integer factors)
+
+// reference implementation for deterministic creation of model files
+static void quantize_row_q4_0_reference(const float * restrict x, void * restrict y, int k) {
+    assert(k % QK == 0);
+    const int nb = k / QK;
+
+    const size_t bs = sizeof(float) + QK/2;
+
+    uint8_t * restrict pd = ((uint8_t *)y + 0*bs);
+    uint8_t * restrict pb = ((uint8_t *)y + 0*bs + sizeof(float));
+
+    uint8_t pp[QK/2];
+
+    for (int i = 0; i < nb; i++) {
+        float amax = 0.0f; // absolute max
+
+        for (int l = 0; l < QK; l++) {
+            const float v = x[i*QK + l];
+            amax = MAX(amax, fabsf(v));
+        }
+
+        const float d = amax / ((1 << 3) - 1);
+        const float id = d ? 1.0f/d : 0.0f;
+
+        *(float *)pd = d;
+        pd += bs;
+
+        for (int l = 0; l < QK; l += 2) {
+            const float v0 = x[i*QK + l + 0]*id;
+            const float v1 = x[i*QK + l + 1]*id;
+
+            const uint8_t vi0 = ((int8_t) (round(v0))) + 8;
+            const uint8_t vi1 = ((int8_t) (round(v1))) + 8;
+
+            assert(vi0 >= 0 && vi0 < 16);
+            assert(vi1 >= 0 && vi1 < 16);
+
+            pp[l/2] = vi0 | (vi1 << 4);
+        }
+
+        memcpy(pb, pp, sizeof(pp));
+        pb += bs;
+    }
+}
 
 // method 5
 // blocks of QK elements
@@ -10629,6 +10676,69 @@ enum ggml_opt_result ggml_opt(
 
     return result;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+size_t ggml_quantize_q4_0(const float * src, void * dst, int n, int k, int qk, int64_t * hist) {
+    const int nb = k / qk;
+    const size_t bs = (sizeof(float) + sizeof(uint8_t)*qk/2);
+    const size_t row_size = nb*bs;
+
+    assert(k % qk == 0);
+
+    char * pdst = (char *) dst;
+
+    for (int j = 0; j < n; j += k) {
+        uint8_t * pd = (uint8_t *) (pdst + (j/k)*row_size + 0*bs);
+        uint8_t * pb = (uint8_t *) (pdst + (j/k)*row_size + 0*bs + sizeof(float));
+
+        quantize_row_q4_0_reference(src + j, pd, k);
+
+        for (int i = 0; i < nb; i++) {
+            for (int l = 0; l < qk; l += 2) {
+                const uint8_t vi0 = pb[l/2] & 0xF;
+                const uint8_t vi1 = pb[l/2] >> 4;
+
+                hist[vi0]++;
+                hist[vi1]++;
+            }
+            pb += bs;
+        }
+    }
+
+    return (n/k)*row_size;
+}
+
+size_t ggml_quantize_q4_1(const float * src, void * dst, int n, int k, int qk, int64_t * hist) {
+    const int nb = k / qk;
+    const size_t bs = (2*sizeof(float) + sizeof(uint8_t)*qk/2);
+    const size_t row_size = nb*bs;
+
+    assert(k % qk == 0);
+
+    char * pdst = (char *) dst;
+
+    for (int j = 0; j < n; j += k) {
+        uint8_t * pd = (uint8_t *) (pdst + (j/k)*row_size + 0*bs);
+        uint8_t * pb = (uint8_t *) (pdst + (j/k)*row_size + 0*bs + 2*sizeof(float));
+
+        quantize_row_q4_1(src + j, pd, k);
+
+        for (int i = 0; i < nb; i++) {
+            for (int l = 0; l < qk; l += 2) {
+                const uint8_t vi0 = pb[l/2] & 0xF;
+                const uint8_t vi1 = pb[l/2] >> 4;
+
+                hist[vi0]++;
+                hist[vi1]++;
+            }
+            pb += bs;
+        }
+    }
+
+    return (n/k)*row_size;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
