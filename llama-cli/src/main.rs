@@ -1,9 +1,9 @@
 use std::{convert::Infallible, io::Write, path::Path};
 
-use cli_args::CLI_ARGS;
+use cli_args::{Args, CLI_ARGS};
 use llama_rs::{
-    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
-    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    convert::convert_pth_to_ggml, InferenceError, InferenceParameters, InferenceSession,
+    InferenceSessionParameters, Model, ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
 };
 use rand::{thread_rng, SeedableRng};
 use rustyline::error::ReadlineError;
@@ -16,6 +16,7 @@ fn repl_mode(
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,
+    num_predict: Option<usize>,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
@@ -39,7 +40,7 @@ fn repl_mode(
                     vocab,
                     params,
                     "",
-                    CLI_ARGS.num_predict,
+                    num_predict,
                     &mut rng,
                     |tk| {
                         print!("{tk}");
@@ -89,14 +90,7 @@ fn dump_tokens(text: &str, vocab: &Vocabulary) -> Result<(), InferenceError> {
     Ok(())
 }
 
-fn main() {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .parse_default_env()
-        .init();
-
-    let args = &*CLI_ARGS;
-
+fn generate(args: &cli_args::Generate) {
     let inference_params = InferenceParameters {
         n_threads: args.num_threads as i32,
         n_batch: args.batch_size,
@@ -215,7 +209,7 @@ fn main() {
         return;
     }
 
-    let mut rng = if let Some(seed) = CLI_ARGS.seed {
+    let mut rng = if let Some(seed) = args.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
     } else {
         rand::rngs::StdRng::from_entropy()
@@ -250,6 +244,7 @@ fn main() {
             &vocab,
             &inference_params,
             &inference_session_params,
+            args.num_predict,
         );
     } else {
         let inference_params = if session_loaded {
@@ -334,5 +329,18 @@ mod snapshot {
         .auto_finish();
 
         snap.write(&mut writer)
+    }
+}
+
+fn main() {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
+
+    let cli_args = &*CLI_ARGS;
+    match cli_args {
+        Args::Generate(args) => generate(args),
+        Args::Convert(args) => convert_pth_to_ggml(&args.dir, args.f32),
     }
 }

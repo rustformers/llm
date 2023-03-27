@@ -6,7 +6,27 @@ use once_cell::sync::Lazy;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-pub struct Args {
+pub enum Args {
+    #[command(name = "generate")]
+    Generate(Generate),
+
+    #[command(name = "convert")]
+    Convert(Convert),
+}
+
+#[derive(Parser, Debug)]
+pub struct Convert {
+    /// Path to model directory
+    #[arg(long, short = 'd')]
+    pub dir: String,
+
+    /// File type to convert to
+    #[arg(long, default_value_t = false)]
+    pub f32: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct Generate {
     /// Where to load the model path from
     #[arg(long, short = 'm')]
     pub model_path: String,

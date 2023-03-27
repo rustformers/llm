@@ -1,3 +1,4 @@
+pub mod convert;
 mod ggml;
 
 use core::slice;
@@ -10,6 +11,7 @@ use std::{
     time,
 };
 
+use serde::Deserialize;
 use thiserror::Error;
 
 use partial_sort::PartialSort;
@@ -17,7 +19,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 
 pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Hyperparameters {
     n_vocab: i32,
     n_ctx: i32,
