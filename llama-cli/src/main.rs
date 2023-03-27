@@ -11,74 +11,79 @@ use rustyline::error::ReadlineError;
 
 mod cli_args;
 
-fn initialize_model_prompt(
-    initial_prompt: &str,
-    model: &llama_rs::Model,
-    vocab: &llama_rs::Vocabulary,
-    params: &InferenceParameters,
-    session_params: &InferenceSessionParameters,
-) -> InferenceSession {
-    let mut session = model.start_session(*session_params);
-
+fn enter_prompt(prompt: &str, session: &mut InferenceSession, model: &llama_rs::Model, vocab: &Vocabulary, params: &InferenceParameters) -> Result<(), InferenceError> {
     let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
-    if let Err(InferenceError::ContextFull) =
-        session.feed_prompt::<Infallible>(model, vocab, params, &initial_prompt, |_| Ok(()))
-    {
-        log::error!("Initial prompt exceeds context window length. Try increasing --num_ctx_tokens.");
-    };
+    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))?;
     sp.stop();
+    Ok(())
+}
 
-    session
+fn recieve_reply(session: &mut InferenceSession, model: &llama_rs::Model, vocab: &Vocabulary, params: &InferenceParameters) -> Result<(), InferenceError> {
+    let mut rng = thread_rng();
+
+    session.inference_with_prompt::<Infallible>(
+        model,
+        vocab,
+        params,
+        "",
+        CLI_ARGS.num_predict,
+        &mut rng,
+        |tk| {
+            print!("{tk}");
+            std::io::stdout().flush().unwrap();
+            Ok(())
+        },
+    )?;
+
+    Ok(())
 }
 
 fn repl_mode(
-    initial_prompt: &str,
+    chat_rules: Option<String>,
     user_prompt: &str,
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,
 ) {
-    let mut session = initialize_model_prompt(initial_prompt, model, vocab, params, session_params);
+    let mut reset_session = true;
+    let mut session  = model.start_session(*session_params);
     let mut rl = rustyline::DefaultEditor::new().unwrap();
 
+    if chat_rules.is_some() {
+        println!("Entering chat mode using the given rules. State is kept between prompts.")
+    } else {
+        println!("Entering repl mode. State is not kept between prompts.")
+    }
+
     loop {
+        if chat_rules.is_none() || reset_session {
+            session = model.start_session(*session_params);
+
+            if let Some(ref chat_rules) = chat_rules{
+                enter_prompt(&chat_rules, &mut session, model, vocab, params).expect("Chat rules exceed window length.");
+                reset_session = false;
+            }
+        }
+
         let readline = rl.readline(">> ");
+
         match readline {
             Ok(line) => {
                 let prompt = user_prompt.replace("$PROMPT", &line);
-                let mut rng = thread_rng();
 
-                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
-                if let Err(InferenceError::ContextFull) =
-                    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
-                {
-                    log::error!("Input exceeds context window length. To maintain more context increase --num_ctx_tokens. Resetting context.");
-                    session = initialize_model_prompt(initial_prompt, model, vocab, params, session_params);
+                if let Err(InferenceError::ContextFull) = enter_prompt(&prompt, &mut session, model, vocab, params) {
+                    log::error!("Prompt exceeds context window length");
+                    reset_session = true;
                     continue;
-                };
-                sp.stop();
+                }
 
-                let res = session.inference_with_prompt::<Infallible>(
-                    model,
-                    vocab,
-                    params,
-                    "",
-                    CLI_ARGS.num_predict,
-                    &mut rng,
-                    |tk| {
-                        print!("{tk}");
-                        std::io::stdout().flush().unwrap();
-                        Ok(())
-                    },
-                );
+                if let Err(InferenceError::ContextFull) = recieve_reply(&mut session, model, vocab, params) {
+                    log::error!("Reply exceeds context window length");
+                    reset_session = true;
+                }
 
                 println!();
-
-                if let Err(InferenceError::ContextFull) = res {
-                    log::error!("Reply exceeds context window length. To maintain more context increase --num_ctx_tokens. Resetting context.");
-                    session = initialize_model_prompt(initial_prompt, model, vocab, params, session_params);
-                }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
                 break;
@@ -152,30 +157,30 @@ fn main() {
         }
     };
 
-    let initial_prompt = if let Some(path) = &args.initial_prompt_file {
+    let chat_rules = if let Some(path) = &args.chat_rules_file {
         match std::fs::read_to_string(path) {
-            Ok(mut initial_prompt) => {
+            Ok(mut chat_rules) => {
                 // Strip off the last character if it's exactly newline. Also strip off a single
                 // carriage return if it's there. Since String must be valid UTF-8 it should be
                 // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
                 // bytes will always the high bit set.
-                if matches!(initial_prompt.as_bytes().last(), Some(b'\n')) {
-                    initial_prompt.pop();
+                if matches!(chat_rules.as_bytes().last(), Some(b'\n')) {
+                    chat_rules.pop();
                 }
-                if matches!(initial_prompt.as_bytes().last(), Some(b'\r')) {
-                    initial_prompt.pop();
+                if matches!(chat_rules.as_bytes().last(), Some(b'\r')) {
+                    chat_rules.pop();
                 }
-                initial_prompt
+                Some(chat_rules)
             }
             Err(err) => {
-                log::error!("Could not read prompt file at {path}. Error {err}");
+                log::error!("Could not read chat rules file at {path}. Error {err}");
                 std::process::exit(1);
             }
         }
-    } else if let Some(initial_prompt) = &args.initial_prompt {
-        initial_prompt.clone()
+    } else if let Some(chat_rules) = &args.chat_rules {
+        Some(chat_rules.clone())
     } else {
-        "".to_string()
+        None
     };
 
     let prompt = if let Some(path) = &args.prompt_file {
@@ -290,7 +295,7 @@ fn main() {
 
     if args.repl {
         repl_mode(
-            &initial_prompt,
+            chat_rules,
             &prompt,
             &model,
             &vocab,
