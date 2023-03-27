@@ -12,14 +12,16 @@ pub struct Args {
     pub model_path: String,
 
     /// The chat rules to feed the generator. This is fed once for repl environments. If
-    /// set, repl will maintain state between prompts.
+    /// set, repl will maintain state between prompts. Current models are not trained for
+    /// this and are unlikely to work well.
     #[arg(long, short = 'r', default_value = None)]
-    pub chat_rules: Option<String>,
+    pub chat_rules_experimental: Option<String>,
 
     /// The chat rules file to feed the generator. This is fed once for repl environments.
-    ///  If set, repl will maintain state between prompts. Takes priority over 'chat_rules'.
+    ///  If set, repl will maintain state between prompts. Current models are not trained for
+    /// this and are unlikely to work well. Takes priority over 'chat_rules'.
     #[arg(long, short = 'F', default_value = None)]
-    pub chat_rules_file: Option<String>,
+    pub chat_rules_experimental_file: Option<String>,
 
     /// The prompt to feed the generator. Used for every query in repl mode.
     /// Session is reset every query by default. To keep state, also use 'chat_rules' or

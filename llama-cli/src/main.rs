@@ -10,14 +10,25 @@ use rustyline::error::ReadlineError;
 
 mod cli_args;
 
-fn enter_prompt(prompt: &str, session: &mut InferenceSession, model: &llama_rs::Model, vocab: &Vocabulary, params: &InferenceParameters) -> Result<(), InferenceError> {
+fn enter_prompt(
+    prompt: &str,
+    session: &mut InferenceSession,
+    model: &llama_rs::Model,
+    vocab: &Vocabulary,
+    params: &InferenceParameters,
+) -> Result<(), InferenceError> {
     let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
     session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))?;
     sp.stop();
     Ok(())
 }
 
-fn recieve_reply(session: &mut InferenceSession, model: &llama_rs::Model, vocab: &Vocabulary, params: &InferenceParameters) -> Result<(), InferenceError> {
+fn recieve_reply(
+    session: &mut InferenceSession,
+    model: &llama_rs::Model,
+    vocab: &Vocabulary,
+    params: &InferenceParameters,
+) -> Result<(), InferenceError> {
     let mut rng = thread_rng();
 
     session.inference_with_prompt::<Infallible>(
@@ -46,11 +57,11 @@ fn repl_mode(
     session_params: &InferenceSessionParameters,
 ) {
     let mut reset_session = true;
-    let mut session  = model.start_session(*session_params);
+    let mut session = model.start_session(*session_params);
     let mut rl = rustyline::DefaultEditor::new().unwrap();
 
     if chat_rules.is_some() {
-        println!("Entering chat mode using the given rules. State is kept between prompts.")
+        println!("Entering experimental chat mode using the given rules. State is kept between prompts. Current models are not trained for this, expect strange behaviour.")
     } else {
         println!("Entering repl mode. State is not kept between prompts.")
     }
@@ -59,8 +70,9 @@ fn repl_mode(
         if chat_rules.is_none() || reset_session {
             session = model.start_session(*session_params);
 
-            if let Some(ref chat_rules) = chat_rules{
-                enter_prompt(&chat_rules, &mut session, model, vocab, params).expect("Chat rules exceed window length.");
+            if let Some(ref chat_rules) = chat_rules {
+                enter_prompt(&chat_rules, &mut session, model, vocab, params)
+                    .expect("Chat rules exceed window length.");
                 reset_session = false;
             }
         }
@@ -71,13 +83,17 @@ fn repl_mode(
             Ok(line) => {
                 let prompt = user_prompt.replace("$PROMPT", &line);
 
-                if let Err(InferenceError::ContextFull) = enter_prompt(&prompt, &mut session, model, vocab, params) {
+                if let Err(InferenceError::ContextFull) =
+                    enter_prompt(&prompt, &mut session, model, vocab, params)
+                {
                     log::error!("Prompt exceeds context window length");
                     reset_session = true;
                     continue;
                 }
 
-                if let Err(InferenceError::ContextFull) = recieve_reply(&mut session, model, vocab, params) {
+                if let Err(InferenceError::ContextFull) =
+                    recieve_reply(&mut session, model, vocab, params)
+                {
                     log::error!("Reply exceeds context window length");
                     reset_session = true;
                 }
@@ -158,7 +174,7 @@ fn main() {
         }
     };
 
-    let chat_rules = if let Some(path) = &args.chat_rules_file {
+    let chat_rules = if let Some(path) = &args.chat_rules_experimental_file {
         match std::fs::read_to_string(path) {
             Ok(mut chat_rules) => {
                 // Strip off the last character if it's exactly newline. Also strip off a single
@@ -178,7 +194,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    } else if let Some(chat_rules) = &args.chat_rules {
+    } else if let Some(chat_rules) = &args.chat_rules_experimental {
         Some(chat_rules.clone())
     } else {
         None
