@@ -194,6 +194,22 @@ extern "C" {
         offset: usize,
     ) -> *mut ggml_tensor;
 
+    pub fn ggml_view_2d(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        ne0: c_int,
+        ne1: c_int,
+        nb1: c_int,
+        offset: usize,
+    ) -> *mut ggml_tensor;
+
+    pub fn ggml_alibi(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        n_past: c_int,
+        n_head: c_int,
+    ) -> *mut ggml_tensor;
+
     pub fn ggml_permute(
         ctx: *mut ggml_context,
         a: *mut ggml_tensor,
