@@ -120,11 +120,11 @@ impl Clone for InferenceSession {
         Self {
             _session_ctx: context,
             memory_size: self.memory_size,
-            params: self.params.clone(),
+            params: self.params,
             memory_k,
             memory_v,
-            n_past: self.n_past.clone(),
-            mem_per_token: self.mem_per_token.clone(),
+            n_past: self.n_past,
+            mem_per_token: self.mem_per_token,
             tokens: self.tokens.clone(),
             last_logits: self.last_logits.clone(),
         }
@@ -759,7 +759,7 @@ impl Model {
         };
 
         // Initialize the context
-        let context = ggml::Context::init(ctx_size as usize);
+        let context = ggml::Context::init(ctx_size);
 
         let model = {
             let mut tensors = HashMap::new();
@@ -1117,7 +1117,7 @@ impl Model {
             ctx_size
         };
 
-        let session_ctx = ggml::Context::init(ctx_size as usize);
+        let session_ctx = ggml::Context::init(ctx_size);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -1529,7 +1529,7 @@ impl InferenceSession {
         if next_token as TokenId == EOT_TOKEN_ID {
             Err(InferenceError::EndOfText)
         } else {
-            Ok(&vocab.token(next_token as usize))
+            Ok(vocab.token(next_token as usize))
         }
     }
 
