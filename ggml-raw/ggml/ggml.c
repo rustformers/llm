@@ -2177,7 +2177,7 @@ static const char * GGML_OP_LABEL[GGML_OP_COUNT] = {
     "FLASH_FF",
 };
 
-static_assert(GGML_OP_COUNT == 35, "GGML_OP_COUNT != 35");
+static_assert(GGML_OP_COUNT == 36, "GGML_OP_COUNT != 36");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -2221,7 +2221,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "flash_ff(x)",
 };
 
-static_assert(GGML_OP_COUNT == 35, "GGML_OP_COUNT != 35");
+static_assert(GGML_OP_COUNT == 36, "GGML_OP_COUNT != 36");
 
 //
 // ggml object

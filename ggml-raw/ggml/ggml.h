@@ -244,6 +244,7 @@ enum ggml_op {
     GGML_OP_DIAG_MASK_INF,
     GGML_OP_SOFT_MAX,
     GGML_OP_ROPE,
+    GGML_OP_ALIBI,
     GGML_OP_CONV_1D_1S,
     GGML_OP_CONV_1D_2S,
 
@@ -590,6 +591,16 @@ struct ggml_tensor * ggml_rope(
         int                   n_past,
         int                   n_dims,
         int                   mode);
+
+// alibi position embedding
+// in-place, returns view(a)
+struct ggml_tensor * ggml_alibi(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        int                   n_past,
+        int                   n_head);
+
+
 
 // padding = 1
 // TODO: we don't support extra parameters for now
