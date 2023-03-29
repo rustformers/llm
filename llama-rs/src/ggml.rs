@@ -185,6 +185,14 @@ impl Context {
 
         self.new_tensor_raw(tensor)
     }
+
+    pub fn op_gelu(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { ggml_raw::ggml_gelu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+
+    }
+
+
 }
 
 impl Drop for Context {

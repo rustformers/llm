@@ -1,4 +1,3 @@
-
 use crate::ggml;
 
 use core::slice;
@@ -27,16 +26,12 @@ pub struct Hyperparameters {
     n_head: i32,
     n_layer: i32,
     f16_: i32,
-
 }
-
 
 // default
 struct Layer {
-
     attention_norm: ggml::Tensor,
     attention_norm_b: ggml::Tensor,
-
 
     wo: ggml::Tensor,
     wo_b: ggml::Tensor,
@@ -64,7 +59,6 @@ pub struct Model {
     norm: ggml::Tensor,
     norm_b: ggml::Tensor,
 
-
     output_norm: ggml::Tensor,
     output_norm_b: ggml::Tensor,
 
@@ -76,7 +70,6 @@ pub struct Model {
 
     // Must be kept alive for the model
     _context: ggml::Context,
-
 }
 
 /// An inference session represents the state of the text generation. This holds
@@ -553,13 +546,9 @@ impl Model {
             f16_: read_i32(&mut reader)?,
         };
 
-
-
         let n_ff = ((4 * hparams.n_embd + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
 
         let n_parts = 1;
-
-
 
         load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
 
@@ -633,7 +622,6 @@ impl Model {
             ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // norm
             ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // norm_b
 
-
             ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // output_norm
             ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // output_norm_b
 
@@ -688,19 +676,17 @@ impl Model {
             tensors.insert("output_norm.weight".to_owned(), output_norm.share());
             tensors.insert("output_norm.bias".to_owned(), output_norm_b.share());
 
-
             let mut layers = Vec::new();
             for i in 0..n_layer {
                 let layer = Layer {
                     attention_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
                     attention_norm_b: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
 
-
-                    query_key_value: context.new_tensor_2d(wtype, n_embd, 3*n_embd),
-                    query_key_value_b: context.new_tensor_1d(ggml::TYPE_F32, 3*n_embd),
+                    query_key_value: context.new_tensor_2d(wtype, n_embd, 3 * n_embd),
+                    query_key_value_b: context.new_tensor_1d(ggml::TYPE_F32, 3 * n_embd),
 
                     wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                    wo_b: context.new_tensor_1d(ggml::TYPE_F32, 3*n_embd),
+                    wo_b: context.new_tensor_1d(ggml::TYPE_F32, 3 * n_embd),
 
                     ffn_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
                     ffn_norm_b: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
@@ -720,7 +706,6 @@ impl Model {
                     format!("layers.{i}.attention_norm.bias"),
                     layer.attention_norm_b.share(),
                 );
-
 
                 tensors.insert(
                     format!("layers.{i}.query_key_value.weight"),
@@ -1222,10 +1207,9 @@ impl Model {
 
         //TODO: word embeddings norm,
         {
-        input_layer = ctx0.op_norm(&input_layer);
-        input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.attention_norm, &input_layer));
-        input_layer = ctx0.op_add(&ctx0.op_repeat(&self.attention_norm_b, &input_layer));
-
+            input_layer = ctx0.op_norm(&input_layer);
+            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+            input_layer = ctx0.op_add(&ctx0.op_repeat(&self.norm_b, &input_layer), &input_layer);
         }
 
         // Defined here to avoid repetition and creating a binding inside nested loops.
@@ -1262,23 +1246,46 @@ impl Model {
                     &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
                     &current,
                 );
-                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].attention_norm_b, &current), &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.layers[il].attention_norm_b, &current),
+                    &current,
+                );
             }
 
             //attention
             {
-
                 current = ctx0.op_mul_mat(&self.layers[il].query_key_value, &current);
-                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].query_key_value_b, &current), &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.layers[il].query_key_value_b, &current),
+                    &current,
+                );
             }
-
 
             // self-attention
             {
-                //TODO: FIND OUT WHAT N IS
-                let q_current = ctx0.op_view_2d(&current, n_embd, n, &current.nb[1], 0 * std::mem::size_of::<f32>() * n_embd);
-                let k_current = ctx0.op_view_2d(&current, n_embd, n, &current.nb[1], 1 * std::mem::size_of::<f32>() * n_embd);
-                let v_current = ctx0.op_view_2d(&current, n_embd, n, &current.nb[1], 2 * std::mem::size_of::<f32>() * n_embd);
+                let n_i32 = n.try_into().unwrap();
+                let nb = current.get_nb()[1] as i32;
+                let q_current = ctx0.op_view_2d(
+                    &current,
+                    n_embd,
+                    n_i32,
+                    nb,
+                    0 * std::mem::size_of::<f32>() * n_embd as usize,
+                );
+                let k_current = ctx0.op_view_2d(
+                    &current,
+                    n_embd,
+                    n_i32,
+                    nb,
+                    1 * std::mem::size_of::<f32>() * n_embd as usize,
+                );
+                let v_current = ctx0.op_view_2d(
+                    &current,
+                    n_embd,
+                    n_i32,
+                    nb,
+                    2 * std::mem::size_of::<f32>() * n_embd as usize,
+                );
 
                 // store key and value to memory
                 if n >= 1 {
@@ -1302,10 +1309,10 @@ impl Model {
 
                 // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
                 let q = ctx0.op_permute(
-                        &ctx0.op_cpy(
-                            &q_current,
-                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
-                        ),
+                    &ctx0.op_cpy(
+                        &q_current,
+                        &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
+                    ),
                     0,
                     2,
                     1,
@@ -1314,18 +1321,16 @@ impl Model {
 
                 // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
                 let k = ctx0.op_permute(
-                        &ctx0.op_reshape_3d(
-                            &ctx0.op_view_1d(
-                                &session.memory_k,
-                                (n_past + n as i32) * n_embd,
-                                il * n_ctx as usize
-                                    * session.memory_k.element_size()
-                                    * n_embd as usize,
-                            ),
-                            n_embd / n_head,
-                            n_head,
-                            n_past + n as i32,
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_view_1d(
+                            &session.memory_k,
+                            (n_past + n as i32) * n_embd,
+                            il * n_ctx as usize * session.memory_k.element_size() * n_embd as usize,
                         ),
+                        n_embd / n_head,
+                        n_head,
+                        n_past + n as i32,
+                    ),
                     0,
                     2,
                     1,
@@ -1334,7 +1339,6 @@ impl Model {
 
                 // K * Q
                 let k_q = ctx0.op_mul_mat(&k, &q);
-
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
                 let k_q_scaled = ctx0.op_scale(
@@ -1348,7 +1352,7 @@ impl Model {
                 let k_q_scaled_alibi = ctx0.op_alibi(&k_q_scaled, n_past, n_head);
 
                 // KQ_masked = mask_past(KQ_scaled)
-                let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, n_past);
+                let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled_alibi, n_past);
 
                 // KQ = soft_max(KQ_masked)
                 let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
@@ -1407,13 +1411,9 @@ impl Model {
                     );
                 }
 
-
                 current = ctx0.op_mul_mat(&self.layers[il].w1, &current);
 
-                    current = ctx0.op_add(
-                        &ctx0.op_repeat(&self.layers[il].w1_b, &current),
-                        &current,
-                    );
+                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].w1_b, &current), &current);
 
                 // SILU activation
 
@@ -1421,11 +1421,7 @@ impl Model {
 
                 current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
 
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].w2_b, &current),
-                    &current,
-                );
-
+                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].w2_b, &current), &current);
             }
 
             current = ctx0.op_add(&current, &input_feed_forward);
@@ -1442,11 +1438,17 @@ impl Model {
             input_layer = ctx0.op_norm(&input_layer);
 
             // inpL = norm*inpL
-            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.output_norm, &input_layer), &input_layer);
+            input_layer = ctx0.op_mul(
+                &ctx0.op_repeat(&self.output_norm, &input_layer),
+                &input_layer,
+            );
 
-            input_layer = ctx0.op_add(&ctx0.op_repeat(&self.output_norm_b, &input_layer), &input_layer);
+            input_layer = ctx0.op_add(
+                &ctx0.op_repeat(&self.output_norm_b, &input_layer),
+                &input_layer,
+            );
 
-            //embeddings_tensor = input_layer.share(); TODO: CHECK if this is still necessary, (not in BLOOM C implementation)
+            embeddings_tensor = input_layer.share(); //TODO: CHECK if this is still necessary, (not in BLOOM C implementation)
         }
 
         // lm_head
