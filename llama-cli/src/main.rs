@@ -16,13 +16,13 @@ fn repl_mode(
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,
+    mut session: InferenceSession,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let mut session = model.start_session(*session_params);
                 let prompt = prompt.replace("$PROMPT", &line);
                 let mut rng = thread_rng();
 
@@ -250,6 +250,7 @@ fn main() {
             &vocab,
             &inference_params,
             &inference_session_params,
+            session,
         );
     } else {
         let inference_params = if session_loaded {
