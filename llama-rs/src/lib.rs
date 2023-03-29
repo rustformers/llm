@@ -1,4 +1,5 @@
 mod ggml;
+mod bloom;
 
 use core::slice;
 use std::{

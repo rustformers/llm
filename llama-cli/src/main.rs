@@ -5,10 +5,68 @@ use llama_rs::{
     InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
     ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
 };
+
 use rand::{thread_rng, SeedableRng};
 use rustyline::error::ReadlineError;
 
 mod cli_args;
+
+fn bloom_mode(
+    prompt: &str,
+    model: &llama_rs::Model,
+    vocab: &llama_rs::Vocabulary,
+    params: &InferenceParameters,
+    session_params: &InferenceSessionParameters,
+) {
+    use llama_rs::bloom::{
+        InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
+        ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    };
+    let mut rl = rustyline::DefaultEditor::new().unwrap();
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let mut session = model.start_session(*session_params);
+                let prompt = prompt.replace("$PROMPT", &line);
+                let mut rng = thread_rng();
+
+                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
+                if let Err(InferenceError::ContextFull) =
+                    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
+                {
+                    log::error!("Prompt exceeds context window length.")
+                };
+                sp.stop();
+
+                let res = session.inference_with_prompt::<Infallible>(
+                    model,
+                    vocab,
+                    params,
+                    "",
+                    CLI_ARGS.num_predict,
+                    &mut rng,
+                    |tk| {
+                        print!("{tk}");
+                        std::io::stdout().flush().unwrap();
+                        Ok(())
+                    },
+                );
+                println!();
+
+                if let Err(InferenceError::ContextFull) = res {
+                    log::error!("Reply exceeds context window length");
+                }
+            }
+            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
+                break;
+            }
+            Err(err) => {
+                log::error!("{err}");
+            }
+        }
+    }
+}
 
 fn repl_mode(
     prompt: &str,
@@ -243,7 +301,15 @@ fn main() {
         }
     };
 
-    if args.repl {
+    if args.bloom {
+        bloom_mode(
+            &prompt,
+            &model,
+            &vocab,
+            &inference_params,
+            &inference_session_params,
+        );
+    } else if args.repl {
         repl_mode(
             &prompt,
             &model,

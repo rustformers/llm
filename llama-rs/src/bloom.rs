@@ -1,4 +1,5 @@
-mod ggml;
+
+use crate::ggml;
 
 use core::slice;
 use std::{
@@ -34,6 +35,7 @@ pub struct Hyperparameters {
 struct Layer {
 
     attention_norm: ggml::Tensor,
+    attention_norm_b: ggml::Tensor,
 
 
     wo: ggml::Tensor,
@@ -47,6 +49,7 @@ struct Layer {
 
     // ff
     w1: ggml::Tensor,
+    w1_b: ggml::Tensor,
     w2: ggml::Tensor,
     w2_b: ggml::Tensor,
 }
@@ -67,7 +70,7 @@ pub struct Model {
 
     output: ggml::Tensor,
 
-    layers: Vec<BloomLayer>,
+    layers: Vec<Layer>,
 
     tensors: HashMap<String, ggml::Tensor>,
 
@@ -764,6 +767,9 @@ impl Model {
                 hparams,
                 tok_embeddings,
                 norm,
+                norm_b,
+                output_norm,
+                output_norm_b,
                 output,
                 layers,
                 tensors,
@@ -1217,8 +1223,8 @@ impl Model {
         //TODO: word embeddings norm,
         {
         input_layer = ctx0.op_norm(&input_layer);
-        input_layer = ctx0.op_mul(ctx0.op_repeat(&self.attention_norm, &input_layer));
-        input_layer = ctx0.op_add(ctx0.op_repeat(&self.attention_norm_b, &input_layer));
+        input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.attention_norm, &input_layer));
+        input_layer = ctx0.op_add(&ctx0.op_repeat(&self.attention_norm_b, &input_layer));
 
         }
 
@@ -1339,7 +1345,7 @@ impl Model {
                 //alibi
                 // KQ_scaled_alibi = KQ_scaled + alibi_bias
                 // TODO: op_alibi function
-                let k_q_scaled_alibi = ctx0.op_alibi(k_q_scaled, n_past, n_head);
+                let k_q_scaled_alibi = ctx0.op_alibi(&k_q_scaled, n_past, n_head);
 
                 // KQ_masked = mask_past(KQ_scaled)
                 let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, n_past);
@@ -1378,7 +1384,7 @@ impl Model {
 
                 // projection
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
-                current = ctx0.op_add(ctx0.op_repeat(&self.layers[il].wo_b, &current), &current);
+                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].wo_b, &current), &current);
             }
 
             let input_feed_forward = ctx0.op_add(&current, &input_self_attention);

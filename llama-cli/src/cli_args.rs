@@ -23,6 +23,10 @@ pub struct Args {
     #[arg(long, short = 'R', default_value_t = false)]
     pub repl: bool,
 
+    /// Run in bloom mode
+    #[arg(long, short = 'B', default_value_t = false)]
+    pub bloom: bool,
+
     /// Sets the number of threads to use
     #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]
     pub num_threads: usize,
