@@ -127,6 +127,12 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// Creates a new tensor with the values of `a`, but normalized using RMSNorm.
+    pub fn op_rms_norm(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { ggml_sys::ggml_rms_norm(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Creates a new tensor with the multiplication of `a` and `b`.
     pub fn op_mul(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =

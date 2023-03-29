@@ -1188,7 +1188,7 @@ impl Model {
 
             // norm
             {
-                current = ctx0.op_norm(&input_layer);
+                current = ctx0.op_rms_norm(&input_layer);
 
                 // cur = attention_norm * cur
                 current = ctx0.op_mul(
@@ -1315,7 +1315,7 @@ impl Model {
             {
                 // norm
                 {
-                    current = ctx0.op_norm(&input_feed_forward);
+                    current = ctx0.op_rms_norm(&input_feed_forward);
 
                     // cur = ffn_norm*cur
                     current = ctx0.op_mul(
@@ -1347,7 +1347,7 @@ impl Model {
 
         // norm
         {
-            input_layer = ctx0.op_norm(&input_layer);
+            input_layer = ctx0.op_rms_norm(&input_layer);
 
             // inpL = norm*inpL
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);

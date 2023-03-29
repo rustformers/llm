@@ -125,6 +125,7 @@ extern "C" {
     pub fn ggml_silu(ctx: *mut ggml_context, a: *mut ggml_tensor) -> *mut ggml_tensor;
 
     pub fn ggml_norm(ctx: *mut ggml_context, a: *mut ggml_tensor) -> *mut ggml_tensor;
+    pub fn ggml_rms_norm(ctx: *mut ggml_context, a: *mut ggml_tensor) -> *mut ggml_tensor;
 
     pub fn ggml_mul_mat(
         ctx: *mut ggml_context,
