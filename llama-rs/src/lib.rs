@@ -283,34 +283,9 @@ pub struct Vocabulary {
     /// The longest token in this vocabulary
     max_token_length: usize,
 }
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-/// An output token.
-pub enum OutputToken<'a> {
-    /// A token
-    Token(&'a str),
-    /// End of text
-    EndOfText,
-}
-impl<'a> OutputToken<'a> {
-    fn from_id(vocab: &'a Vocabulary, id: TokenId) -> Self {
-        if id == 2 {
-            Self::EndOfText
-        } else {
-            Self::Token(&vocab.id_to_token[id as usize])
-        }
-    }
-}
-impl Display for OutputToken<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                OutputToken::Token(t) => *t,
-                OutputToken::EndOfText => "[end of text]",
-            }
-        )
+impl Vocabulary {
+    fn token(&self, idx: usize) -> &str {
+        &self.id_to_token[idx]
     }
 }
 
@@ -537,6 +512,11 @@ pub enum InferenceError {
     #[error("the context window is full")]
     /// The context window for the model is full.
     ContextFull,
+    #[error("reached end of text")]
+    /// The model has produced an end of text token, signalling that it thinks that the text should end here.
+    ///
+    /// Note that this error *can* be ignored and inference can continue, but the results are not guaranteed to be sensical.
+    EndOfText,
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error>),
@@ -1467,7 +1447,7 @@ impl InferenceSession {
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
-        callback: impl Fn(OutputToken) -> Result<(), E>,
+        callback: impl Fn(&str) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens: Vec<TokenId> = vocab
@@ -1485,7 +1465,7 @@ impl InferenceSession {
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
-                if let Err(e) = callback(OutputToken::Token(&vocab.id_to_token[tk as usize])) {
+                if let Err(e) = callback(vocab.token(tk as usize)) {
                     return Err(InferenceError::UserCallback(Box::new(e)));
                 }
 
@@ -1504,7 +1484,7 @@ impl InferenceSession {
         vocab: &'v Vocabulary,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
-    ) -> Result<OutputToken<'v>, InferenceError> {
+    ) -> Result<&'v str, InferenceError> {
         if self.n_past + 1 >= model.hparams.n_ctx {
             return Err(InferenceError::ContextFull);
         }
@@ -1524,11 +1504,11 @@ impl InferenceSession {
         );
 
         // Return the next token
-        Ok(if next_token as TokenId == EOT_TOKEN_ID {
-            OutputToken::EndOfText
+        if next_token as TokenId == EOT_TOKEN_ID {
+            Err(InferenceError::EndOfText)
         } else {
-            OutputToken::Token(&vocab.id_to_token[next_token as usize])
-        })
+            Ok(&vocab.token(next_token as usize))
+        }
     }
 
     // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
@@ -1545,15 +1525,14 @@ impl InferenceSession {
         prompt: &str,
         maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
-        callback: impl Fn(OutputToken) -> Result<(), E>,
+        callback: impl Fn(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = maximum_token_count.unwrap_or(usize::MAX);
         if params.play_back_previous_tokens {
             // "Play back" the existing tokens, so that loading from an inference snapshot works
             // as expected.
             for token_id in &self.tokens {
-                let token = OutputToken::from_id(vocab, *token_id);
-                if let Err(e) = callback(token) {
+                if let Err(e) = callback(vocab.token(*token_id as usize)) {
                     return Err(InferenceError::UserCallback(Box::new(e)));
                 }
             }
@@ -1575,17 +1554,17 @@ impl InferenceSession {
         // or we reach the specified limit.
         let mut tokens_processed = 0;
         while tokens_processed < maximum_token_count {
-            let token = self.infer_next_token(model, vocab, params, rng)?;
+            let token = match self.infer_next_token(model, vocab, params, rng) {
+                Ok(token) => token,
+                Err(InferenceError::EndOfText) => break,
+                Err(e) => return Err(e),
+            };
 
             if let Err(e) = callback(token) {
                 return Err(InferenceError::UserCallback(Box::new(e)));
             }
 
             tokens_processed += 1;
-
-            if let OutputToken::EndOfText = token {
-                break;
-            }
         }
         stats.predict_duration = start_at.elapsed().unwrap();
         stats.predict_tokens = self.n_past;

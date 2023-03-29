@@ -283,7 +283,8 @@ fn main() {
             Err(llama_rs::InferenceError::TokenizationFailed) => {
                 log::error!("Failed to tokenize initial prompt.");
             }
-            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+            Err(llama_rs::InferenceError::UserCallback(_))
+            | Err(llama_rs::InferenceError::EndOfText) => unreachable!("cannot fail"),
         }
 
         if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
