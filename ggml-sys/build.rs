@@ -5,6 +5,8 @@ fn main() {
     // the host and target are the same. If they are not, it will turn off auto-feature-detection,
     // and you will need to manually specify target features through target-features.
 
+    println!("cargo:rerun-if-changed=ggml");
+
     let ggml_src = ["ggml/ggml.c"];
 
     let mut builder = cc::Build::new();
