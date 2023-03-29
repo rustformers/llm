@@ -131,6 +131,13 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    pub fn op_view_2d(&self, a: &Tensor, ne0: i32, ne1: i32, nb1: i32, offset: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_raw::ggml_view_2d(self.ptr.as_ptr(), a.ptr.as_ptr(), ne0, ne1, nb1, offset)
+        };
+        self.new_tensor_raw(tensor)
+    }
+
     pub fn op_cpy(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
             unsafe { ggml_raw::ggml_cpy(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
@@ -170,6 +177,13 @@ impl Context {
 
     pub fn used_mem(&self) -> usize {
         unsafe { ggml_raw::ggml_used_mem(self.ptr.as_ptr()) }
+    }
+
+    pub fn op_alibi(&self, a: &Tensor, n_past: i32, n_head: i32) -> Tensor {
+        let tensor =
+            unsafe { ggml_raw::ggml_alibi(self.ptr.as_ptr(), a.ptr.as_ptr(), n_past, n_head) };
+
+        self.new_tensor_raw(tensor)
     }
 }
 

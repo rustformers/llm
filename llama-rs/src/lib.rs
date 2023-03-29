@@ -29,6 +29,7 @@ pub struct Hyperparameters {
     f16_: i32,
 }
 
+// default
 struct Layer {
     attention_norm: ggml::Tensor,
 
