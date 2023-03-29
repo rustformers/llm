@@ -1535,9 +1535,9 @@ impl InferenceSession {
 
     // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
     /// Helper function to run inference with this session and the given model and vocabulary.
+    /// The `callback` is called with each new token until inference is complete.
     ///
-    /// Note that this will "play back" all existing tokens in the session. If this is not desired
-    /// behaviour, consider implementing your own inference loop to customize the behavior.
+    /// If `params.play_back_previous_tokens` is specified, this will "play back" all existing tokens in the session.
     #[allow(clippy::too_many_arguments)]
     pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
