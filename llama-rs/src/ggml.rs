@@ -331,7 +331,3 @@ pub fn quantize_q4_1(
         )
     }
 }
-
-pub fn ggml_fp16_to_fp32(x: u16) -> f32 {
-    unsafe { ggml_raw::ggml_fp16_to_fp32(x) }
-}

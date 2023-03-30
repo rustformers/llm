@@ -246,6 +246,4 @@ extern "C" {
         qk: i32,
         hist: *mut i64,
     ) -> usize;
-
-    pub fn ggml_fp16_to_fp32(x: u16) -> f32;
 }
