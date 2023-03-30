@@ -1,4 +1,3 @@
-
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]

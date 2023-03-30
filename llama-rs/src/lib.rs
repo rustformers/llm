@@ -1,5 +1,6 @@
-pub mod bloom;
+mod common;
 mod ggml;
+mod models;
 
 use core::slice;
 use std::{

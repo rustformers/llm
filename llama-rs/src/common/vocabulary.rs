@@ -1,4 +1,3 @@
-
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding token
     id_to_token: Vec<Token>,

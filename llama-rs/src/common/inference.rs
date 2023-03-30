@@ -1,6 +1,6 @@
-use crate::model::{Model, EvaluateOutputRequest};
 use crate::ggml;
-use crate::token::{TokenId, TokenBias, OutputToken};
+use crate::model::{EvaluateOutputRequest, Model};
+use crate::token::{OutputToken, TokenBias, TokenId};
 
 /// An inference session represents the state of the text generation. This holds
 /// the full context window, as long as several additional parameters used
@@ -175,7 +175,6 @@ impl Display for InferenceStats {
     }
 }
 
-
 impl InferenceSession {
     pub fn feed_prompt<E: std::error::Error + 'static, M: Model>(
         &mut self,
@@ -342,7 +341,6 @@ impl InferenceSnapshot {
         Ok(bincode::deserialize_from(reader)?)
     }
 }
-
 
 #[derive(Error, Debug)]
 pub enum InferenceError {

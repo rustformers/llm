@@ -1,11 +1,8 @@
-
-
 pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 type TokenId = i32;
 type Token = String;
 type TokenScore = f32;
-
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OutputToken<'a> {
