@@ -13,15 +13,11 @@ mod cli_args;
 
 fn bloom_mode(
     prompt: &str,
-    model: &llama_rs::Model,
-    vocab: &llama_rs::Vocabulary,
+    model: &llama_rs::bloom::Model,
+    vocab: &Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,
 ) {
-    use llama_rs::bloom::{
-        InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
-        ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
-    };
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
         let readline = rl.readline(">> ");
@@ -155,7 +151,7 @@ fn main() {
 
     let args = &*CLI_ARGS;
 
-    let inference_params = InferenceParameters {
+    let inference_params: InferenceParameters = InferenceParameters {
         n_threads: args.num_threads as i32,
         n_batch: args.batch_size,
         top_k: args.top_k,
@@ -302,10 +298,67 @@ fn main() {
     };
 
     if args.bloom {
+        let (bloom_model, bloom_vocab) = llama_rs::bloom::Model::load(
+            &args.model_path,
+            args.num_ctx_tokens as i32,
+            |progress| {
+                use llama_rs::bloom::LoadProgress;
+                match progress {
+                    LoadProgress::HyperparametersLoaded(hparams) => {
+                        log::debug!("Loaded HyperParams {hparams:#?}")
+                    }
+                    LoadProgress::BadToken { index } => {
+                        log::info!("Warning: Bad token in vocab at index {index}")
+                    }
+                    LoadProgress::ContextSize { bytes } => log::info!(
+                        "ggml ctx size = {:.2} MB\n",
+                        bytes as f64 / (1024.0 * 1024.0)
+                    ),
+                    LoadProgress::MemorySize { bytes, n_mem } => log::info!(
+                        "Memory size: {} MB {}",
+                        bytes as f32 / 1024.0 / 1024.0,
+                        n_mem
+                    ),
+                    LoadProgress::PartLoading {
+                        file,
+                        current_part,
+                        total_parts,
+                    } => log::info!(
+                        "Loading model part {}/{} from '{}'\n",
+                        current_part,
+                        total_parts,
+                        file.to_string_lossy(),
+                    ),
+                    LoadProgress::PartTensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        if current_tensor % 8 == 0 {
+                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                        }
+                    }
+                    LoadProgress::PartLoaded {
+                        file,
+                        byte_size,
+                        tensor_count,
+                    } => {
+                        log::info!("Loading of '{}' complete", file.to_string_lossy());
+                        log::info!(
+                            "Model size = {:.2} MB / num tensors = {}",
+                            byte_size as f64 / 1024.0 / 1024.0,
+                            tensor_count
+                        );
+                    }
+                }
+            },
+        )
+        .expect("Could not load model");
+
         bloom_mode(
             &prompt,
-            &model,
-            &vocab,
+            &bloom_model,
+            &bloom_vocab,
             &inference_params,
             &inference_session_params,
         );

@@ -4,7 +4,7 @@ use partial_sort::PartialSort;
 use crate::{
     EvaluateOutputRequest, InferenceError, InferenceParameters, InferenceSession,
     InferenceSessionParameters, InferenceSnapshot, LoadError, ModelKVMemoryType,
-     SnapshotError, TokenId, Vocabulary
+     SnapshotError, TokenId, Vocabulary, EOD_TOKEN_ID
 };
 use std::{
     collections::HashMap,
@@ -15,7 +15,6 @@ use std::{
 
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
-pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hyperparameters {
