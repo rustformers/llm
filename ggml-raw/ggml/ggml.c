@@ -434,8 +434,8 @@ static void quantize_row_q4_0_reference(const float * restrict x, void * restric
             const uint8_t vi0 = ((int8_t) (round(v0))) + 8;
             const uint8_t vi1 = ((int8_t) (round(v1))) + 8;
 
-            assert(vi0 >= 0 && vi0 < 16);
-            assert(vi1 >= 0 && vi1 < 16);
+            assert(vi0 < 16);
+            assert(vi1 < 16);
 
             pp[l/2] = vi0 | (vi1 << 4);
         }
@@ -687,8 +687,8 @@ void quantize_row_q4_1(const float * restrict x, void * restrict y, int k) {
             const uint8_t vi0 = round(v0);
             const uint8_t vi1 = round(v1);
 
-            assert(vi0 >= 0 && vi0 < 16);
-            assert(vi1 >= 0 && vi1 < 16);
+            assert(vi0 < 16);
+            assert(vi1 < 16);
 
             pp[l/2] = vi0 | (vi1 << 4);
         }
