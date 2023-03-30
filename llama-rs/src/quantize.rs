@@ -1,13 +1,11 @@
 use crate::ggml::{
-    quantize_q4_0, quantize_q4_1, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION, TYPE_Q4_0,
-    TYPE_Q4_1,
+    quantize_q4_0, quantize_q4_1, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
 };
 use crate::{Hyperparameters, LoadError, Vocabulary};
 use half::f16;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
-use thiserror::Error;
 
 const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
 
@@ -16,16 +14,10 @@ pub fn llama_model_quantize(
     file_name_out: impl AsRef<Path>,
     itype: u8,
     qk: u8,
-) -> Result<bool, LoadError> {
-    let mut otype = TYPE_Q4_1;
-
-    match itype {
-        2 => otype = TYPE_Q4_0,
-        3 => otype = TYPE_Q4_1,
-        _ => {
-            return Err(LoadError::InvalidItype(itype));
-        }
-    };
+) -> Result<(), LoadError> {
+    if itype != 2 && itype != 3 {
+        return Err(LoadError::InvalidItype(itype));
+    }
 
     let file_in = file_name_in.as_ref();
     let mut finp = BufReader::new(File::open(file_in).map_err(|e| LoadError::OpenFileFailed {
@@ -57,7 +49,7 @@ pub fn llama_model_quantize(
             });
         }
 
-        fout.write(&magic_buffer)?;
+        fout.write_all(&magic_buffer)?;
 
         let mut version_buffer: [u8; 4] = [0; 4];
         finp.read_exact(&mut version_buffer)?;
@@ -70,7 +62,7 @@ pub fn llama_model_quantize(
             });
         }
 
-        fout.write(&version_buffer)?;
+        fout.write_all(&version_buffer)?;
     }
 
     let mut hparams = Hyperparameters::default();
@@ -81,37 +73,37 @@ pub fn llama_model_quantize(
         finp.read_exact(&mut buffer)?;
         hparams.n_vocab = i32::from_le_bytes(buffer);
         println!("n_vocab: {}", hparams.n_vocab);
-        fout.write(&buffer)?;
+        fout.write_all(&buffer)?;
 
         finp.read_exact(&mut buffer)?;
         hparams.n_embd = i32::from_le_bytes(buffer);
         println!("n_embd: {}", hparams.n_embd);
-        fout.write(&buffer)?;
+        fout.write_all(&buffer)?;
 
         finp.read_exact(&mut buffer)?;
         hparams.n_mult = i32::from_le_bytes(buffer);
         println!("n_mult: {}", hparams.n_mult);
-        fout.write(&buffer)?;
+        fout.write_all(&buffer)?;
 
         finp.read_exact(&mut buffer)?;
         hparams.n_head = i32::from_le_bytes(buffer);
         println!("n_head: {}", hparams.n_head);
-        fout.write(&buffer)?;
+        fout.write_all(&buffer)?;
 
         finp.read_exact(&mut buffer)?;
         hparams.n_layer = i32::from_le_bytes(buffer);
         println!("n_layer: {}", hparams.n_layer);
-        fout.write(&buffer)?;
+        fout.write_all(&buffer)?;
 
         finp.read_exact(&mut buffer)?;
         hparams.n_rot = i32::from_le_bytes(buffer);
         println!("n_rot: {}", hparams.n_rot);
-        fout.write(&buffer)?;
+        fout.write_all(&buffer)?;
 
         finp.read_exact(&mut buffer)?;
         hparams.f16_ = i32::from_le_bytes(buffer);
         println!("f16_: {}", hparams.f16_);
-        fout.write(&(itype as i32).to_le_bytes())?;
+        fout.write_all(&(itype as i32).to_le_bytes())?;
     }
 
     // load vocab
@@ -128,18 +120,18 @@ pub fn llama_model_quantize(
         for i in 0..n_vocab {
             let mut len_buffer = [0u8; 4];
             finp.read_exact(&mut len_buffer)?;
-            fout.write(&len_buffer)?;
+            fout.write_all(&len_buffer)?;
             let len = u32::from_le_bytes(len_buffer) as usize;
 
             let mut word_buffer = vec![0u8; len];
             finp.read_exact(word_buffer.as_mut_slice())?;
-            fout.write(&word_buffer)?;
+            fout.write_all(&word_buffer)?;
 
             let word = String::from_utf8_lossy(&word_buffer).to_string();
 
             let mut score_buffer = [0u8; 4];
             finp.read_exact(&mut score_buffer)?;
-            fout.write(&score_buffer)?;
+            fout.write_all(&score_buffer)?;
             let score = f32::from_le_bytes(score_buffer);
 
             vocab.token_to_id.insert(word.clone(), i);
@@ -202,7 +194,7 @@ pub fn llama_model_quantize(
             );
 
             // Quantize only 2D tensors
-            let mut quantize = name.find("weight").is_some() && n_dims == 2;
+            let quantize = name.contains("weight") && n_dims == 2;
 
             if quantize {
                 if ftype != 0 && ftype != 1 {
@@ -246,54 +238,46 @@ pub fn llama_model_quantize(
             }
 
             // Write data
-            fout.write(&n_dims.to_le_bytes())?;
-            fout.write(&(length as i32).to_le_bytes())?;
+            fout.write_all(&n_dims.to_le_bytes())?;
+            fout.write_all(&(length as i32).to_le_bytes())?;
             println!(" new ftype: {}", ftype);
             println!("{:?}", name.as_bytes());
-            fout.write(&(ftype as i32).to_le_bytes())?;
+            fout.write_all(&(ftype as i32).to_le_bytes())?;
 
             for i in 0..n_dims {
-                fout.write(&ne[i as usize].to_le_bytes())?;
+                fout.write_all(&ne[i as usize].to_le_bytes())?;
             }
-            fout.write(name.as_bytes())?;
+            fout.write_all(name.as_bytes())?;
 
             if quantize {
                 print!("quantizing .. ");
                 work.resize(nelements as usize, 0.0);
 
-                let curr_size;
                 let mut hist_cur = vec![0; 16];
 
-                match otype {
-                    TYPE_Q4_0 => {
-                        curr_size = quantize_q4_0(
-                            &mut data_f32,
-                            &mut work,
-                            nelements,
-                            ne[0],
-                            qk as i32,
-                            &mut hist_cur,
-                        )
-                    }
-                    TYPE_Q4_1 => {
-                        curr_size = quantize_q4_1(
-                            &mut data_f32,
-                            &mut work,
-                            nelements,
-                            ne[0],
-                            qk as i32,
-                            &mut hist_cur,
-                        )
-                    }
-                    _ => {
-                        println!("Unsupported type");
-                        return Ok(false);
-                    }
-                }
+                let curr_size = if itype == 2 {
+                    quantize_q4_0(
+                        &mut data_f32,
+                        &mut work,
+                        nelements,
+                        ne[0],
+                        qk as i32,
+                        &mut hist_cur,
+                    )
+                } else {
+                    quantize_q4_1(
+                        &mut data_f32,
+                        &mut work,
+                        nelements,
+                        ne[0],
+                        qk as i32,
+                        &mut hist_cur,
+                    )
+                };
 
                 // We divide curr size by 4
-                for i in 0..curr_size / 4 {
-                    fout.write(&work[i].to_le_bytes())?;
+                for i in work.iter().take(curr_size / 4) {
+                    fout.write_all(&i.to_le_bytes())?;
                 }
 
                 total_size_new += curr_size;
@@ -310,7 +294,7 @@ pub fn llama_model_quantize(
                 }
                 println!();
             } else {
-                fout.write(&data_u8)?;
+                fout.write_all(&data_u8)?;
                 println!("size = {:>8.3} MB", data_u8.len() as f64 / 1024.0 / 1024.0);
                 total_size_new += data_u8.len();
             }
@@ -339,5 +323,5 @@ pub fn llama_model_quantize(
         }
     }
 
-    return Ok(true);
+    Ok(())
 }
