@@ -31,10 +31,10 @@ impl From<&Path> for Vocabulary {
             id_to_token_score.push(piece.get_score());
         }
         Vocabulary {
-            id_to_token: id_to_token,
-            id_to_token_score: id_to_token_score,
-            token_to_id: token_to_id,
-            max_token_length: max_token_length,
+            id_to_token,
+            id_to_token_score,
+            token_to_id,
+            max_token_length,
         }
     }
 }
@@ -79,7 +79,7 @@ fn load_hyperparams(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparamete
         n_layer: hparams.n_layers,
         n_vocab: match hparams.vocab_size {
             -1 => vocab.id_to_token.len() as i32,
-            _ => hparams.vocab_size as i32,
+            _ => hparams.vocab_size,
         },
         n_mult: hparams.multiple_of,
         n_rot: hparams.dim / hparams.n_heads,
@@ -119,7 +119,7 @@ fn write_tokens(file: &mut File, vocab: &Vocabulary) -> Result<(), String> {
             _ if token.len() == 6 && token.contains("<0x") => {
                 vec![u8::from_str_radix(&token[3..5], 16).unwrap()]
             }
-            _ => token.replace("\u{2581}", " ").as_bytes().to_vec(),
+            _ => token.replace('\u{2581}', " ").as_bytes().to_vec(),
         };
         values.extend((text.len() as i32).to_le_bytes());
         values.extend(&text);

@@ -8,10 +8,10 @@ use once_cell::sync::Lazy;
 #[command(author, version, about, long_about = None)]
 pub enum Args {
     #[command(name = "generate")]
-    Generate(Generate),
+    Generate(Box<Generate>),
 
     #[command(name = "convert")]
-    Convert(Convert),
+    Convert(Box<Convert>),
 }
 
 #[derive(Parser, Debug)]
