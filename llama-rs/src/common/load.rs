@@ -1,8 +1,11 @@
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum LoadProgress<'a> {
-    HyperparametersLoaded(&'a Hyperparameters),
+pub enum LoadProgress<'a, T> {
+    HyperparametersLoaded(&'a T),
     BadToken {
         index: usize,
     },

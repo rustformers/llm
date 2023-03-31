@@ -13,7 +13,7 @@ mod cli_args;
 
 fn bloom_mode(
     prompt: &str,
-    model: &llama_rs::bloom::Model,
+    model: &BLOOM,
     vocab: &Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,

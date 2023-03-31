@@ -1,18 +1,18 @@
 use crate::ggml;
 use partial_sort::PartialSort;
+use rand::thread_rng;
+use std::{convert::Infallible, io::Write};
 
-use crate::{
-    EvaluateOutputRequest, InferenceError, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceSnapshot, LoadError, ModelKVMemoryType, SnapshotError,
-    TokenId, Vocabulary, EOD_TOKEN_ID,
-};
 use std::{
     collections::HashMap,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
-use rand::{distributions::WeightedIndex, prelude::Distribution};
+use rand::distributions::WeightedIndex;
+
+use crate::common::{inference::*, load::*, model::*, token::*, vocabulary::*};
+use crate::mulf;
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct Hyperparameters {
@@ -69,44 +69,15 @@ struct BLOOM {
     _context: ggml::Context,
 }
 
-/// Each variant represents a step within the process of loading the model.
-/// These can be used to report progress to the user.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum LoadProgress<'a> {
-    HyperparametersLoaded(&'a Hyperparameters),
-    BadToken {
-        index: usize,
-    },
-    ContextSize {
-        bytes: usize,
-    },
-    MemorySize {
-        bytes: usize,
-        n_mem: usize,
-    },
-    PartLoading {
-        file: &'a Path,
-        current_part: usize,
-        total_parts: usize,
-    },
-    PartTensorLoaded {
-        file: &'a Path,
-        current_tensor: usize,
-        tensor_count: usize,
-    },
-    PartLoaded {
-        file: &'a Path,
-        byte_size: usize,
-        tensor_count: usize,
-    },
-}
+impl Model for BLOOM {
+    type OutputType = BLOOM;
 
-impl BLOOM for Model {
     fn load(
+        &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
-        load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(Model, Vocabulary), LoadError> {
+        load_progress_callback: impl Fn(LoadProgress<T>),
+    ) -> Result<(Self::OutputType, Vocabulary), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -394,7 +365,7 @@ impl BLOOM for Model {
                 layers.push(layer);
             }
 
-            Model {
+            BLOOM {
                 hparams,
                 tok_embeddings,
                 norm,

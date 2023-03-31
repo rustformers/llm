@@ -1,8 +1,12 @@
+use super::vocabulary::Vocabulary;
+use std::fmt::Display;
+use std::str::FromStr;
+
 pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
-type TokenId = i32;
-type Token = String;
-type TokenScore = f32;
+pub type TokenId = i32;
+pub type Token = String;
+pub type TokenScore = f32;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OutputToken<'a> {
@@ -10,7 +14,7 @@ pub enum OutputToken<'a> {
     EndOfText,
 }
 impl<'a> OutputToken<'a> {
-    fn from_id(vocab: &'a Vocabulary, id: TokenId) -> Self {
+    pub fn from_id(vocab: &'a Vocabulary, id: TokenId) -> Self {
         if id == 2 {
             Self::EndOfText
         } else {
@@ -75,7 +79,7 @@ impl FromStr for TokenBias {
     }
 }
 
-impl std::fmt::Display for TokenBias {
+impl Display for TokenBias {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
     }

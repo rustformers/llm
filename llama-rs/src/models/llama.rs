@@ -7,13 +7,16 @@ use std::{
     str::FromStr,
     time,
 };
+use std::{convert::Infallible, io::Write};
 
-use crate::model::Model;
+use crate::common::{inference::*, load::*, model::*, token::*, vocabulary::*};
+use crate::ggml;
+use crate::mulf;
 
 use thiserror::Error;
 
 use partial_sort::PartialSort;
-use rand::{distributions::WeightedIndex, prelude::Distribution};
+use rand::distributions::WeightedIndex;
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hyperparameters {
@@ -63,12 +66,14 @@ pub struct Llama {
     _context: ggml::Context,
 }
 
-impl Llama for Model {
+impl Model for Llama {
+    type OutputType = Llama;
     fn load(
+        &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
-        load_progress_callback: impl Fn(LoadProgress),
-    ) -> Result<(Model, Vocabulary), LoadError> {
+        load_progress_callback: impl Fn(LoadProgress<T>),
+    ) -> Result<(Self::OutputType, Vocabulary), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -312,7 +317,7 @@ impl Llama for Model {
                 layers.push(layer);
             }
 
-            Model {
+            Llama {
                 hparams,
                 tok_embeddings,
                 norm,
