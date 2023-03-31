@@ -1,7 +1,4 @@
 use crate::ggml;
-use partial_sort::PartialSort;
-use rand::thread_rng;
-use std::{convert::Infallible, io::Write};
 
 use std::{
     collections::HashMap,
@@ -9,11 +6,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rand::distributions::WeightedIndex;
-
 use crate::common::{inference::*, load::*, model::*, token::*, vocabulary::*};
 use crate::mulf;
 
+// NOTE: Field order matters! Data is laid out in the file exactly
+// in this order.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct Hyperparameters {
     n_vocab: i32,
@@ -70,14 +67,18 @@ struct BLOOM {
 }
 
 impl Model for BLOOM {
-    type OutputType = BLOOM;
+    type Weights = BLOOM;
+    type HP = Hyperparameters;
 
-    fn load(
+    fn load<'a>(
         &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
-        load_progress_callback: impl Fn(LoadProgress<T>),
-    ) -> Result<(Self::OutputType, Vocabulary), LoadError> {
+        load_progress_callback: impl Fn(LoadProgress<'a, Self::HP>),
+    ) -> Result<(Self::Weights, Vocabulary), LoadError>
+    where
+        Self::HP: 'a,
+    {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -639,6 +640,54 @@ impl Model for BLOOM {
         }
 
         Ok((model, vocab))
+    }
+
+    /// Starts a new `InferenceSession` for this model.
+    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+        let Hyperparameters {
+            n_ctx,
+            n_embd,
+            n_layer,
+            n_vocab,
+            ..
+        } = self.hparams;
+
+        let ctx_size = {
+            let mut ctx_size = 0;
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_k_type.into())
+            ); // memory_k
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_v_type.into())
+            ); // memory_v
+            ctx_size += (5 + 10 * n_layer as u64) * 256; // object overhead
+            ctx_size
+        };
+
+        let session_ctx = ggml::Context::init(ctx_size as usize);
+
+        // Initialize key + value memory tensors
+        let n_mem = n_layer * n_ctx;
+        let n_elements = n_embd * n_mem;
+        let memory_k = session_ctx.new_tensor_1d(params.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(params.memory_v_type.into(), n_elements);
+
+        InferenceSession {
+            _session_ctx: session_ctx,
+            params,
+            memory_k,
+            memory_v,
+            n_past: 0,
+            mem_per_token: 0,
+            tokens: vec![],
+            last_logits: vec![0.0; n_vocab as usize],
+        }
     }
 
     /// Evaluates the transformer.

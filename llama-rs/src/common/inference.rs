@@ -220,6 +220,9 @@ impl InferenceSession {
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<OutputToken<'v>, InferenceError> {
+
+
+
         if self.n_past + 1 >= model.hparams.n_ctx as usize {
             return Err(InferenceError::ContextFull);
         }
