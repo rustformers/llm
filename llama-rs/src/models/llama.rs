@@ -64,7 +64,6 @@ impl Model for Llama {
     type HP = Hyperparameters;
 
     fn load(
-        &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress<Self::HP>),

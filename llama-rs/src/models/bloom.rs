@@ -14,7 +14,7 @@ use crate::mulf;
 // NOTE: Field order matters! Data is laid out in the file exactly
 // in this order.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-struct Hyperparameters {
+pub struct Hyperparameters {
     n_vocab: i32,
     n_ctx: i32,
     n_embd: i32,
@@ -47,7 +47,7 @@ struct Layer {
 
 /// The weights for the BLOOM model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
-struct BLOOM {
+pub struct BLOOM {
     hparams: Hyperparameters,
 
     tok_embeddings: ggml::Tensor,
@@ -73,7 +73,6 @@ impl Model for BLOOM {
     type HP = Hyperparameters;
 
     fn load(
-        &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress<Self::HP>),

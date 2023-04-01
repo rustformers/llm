@@ -1,8 +1,7 @@
-use std::path::PathBuf;
-
 use clap::Parser;
-use llama_rs::TokenBias;
+use llama_rs::common::token::TokenBias;
 use once_cell::sync::Lazy;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

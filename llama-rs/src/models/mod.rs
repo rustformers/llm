@@ -1,2 +1,2 @@
-mod bloom;
-mod llama;
+pub mod bloom;
+pub mod llama;

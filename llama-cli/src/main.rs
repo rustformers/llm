@@ -1,9 +1,10 @@
 use std::{convert::Infallible, io::Write, path::Path};
 
 use cli_args::CLI_ARGS;
+
 use llama_rs::{
-    InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters, Model,
-    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    common::{inference::*, load::*, model::*, token::*, vocabulary::*},
+    models::{bloom::BLOOM, llama::Llama},
 };
 
 use rand::{thread_rng, SeedableRng};
@@ -29,13 +30,14 @@ fn bloom_mode(
 
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) =
-                    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
+                    session
+                        .feed_prompt::<Infallible, BLOOM>(model, vocab, params, &prompt, |_| Ok(()))
                 {
                     log::error!("Prompt exceeds context window length.")
                 };
                 sp.stop();
 
-                let res = session.inference_with_prompt::<Infallible>(
+                let res = session.inference_with_prompt::<Infallible, BLOOM>(
                     model,
                     vocab,
                     params,
@@ -66,8 +68,8 @@ fn bloom_mode(
 
 fn repl_mode(
     prompt: &str,
-    model: &llama_rs::Model,
-    vocab: &llama_rs::Vocabulary,
+    model: &Llama,
+    vocab: &Vocabulary,
     params: &InferenceParameters,
     session_params: &InferenceSessionParameters,
 ) {
@@ -82,13 +84,14 @@ fn repl_mode(
 
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) =
-                    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
+                    session
+                        .feed_prompt::<Infallible, Llama>(model, vocab, params, &prompt, |_| Ok(()))
                 {
                     log::error!("Prompt exceeds context window length.")
                 };
                 sp.stop();
 
-                let res = session.inference_with_prompt::<Infallible>(
+                let res = session.inference_with_prompt::<Infallible, Llama>(
                     model,
                     vocab,
                     params,
@@ -209,9 +212,10 @@ fn main() {
     };
 
     let (model, vocab) =
-        llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
-            use llama_rs::LoadProgress;
-            match progress {
+        Llama::load(
+            &args.model_path,
+            args.num_ctx_tokens as i32,
+            |progress| match progress {
                 LoadProgress::HyperparametersLoaded(hparams) => {
                     log::debug!("Loaded HyperParams {hparams:#?}")
                 }
@@ -258,8 +262,8 @@ fn main() {
                         tensor_count
                     );
                 }
-            }
-        })
+            },
+        )
         .expect("Could not load model");
 
     log::info!("Model fully loaded!");
@@ -276,7 +280,7 @@ fn main() {
     };
 
     let (mut session, session_loaded) = {
-        fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
+        fn load_snapshot_from_disk(model: &Llama, path: &Path) -> InferenceSession {
             let snapshot = snapshot::load_from_disk(path);
             match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
                 Ok(session) => {
@@ -298,58 +302,55 @@ fn main() {
     };
 
     if args.bloom {
-        let (bloom_model, bloom_vocab) = llama_rs::bloom::Model::load(
+        let (bloom_model, bloom_vocab) = BLOOM::load(
             &args.model_path,
             args.num_ctx_tokens as i32,
-            |progress| {
-                use llama_rs::bloom::LoadProgress;
-                match progress {
-                    LoadProgress::HyperparametersLoaded(hparams) => {
-                        log::debug!("Loaded HyperParams {hparams:#?}")
+            |progress| match progress {
+                LoadProgress::HyperparametersLoaded(hparams) => {
+                    log::debug!("Loaded HyperParams {hparams:#?}")
+                }
+                LoadProgress::BadToken { index } => {
+                    log::info!("Warning: Bad token in vocab at index {index}")
+                }
+                LoadProgress::ContextSize { bytes } => log::info!(
+                    "ggml ctx size = {:.2} MB\n",
+                    bytes as f64 / (1024.0 * 1024.0)
+                ),
+                LoadProgress::MemorySize { bytes, n_mem } => log::info!(
+                    "Memory size: {} MB {}",
+                    bytes as f32 / 1024.0 / 1024.0,
+                    n_mem
+                ),
+                LoadProgress::PartLoading {
+                    file,
+                    current_part,
+                    total_parts,
+                } => log::info!(
+                    "Loading model part {}/{} from '{}'\n",
+                    current_part,
+                    total_parts,
+                    file.to_string_lossy(),
+                ),
+                LoadProgress::PartTensorLoaded {
+                    current_tensor,
+                    tensor_count,
+                    ..
+                } => {
+                    if current_tensor % 8 == 0 {
+                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
                     }
-                    LoadProgress::BadToken { index } => {
-                        log::info!("Warning: Bad token in vocab at index {index}")
-                    }
-                    LoadProgress::ContextSize { bytes } => log::info!(
-                        "ggml ctx size = {:.2} MB\n",
-                        bytes as f64 / (1024.0 * 1024.0)
-                    ),
-                    LoadProgress::MemorySize { bytes, n_mem } => log::info!(
-                        "Memory size: {} MB {}",
-                        bytes as f32 / 1024.0 / 1024.0,
-                        n_mem
-                    ),
-                    LoadProgress::PartLoading {
-                        file,
-                        current_part,
-                        total_parts,
-                    } => log::info!(
-                        "Loading model part {}/{} from '{}'\n",
-                        current_part,
-                        total_parts,
-                        file.to_string_lossy(),
-                    ),
-                    LoadProgress::PartTensorLoaded {
-                        current_tensor,
-                        tensor_count,
-                        ..
-                    } => {
-                        if current_tensor % 8 == 0 {
-                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                        }
-                    }
-                    LoadProgress::PartLoaded {
-                        file,
-                        byte_size,
-                        tensor_count,
-                    } => {
-                        log::info!("Loading of '{}' complete", file.to_string_lossy());
-                        log::info!(
-                            "Model size = {:.2} MB / num tensors = {}",
-                            byte_size as f64 / 1024.0 / 1024.0,
-                            tensor_count
-                        );
-                    }
+                }
+                LoadProgress::PartLoaded {
+                    file,
+                    byte_size,
+                    tensor_count,
+                } => {
+                    log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    log::info!(
+                        "Model size = {:.2} MB / num tensors = {}",
+                        byte_size as f64 / 1024.0 / 1024.0,
+                        tensor_count
+                    );
                 }
             },
         )
@@ -380,7 +381,7 @@ fn main() {
             inference_params
         };
 
-        let res = session.inference_with_prompt::<Infallible>(
+        let res = session.inference_with_prompt::<Infallible, Llama>(
             &model,
             &vocab,
             &inference_params,
@@ -398,13 +399,13 @@ fn main() {
 
         match res {
             Ok(_) => (),
-            Err(llama_rs::InferenceError::ContextFull) => {
+            Err(InferenceError::ContextFull) => {
                 log::warn!("Context window full, stopping inference.")
             }
-            Err(llama_rs::InferenceError::TokenizationFailed) => {
+            Err(InferenceError::TokenizationFailed) => {
                 log::error!("Failed to tokenize initial prompt.");
             }
-            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+            Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
         }
 
         if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
@@ -426,12 +427,14 @@ fn main() {
 }
 
 mod snapshot {
-    use llama_rs::{InferenceSnapshot, InferenceSnapshotRef, SnapshotError};
     use std::{
         fs::File,
         io::{BufReader, BufWriter},
         path::Path,
     };
+
+    use llama_rs::common::inference::{InferenceSnapshot, InferenceSnapshotRef, SnapshotError};
+
     use zstd::zstd_safe::CompressionLevel;
 
     const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
