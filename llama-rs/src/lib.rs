@@ -1482,7 +1482,7 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        for batch in prompt_tokens.chunks(8) {
+        for batch in prompt_tokens.chunks(params.n_batch) {
             model.evaluate(self, params, batch, &mut EvaluateOutputRequest::default());
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
