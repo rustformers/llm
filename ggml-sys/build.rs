@@ -16,6 +16,7 @@ fn main() {
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();
 
@@ -53,8 +54,23 @@ fn main() {
                 }
             }
         }
+        "aarch64" => {
+            if compiler.is_like_clang() || compiler.is_like_gnu() {
+                build.flag("-mcpu=native");
+                build.flag("-pthread");
+            }
+        }
         _ => {}
     }
+
+    match target_os.as_str() {
+        "macos" => {
+            build.define("GGML_USE_ACCELERATE", None);
+            println!("cargo:rustc-link-lib=framework=Accelerate");
+        }
+        _ => {}
+    }
+
     if is_release {
         build.define("NDEBUG", None);
     }

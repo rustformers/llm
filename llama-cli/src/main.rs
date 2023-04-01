@@ -97,7 +97,7 @@ fn main() {
     let args = &*CLI_ARGS;
 
     let inference_params = InferenceParameters {
-        n_threads: args.num_threads,
+        n_threads: args.num_threads(),
         n_batch: args.batch_size,
         top_k: args.top_k,
         top_p: args.top_p,
