@@ -2,16 +2,18 @@ use crate::ggml;
 
 use std::{
     collections::HashMap,
+    fs::File,
+    io::BufReader,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
-use crate::common::{inference::*, load::*, model::*, token::*, vocabulary::*};
+use crate::common::{helpers::*, inference::*, load::*, model::*, token::*, vocabulary::*};
 use crate::mulf;
 
 // NOTE: Field order matters! Data is laid out in the file exactly
 // in this order.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 struct Hyperparameters {
     n_vocab: i32,
     n_ctx: i32,
@@ -70,17 +72,13 @@ impl Model for BLOOM {
     type Weights = BLOOM;
     type HP = Hyperparameters;
 
-    fn load<'a>(
+    fn load(
         &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
-        load_progress_callback: impl Fn(LoadProgress<'a, Self::HP>),
-    ) -> Result<(Self::Weights, Vocabulary), LoadError>
-    where
-        Self::HP: 'a,
-    {
-        use std::fs::File;
-        use std::io::BufReader;
+        load_progress_callback: impl Fn(LoadProgress<Self::HP>),
+    ) -> Result<(Self::Weights, Vocabulary), LoadError> {
+        // Load model
 
         let main_path = path.as_ref();
 
@@ -91,42 +89,6 @@ impl Model for BLOOM {
                     path: main_path.to_owned(),
                 })?,
             );
-
-        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
-            let mut bytes = [0u8; N];
-            reader
-                .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: N,
-                })?;
-            Ok(bytes)
-        }
-
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
-            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
-            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
-            let mut buf = vec![0; len];
-            reader
-                .read_exact(&mut buf)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: buf.len(),
-                })?;
-            let s = String::from_utf8(buf)?;
-            Ok(s)
-        }
 
         // Verify magic
         let is_legacy_model: bool = match read_i32(&mut reader)? {
@@ -168,7 +130,7 @@ impl Model for BLOOM {
 
         let n_parts = 1;
 
-        load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
+        load_progress_callback(LoadProgress::HyperparametersLoaded(hparams));
 
         // ===============
         // Load vocabulary
@@ -414,7 +376,7 @@ impl Model for BLOOM {
             let part_id = i;
 
             load_progress_callback(LoadProgress::PartLoading {
-                file: &part_path,
+                file: part_path.to_path_buf().into(),
                 current_part: i + 1,
                 total_parts: n_parts,
             });
@@ -451,7 +413,7 @@ impl Model for BLOOM {
 
                 let Some(tensor) = model.tensors.get(&tensor_name)
                     else {
-                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
+                        return Err(LoadError::UnknownTensor { tensor_name, path: part_path.to_path_buf() });
                     };
 
                 // split_type = 0: split by columns
@@ -492,13 +454,13 @@ impl Model for BLOOM {
                     if tensor.nelements() != nelements {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
-                            path: part_path,
+                            path: part_path.to_path_buf(),
                         });
                     }
                 } else if tensor.nelements() / i32::try_from(n_parts)? != nelements {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
 
@@ -506,7 +468,7 @@ impl Model for BLOOM {
                     if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
-                            path: part_path,
+                            path: part_path.to_path_buf(),
                         });
                     }
                 } else if split_type == 0 {
@@ -515,7 +477,7 @@ impl Model for BLOOM {
                     {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
-                            path: part_path,
+                            path: part_path.to_path_buf(),
                         });
                     }
                 } else if tensor.get_ne()[0] != ne[0]
@@ -523,7 +485,7 @@ impl Model for BLOOM {
                 {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
 
@@ -541,7 +503,7 @@ impl Model for BLOOM {
                     _ => {
                         return Err(LoadError::InvalidFtype {
                             ftype,
-                            path: part_path,
+                            path: part_path.to_path_buf(),
                         })
                     }
                 };
@@ -552,7 +514,7 @@ impl Model for BLOOM {
                     {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
-                            path: part_path,
+                            path: part_path.to_path_buf(),
                         });
                     }
 
@@ -575,7 +537,7 @@ impl Model for BLOOM {
                     {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
-                            path: part_path,
+                            path: part_path.to_path_buf(),
                         });
                     }
 
@@ -626,14 +588,14 @@ impl Model for BLOOM {
 
                 n_tensors += 1;
                 load_progress_callback(LoadProgress::PartTensorLoaded {
-                    file: &part_path,
+                    file: part_path.clone().into_boxed_path(),
                     current_tensor: n_tensors.try_into()?,
                     tensor_count: model.tensors.len(),
                 });
             }
 
             load_progress_callback(LoadProgress::PartLoaded {
-                file: &part_path,
+                file: part_path.into_boxed_path(),
                 byte_size: total_size,
                 tensor_count: n_tensors.try_into()?,
             });

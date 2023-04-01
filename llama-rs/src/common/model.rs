@@ -24,15 +24,12 @@ pub trait Model {
     type Weights;
     type HP;
 
-
-    fn load<'a>(
+    fn load(
         &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
-        load_progress_callback: impl Fn(LoadProgress<'a, Self::HP>),
-    ) -> Result<(Self::Weights, Vocabulary), LoadError>
-    where
-        Self::HP: 'a;
+        load_progress_callback: impl Fn(LoadProgress<Self::HP>),
+    ) -> Result<(Self::Weights, Vocabulary), LoadError>;
 
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;

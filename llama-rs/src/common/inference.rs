@@ -192,9 +192,9 @@ impl InferenceSession {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence)?;
 
-        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
-        }
+        //if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
+        //return Err(InferenceError::ContextFull);
+        //}
 
         for batch in prompt_tokens.chunks(8) {
             model.evaluate(self, params, batch, &mut EvaluateOutputRequest::default());
@@ -220,12 +220,9 @@ impl InferenceSession {
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<OutputToken<'v>, InferenceError> {
-
-
-
-        if self.n_past + 1 >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
-        }
+        //if self.n_past + 1 >= model.hparams.n_ctx as usize {
+        //return Err(InferenceError::ContextFull);
+        //}
 
         // First, sample the next token, using the stored last_logits;
         let next_token = model.sample_top_p_top_k(self, params, rng);

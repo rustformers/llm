@@ -4,8 +4,8 @@ use thiserror::Error;
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum LoadProgress<'a, T> {
-    HyperparametersLoaded(&'a T),
+pub enum LoadProgress<T> {
+    HyperparametersLoaded(T),
     BadToken {
         index: usize,
     },
@@ -17,17 +17,17 @@ pub enum LoadProgress<'a, T> {
         n_mem: usize,
     },
     PartLoading {
-        file: &'a Path,
+        file: Box<Path>,
         current_part: usize,
         total_parts: usize,
     },
     PartTensorLoaded {
-        file: &'a Path,
+        file: Box<Path>,
         current_tensor: usize,
         tensor_count: usize,
     },
     PartLoaded {
-        file: &'a Path,
+        file: Box<Path>,
         byte_size: usize,
         tensor_count: usize,
     },

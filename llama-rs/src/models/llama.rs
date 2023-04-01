@@ -1,16 +1,17 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, Read, Seek, SeekFrom},
+    fs::File,
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
-use crate::common::{inference::*, load::*, model::*, token::*, vocabulary::*};
+use crate::common::{helpers::*, inference::*, load::*, model::*, token::*, vocabulary::*};
 use crate::ggml;
 use crate::mulf;
 
 // NOTE: Field order matters! Data is laid out in the file exactly
 // in this order.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Hyperparameters {
     n_vocab: i32,
     n_ctx: i32,
@@ -62,18 +63,12 @@ impl Model for Llama {
     type Weights = Llama;
     type HP = Hyperparameters;
 
-    fn load<'a>(
+    fn load(
         &self,
         path: impl AsRef<Path>,
         n_ctx: i32,
-        load_progress_callback: impl Fn(LoadProgress<'a, Self::HP>),
-    ) -> Result<(Self::Weights, Vocabulary), LoadError>
-    where
-        Self::HP: 'a,
-    {
-        use std::fs::File;
-        use std::io::BufReader;
-
+        load_progress_callback: impl Fn(LoadProgress<Self::HP>),
+    ) -> Result<(Self::Weights, Vocabulary), LoadError> {
         let main_path = path.as_ref();
 
         let mut reader =
@@ -83,42 +78,6 @@ impl Model for Llama {
                     path: main_path.to_owned(),
                 })?,
             );
-
-        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
-            let mut bytes = [0u8; N];
-            reader
-                .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: N,
-                })?;
-            Ok(bytes)
-        }
-
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
-            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
-            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
-            let mut buf = vec![0; len];
-            reader
-                .read_exact(&mut buf)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: buf.len(),
-                })?;
-            let s = String::from_utf8(buf)?;
-            Ok(s)
-        }
 
         // Verify magic
         let is_legacy_model: bool = match read_i32(&mut reader)? {
@@ -139,7 +98,6 @@ impl Model for Llama {
                 version => return Err(LoadError::InvalidFormatVersion { value: version }),
             };
         }
-
         // =================
         // Load hyper params
         // =================
@@ -160,7 +118,7 @@ impl Model for Llama {
         let n_ff =
             ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
 
-        load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
+        load_progress_callback(LoadProgress::HyperparametersLoaded(hparams));
 
         // ===============
         // Load vocabulary
@@ -359,7 +317,7 @@ impl Model for Llama {
             let part_id = i;
 
             load_progress_callback(LoadProgress::PartLoading {
-                file: &part_path,
+                file: part_path.clone().into_boxed_path(),
                 current_part: i + 1,
                 total_parts: n_parts,
             });
@@ -571,14 +529,14 @@ impl Model for Llama {
 
                 n_tensors += 1;
                 load_progress_callback(LoadProgress::PartTensorLoaded {
-                    file: &part_path,
+                    file: part_path.clone().into_boxed_path(),
                     current_tensor: n_tensors.try_into()?,
                     tensor_count: model.tensors.len(),
                 });
             }
 
             load_progress_callback(LoadProgress::PartLoaded {
-                file: &part_path,
+                file: part_path.into_boxed_path(),
                 byte_size: total_size,
                 tensor_count: n_tensors.try_into()?,
             });
@@ -586,7 +544,6 @@ impl Model for Llama {
 
         Ok((model, vocab))
     }
-
 
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         let Hyperparameters {
@@ -634,7 +591,6 @@ impl Model for Llama {
             last_logits: vec![0.0; n_vocab as usize],
         }
     }
-
 
     /// Evaluates the transformer.
     ///
