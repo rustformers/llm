@@ -3,18 +3,44 @@ use crate::ggml::{
 };
 use crate::{Hyperparameters, LoadError, Vocabulary};
 use half::f16;
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
 const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
 
-pub fn llama_model_quantize(
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
+pub enum QuantizeLoadProgress<'a> {
+    HyperparametersLoaded(&'a Hyperparameters),
+    LoadingWeight {
+        name: &'a str,
+        size: [i32; 2],
+        elements: i32,
+        ftype: &'a str,
+    },
+    Quantizing,
+    Quantized {
+        original_size: f32,
+        reduced_size: f32,
+        history: Vec<f32>,
+    },
+    Skipped {
+        size: f32,
+    },
+    Finished {
+        original_size: f32,
+        reduced_size: f32,
+        history: Vec<f32>,
+    },
+}
+
+pub fn quantize(
     file_name_in: impl AsRef<Path>,
     file_name_out: impl AsRef<Path>,
     itype: u8,
     qk: u8,
+    load_progress_callback: impl Fn(QuantizeLoadProgress),
 ) -> Result<(), LoadError> {
+    use crate::file::*;
+
     if itype != 2 && itype != 3 {
         return Err(LoadError::InvalidItype(itype));
     }
@@ -36,10 +62,7 @@ pub fn llama_model_quantize(
 
     // Verify magic
     {
-        let mut magic_buffer: [u8; 4] = [0; 4];
-        finp.read_exact(&mut magic_buffer)?;
-
-        let magic = u32::from_le_bytes(magic_buffer);
+        let magic = rw_u32(&mut finp, &mut fout)?;
         if magic == FILE_MAGIC_UNVERSIONED {
             return Err(LoadError::UnversionedMagic);
         }
@@ -49,62 +72,27 @@ pub fn llama_model_quantize(
             });
         }
 
-        fout.write_all(&magic_buffer)?;
-
-        let mut version_buffer: [u8; 4] = [0; 4];
-        finp.read_exact(&mut version_buffer)?;
-
-        let format_version = u32::from_le_bytes(version_buffer);
-
+        let format_version = rw_u32(&mut finp, &mut fout)?;
         if format_version != FORMAT_VERSION {
             return Err(LoadError::InvalidFormatVersion {
                 value: format_version,
             });
         }
-
-        fout.write_all(&version_buffer)?;
     }
 
     let mut hparams = Hyperparameters::default();
 
     // Load parameters
     {
-        let mut buffer: [u8; 4] = [0; 4];
-        finp.read_exact(&mut buffer)?;
-        hparams.n_vocab = i32::from_le_bytes(buffer);
-        println!("n_vocab: {}", hparams.n_vocab);
-        fout.write_all(&buffer)?;
-
-        finp.read_exact(&mut buffer)?;
-        hparams.n_embd = i32::from_le_bytes(buffer);
-        println!("n_embd: {}", hparams.n_embd);
-        fout.write_all(&buffer)?;
-
-        finp.read_exact(&mut buffer)?;
-        hparams.n_mult = i32::from_le_bytes(buffer);
-        println!("n_mult: {}", hparams.n_mult);
-        fout.write_all(&buffer)?;
-
-        finp.read_exact(&mut buffer)?;
-        hparams.n_head = i32::from_le_bytes(buffer);
-        println!("n_head: {}", hparams.n_head);
-        fout.write_all(&buffer)?;
-
-        finp.read_exact(&mut buffer)?;
-        hparams.n_layer = i32::from_le_bytes(buffer);
-        println!("n_layer: {}", hparams.n_layer);
-        fout.write_all(&buffer)?;
-
-        finp.read_exact(&mut buffer)?;
-        hparams.n_rot = i32::from_le_bytes(buffer);
-        println!("n_rot: {}", hparams.n_rot);
-        fout.write_all(&buffer)?;
-
-        finp.read_exact(&mut buffer)?;
-        hparams.f16_ = i32::from_le_bytes(buffer);
-        println!("f16_: {}", hparams.f16_);
-        fout.write_all(&(itype as i32).to_le_bytes())?;
+        hparams.n_vocab = rw_i32(&mut finp, &mut fout)?;
+        hparams.n_embd = rw_i32(&mut finp, &mut fout)?;
+        hparams.n_mult = rw_i32(&mut finp, &mut fout)?;
+        hparams.n_head = rw_i32(&mut finp, &mut fout)?;
+        hparams.n_layer = rw_i32(&mut finp, &mut fout)?;
+        hparams.n_rot = rw_i32(&mut finp, &mut fout)?;
+        hparams.f16_ = rw_i32(&mut finp, &mut fout)?;
     }
+    load_progress_callback(QuantizeLoadProgress::HyperparametersLoaded(&hparams));
 
     // load vocab
     let mut vocab = Vocabulary {
@@ -114,31 +102,14 @@ pub fn llama_model_quantize(
         max_token_length: 0,
     };
 
-    {
-        let n_vocab = hparams.n_vocab;
+    for i in 0..hparams.n_vocab {
+        let len = rw_u32(&mut finp, &mut fout)? as usize;
+        let word = rw_string(&mut finp, &mut fout, len)?;
+        let score = rw_f32(&mut finp, &mut fout)?;
 
-        for i in 0..n_vocab {
-            let mut len_buffer = [0u8; 4];
-            finp.read_exact(&mut len_buffer)?;
-            fout.write_all(&len_buffer)?;
-            let len = u32::from_le_bytes(len_buffer) as usize;
-
-            let mut word_buffer = vec![0u8; len];
-            finp.read_exact(word_buffer.as_mut_slice())?;
-            fout.write_all(&word_buffer)?;
-
-            let word = String::from_utf8_lossy(&word_buffer).to_string();
-
-            let mut score_buffer = [0u8; 4];
-            finp.read_exact(&mut score_buffer)?;
-            fout.write_all(&score_buffer)?;
-            let score = f32::from_le_bytes(score_buffer);
-
-            vocab.token_to_id.insert(word.clone(), i);
-
-            vocab.id_to_token.push(word);
-            vocab.id_to_token_score.push(score);
-        }
+        vocab.token_to_id.insert(word.clone(), i);
+        vocab.id_to_token.push(word);
+        vocab.id_to_token_score.push(score);
     }
 
     // Load weights
@@ -155,43 +126,42 @@ pub fn llama_model_quantize(
         let mut hist_all: Vec<i64> = vec![0; 16];
 
         loop {
-            let mut buffer = [0u8; 4];
-            if finp.read_exact(&mut buffer).is_err() {
+            let n_dims: i32;
+            if let Ok(r) = read_i32(&mut finp) {
+                n_dims = r;
+            } else {
                 break;
-            };
-            let n_dims = i32::from_le_bytes(buffer);
+            }
 
-            if finp.read_exact(&mut buffer).is_err() {
+            let length: usize;
+            if let Ok(r) = read_i32(&mut finp) {
+                length = r as usize;
+            } else {
                 break;
-            };
-            let length = i32::from_le_bytes(buffer) as usize;
+            }
 
-            if finp.read_exact(&mut buffer).is_err() {
+            let mut ftype: i32;
+            if let Ok(r) = read_i32(&mut finp) {
+                ftype = r;
+            } else {
                 break;
-            };
-            let mut ftype = i32::from_le_bytes(buffer) as usize;
-
-            println!("n_dims: {}, length: {}, ftype: {} ", n_dims, length, ftype);
+            }
 
             let mut nelements = 1i32;
             let mut ne = [1i32, 1i32];
             for i in 0..n_dims {
-                finp.read_exact(&mut buffer)?;
-                ne[i as usize] = i32::from_le_bytes(buffer);
+                ne[i as usize] = read_i32(&mut finp)?;
                 nelements *= ne[i as usize];
             }
 
-            let mut name_buffer = vec![0u8; length];
-            finp.read_exact(&mut name_buffer)?;
-            let name = String::from_utf8(name_buffer)?;
-            println!("Nelements: {}", nelements);
-            print!(
-                "{:>48} - [{:>5}, {:>5}], type = {:>6}",
-                format!("'{}'", name),
-                ne[0],
-                ne[1],
-                FTYPE_STR[ftype]
-            );
+            let name = read_string(&mut finp, length)?;
+
+            load_progress_callback(QuantizeLoadProgress::LoadingWeight {
+                name: &name,
+                size: ne,
+                elements: nelements,
+                ftype: FTYPE_STR[ftype as usize],
+            });
 
             // Quantize only 2D tensors
             let quantize = name.contains("weight") && n_dims == 2;
@@ -199,7 +169,7 @@ pub fn llama_model_quantize(
             if quantize {
                 if ftype != 0 && ftype != 1 {
                     return Err(LoadError::InvalidFtype {
-                        ftype: ftype as i32,
+                        ftype,
                         path: file_in.to_owned(),
                     });
                 }
@@ -228,7 +198,7 @@ pub fn llama_model_quantize(
                     }
                 }
 
-                ftype = itype as usize;
+                ftype = itype as i32;
             } else {
                 // Determines the total bytes were dealing with
                 let bpe = (nelements * if ftype == 0 { 4 } else { 2 }) as usize;
@@ -240,9 +210,7 @@ pub fn llama_model_quantize(
             // Write data
             fout.write_all(&n_dims.to_le_bytes())?;
             fout.write_all(&(length as i32).to_le_bytes())?;
-            println!(" new ftype: {}", ftype);
-            println!("{:?}", name.as_bytes());
-            fout.write_all(&(ftype as i32).to_le_bytes())?;
+            fout.write_all(&(ftype).to_le_bytes())?;
 
             for i in 0..n_dims {
                 fout.write_all(&ne[i as usize].to_le_bytes())?;
@@ -250,7 +218,7 @@ pub fn llama_model_quantize(
             fout.write_all(name.as_bytes())?;
 
             if quantize {
-                print!("quantizing .. ");
+                load_progress_callback(QuantizeLoadProgress::Quantizing);
                 work.resize(nelements as usize, 0.0);
 
                 let mut hist_cur = vec![0; 16];
@@ -282,45 +250,37 @@ pub fn llama_model_quantize(
 
                 total_size_new += curr_size;
 
-                print!(
-                    "size = {:>8.2} MB -> {:>8.2} MB | hist: ",
-                    nelements as f32 * 4.0 / 1024.0 / 1024.0,
-                    curr_size as f32 / 1024.0 / 1024.0
-                );
-
+                let mut new_hist = vec![];
                 for (i, val) in hist_cur.iter().enumerate() {
                     hist_all[i] += val;
-                    print!("{:>5.3} ", *val as f32 / nelements as f32);
+                    new_hist.push(*val as f32 / nelements as f32);
                 }
-                println!();
+
+                load_progress_callback(QuantizeLoadProgress::Quantized {
+                    original_size: nelements as f32 * 4.0 / 1024.0 / 1024.0,
+                    reduced_size: curr_size as f32 / 1024.0 / 1024.0,
+                    history: new_hist,
+                });
             } else {
                 fout.write_all(&data_u8)?;
-                println!("size = {:>8.3} MB", data_u8.len() as f64 / 1024.0 / 1024.0);
+                load_progress_callback(QuantizeLoadProgress::Skipped {
+                    size: data_u8.len() as f32 / 1024.0 / 1024.0,
+                });
                 total_size_new += data_u8.len();
             }
 
             total_size_org += (nelements * 4) as usize;
         }
 
-        println!(
-            "model size: {:>8.2}",
-            total_size_org as f32 / 1024.0 / 1024.0
-        );
-
-        println!(
-            "quant size: {:>8.2}",
-            total_size_new as f32 / 1024.0 / 1024.0
-        );
-
-        {
-            let sum_all: i64 = hist_all.iter().sum();
-
-            print!("hist: ");
-            for hist in hist_all {
-                print!("{:>5.3} ", hist as f32 / sum_all as f32);
-            }
-            println!();
-        }
+        let sum_all: i64 = hist_all.iter().sum();
+        load_progress_callback(QuantizeLoadProgress::Finished {
+            original_size: total_size_org as f32 / 1024.0 / 1024.0,
+            reduced_size: total_size_new as f32 / 1024.0 / 1024.0,
+            history: hist_all
+                .iter()
+                .map(|hist| *hist as f32 / sum_all as f32)
+                .collect(),
+        })
     }
 
     Ok(())

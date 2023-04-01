@@ -1,3 +1,4 @@
+mod file;
 mod ggml;
 mod quantize;
 
@@ -15,7 +16,7 @@ use thiserror::Error;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
-pub use quantize::llama_model_quantize;
+pub use quantize::{quantize, QuantizeLoadProgress};
 pub const EOD_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -424,6 +425,7 @@ impl Model {
         n_ctx: i32,
         load_progress_callback: impl Fn(LoadProgress),
     ) -> Result<(Model, Vocabulary), LoadError> {
+        use crate::file::{read_f32, read_i32, read_string, read_u32};
         use std::fs::File;
         use std::io::BufReader;
 
@@ -436,42 +438,6 @@ impl Model {
                     path: main_path.to_owned(),
                 })?,
             );
-
-        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
-            let mut bytes = [0u8; N];
-            reader
-                .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: N,
-                })?;
-            Ok(bytes)
-        }
-
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
-            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
-            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
-            let mut buf = vec![0; len];
-            reader
-                .read_exact(&mut buf)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: buf.len(),
-                })?;
-            let s = String::from_utf8(buf)?;
-            Ok(s)
-        }
 
         // Verify magic
         let is_legacy_model: bool = match read_u32(&mut reader)? {
