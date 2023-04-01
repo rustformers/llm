@@ -15,7 +15,6 @@ fn repl_mode(
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
-    session_params: &InferenceSessionParameters,
     mut session: InferenceSession,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
@@ -158,7 +157,7 @@ fn main() {
         use llama_rs::LoadProgress;
         match progress {
             LoadProgress::HyperparametersLoaded(hparams) => {
-                log::debug!("Loaded HyperParams {hparams:#?}")
+                log::debug!("Loaded hyperparameters {hparams:#?}")
             }
             LoadProgress::BadToken { index } => {
                 log::info!("Warning: Bad token in vocab at index {index}")
@@ -242,14 +241,7 @@ fn main() {
     };
 
     if args.repl {
-        repl_mode(
-            &prompt,
-            &model,
-            &vocab,
-            &inference_params,
-            &inference_session_params,
-            session,
-        );
+        repl_mode(&prompt, &model, &vocab, &inference_params, session);
     } else {
         let inference_params = if session_loaded {
             InferenceParameters {

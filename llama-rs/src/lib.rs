@@ -108,14 +108,8 @@ impl InferenceSession {
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
         let context = ggml::Context::init(self.memory_size);
-        let memory_k = context.new_tensor_1d(
-            self.memory_k.get_type(),
-            self.memory_k.get_ne()[0].try_into().unwrap(),
-        );
-        let memory_v = context.new_tensor_1d(
-            self.memory_v.get_type(),
-            self.memory_v.get_ne()[0].try_into().unwrap(),
-        );
+        let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
+        let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 
         Self {
             _session_ctx: context,

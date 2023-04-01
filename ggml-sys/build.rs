@@ -58,6 +58,7 @@ fn main() {
     if is_release {
         build.define("NDEBUG", None);
     }
+    build.warnings(false);
     build.compile("ggml");
 }
 
