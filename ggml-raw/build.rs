@@ -51,6 +51,9 @@ fn main() {
                 }
             }
         }
+         "apple" | "aarch64" => {
+            build.flag("-march=armv8-a");
+        }
         _ => {}
     }
     if is_release {
