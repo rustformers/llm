@@ -63,6 +63,7 @@ fn main() {
         _ => {}
     }
 
+    #[allow(clippy::single_match)]
     match target_os.as_str() {
         "macos" => {
             build.define("GGML_USE_ACCELERATE", None);
