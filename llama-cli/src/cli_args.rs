@@ -14,11 +14,17 @@ pub struct Args {
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
 
-    /// A file to read the prompt from. Takes precedence over `prompt` if set.
+    /// A file to read the prompt from.
+    ///
+    /// If used with `--prompt`/`-p`, the prompt from the file will be used
+    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'f', default_value = None)]
     pub prompt_file: Option<String>,
 
     /// Run in REPL mode.
+    ///
+    /// If used with `--prompt`/`-p`, the prompt from the file will be used
+    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'R', default_value_t = false)]
     pub repl: bool,
 
@@ -27,8 +33,8 @@ pub struct Args {
     pub bloom: bool,
 
     /// Sets the number of threads to use
-    #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]
-    pub num_threads: usize,
+    #[arg(long, short = 't')]
+    pub num_threads: Option<usize>,
 
     /// Sets how many tokens to predict
     #[arg(long, short = 'n')]
@@ -114,10 +120,29 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub ignore_eos: bool,
 
-    /// Dumps the prompt to console and exits, first as a comma seperated list of token IDs
-    /// and then as a list of comma seperated string keys and token ID values.
+    /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
+    /// and then as a list of comma-separated string keys and token ID values.
+    ///
+    /// This will only work in non-`--repl` mode.
     #[arg(long, default_value_t = false)]
     pub dump_prompt_tokens: bool,
+}
+impl Args {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn num_threads(&self) -> usize {
+        std::process::Command::new("sysctl")
+            .arg("-n")
+            .arg("hw.perflevel0.physicalcpu")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok()?.trim().parse().ok())
+            .unwrap_or(num_cpus::get_physical())
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    pub(crate) fn num_threads(&self) -> usize {
+        num_cpus::get_physical()
+    }
 }
 
 fn parse_bias(s: &str) -> Result<TokenBias, String> {

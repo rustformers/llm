@@ -17,15 +17,14 @@ fn bloom_mode(
     model: &BLOOM,
     vocab: &Vocabulary,
     params: &InferenceParameters,
-    session_params: &InferenceSessionParameters,
+    mut session: InferenceSession,
 ) {
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let mut session = model.start_session(*session_params);
-                let prompt = prompt.replace("$PROMPT", &line);
+                let prompt = process_prompt(raw_prompt, &line);
                 let mut rng = thread_rng();
 
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
@@ -155,16 +154,16 @@ fn main() {
 
     let args = &*CLI_ARGS;
 
-    let inference_params: InferenceParameters = InferenceParameters {
-        n_threads: args.num_threads as i32,
+    let inference_params = InferenceParameters {
+        n_threads: args.num_threads(),
         n_batch: args.batch_size,
         top_k: args.top_k,
         top_p: args.top_p,
         repeat_penalty: args.repeat_penalty,
-        temp: args.temp,
+        temperature: args.temp,
         bias_tokens: args.token_bias.clone().unwrap_or_else(|| {
             if args.ignore_eos {
-                TokenBias::new(vec![(EOD_TOKEN_ID, -1.0)])
+                TokenBias::new(vec![(EOT_TOKEN_ID, -1.0)])
             } else {
                 TokenBias::default()
             }
@@ -185,7 +184,7 @@ fn main() {
         }
     };
 
-    let prompt = if let Some(path) = &args.prompt_file {
+    let raw_prompt = if let Some(path) = &args.prompt_file {
         match std::fs::read_to_string(path) {
             Ok(mut prompt) => {
                 // Strip off the last character if it's exactly newline. Also strip off a single
@@ -333,41 +332,129 @@ fn main() {
                     current_part,
                     total_parts,
                     file.to_string_lossy(),
-                ),
-                LoadProgress::PartTensorLoaded {
-                    current_tensor,
-                    tensor_count,
-                    ..
-                } => {
-                    if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                )
+            }
+            LoadProgress::PartTensorLoaded {
+                current_tensor,
+                tensor_count,
+                ..
+            } => {
+                let current_tensor = current_tensor + 1;
+                if current_tensor % 8 == 0 {
+                    log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                }
+            }
+            LoadProgress::PartLoaded {
+                file,
+                byte_size,
+                tensor_count,
+            } => {
+                log::info!("Loading of '{}' complete", file.to_string_lossy());
+                log::info!(
+                    "Model size = {:.2} MB / num tensors = {}",
+                    byte_size as f64 / 1024.0 / 1024.0,
+                    tensor_count
+                );
+            }
+        }
+    })
+    .expect("Could not load model");
+
+    log::info!("Model fully loaded!");
+
+    let mut rng = if let Some(seed) = CLI_ARGS.seed {
+        rand::rngs::StdRng::seed_from_u64(seed)
+    } else {
+        rand::rngs::StdRng::from_entropy()
+    };
+
+    let (mut session, session_loaded) = {
+        fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
+            let snapshot = snapshot::load_from_disk(path);
+            match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+                Ok(session) => {
+                    log::info!("Loaded inference session from {path:?}");
+                    session
+                }
+                Err(err) => {
+                    eprintln!("Could not load inference session. Error: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        match (&args.persist_session, &args.load_session) {
+            (Some(path), _) if path.exists() => (load_snapshot_from_disk(&model, path), true),
+            (_, Some(path)) => (load_snapshot_from_disk(&model, path), true),
+            _ => (model.start_session(inference_session_params), false),
+        }
+    };
+
+    if args.repl {
+        repl_mode(&raw_prompt, &model, &vocab, &inference_params, session);
+    } else {
+        let prompt = match (&args.prompt_file, &args.prompt) {
+            (Some(_), Some(prompt)) => process_prompt(&raw_prompt, prompt),
+            _ => raw_prompt,
+        };
+
+        if args.dump_prompt_tokens {
+            dump_tokens(&prompt, &vocab).ok();
+            return;
+        }
+
+        let inference_params = if session_loaded {
+            InferenceParameters {
+                play_back_previous_tokens: true,
+                ..inference_params
+            }
+        } else {
+            inference_params
+        };
+
+        let res = session.inference_with_prompt::<Infallible>(
+            &model,
+            &vocab,
+            &inference_params,
+            &prompt,
+            args.num_predict,
+            &mut rng,
+            |t| {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
+
+                Ok(())
+            },
+        );
+        println!();
+
+        match res {
+            Ok(_) => (),
+            Err(llama_rs::InferenceError::ContextFull) => {
+                log::warn!("Context window full, stopping inference.")
+            }
+            Err(llama_rs::InferenceError::TokenizationFailed) => {
+                log::error!("Failed to tokenize initial prompt.");
+            }
+            Err(llama_rs::InferenceError::UserCallback(_))
+            | Err(llama_rs::InferenceError::EndOfText) => unreachable!("cannot fail"),
+        }
+
+        if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
+            // Write the memory to the cache file
+            // SAFETY: no other model functions used inside the block
+            unsafe {
+                match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
+                    Ok(_) => {
+                        log::info!("Successfully wrote session to {session_path:?}");
+                    }
+                    Err(err) => {
+                        log::error!("Could not write session at {session_path:?}: {err}");
+                        std::process::exit(1);
                     }
                 }
-                LoadProgress::PartLoaded {
-                    file,
-                    byte_size,
-                    tensor_count,
-                } => {
-                    log::info!("Loading of '{}' complete", file.to_string_lossy());
-                    log::info!(
-                        "Model size = {:.2} MB / num tensors = {}",
-                        byte_size as f64 / 1024.0 / 1024.0,
-                        tensor_count
-                    );
-                }
-            },
-        )
-        .expect("Could not load model");
-
-        bloom_mode(
-            &prompt,
-            &bloom_model,
-            &bloom_vocab,
-            &inference_params,
-            &inference_session_params,
-        );
-    } else {
-        println!("hi");
+            }
+        }
     }
 
     //else if args.repl {
@@ -464,4 +551,8 @@ mod snapshot {
 
         snap.write(&mut writer)
     }
+}
+
+fn process_prompt(raw_prompt: &str, prompt: &str) -> String {
+    raw_prompt.replace("{{PROMPT}}", prompt)
 }

@@ -5,6 +5,8 @@ fn main() {
     // the host and target are the same. If they are not, it will turn off auto-feature-detection,
     // and you will need to manually specify target features through target-features.
 
+    println!("cargo:rerun-if-changed=ggml");
+
     let ggml_src = ["ggml/ggml.c"];
 
     let mut builder = cc::Build::new();
@@ -14,6 +16,7 @@ fn main() {
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();
 
@@ -51,14 +54,28 @@ fn main() {
                 }
             }
         }
-         "apple" | "aarch64" => {
-            build.flag("-march=armv8-a");
+        "aarch64" => {
+            if compiler.is_like_clang() || compiler.is_like_gnu() {
+                build.flag("-mcpu=native");
+                build.flag("-pthread");
+            }
         }
         _ => {}
     }
+
+    #[allow(clippy::single_match)]
+    match target_os.as_str() {
+        "macos" => {
+            build.define("GGML_USE_ACCELERATE", None);
+            println!("cargo:rustc-link-lib=framework=Accelerate");
+        }
+        _ => {}
+    }
+
     if is_release {
         build.define("NDEBUG", None);
     }
+    build.warnings(false);
     build.compile("ggml");
 }
 
