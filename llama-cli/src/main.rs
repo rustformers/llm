@@ -11,7 +11,7 @@ use rustyline::error::ReadlineError;
 mod cli_args;
 
 fn repl_mode(
-    prompt: &str,
+    raw_prompt: &str,
     model: &llama_rs::Model,
     vocab: &llama_rs::Vocabulary,
     params: &InferenceParameters,
@@ -22,7 +22,7 @@ fn repl_mode(
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let prompt = prompt.replace("$PROMPT", &line);
+                let prompt = process_prompt(raw_prompt, &line);
                 let mut rng = thread_rng();
 
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
@@ -126,7 +126,7 @@ fn main() {
         }
     };
 
-    let prompt = if let Some(path) = &args.prompt_file {
+    let raw_prompt = if let Some(path) = &args.prompt_file {
         match std::fs::read_to_string(path) {
             Ok(mut prompt) => {
                 // Strip off the last character if it's exactly newline. Also strip off a single
@@ -207,11 +207,6 @@ fn main() {
 
     log::info!("Model fully loaded!");
 
-    if args.dump_prompt_tokens {
-        dump_tokens(&prompt, &vocab).ok();
-        return;
-    }
-
     let mut rng = if let Some(seed) = CLI_ARGS.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
     } else {
@@ -241,8 +236,18 @@ fn main() {
     };
 
     if args.repl {
-        repl_mode(&prompt, &model, &vocab, &inference_params, session);
+        repl_mode(&raw_prompt, &model, &vocab, &inference_params, session);
     } else {
+        let prompt = match (&args.prompt_file, &args.prompt) {
+            (Some(_), Some(prompt)) => process_prompt(&raw_prompt, prompt),
+            _ => raw_prompt,
+        };
+
+        if args.dump_prompt_tokens {
+            dump_tokens(&prompt, &vocab).ok();
+            return;
+        }
+
         let inference_params = if session_loaded {
             InferenceParameters {
                 play_back_previous_tokens: true,
@@ -327,4 +332,8 @@ mod snapshot {
 
         snap.write(&mut writer)
     }
+}
+
+fn process_prompt(raw_prompt: &str, prompt: &str) -> String {
+    raw_prompt.replace("{{PROMPT}}", prompt)
 }
