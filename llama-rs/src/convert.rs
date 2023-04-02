@@ -1,4 +1,8 @@
 //! Convert a model from `pth` to `ggml` format.
+//!
+//! This is *incomplete* and does not convert the weights. It only converts the
+//! vocabulary and hyperparameters. It is included as a preliminary step to
+//! full conversion.
 
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
 use serde::Deserialize;

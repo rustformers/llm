@@ -17,6 +17,7 @@ use thiserror::Error;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
+#[cfg(feature = "convert")]
 pub mod convert;
 
 /// The end of text token.

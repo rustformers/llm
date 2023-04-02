@@ -9,7 +9,7 @@ pub enum Args {
     #[command(name = "generate")]
     Generate(Box<Generate>),
 
-    #[command(name = "convert")]
+    #[command(name = "convert", hide = true)]
     Convert(Box<Convert>),
 }
 
