@@ -319,6 +319,6 @@ fn main() {
     let cli_args = Args::parse();
     match cli_args {
         Args::Generate(args) => generate(&args),
-        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.f32),
+        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
     }
 }

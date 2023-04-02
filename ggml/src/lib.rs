@@ -60,6 +60,17 @@ impl TryFrom<ggml_sys::ggml_type> for Type {
         }
     }
 }
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Q4_0 => write!(f, "q4_0"),
+            Type::Q4_1 => write!(f, "q4_1"),
+            Type::I32 => write!(f, "i32"),
+            Type::F16 => write!(f, "f16"),
+            Type::F32 => write!(f, "f32"),
+        }
+    }
+}
 
 /// Acts as a RAII-guard over a `ggml_sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.

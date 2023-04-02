@@ -18,16 +18,17 @@ use std::{
 use crate::{util, Hyperparameters, Vocabulary};
 
 /// Converts a `pth` file to a `ggml` file.
-pub fn convert_pth_to_ggml(model_directory: &Path, f32: bool) {
+pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
     let tokenizer_path = model_directory.parent().unwrap().join("tokenizer.model");
     let vocab = load_vocabulary(tokenizer_path.as_path());
 
-    let hparams = load_hyperparameters(model_directory, f32, &vocab);
+    let hparams = load_hyperparameters(model_directory, element_type, &vocab);
 
     let model_files = util::find_all_model_files(model_directory).unwrap();
 
     for (i, _file) in model_files.iter().enumerate() {
-        let fname_out = model_directory.join(format!("rust-model-{}.bin", get_f_type(f32)));
+        let fname_out =
+            model_directory.join(format!("rust-model-{}.bin", element_type));
         let mut file = File::create(fname_out).expect("Unable to create file");
         write_header(file.borrow_mut(), &hparams).unwrap();
         write_tokens(file.borrow_mut(), &vocab).unwrap();
@@ -35,14 +36,6 @@ pub fn convert_pth_to_ggml(model_directory: &Path, f32: bool) {
         let _fname_model = model_directory.join(format!("consolidated.0{}.pth", i));
         // Todo process and write variables
     }
-}
-
-fn get_f_type(f32: bool) -> String {
-    match f32 {
-        true => "f32",
-        false => "f16",
-    }
-    .to_string()
 }
 
 fn load_vocabulary(path: &Path) -> Vocabulary {
@@ -71,7 +64,11 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
     }
 }
 
-fn load_hyperparameters(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparameters {
+fn load_hyperparameters(
+    path: &Path,
+    element_type: ggml::Type,
+    vocab: &Vocabulary,
+) -> Hyperparameters {
     #[derive(Deserialize)]
     struct HyperParametersJson {
         dim: usize,
@@ -84,9 +81,12 @@ fn load_hyperparameters(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperpara
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
     let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
-        f16_: match f32 {
-            true => 0,
-            false => 1,
+        f16_: match element_type {
+            ggml::Type::F32 => 0,
+            ggml::Type::F16 => 1,
+            ggml::Type::Q4_0 => 2,
+            ggml::Type::Q4_1 => 3,
+            _ => panic!("unsupported element type"),
         },
         n_ctx: 0,
         n_embd: json.dim,

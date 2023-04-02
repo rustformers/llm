@@ -17,6 +17,8 @@ use thiserror::Error;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 
+pub use ggml::Type as ElementType;
+
 #[cfg(feature = "convert")]
 pub mod convert;
 

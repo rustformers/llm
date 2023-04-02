@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use llama_rs::TokenBias;
 
 #[derive(Parser, Debug)]
@@ -157,8 +157,30 @@ pub struct Convert {
     pub directory: PathBuf,
 
     /// File type to convert to
-    #[arg(long, default_value_t = false)]
-    pub f32: bool,
+    #[arg(long, short = 't', value_enum, default_value_t = ElementType::Q4_0)]
+    pub element_type: ElementType,
+}
+
+#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+pub enum ElementType {
+    /// Quantized 4-bit (type 0).
+    Q4_0,
+    /// Quantized 4-bit (type 1); used by GPTQ.
+    Q4_1,
+    /// Float 16-bit.
+    F16,
+    /// Float 32-bit.
+    F32,
+}
+impl From<ElementType> for llama_rs::ElementType {
+    fn from(model_type: ElementType) -> Self {
+        match model_type {
+            ElementType::Q4_0 => llama_rs::ElementType::Q4_0,
+            ElementType::Q4_1 => llama_rs::ElementType::Q4_1,
+            ElementType::F16 => llama_rs::ElementType::F16,
+            ElementType::F32 => llama_rs::ElementType::F32,
+        }
+    }
 }
 
 fn parse_bias(s: &str) -> Result<TokenBias, String> {
