@@ -14,8 +14,6 @@ use std::{
     sync::{Arc, Weak},
 };
 
-pub use ggml_sys::ggml_type as Type;
-
 /// Magic constant for `ggml` files (versioned).
 pub const FILE_MAGIC: u32 = 0x67676d66;
 /// Magic constant for `ggml` files (unversioned).
@@ -24,16 +22,44 @@ pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Quantized 4-bit (type 0).
-pub const TYPE_Q4_0: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_Q4_0;
-/// Quantized 4-bit (type 1); used by GPTQ.
-pub const TYPE_Q4_1: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_Q4_1;
-/// Integer 32-bit.
-pub const TYPE_I32: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_I32;
-/// Float 16-bit.
-pub const TYPE_F16: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_F16;
-/// Float 32-bit.
-pub const TYPE_F32: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_F32;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// The type of a value in `ggml`.
+pub enum Type {
+    /// Quantized 4-bit (type 0).
+    Q4_0,
+    /// Quantized 4-bit (type 1); used by GPTQ.
+    Q4_1,
+    /// Integer 32-bit.
+    I32,
+    /// Float 16-bit.
+    F16,
+    /// Float 32-bit.
+    F32,
+}
+impl From<Type> for ggml_sys::ggml_type {
+    fn from(t: Type) -> Self {
+        match t {
+            Type::Q4_0 => ggml_sys::GGML_TYPE_Q4_0,
+            Type::Q4_1 => ggml_sys::GGML_TYPE_Q4_1,
+            Type::I32 => ggml_sys::GGML_TYPE_I32,
+            Type::F16 => ggml_sys::GGML_TYPE_F16,
+            Type::F32 => ggml_sys::GGML_TYPE_F32,
+        }
+    }
+}
+impl TryFrom<ggml_sys::ggml_type> for Type {
+    type Error = ();
+    fn try_from(t: ggml_sys::ggml_type) -> Result<Self, Self::Error> {
+        match t {
+            ggml_sys::GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
+            ggml_sys::GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
+            ggml_sys::GGML_TYPE_I32 => Ok(Type::I32),
+            ggml_sys::GGML_TYPE_F16 => Ok(Type::F16),
+            ggml_sys::GGML_TYPE_F32 => Ok(Type::F32),
+            _ => Err(()),
+        }
+    }
+}
 
 /// Acts as a RAII-guard over a `ggml_sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
@@ -69,18 +95,18 @@ impl Context {
     }
 
     /// Creates a new 1D tensor.
-    pub fn new_tensor_1d(&self, typ: ggml_sys::ggml_type, ne0: usize) -> Tensor {
+    pub fn new_tensor_1d(&self, typ: Type, ne0: usize) -> Tensor {
         let raw =
-            unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ, usize_to_i32(ne0)) };
+            unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ.into(), usize_to_i32(ne0)) };
         self.new_tensor_raw(raw)
     }
 
     /// Creates a new 2D tensor.
-    pub fn new_tensor_2d(&self, typ: ggml_sys::ggml_type, ne0: usize, ne1: usize) -> Tensor {
+    pub fn new_tensor_2d(&self, typ: Type, ne0: usize, ne1: usize) -> Tensor {
         let raw = unsafe {
             ggml_sys::ggml_new_tensor_2d(
                 self.ptr.as_ptr(),
-                typ,
+                typ.into(),
                 usize_to_i32(ne0),
                 usize_to_i32(ne1),
             )
@@ -91,7 +117,7 @@ impl Context {
     /// Creates a new 3D tensor.
     pub fn new_tensor_3d(
         &self,
-        typ: ggml_sys::ggml_type,
+        typ: Type,
         ne0: usize,
         ne1: usize,
         ne2: usize,
@@ -99,7 +125,7 @@ impl Context {
         let raw = unsafe {
             ggml_sys::ggml_new_tensor_3d(
                 self.ptr.as_ptr(),
-                typ,
+                typ.into(),
                 usize_to_i32(ne0),
                 usize_to_i32(ne1),
                 usize_to_i32(ne2),
@@ -345,8 +371,8 @@ impl Tensor {
     }
 
     /// The data type.
-    pub fn get_type(&self) -> ggml_sys::ggml_type {
-        self.with_alive_ctx(|| unsafe { *self.ptr.as_ptr() }.type_)
+    pub fn get_type(&self) -> Type {
+        self.with_alive_ctx(|| unsafe { *self.ptr.as_ptr() }.type_.try_into().unwrap())
     }
 
     /// The size of the element type in bytes.
@@ -405,17 +431,17 @@ impl ComputationGraph {
 
 /// The size of `t` as bytes.
 pub fn type_size(t: Type) -> usize {
-    unsafe { ggml_sys::ggml_type_size(t) }
+    unsafe { ggml_sys::ggml_type_size(t.into()) }
 }
 
 /// [type_size]/[blck_size] as float.
-pub fn type_sizef(x: ggml_sys::ggml_type) -> f64 {
-    (unsafe { ggml_sys::ggml_type_sizef(x) }) as f64
+pub fn type_sizef(x: Type) -> f64 {
+    (unsafe { ggml_sys::ggml_type_sizef(x.into()) }) as f64
 }
 
 /// The size of a block for `t`. Only relevant for quantized types.
 pub fn blck_size(t: Type) -> usize {
-    i32_to_usize(unsafe { ggml_sys::ggml_blck_size(t) })
+    i32_to_usize(unsafe { ggml_sys::ggml_blck_size(t.into()) })
 }
 
 fn usize_to_i32(val: usize) -> i32 {

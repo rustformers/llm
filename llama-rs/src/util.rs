@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::LoadError;
 
-pub fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
+pub(crate) fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
     Ok(collect_related_paths(
         main_path,
         std::fs::read_dir(main_path.parent().ok_or_else(|| LoadError::NoParentPath {

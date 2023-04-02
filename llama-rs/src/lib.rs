@@ -179,11 +179,11 @@ pub enum ModelKVMemoryType {
     /// 32-bit float.
     Float32,
 }
-impl From<ModelKVMemoryType> for i32 {
+impl From<ModelKVMemoryType> for ggml::Type {
     fn from(value: ModelKVMemoryType) -> Self {
         match value {
-            ModelKVMemoryType::Float16 => ggml::TYPE_F16,
-            ModelKVMemoryType::Float32 => ggml::TYPE_F32,
+            ModelKVMemoryType::Float16 => ggml::Type::F16,
+            ModelKVMemoryType::Float32 => ggml::Type::F32,
         }
     }
 }
@@ -716,10 +716,10 @@ impl Model {
         // floats or quantized in order to save memory and also to speed up the
         // computation
         let wtype = match hparams.f16_ {
-            0 => ggml::TYPE_F32,
-            1 => ggml::TYPE_F16,
-            2 => ggml::TYPE_Q4_0,
-            3 => ggml::TYPE_Q4_1,
+            0 => ggml::Type::F32,
+            1 => ggml::Type::F16,
+            2 => ggml::Type::Q4_0,
+            3 => ggml::Type::Q4_1,
             invalid => return Err(LoadError::HyperparametersF16Invalid { ftype: invalid }),
         };
 
@@ -733,18 +733,18 @@ impl Model {
 
             ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
 
-            ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::TYPE_F32)); // norm
+            ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
 
             ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
 
-            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // attention_norm
+            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
 
             ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
             ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
             ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
             ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
 
-            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::TYPE_F32)); // ffn_norm
+            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
 
             ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
             ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
@@ -764,7 +764,7 @@ impl Model {
             let mut tensors = HashMap::new();
 
             let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
-            let norm = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
+            let norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
             let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
 
             tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
@@ -774,12 +774,12 @@ impl Model {
             let mut layers = Vec::new();
             for i in 0..n_layer {
                 let layer = Layer {
-                    attention_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
+                    attention_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
                     wq: context.new_tensor_2d(wtype, n_embd, n_embd),
                     wk: context.new_tensor_2d(wtype, n_embd, n_embd),
                     wv: context.new_tensor_2d(wtype, n_embd, n_embd),
                     wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                    ffn_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
+                    ffn_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
                     w1: context.new_tensor_2d(wtype, n_embd, n_ff),
                     w2: context.new_tensor_2d(wtype, n_ff, n_embd),
                     w3: context.new_tensor_2d(wtype, n_embd, n_ff),
@@ -832,7 +832,7 @@ impl Model {
         let file_offset = reader.stream_position()?;
         drop(reader);
 
-        let paths = util::find_all_model_files(&main_path)?;
+        let paths = util::find_all_model_files(main_path)?;
         let n_parts = paths.len();
 
         for (i, part_path) in paths.into_iter().enumerate() {
@@ -955,15 +955,15 @@ impl Model {
                 }
 
                 let bpe = match ftype {
-                    0 => ggml::type_size(ggml::TYPE_F32),
-                    1 => ggml::type_size(ggml::TYPE_F16),
+                    0 => ggml::type_size(ggml::Type::F32),
+                    1 => ggml::type_size(ggml::Type::F16),
                     2 => {
                         assert_eq!(ne[0] % 64, 0);
-                        ggml::type_size(ggml::TYPE_Q4_0)
+                        ggml::type_size(ggml::Type::Q4_0)
                     }
                     3 => {
                         assert_eq!(ne[0] % 64, 0);
-                        ggml::type_size(ggml::TYPE_Q4_1)
+                        ggml::type_size(ggml::Type::Q4_1)
                     }
                     _ => {
                         return Err(LoadError::InvalidFtype {
@@ -1155,7 +1155,7 @@ impl Model {
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n);
+        let embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -1225,7 +1225,7 @@ impl Model {
                     &ctx0.op_rope(
                         &ctx0.op_cpy(
                             &q_current,
-                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n),
+                            &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
                         ),
                         n_past,
                         n_rot,
@@ -1283,7 +1283,7 @@ impl Model {
                         ctx0.op_cpy(
                             &vtrans_fun(il),
                             &ctx0.new_tensor_3d(
-                                ggml::TYPE_F32,
+                                ggml::Type::F32,
                                 n_past + n,
                                 n_embd / n_head,
                                 n_head,
@@ -1301,7 +1301,7 @@ impl Model {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n),
+                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n),
                 );
 
                 // projection (no bias)
