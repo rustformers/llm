@@ -58,33 +58,33 @@ fn get_f_type(f32: bool) -> String {
     .to_string()
 }
 
-#[derive(Deserialize)]
-struct HParams {
-    dim: usize,
-    multiple_of: usize,
-    n_heads: usize,
-    n_layers: usize,
-    vocab_size: isize,
-}
+fn load_hyperparameters(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparameters {
+    #[derive(Deserialize)]
+    struct HyperParametersJson {
+        dim: usize,
+        multiple_of: usize,
+        n_heads: usize,
+        n_layers: usize,
+        vocab_size: isize,
+    }
 
-fn load_hyperparams(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparameters {
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
-    let hparams: HParams = serde_json::from_str(&json).expect("Unable to parse json");
+    let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
         f16_: match f32 {
             true => 0,
             false => 1,
         },
         n_ctx: 0,
-        n_embd: hparams.dim,
-        n_head: hparams.n_heads,
-        n_layer: hparams.n_layers,
-        n_vocab: match hparams.vocab_size {
+        n_embd: json.dim,
+        n_head: json.n_heads,
+        n_layer: json.n_layers,
+        n_vocab: match json.vocab_size {
             -1 => vocab.id_to_token.len(),
-            _ => hparams.vocab_size as usize,
+            _ => json.vocab_size as usize,
         },
-        n_mult: hparams.multiple_of,
-        n_rot: hparams.dim / hparams.n_heads,
+        n_mult: json.multiple_of,
+        n_rot: json.dim / json.n_heads,
     }
 }
 
@@ -141,7 +141,7 @@ pub fn convert_pth_to_ggml(dir: &String, f32: bool) {
     let tokenizer_path = path.parent().unwrap().join("tokenizer.model");
     let vocab = Vocabulary::from(tokenizer_path.as_path());
 
-    let hparams = load_hyperparams(path, f32, &vocab);
+    let hparams = load_hyperparameters(path, f32, &vocab);
     let n_parts = get_n_parts(hparams.n_embd.try_into().unwrap());
 
     for i in 0..n_parts {
