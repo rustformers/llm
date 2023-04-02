@@ -335,5 +335,5 @@ mod snapshot {
 }
 
 fn process_prompt(raw_prompt: &str, prompt: &str) -> String {
-    raw_prompt.replace("$PROMPT", prompt)
+    raw_prompt.replace("{{PROMPT}}", prompt)
 }

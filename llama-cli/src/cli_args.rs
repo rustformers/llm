@@ -18,11 +18,14 @@ pub struct Args {
     /// A file to read the prompt from.
     ///
     /// If used with `--prompt`/`-p`, the prompt from the file will be used
-    /// and `$PROMPT` will be replaced with the value of `--prompt`/`-p`.
+    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'f', default_value = None)]
     pub prompt_file: Option<String>,
 
     /// Run in REPL mode.
+    ///
+    /// If used with `--prompt`/`-p`, the prompt from the file will be used
+    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'R', default_value_t = false)]
     pub repl: bool,
 
