@@ -77,8 +77,8 @@ repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama)
 Note that the choice of words also may or may not hint at the existence of other
 kinds of sources.
 
-Once obtained, the weights have to be converted to a format compatible with
-ggml. In order to do that, do the following steps:
+After acquiring the weights, it is necessary to convert them into a format that
+is compatible with ggml. To achieve this, follow the steps outlined below:
 
 > **Warning** 
 > 
