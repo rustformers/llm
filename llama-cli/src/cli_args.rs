@@ -14,17 +14,6 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug)]
-pub struct Convert {
-    /// Path to model directory
-    #[arg(long, short = 'd')]
-    pub dir: String,
-
-    /// File type to convert to
-    #[arg(long, default_value_t = false)]
-    pub f32: bool,
-}
-
-#[derive(Parser, Debug)]
 pub struct Generate {
     /// Where to load the model path from
     #[arg(long, short = 'm')]
@@ -159,6 +148,17 @@ impl Generate {
     pub(crate) fn num_threads(&self) -> usize {
         num_cpus::get_physical()
     }
+}
+
+#[derive(Parser, Debug)]
+pub struct Convert {
+    /// Path to model directory
+    #[arg(long, short = 'd')]
+    pub directory: PathBuf,
+
+    /// File type to convert to
+    #[arg(long, default_value_t = false)]
+    pub f32: bool,
 }
 
 fn parse_bias(s: &str) -> Result<TokenBias, String> {

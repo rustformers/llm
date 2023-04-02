@@ -20,6 +20,8 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 #[cfg(feature = "convert")]
 pub mod convert;
 
+mod util;
+
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
@@ -830,29 +832,7 @@ impl Model {
         let file_offset = reader.stream_position()?;
         drop(reader);
 
-        let paths = {
-            let main_filename = main_path.file_name().and_then(|p| p.to_str());
-
-            let mut paths: Vec<PathBuf> =
-                std::fs::read_dir(main_path.parent().ok_or_else(|| LoadError::NoParentPath {
-                    path: main_path.to_owned(),
-                })?)?
-                .filter_map(Result::ok)
-                .map(|de| de.path())
-                .filter(|p| {
-                    p.file_name()
-                        .and_then(|p| p.to_str())
-                        .zip(main_filename)
-                        .map(|(part_filename, main_filename)| {
-                            part_filename.starts_with(main_filename)
-                        })
-                        .unwrap_or(false)
-                })
-                .collect();
-            paths.sort();
-            paths
-        };
-
+        let paths = util::find_all_model_files(&main_path)?;
         let n_parts = paths.len();
 
         for (i, part_path) in paths.into_iter().enumerate() {

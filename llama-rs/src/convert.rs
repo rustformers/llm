@@ -15,38 +15,28 @@ use std::{
     vec,
 };
 
-use crate::{Hyperparameters, Vocabulary};
+use crate::{util, Hyperparameters, Vocabulary};
 
 /// Converts a `pth` file to a `ggml` file.
-pub fn convert_pth_to_ggml(dir: &String, f32: bool) {
-    let path = Path::new(dir);
-
-    let tokenizer_path = path.parent().unwrap().join("tokenizer.model");
+pub fn convert_pth_to_ggml(model_directory: &Path, f32: bool) {
+    let tokenizer_path = model_directory.parent().unwrap().join("tokenizer.model");
     let vocab = load_vocabulary(tokenizer_path.as_path());
 
-    let hparams = load_hyperparameters(path, f32, &vocab);
-    let n_parts = get_n_parts(hparams.n_embd.try_into().unwrap());
+    let hparams = load_hyperparameters(model_directory, f32, &vocab);
 
-    for i in 0..n_parts {
-        let fname_out = path.join(format!("rust-model-{}.bin", get_f_type(f32)));
+    let model_files = util::find_all_model_files(model_directory).unwrap();
+
+    for (i, _file) in model_files.iter().enumerate() {
+        let fname_out = model_directory.join(format!("rust-model-{}.bin", get_f_type(f32)));
         let mut file = File::create(fname_out).expect("Unable to create file");
         write_header(file.borrow_mut(), &hparams).unwrap();
         write_tokens(file.borrow_mut(), &vocab).unwrap();
 
-        let _fname_model = path.join(format!("consolidated.0{}.pth", i));
+        let _fname_model = model_directory.join(format!("consolidated.0{}.pth", i));
         // Todo process and write variables
     }
 }
 
-fn get_n_parts(dim: i32) -> usize {
-    match dim {
-        4096 => 1,
-        5120 => 2,
-        6656 => 4,
-        8192 => 8,
-        _ => panic!("Invalid dimension"),
-    }
-}
 fn get_f_type(f32: bool) -> String {
     match f32 {
         true => "f32",
