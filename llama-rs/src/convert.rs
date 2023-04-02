@@ -13,31 +13,24 @@ use std::{
 
 use crate::{Hyperparameters, Vocabulary};
 
-impl From<&Path> for Vocabulary {
-    fn from(path: &Path) -> Self {
-        let mut f = File::open(path).unwrap();
-        let mut contents = Vec::new();
-        f.read_to_end(&mut contents).unwrap();
+/// Converts a `pth` file to a `ggml` file.
+pub fn convert_pth_to_ggml(dir: &String, f32: bool) {
+    let path = Path::new(dir);
 
-        let proto = protobuf::parse_from_bytes::<ModelProto>(contents.as_slice()).unwrap();
-        let mut id_to_token = vec![];
-        let mut id_to_token_score = vec![];
-        let mut token_to_id = HashMap::new();
-        let mut max_token_length = 0;
+    let tokenizer_path = path.parent().unwrap().join("tokenizer.model");
+    let vocab = load_vocabulary(tokenizer_path.as_path());
 
-        for (idx, piece) in proto.get_pieces().iter().enumerate() {
-            let word = piece.get_piece().to_string();
-            max_token_length = max_token_length.max(word.len());
-            id_to_token.push(word.clone());
-            token_to_id.insert(word, idx as i32);
-            id_to_token_score.push(piece.get_score());
-        }
-        Vocabulary {
-            id_to_token,
-            id_to_token_score,
-            token_to_id,
-            max_token_length,
-        }
+    let hparams = load_hyperparameters(path, f32, &vocab);
+    let n_parts = get_n_parts(hparams.n_embd.try_into().unwrap());
+
+    for i in 0..n_parts {
+        let fname_out = path.join(format!("rust-model-{}.bin", get_f_type(f32)));
+        let mut file = File::create(fname_out).expect("Unable to create file");
+        write_header(file.borrow_mut(), &hparams).unwrap();
+        write_tokens(file.borrow_mut(), &vocab).unwrap();
+
+        let _fname_model = path.join(format!("consolidated.0{}.pth", i));
+        // Todo process and write variables
     }
 }
 
@@ -56,6 +49,32 @@ fn get_f_type(f32: bool) -> String {
         false => "f16",
     }
     .to_string()
+}
+
+fn load_vocabulary(path: &Path) -> Vocabulary {
+    let mut f = File::open(path).unwrap();
+    let mut contents = Vec::new();
+    f.read_to_end(&mut contents).unwrap();
+
+    let proto = protobuf::parse_from_bytes::<ModelProto>(contents.as_slice()).unwrap();
+    let mut id_to_token = vec![];
+    let mut id_to_token_score = vec![];
+    let mut token_to_id = HashMap::new();
+    let mut max_token_length = 0;
+
+    for (idx, piece) in proto.get_pieces().iter().enumerate() {
+        let word = piece.get_piece().to_string();
+        max_token_length = max_token_length.max(word.len());
+        id_to_token.push(word.clone());
+        token_to_id.insert(word, idx as i32);
+        id_to_token_score.push(piece.get_score());
+    }
+    Vocabulary {
+        id_to_token,
+        id_to_token_score,
+        token_to_id,
+        max_token_length,
+    }
 }
 
 fn load_hyperparameters(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparameters {
@@ -132,25 +151,4 @@ fn write_tokens(file: &mut File, vocab: &Vocabulary) -> Result<(), String> {
         .expect("Unable to write headers to the file.");
 
     Ok(())
-}
-
-/// Converts a `pth` file to a `ggml` file.
-pub fn convert_pth_to_ggml(dir: &String, f32: bool) {
-    let path = Path::new(dir);
-
-    let tokenizer_path = path.parent().unwrap().join("tokenizer.model");
-    let vocab = Vocabulary::from(tokenizer_path.as_path());
-
-    let hparams = load_hyperparameters(path, f32, &vocab);
-    let n_parts = get_n_parts(hparams.n_embd.try_into().unwrap());
-
-    for i in 0..n_parts {
-        let fname_out = path.join(format!("rust-model-{}.bin", get_f_type(f32)));
-        let mut file = File::create(fname_out).expect("Unable to create file");
-        write_header(file.borrow_mut(), &hparams).unwrap();
-        write_tokens(file.borrow_mut(), &vocab).unwrap();
-
-        let _fname_model = path.join(format!("consolidated.0{}.pth", i));
-        // Todo process and write variables
-    }
 }
