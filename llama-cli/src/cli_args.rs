@@ -15,7 +15,10 @@ pub struct Args {
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
 
-    /// A file to read the prompt from. Takes precedence over `prompt` if set.
+    /// A file to read the prompt from.
+    ///
+    /// If used with `--prompt`/`-p`, the prompt from the file will be used
+    /// and `$PROMPT` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'f', default_value = None)]
     pub prompt_file: Option<String>,
 
@@ -111,8 +114,10 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub ignore_eos: bool,
 
-    /// Dumps the prompt to console and exits, first as a comma seperated list of token IDs
-    /// and then as a list of comma seperated string keys and token ID values.
+    /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
+    /// and then as a list of comma-separated string keys and token ID values.
+    ///
+    /// This will only work in non-`--repl` mode.
     #[arg(long, default_value_t = false)]
     pub dump_prompt_tokens: bool,
 }
