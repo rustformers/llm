@@ -120,6 +120,7 @@ fn repl_mode(
     }
 }
 
+
 fn dump_tokens(text: &str, vocab: &Vocabulary) -> Result<(), InferenceError> {
     let toks = match vocab.tokenize(text, false) {
         Ok(toks) => toks,
@@ -211,67 +212,69 @@ fn main() {
         std::process::exit(1);
     };
 
-    let (model, vocab) =
-        Llama::load(
-            &args.model_path,
-            args.num_ctx_tokens as i32,
-            |progress| match progress {
-                LoadProgress::HyperparametersLoaded(hparams) => {
-                    log::debug!("Loaded HyperParams {hparams:#?}")
-                }
-                LoadProgress::BadToken { index } => {
-                    log::info!("Warning: Bad token in vocab at index {index}")
-                }
-                LoadProgress::ContextSize { bytes } => log::info!(
-                    "ggml ctx size = {:.2} MB\n",
-                    bytes as f64 / (1024.0 * 1024.0)
-                ),
-                LoadProgress::MemorySize { bytes, n_mem } => log::info!(
-                    "Memory size: {} MB {}",
-                    bytes as f32 / 1024.0 / 1024.0,
-                    n_mem
-                ),
-                LoadProgress::PartLoading {
-                    file,
-                    current_part,
-                    total_parts,
-                } => log::info!(
-                    "Loading model part {}/{} from '{}'\n",
-                    current_part,
-                    total_parts,
-                    file.to_string_lossy(),
-                ),
-                LoadProgress::PartTensorLoaded {
-                    current_tensor,
-                    tensor_count,
-                    ..
-                } => {
-                    if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                    }
-                }
-                LoadProgress::PartLoaded {
-                    file,
-                    byte_size,
-                    tensor_count,
-                } => {
-                    log::info!("Loading of '{}' complete", file.to_string_lossy());
-                    log::info!(
-                        "Model size = {:.2} MB / num tensors = {}",
-                        byte_size as f64 / 1024.0 / 1024.0,
-                        tensor_count
-                    );
-                }
-            },
-        )
-        .expect("Could not load model");
+    // REFACTOR HERE
 
-    log::info!("Model fully loaded!");
+    //let (model, vocab) =
+        //Llama::load(
+            //&args.model_path,
+            //args.num_ctx_tokens as i32,
+            //|progress| match progress {
+                //LoadProgress::HyperparametersLoaded(hparams) => {
+                    //log::debug!("Loaded HyperParams {hparams:#?}")
+                //}
+                //LoadProgress::BadToken { index } => {
+                    //log::info!("Warning: Bad token in vocab at index {index}")
+                //}
+                //LoadProgress::ContextSize { bytes } => log::info!(
+                    //"ggml ctx size = {:.2} MB\n",
+                    //bytes as f64 / (1024.0 * 1024.0)
+                //),
+                //LoadProgress::MemorySize { bytes, n_mem } => log::info!(
+                    //"Memory size: {} MB {}",
+                    //bytes as f32 / 1024.0 / 1024.0,
+                    //n_mem
+                //),
+                //LoadProgress::PartLoading {
+                    //file,
+                    //current_part,
+                    //total_parts,
+                //} => log::info!(
+                    //"Loading model part {}/{} from '{}'\n",
+                    //current_part,
+                    //total_parts,
+                    //file.to_string_lossy(),
+                //),
+                //LoadProgress::PartTensorLoaded {
+                    //current_tensor,
+                    //tensor_count,
+                    //..
+                //} => {
+                    //if current_tensor % 8 == 0 {
+                        //log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                    //}
+                //}
+                //LoadProgress::PartLoaded {
+                    //file,
+                    //byte_size,
+                    //tensor_count,
+                //} => {
+                    //log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    //log::info!(
+                        //"Model size = {:.2} MB / num tensors = {}",
+                        //byte_size as f64 / 1024.0 / 1024.0,
+                        //tensor_count
+                    //);
+                //}
+            //},
+        //)
+        //.expect("Could not load model");
+//
+    //log::info!("Model fully loaded!");
 
-    if args.dump_prompt_tokens {
-        dump_tokens(&prompt, &vocab).ok();
-        return;
-    }
+    //if args.dump_prompt_tokens {
+        //dump_tokens(&prompt, &vocab).ok();
+        //return;
+    //}
 
     let mut rng = if let Some(seed) = CLI_ARGS.seed {
         rand::rngs::StdRng::seed_from_u64(seed)
@@ -279,27 +282,27 @@ fn main() {
         rand::rngs::StdRng::from_entropy()
     };
 
-    let (mut session, session_loaded) = {
-        fn load_snapshot_from_disk(model: &Llama, path: &Path) -> InferenceSession {
-            let snapshot = snapshot::load_from_disk(path);
-            match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
-                Ok(session) => {
-                    log::info!("Loaded inference session from {path:?}");
-                    session
-                }
-                Err(err) => {
-                    eprintln!("Could not load inference session. Error: {err}");
-                    std::process::exit(1);
-                }
-            }
-        }
-
-        match (&args.persist_session, &args.load_session) {
-            (Some(path), _) if path.exists() => (load_snapshot_from_disk(&model, path), true),
-            (_, Some(path)) => (load_snapshot_from_disk(&model, path), true),
-            _ => (model.start_session(inference_session_params), false),
-        }
-    };
+    //let (mut session, session_loaded) = {
+        //fn load_snapshot_from_disk(model: &Llama, path: &Path) -> InferenceSession {
+            //let snapshot = snapshot::load_from_disk(path);
+            //match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+                //Ok(session) => {
+                    //log::info!("Loaded inference session from {path:?}");
+                    //session
+                //}
+                //Err(err) => {
+                    //eprintln!("Could not load inference session. Error: {err}");
+                    //std::process::exit(1);
+                //}
+            //}
+        //}
+//
+        //match (&args.persist_session, &args.load_session) {
+            //(Some(path), _) if path.exists() => (load_snapshot_from_disk(&model, path), true),
+            //(_, Some(path)) => (load_snapshot_from_disk(&model, path), true),
+            //_ => (model.start_session(inference_session_params), false),
+        //}
+    //};
 
     if args.bloom {
         let (bloom_model, bloom_vocab) = BLOOM::load(
@@ -363,67 +366,71 @@ fn main() {
             &inference_params,
             &inference_session_params,
         );
-    } else if args.repl {
-        repl_mode(
-            &prompt,
-            &model,
-            &vocab,
-            &inference_params,
-            &inference_session_params,
-        );
     } else {
-        let inference_params = if session_loaded {
-            InferenceParameters {
-                play_back_previous_tokens: true,
-                ..inference_params
-            }
-        } else {
-            inference_params
-        };
-
-        let res = session.inference_with_prompt::<Infallible, Llama>(
-            &model,
-            &vocab,
-            &inference_params,
-            &prompt,
-            args.num_predict,
-            &mut rng,
-            |t| {
-                print!("{t}");
-                std::io::stdout().flush().unwrap();
-
-                Ok(())
-            },
-        );
-        println!();
-
-        match res {
-            Ok(_) => (),
-            Err(InferenceError::ContextFull) => {
-                log::warn!("Context window full, stopping inference.")
-            }
-            Err(InferenceError::TokenizationFailed) => {
-                log::error!("Failed to tokenize initial prompt.");
-            }
-            Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
-        }
-
-        if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
-            // Write the memory to the cache file
-            // SAFETY: no other model functions used inside the block
-            unsafe {
-                match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
-                    Ok(_) => {
-                        log::info!("Successfully wrote session to {session_path:?}");
-                    }
-                    Err(err) => {
-                        log::error!("Could not write session at {session_path:?}: {err}");
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
+        println!("hi");
     }
+
+    //else if args.repl {
+        //repl_mode(
+            //&prompt,
+            //&model,
+            //&vocab,
+            //&inference_params,
+            //&inference_session_params,
+        //);
+    //} else {
+        //let inference_params = if session_loaded {
+            //InferenceParameters {
+                //play_back_previous_tokens: true,
+                //..inference_params
+            //}
+        //} else {
+            //inference_params
+        //};
+//
+        //let res = session.inference_with_prompt::<Infallible, Llama>(
+            //&model,
+            //&vocab,
+            //&inference_params,
+            //&prompt,
+            //args.num_predict,
+            //&mut rng,
+            //|t| {
+                //print!("{t}");
+                //std::io::stdout().flush().unwrap();
+//
+                //Ok(())
+            //},
+        //);
+        //println!();
+//
+        //match res {
+            //Ok(_) => (),
+            //Err(InferenceError::ContextFull) => {
+                //log::warn!("Context window full, stopping inference.")
+            //}
+            //Err(InferenceError::TokenizationFailed) => {
+                //log::error!("Failed to tokenize initial prompt.");
+            //}
+            //Err(InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
+        //}
+//
+        //if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
+            //// Write the memory to the cache file
+            //// SAFETY: no other model functions used inside the block
+            //unsafe {
+                //match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
+                    //Ok(_) => {
+                        //log::info!("Successfully wrote session to {session_path:?}");
+                    //}
+                    //Err(err) => {
+                        //log::error!("Could not write session at {session_path:?}: {err}");
+                        //std::process::exit(1);
+                    //}
+                //}
+            //}
+        //}
+    //}
 }
 
 mod snapshot {

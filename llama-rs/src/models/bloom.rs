@@ -127,8 +127,6 @@ impl Model for BLOOM {
 
         let n_ff = ((4 * hparams.n_embd + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
 
-        let n_parts = 1;
-
         load_progress_callback(LoadProgress::HyperparametersLoaded(hparams));
 
         // ===============
@@ -240,20 +238,24 @@ impl Model for BLOOM {
             let mut tensors = HashMap::new();
 
             let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
-            let norm = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
-            let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
 
+            let norm = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
             let norm_b = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
+
             let output_norm = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
             let output_norm_b = context.new_tensor_1d(ggml::TYPE_F32, n_embd);
 
-            tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
-            tensors.insert("norm.weight".to_owned(), norm.share());
-            tensors.insert("output.weight".to_owned(), output.share());
+            let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
 
+            tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
+
+            tensors.insert("norm.weight".to_owned(), norm.share());
             tensors.insert("norm.bias".to_owned(), norm_b.share());
+
             tensors.insert("output_norm.weight".to_owned(), output_norm.share());
             tensors.insert("output_norm.bias".to_owned(), output_norm_b.share());
+
+            tensors.insert("output.weight".to_owned(), output.share());
 
             let mut layers = Vec::new();
             for i in 0..n_layer {
@@ -265,7 +267,7 @@ impl Model for BLOOM {
                     query_key_value_b: context.new_tensor_1d(ggml::TYPE_F32, 3 * n_embd),
 
                     wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                    wo_b: context.new_tensor_1d(ggml::TYPE_F32, 3 * n_embd),
+                    wo_b: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
 
                     ffn_norm: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
                     ffn_norm_b: context.new_tensor_1d(ggml::TYPE_F32, n_embd),
@@ -287,11 +289,11 @@ impl Model for BLOOM {
                 );
 
                 tensors.insert(
-                    format!("layers.{i}.query_key_value.weight"),
+                    format!("layers.{i}.attention.query_key_value.weight"),
                     layer.query_key_value.share(),
                 );
                 tensors.insert(
-                    format!("layers.{i}.query_key_value.bias"),
+                    format!("layers.{i}.attention.query_key_value.bias"),
                     layer.query_key_value_b.share(),
                 );
 
