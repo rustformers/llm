@@ -1,17 +1,17 @@
 [package]
 name = "llama-rs"
-version = "0.1.0"
+version = { workspace = true }
 edition = "2021"
 rust-version = "1.65"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ggml = { path = "../ggml" }
+
 bytemuck = "1.13.1"
-ggml-raw = { path = "../ggml-raw" }
 partial_sort = "0.2.0"
 thiserror = "1.0"
-
 rand = { workspace = true }
 serde = { version = "1.0.156", features = ["derive"] }
 serde_bytes = "0.11"

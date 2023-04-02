@@ -1,3 +1,5 @@
+//! Convert a model from `pth` to `ggml` format.
+
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
 use serde::Deserialize;
 use std::{
@@ -58,11 +60,11 @@ fn get_f_type(f32: bool) -> String {
 
 #[derive(Deserialize)]
 struct HParams {
-    dim: i32,
-    multiple_of: i32,
-    n_heads: i32,
-    n_layers: i32,
-    vocab_size: i32,
+    dim: usize,
+    multiple_of: usize,
+    n_heads: usize,
+    n_layers: usize,
+    vocab_size: isize,
 }
 
 fn load_hyperparams(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparameters {
@@ -78,8 +80,8 @@ fn load_hyperparams(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparamete
         n_head: hparams.n_heads,
         n_layer: hparams.n_layers,
         n_vocab: match hparams.vocab_size {
-            -1 => vocab.id_to_token.len() as i32,
-            _ => hparams.vocab_size,
+            -1 => vocab.id_to_token.len(),
+            _ => hparams.vocab_size as usize,
         },
         n_mult: hparams.multiple_of,
         n_rot: hparams.dim / hparams.n_heads,
@@ -87,16 +89,16 @@ fn load_hyperparams(path: &Path, f32: bool, vocab: &Vocabulary) -> Hyperparamete
 }
 
 fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String> {
-    let values = vec![
+    let values: Vec<i32> = vec![
         0x67676d66, // magic: ggmf in hex
         1,          // file version
-        hparams.n_vocab,
-        hparams.n_embd,
-        hparams.n_mult,
-        hparams.n_head,
-        hparams.n_layer,
-        hparams.n_embd / hparams.n_head,
-        hparams.f16_,
+        i32::try_from(hparams.n_vocab).unwrap(),
+        i32::try_from(hparams.n_embd).unwrap(),
+        i32::try_from(hparams.n_mult).unwrap(),
+        i32::try_from(hparams.n_head).unwrap(),
+        i32::try_from(hparams.n_layer).unwrap(),
+        i32::try_from(hparams.n_embd / hparams.n_head).unwrap(),
+        i32::try_from(hparams.f16_).unwrap(),
     ];
     let mut packed_values: Vec<u8> = vec![];
 
@@ -132,6 +134,7 @@ fn write_tokens(file: &mut File, vocab: &Vocabulary) -> Result<(), String> {
     Ok(())
 }
 
+/// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(dir: &String, f32: bool) {
     let path = Path::new(dir);
 
@@ -139,7 +142,7 @@ pub fn convert_pth_to_ggml(dir: &String, f32: bool) {
     let vocab = Vocabulary::from(tokenizer_path.as_path());
 
     let hparams = load_hyperparams(path, f32, &vocab);
-    let n_parts = get_n_parts(hparams.n_embd);
+    let n_parts = get_n_parts(hparams.n_embd.try_into().unwrap());
 
     for i in 0..n_parts {
         let fname_out = path.join(format!("rust-model-{}.bin", get_f_type(f32)));

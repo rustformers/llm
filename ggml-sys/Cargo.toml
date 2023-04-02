@@ -7,5 +7,5 @@ version = "^1.0"
 description = "Low level bindings for ggml"
 edition = "2021"
 license = "MIT"
-name = "ggml-raw"
-version = "0.1.0"
+name = "ggml-sys"
+version = { workspace = true }
