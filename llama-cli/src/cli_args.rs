@@ -24,8 +24,8 @@ pub struct Args {
     pub repl: bool,
 
     /// Sets the number of threads to use
-    #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]
-    pub num_threads: usize,
+    #[arg(long, short = 't')]
+    pub num_threads: Option<usize>,
 
     /// Sets how many tokens to predict
     #[arg(long, short = 'n')]
@@ -115,6 +115,23 @@ pub struct Args {
     /// and then as a list of comma seperated string keys and token ID values.
     #[arg(long, default_value_t = false)]
     pub dump_prompt_tokens: bool,
+}
+impl Args {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn num_threads(&self) -> usize {
+        std::process::Command::new("sysctl")
+            .arg("-n")
+            .arg("hw.perflevel0.physicalcpu")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok()?.trim().parse().ok())
+            .unwrap_or(num_cpus::get_physical())
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    pub(crate) fn num_threads(&self) -> usize {
+        num_cpus::get_physical()
+    }
 }
 
 fn parse_bias(s: &str) -> Result<TokenBias, String> {
