@@ -28,7 +28,7 @@ performance as the original code.
 
 ## Getting started
 
-Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up
+Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
 `llama-rs` is a Rust library, while `llama-cli` is a CLI application that wraps
 `llama-rs` and offers basic inference capabilities.
