@@ -395,15 +395,15 @@ impl Model for BLOOM {
                     break;
                 }
 
-                let n_dims = read_i32(&mut part_reader)?;
+                let n_dims = usize::try_from(read_i32(&mut part_reader)?)?;
                 let length = read_i32(&mut part_reader)?;
-                let ftype = read_i32(&mut part_reader)?;
+                let ftype = read_u32(&mut part_reader)?;
 
                 let mut nelements: usize = 1;
                 let mut ne = [1i32, 1i32];
                 for i in 0..n_dims {
-                    ne[i as usize] = read_i32(&mut part_reader)?;
-                    nelements *= ne[i as usize];
+                    ne[i] = read_i32(&mut part_reader)?;
+                    nelements *= usize::try_from(ne[i])?;
                 }
 
                 let tensor_name = read_string(&mut part_reader, length as usize)?;
@@ -469,7 +469,7 @@ impl Model for BLOOM {
                         });
                     }
                 } else if split_type == 0 {
-                    if tensor.get_ne()[0] / i32::try_from(n_parts) != ne[0]
+                    if tensor.get_ne()[0] / i32::try_from(n_parts)? != ne[0]
                         || tensor.get_ne()[1] != ne[1]
                     {
                         return Err(LoadError::TensorWrongSize {
@@ -478,7 +478,7 @@ impl Model for BLOOM {
                         });
                     }
                 } else if tensor.get_ne()[0] != ne[0]
-                    || tensor.get_ne()[1] / i32::try_from(n_parts) != ne[1]
+                    || tensor.get_ne()[1] / i32::try_from(n_parts)? != ne[1]
                 {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
@@ -515,11 +515,10 @@ impl Model for BLOOM {
                         });
                     }
 
-                    let data = tensor.data();
-
                     if part_id == 0 {
                         // SAFETY: yolo, same as original code
                         let slice = unsafe {
+                            let data = tensor.data();
                             std::slice::from_raw_parts_mut(data as *mut u8, tensor.nbytes())
                         };
                         part_reader.read_exact(slice)?;
@@ -540,8 +539,8 @@ impl Model for BLOOM {
 
                     if split_type == 0 {
                         let np0 = ne[0];
-                        let row_size = (tensor.get_ne()[0] / ggml::blck_size(tensor.get_type()))
-                            as usize
+                        let row_size = (usize::try_from(tensor.get_ne()[0])?
+                            / ggml::blck_size(tensor.get_type()))
                             * ggml::type_size(tensor.get_type());
 
                         assert_eq!(row_size, tensor.get_nb()[1]);
@@ -564,8 +563,9 @@ impl Model for BLOOM {
                         }
                     } else {
                         let np1 = ne[1];
-                        let row_size = (tensor.get_ne()[0] / ggml::blck_size(tensor.get_type()))
-                            as usize
+
+                        let row_size = (usize::try_from(tensor.get_ne()[0])?
+                            / ggml::blck_size(tensor.get_type()))
                             * ggml::type_size(tensor.get_type());
 
                         for i1 in 0..ne[1] {

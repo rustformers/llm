@@ -68,5 +68,5 @@ pub enum LoadError {
     #[error("the tensor `{tensor_name}` has the wrong size in {path:?}")]
     TensorWrongSize { tensor_name: String, path: PathBuf },
     #[error("invalid ftype {ftype} in {path:?}")]
-    InvalidFtype { ftype: i32, path: PathBuf },
+    InvalidFtype { ftype: u32, path: PathBuf },
 }
