@@ -202,6 +202,28 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// Creates a 2D view over `a`.
+    pub fn op_view_2d(
+        &self,
+        a: &Tensor,
+        ne0: usize,
+        ne1: usize,
+        nb1: usize,
+        offset: usize,
+    ) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_view_2d(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i32(ne0),
+                usize_to_i32(ne1),
+                usize_to_i32(nb1),
+                offset,
+            )
+        };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Copies `a` to `b` and returns `b`.
     pub fn op_cpy(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
@@ -269,6 +291,26 @@ impl Context {
     /// Retrieves the memory used by this [Context].
     pub fn used_mem(&self) -> usize {
         unsafe { ggml_sys::ggml_used_mem(self.ptr.as_ptr()) }
+    }
+
+    /// TODO: something something
+    pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_alibi(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i32(n_past),
+                usize_to_i32(n_head),
+            )
+        };
+
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Gaussian Error Linear Units
+    pub fn op_gelu(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { ggml_sys::ggml_gelu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
     }
 }
 

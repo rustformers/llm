@@ -1,5 +1,3 @@
-use crate::ggml;
-
 use std::{
     collections::HashMap,
     fs::File,
@@ -15,13 +13,13 @@ use crate::mulf;
 // in this order.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Hyperparameters {
-    n_vocab: i32,
-    n_ctx: i32,
-    n_embd: i32,
-    n_mult: i32,
-    n_head: i32,
-    n_layer: i32,
-    f16_: i32,
+    n_vocab: usize,
+    n_ctx: usize,
+    n_embd: usize,
+    n_mult: usize,
+    n_head: usize,
+    n_layer: usize,
+    f16_: u32,
 }
 
 // default
@@ -74,7 +72,7 @@ impl Model for BLOOM {
 
     fn load(
         path: impl AsRef<Path>,
-        n_ctx: i32,
+        n_ctx: usize,
         load_progress_callback: impl Fn(LoadProgress<Self::HP>),
     ) -> Result<(Self::Weights, Vocabulary), LoadError> {
         // Load model
@@ -90,7 +88,7 @@ impl Model for BLOOM {
             );
 
         // Verify magic
-        let is_legacy_model: bool = match read_i32(&mut reader)? {
+        let is_legacy_model: bool = match read_u32(&mut reader)? {
             ggml::FILE_MAGIC => false,
             ggml::FILE_MAGIC_UNVERSIONED => true,
             _ => {
@@ -116,13 +114,13 @@ impl Model for BLOOM {
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
         let hparams = Hyperparameters {
-            n_vocab: read_i32(&mut reader)?,
+            n_vocab: read_i32(&mut reader)?.try_into()?,
             n_ctx,
-            n_embd: read_i32(&mut reader)?,
-            n_mult: read_i32(&mut reader)?,
-            n_head: read_i32(&mut reader)?,
-            n_layer: read_i32(&mut reader)?,
-            f16_: read_i32(&mut reader)?,
+            n_embd: read_i32(&mut reader)?.try_into()?,
+            n_mult: read_i32(&mut reader)?.try_into()?,
+            n_head: read_i32(&mut reader)?.try_into()?,
+            n_layer: read_i32(&mut reader)?.try_into()?,
+            f16_: read_i32(&mut reader)?.try_into()?,
         };
 
         let n_ff = ((4 * hparams.n_embd + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
@@ -143,11 +141,9 @@ impl Model for BLOOM {
                 if let Ok(word) = read_string(&mut reader, len as usize) {
                     max_token_length = max_token_length.max(word.len());
                     id_to_token.push(word.clone());
-                    token_to_id.insert(word, i);
+                    token_to_id.insert(word, TokenId::try_from(i)?);
                 } else {
-                    load_progress_callback(LoadProgress::BadToken {
-                        index: i.try_into()?,
-                    });
+                    load_progress_callback(LoadProgress::BadToken { index: i });
                     id_to_token.push("�".to_string());
                 }
 
@@ -403,7 +399,7 @@ impl Model for BLOOM {
                 let length = read_i32(&mut part_reader)?;
                 let ftype = read_i32(&mut part_reader)?;
 
-                let mut nelements = 1;
+                let mut nelements: usize = 1;
                 let mut ne = [1i32, 1i32];
                 for i in 0..n_dims {
                     ne[i as usize] = read_i32(&mut part_reader)?;
@@ -458,7 +454,7 @@ impl Model for BLOOM {
                             path: part_path.to_path_buf(),
                         });
                     }
-                } else if tensor.nelements() / i32::try_from(n_parts)? != nelements {
+                } else if tensor.nelements() / n_parts != nelements {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path.to_path_buf(),
@@ -473,7 +469,7 @@ impl Model for BLOOM {
                         });
                     }
                 } else if split_type == 0 {
-                    if tensor.get_ne()[0] / i32::try_from(n_parts)? != ne[0]
+                    if tensor.get_ne()[0] / i32::try_from(n_parts) != ne[0]
                         || tensor.get_ne()[1] != ne[1]
                     {
                         return Err(LoadError::TensorWrongSize {
@@ -482,7 +478,7 @@ impl Model for BLOOM {
                         });
                     }
                 } else if tensor.get_ne()[0] != ne[0]
-                    || tensor.get_ne()[1] / i32::try_from(n_parts)? != ne[1]
+                    || tensor.get_ne()[1] / i32::try_from(n_parts) != ne[1]
                 {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
@@ -667,7 +663,7 @@ impl Model for BLOOM {
         output_request: &mut EvaluateOutputRequest,
     ) {
         let n = input_tokens.len();
-        let n_past = session.n_past as i32;
+        let n_past = session.n_past;
         let n_threads = params.n_threads;
         let increased_determinism = params.increased_determinism;
 
@@ -693,7 +689,7 @@ impl Model for BLOOM {
         // TODO: REMAKE THIS AFTER CHECKING GGML GRAPH
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n as i32);
+        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -712,12 +708,12 @@ impl Model for BLOOM {
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         &session.memory_v,
-                        (n_past + n as i32) * n_embd,
+                        (n_past + n) * n_embd,
                         il * n_ctx as usize * session.memory_v.element_size() * n_embd as usize,
                     ),
                     n_embd / n_head,
                     n_head,
-                    n_past + n as i32,
+                    n_past + n,
                 ),
                 1,
                 2,
@@ -756,26 +752,26 @@ impl Model for BLOOM {
 
             // self-attention
             {
-                let n_i32 = n.try_into().unwrap();
-                let nb = current.get_nb()[1] as i32;
+                //let n_i32 = n.try_into().unwrap();
+                let nb = current.get_nb()[1];
                 let q_current = ctx0.op_view_2d(
                     &current,
                     n_embd,
-                    n_i32,
+                    n,
                     nb,
                     0 * std::mem::size_of::<f32>() * n_embd as usize,
                 );
                 let k_current = ctx0.op_view_2d(
                     &current,
                     n_embd,
-                    n_i32,
+                    n,
                     nb,
                     1 * std::mem::size_of::<f32>() * n_embd as usize,
                 );
                 let v_current = ctx0.op_view_2d(
                     &current,
                     n_embd,
-                    n_i32,
+                    n,
                     nb,
                     2 * std::mem::size_of::<f32>() * n_embd as usize,
                 );
@@ -784,14 +780,14 @@ impl Model for BLOOM {
                 if n >= 1 {
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
-                        n as i32 * n_embd,
+                        n * n_embd,
                         (session.memory_k.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
                     let v = ctx0.op_view_1d(
                         &session.memory_v,
-                        n as i32 * n_embd,
+                        n * n_embd,
                         (session.memory_v.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
@@ -804,7 +800,7 @@ impl Model for BLOOM {
                 let q = ctx0.op_permute(
                     &ctx0.op_cpy(
                         &q_current,
-                        &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
+                        &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n),
                     ),
                     0,
                     2,
@@ -817,12 +813,12 @@ impl Model for BLOOM {
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             &session.memory_k,
-                            (n_past + n as i32) * n_embd,
+                            (n_past + n) * n_embd,
                             il * n_ctx as usize * session.memory_k.element_size() * n_embd as usize,
                         ),
                         n_embd / n_head,
                         n_head,
-                        n_past + n as i32,
+                        n_past + n,
                     ),
                     0,
                     2,
@@ -859,7 +855,7 @@ impl Model for BLOOM {
                             &vtrans_fun(il),
                             &ctx0.new_tensor_3d(
                                 ggml::TYPE_F32,
-                                n_past + n as i32,
+                                n_past + n,
                                 n_embd / n_head,
                                 n_head,
                             ),
@@ -876,7 +872,7 @@ impl Model for BLOOM {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n as i32),
+                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n),
                 );
 
                 // projection
@@ -972,7 +968,7 @@ impl Model for BLOOM {
             // SAFETY: Tensor data can be read (properly aligned, initialized,
             // data will not be mutated or otherwise aliased during the copy),
             // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n as i32);
+            assert_eq!(input_layer.nelements(), n_vocab * n);
             unsafe {
                 input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
             }
@@ -982,7 +978,7 @@ impl Model for BLOOM {
         if let Some(embeddings) = &mut output_request.embeddings {
             embeddings.resize(n_embd as usize * n, 0.0);
             // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embeddings_tensor.nelements(), n_embd * n as i32);
+            assert_eq!(embeddings_tensor.nelements(), n_embd * n);
             unsafe {
                 embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(embeddings));
             }

@@ -6,21 +6,20 @@ use std::{
 };
 
 use crate::common::{helpers::*, inference::*, load::*, model::*, token::*, vocabulary::*};
-use crate::ggml;
 use crate::mulf;
 
 // NOTE: Field order matters! Data is laid out in the file exactly
 // in this order.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Hyperparameters {
-    n_vocab: i32,
-    n_ctx: i32,
-    n_embd: i32,
-    n_mult: i32,
-    n_head: i32,
-    n_layer: i32,
-    n_rot: i32,
-    f16_: i32,
+    n_vocab: usize,
+    n_ctx: usize,
+    n_embd: usize,
+    n_mult: usize,
+    n_head: usize,
+    n_layer: usize,
+    n_rot: usize,
+    f16_: u32,
 }
 
 // default
@@ -65,7 +64,7 @@ impl Model for Llama {
 
     fn load(
         path: impl AsRef<Path>,
-        n_ctx: i32,
+        n_ctx: usize,
         load_progress_callback: impl Fn(LoadProgress<Self::HP>),
     ) -> Result<(Self::Weights, Vocabulary), LoadError> {
         let main_path = path.as_ref();
@@ -79,7 +78,7 @@ impl Model for Llama {
             );
 
         // Verify magic
-        let is_legacy_model: bool = match read_i32(&mut reader)? {
+        let is_legacy_model: bool = match read_u32(&mut reader)? {
             ggml::FILE_MAGIC => false,
             ggml::FILE_MAGIC_UNVERSIONED => true,
             _ => {
@@ -104,14 +103,14 @@ impl Model for Llama {
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
         let hparams = Hyperparameters {
-            n_vocab: read_i32(&mut reader)?,
+            n_vocab: read_i32(&mut reader)?.try_into()?,
             n_ctx,
-            n_embd: read_i32(&mut reader)?,
-            n_mult: read_i32(&mut reader)?,
-            n_head: read_i32(&mut reader)?,
-            n_layer: read_i32(&mut reader)?,
-            n_rot: read_i32(&mut reader)?,
-            f16_: read_i32(&mut reader)?,
+            n_embd: read_i32(&mut reader)?.try_into()?,
+            n_mult: read_i32(&mut reader)?.try_into()?,
+            n_head: read_i32(&mut reader)?.try_into()?,
+            n_layer: read_i32(&mut reader)?.try_into()?,
+            n_rot: read_i32(&mut reader)?.try_into()?,
+            f16_: read_i32(&mut reader)?.try_into()?,
         };
 
         let n_ff =
@@ -133,11 +132,9 @@ impl Model for Llama {
                 if let Ok(word) = read_string(&mut reader, len as usize) {
                     max_token_length = max_token_length.max(word.len());
                     id_to_token.push(word.clone());
-                    token_to_id.insert(word, i);
+                    token_to_id.insert(word, TokenId::try_from(i)?);
                 } else {
-                    load_progress_callback(LoadProgress::BadToken {
-                        index: i.try_into()?,
-                    });
+                    load_progress_callback(LoadProgress::BadToken { index: i });
                     id_to_token.push("�".to_string());
                 }
 
@@ -397,7 +394,7 @@ impl Model for Llama {
                             path: part_path,
                         });
                     }
-                } else if tensor.nelements() / i32::try_from(n_parts)? != nelements {
+                } else if tensor.nelements() / n_parts != nelements {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
@@ -412,17 +409,13 @@ impl Model for Llama {
                         });
                     }
                 } else if split_type == 0 {
-                    if tensor.get_ne()[0] / i32::try_from(n_parts)? != ne[0]
-                        || tensor.get_ne()[1] != ne[1]
-                    {
+                    if tensor.get_ne()[0] / n_parts != ne[0] || tensor.get_ne()[1] != ne[1] {
                         return Err(LoadError::TensorWrongSize {
                             tensor_name,
                             path: part_path,
                         });
                     }
-                } else if tensor.get_ne()[0] != ne[0]
-                    || tensor.get_ne()[1] / i32::try_from(n_parts)? != ne[1]
-                {
+                } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / n_parts != ne[1] {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
@@ -605,7 +598,7 @@ impl Model for Llama {
         output_request: &mut EvaluateOutputRequest,
     ) {
         let n = input_tokens.len();
-        let n_past = session.n_past as i32;
+        let n_past = session.n_past;
         let n_threads = params.n_threads;
         let increased_determinism = params.increased_determinism;
 
@@ -631,7 +624,7 @@ impl Model for Llama {
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n as i32);
+        let embd = ctx0.new_tensor_1d(ggml::TYPE_I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -643,12 +636,12 @@ impl Model for Llama {
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         &session.memory_v,
-                        (n_past + n as i32) * n_embd,
+                        (n_past + n) * n_embd,
                         il * n_ctx as usize * session.memory_v.element_size() * n_embd as usize,
                     ),
                     n_embd / n_head,
                     n_head,
-                    n_past + n as i32,
+                    n_past + n,
                 ),
                 1,
                 2,
@@ -682,14 +675,14 @@ impl Model for Llama {
                 if n >= 1 {
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
-                        n as i32 * n_embd,
+                        n * n_embd,
                         (session.memory_k.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
 
                     let v = ctx0.op_view_1d(
                         &session.memory_v,
-                        n as i32 * n_embd,
+                        n * n_embd,
                         (session.memory_v.element_size() * n_embd as usize)
                             * (il * n_ctx as usize + n_past as usize),
                     );
@@ -703,7 +696,7 @@ impl Model for Llama {
                     &ctx0.op_rope(
                         &ctx0.op_cpy(
                             &q_current,
-                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n as i32),
+                            &ctx0.new_tensor_3d(ggml::TYPE_F32, n_embd / n_head, n_head, n),
                         ),
                         n_past,
                         n_rot,
@@ -721,14 +714,14 @@ impl Model for Llama {
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
                                 &session.memory_k,
-                                (n_past + n as i32) * n_embd,
+                                (n_past + n) * n_embd,
                                 il * n_ctx as usize
                                     * session.memory_k.element_size()
                                     * n_embd as usize,
                             ),
                             n_embd / n_head,
                             n_head,
-                            n_past + n as i32,
+                            n_past + n,
                         ),
                         n_past,
                         n_rot,
@@ -764,7 +757,7 @@ impl Model for Llama {
                             &vtrans_fun(il),
                             &ctx0.new_tensor_3d(
                                 ggml::TYPE_F32,
-                                n_past + n as i32,
+                                n_past + n,
                                 n_embd / n_head,
                                 n_head,
                             ),
@@ -781,7 +774,7 @@ impl Model for Llama {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n as i32),
+                    &ctx0.new_tensor_2d(ggml::TYPE_F32, n_embd, n),
                 );
 
                 // projection (no bias)
@@ -861,7 +854,7 @@ impl Model for Llama {
             // SAFETY: Tensor data can be read (properly aligned, initialized,
             // data will not be mutated or otherwise aliased during the copy),
             // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n as i32);
+            assert_eq!(input_layer.nelements(), n_vocab * n);
             unsafe {
                 input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
             }
@@ -871,7 +864,7 @@ impl Model for Llama {
         if let Some(embeddings) = &mut output_request.embeddings {
             embeddings.resize(n_embd as usize * n, 0.0);
             // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embeddings_tensor.nelements(), n_embd * n as i32);
+            assert_eq!(embeddings_tensor.nelements(), n_embd * n);
             unsafe {
                 embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(embeddings));
             }

@@ -72,4 +72,7 @@ impl Vocabulary {
 
         Ok(res)
     }
+    fn token(&self, idx: usize) -> &str {
+        &self.id_to_token[idx]
+    }
 }

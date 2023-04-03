@@ -1,7 +1,6 @@
 use super::model::{EvaluateOutputRequest, Model};
 use super::token::{OutputToken, TokenBias, TokenId, EOD_TOKEN_ID};
 use super::vocabulary::Vocabulary;
-use crate::ggml;
 use core::slice;
 use std::fmt::Display;
 use std::time::SystemTime;
@@ -84,7 +83,6 @@ pub struct InferenceSnapshot {
 }
 
 // Allowed types for the model memory K/V tensors.
-#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ModelKVMemoryType {
     Float16,
@@ -121,7 +119,7 @@ impl Default for InferenceSessionParameters {
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters that drive text generation.
 pub struct InferenceParameters {
-    pub n_threads: i32,
+    pub n_threads: usize,
     pub n_batch: usize,
     pub top_k: usize,
     pub top_p: f32,

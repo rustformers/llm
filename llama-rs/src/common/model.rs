@@ -26,7 +26,7 @@ pub trait Model {
 
     fn load(
         path: impl AsRef<Path>,
-        n_ctx: i32,
+        n_ctx: usize,
         load_progress_callback: impl Fn(LoadProgress<Self::HP>),
     ) -> Result<(Self::Weights, Vocabulary), LoadError>;
 

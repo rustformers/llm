@@ -62,7 +62,7 @@ pub enum LoadError {
     #[error("invalid file format version {value}")]
     InvalidFormatVersion { value: u32 },
     #[error("invalid value {value} for `f16` in hyperparameters")]
-    HyperparametersF16Invalid { value: i32 },
+    HyperparametersF16Invalid { value: u32 },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
     UnknownTensor { tensor_name: String, path: PathBuf },
     #[error("the tensor `{tensor_name}` has the wrong size in {path:?}")]
