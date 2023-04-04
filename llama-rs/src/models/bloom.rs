@@ -390,9 +390,11 @@ impl Model for BLOOM {
                 let ftype = read_u32(&mut part_reader)?;
 
                 let mut nelements: usize = 1;
-                let mut ne = [1i32, 1i32];
+                let mut ne = [1i64, 1i64];
+
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..n_dims {
-                    ne[i] = read_i32(&mut part_reader)?;
+                    ne[i] = read_i32(&mut part_reader)? as i64;
                     nelements *= usize::try_from(ne[i])?;
                 }
 
@@ -459,7 +461,7 @@ impl Model for BLOOM {
                         });
                     }
                 } else if split_type == 0 {
-                    if tensor.get_ne()[0] / i32::try_from(n_parts)? != ne[0]
+                    if tensor.get_ne()[0] / i64::try_from(n_parts)? != ne[0]
                         || tensor.get_ne()[1] != ne[1]
                     {
                         return Err(LoadError::TensorWrongSize {
@@ -468,7 +470,7 @@ impl Model for BLOOM {
                         });
                     }
                 } else if tensor.get_ne()[0] != ne[0]
-                    || tensor.get_ne()[1] / i32::try_from(n_parts)? != ne[1]
+                    || tensor.get_ne()[1] / i64::try_from(n_parts)? != ne[1]
                 {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,

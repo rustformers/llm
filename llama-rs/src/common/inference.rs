@@ -89,7 +89,7 @@ pub enum ModelKVMemoryType {
     Float32,
 }
 
-impl From<ModelKVMemoryType> for i32 {
+impl From<ModelKVMemoryType> for u32 {
     fn from(value: ModelKVMemoryType) -> Self {
         match value {
             ModelKVMemoryType::Float16 => ggml::TYPE_F16,
