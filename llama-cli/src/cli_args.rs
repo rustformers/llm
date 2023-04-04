@@ -142,7 +142,8 @@ impl Args {
     }
 
     pub(crate) fn num_threads(&self) -> usize {
-        self.num_threads.unwrap_or_else(|| self.autodetect_num_threads())
+        self.num_threads
+            .unwrap_or_else(|| self.autodetect_num_threads())
     }
 }
 
