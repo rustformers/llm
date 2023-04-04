@@ -226,6 +226,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "generate_ggml_bindings"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -247,7 +254,6 @@ dependencies = [
 name = "ggml-sys"
 version = "0.1.0"
 dependencies = [
- "bindgen",
  "cc",
 ]
 

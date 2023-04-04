@@ -3,9 +3,6 @@ version = "^1.0"
 
 [dependencies]
 
-[dev-dependencies]
-bindgen = "0.64.0"
-
 [package]
 description = "Low level bindings for ggml"
 edition = "2021"
