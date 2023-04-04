@@ -40,6 +40,7 @@ pub trait Model {
         rng: &mut impl rand::Rng,
     ) -> TokenId {
         let logits = &session.last_logits;
+        //       println!("{:?}", logits);
         let n_logits = logits.len();
         let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
 

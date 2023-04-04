@@ -12,50 +12,42 @@ use crate::mulf;
 // in this order.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Hyperparameters {
-    n_vocab: usize,
-    n_ctx: usize,
-    n_embd: usize,
-    n_mult: usize,
-    n_head: usize,
-    n_layer: usize,
-    n_rot: usize,
-    f16_: u32,
+    pub n_vocab: usize,
+    pub n_ctx: usize,
+    pub n_embd: usize,
+    pub n_mult: usize,
+    pub n_head: usize,
+    pub n_layer: usize,
+    pub n_rot: usize,
+    pub f16_: u32,
 }
 
 // default
-struct Layer {
-    attention_norm: ggml::Tensor,
-
-    wq: ggml::Tensor,
-    wk: ggml::Tensor,
-    wv: ggml::Tensor,
-    wo: ggml::Tensor,
-
+pub struct Layer {
+    pub attention_norm: ggml::Tensor,
+    pub wq: ggml::Tensor,
+    pub wk: ggml::Tensor,
+    pub wv: ggml::Tensor,
+    pub wo: ggml::Tensor,
     // normalization
-    ffn_norm: ggml::Tensor,
-
+    pub ffn_norm: ggml::Tensor,
     // ff
-    w1: ggml::Tensor,
-    w2: ggml::Tensor,
-    w3: ggml::Tensor,
+    pub w1: ggml::Tensor,
+    pub w2: ggml::Tensor,
+    pub w3: ggml::Tensor,
 }
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
 pub struct Llama {
-    hparams: Hyperparameters,
-
-    tok_embeddings: ggml::Tensor,
-
-    norm: ggml::Tensor,
-    output: ggml::Tensor,
-
-    layers: Vec<Layer>,
-
-    tensors: HashMap<String, ggml::Tensor>,
-
+    pub hparams: Hyperparameters,
+    pub tok_embeddings: ggml::Tensor,
+    pub norm: ggml::Tensor,
+    pub output: ggml::Tensor,
+    pub layers: Vec<Layer>,
+    pub tensors: HashMap<String, ggml::Tensor>,
     // Must be kept alive for the model
-    _context: ggml::Context,
+    pub _context: ggml::Context,
 }
 
 impl Model for Llama {

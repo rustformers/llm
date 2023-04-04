@@ -185,14 +185,15 @@ impl InferenceSession {
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
+        n_ctx: usize,
         callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens = model.tokenize(vocab, prompt, beginning_of_sentence)?;
 
-        //if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
-        //return Err(InferenceError::ContextFull);
-        //}
+        if self.n_past + prompt_tokens.len() >= n_ctx {
+            return Err(InferenceError::ContextFull);
+        }
 
         for batch in prompt_tokens.chunks(8) {
             model.evaluate(self, params, batch, &mut EvaluateOutputRequest::default());
@@ -217,10 +218,11 @@ impl InferenceSession {
         vocab: &'v Vocabulary,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
+        n_ctx: usize,
     ) -> Result<OutputToken<'v>, InferenceError> {
-        //if self.n_past + 1 >= model.hparams.n_ctx as usize {
-        //return Err(InferenceError::ContextFull);
-        //}
+        if self.n_past + 1 >= n_ctx {
+            return Err(InferenceError::ContextFull);
+        }
 
         // First, sample the next token, using the stored last_logits;
         let next_token = model.sample_top_p_top_k(self, params, rng);
@@ -258,6 +260,7 @@ impl InferenceSession {
         prompt: &str,
         maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
+        n_ctx: usize,
         callback: impl Fn(OutputToken) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = maximum_token_count.unwrap_or(usize::MAX);
@@ -278,7 +281,7 @@ impl InferenceSession {
 
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
-        self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;
+        self.feed_prompt(model, vocab, params, prompt, n_ctx, |tk| callback(tk))?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
 
@@ -288,7 +291,7 @@ impl InferenceSession {
         // or we reach the specified limit.
         let mut tokens_processed = 0;
         while tokens_processed < maximum_token_count {
-            let token = self.infer_next_token(model, vocab, params, rng)?;
+            let token = self.infer_next_token(model, vocab, params, rng, n_ctx)?;
 
             if let Err(e) = callback(token) {
                 return Err(InferenceError::UserCallback(Box::new(e)));

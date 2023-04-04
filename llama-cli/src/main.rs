@@ -165,7 +165,7 @@ fn bloom_mode(
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) =
                     session
-                        .feed_prompt::<Infallible, BLOOM>(model, vocab, params, &prompt, |_| Ok(()))
+                        .feed_prompt::<Infallible, BLOOM>(model, vocab, params, &prompt, model.hparams.n_ctx, |_| Ok(()))
                 {
                     log::error!("Prompt exceeds context window length.")
                 };
@@ -178,6 +178,7 @@ fn bloom_mode(
                     "",
                     CLI_ARGS.num_predict,
                     &mut rng,
+                    model.hparams.n_ctx,
                     |tk| {
                         print!("{tk}");
                         std::io::stdout().flush().unwrap();
@@ -219,7 +220,7 @@ fn repl_mode(
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) =
                     session
-                        .feed_prompt::<Infallible, Llama>(model, vocab, params, &prompt, |_| Ok(()))
+                        .feed_prompt::<Infallible, Llama>(model, vocab, params, &prompt, model.hparams.n_ctx, |_| Ok(()))
                 {
                     log::error!("Prompt exceeds context window length.")
                 };
@@ -232,6 +233,7 @@ fn repl_mode(
                     "",
                     CLI_ARGS.num_predict,
                     &mut rng,
+                    model.hparams.n_ctx,
                     |tk| {
                         print!("{tk}");
                         std::io::stdout().flush().unwrap();
@@ -405,6 +407,7 @@ fn main() {
             &prompt,
             args.num_predict,
             &mut rng,
+            model.hparams.n_ctx,
             |t| {
                 print!("{t}");
                 std::io::stdout().flush().unwrap();

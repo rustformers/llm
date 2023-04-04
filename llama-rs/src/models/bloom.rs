@@ -13,57 +13,47 @@ use crate::mulf;
 // in this order.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Hyperparameters {
-    n_vocab: usize,
-    n_ctx: usize,
-    n_embd: usize,
-    n_mult: usize,
-    n_head: usize,
-    n_layer: usize,
-    f16_: u32,
+    pub n_vocab: usize,
+    pub n_ctx: usize,
+    pub n_embd: usize,
+    pub n_mult: usize,
+    pub n_head: usize,
+    pub n_layer: usize,
+    pub f16_: u32,
 }
 
 // default
-struct Layer {
-    attention_norm: ggml::Tensor,
-    attention_norm_b: ggml::Tensor,
-
-    wo: ggml::Tensor,
-    wo_b: ggml::Tensor,
-    query_key_value: ggml::Tensor,
-    query_key_value_b: ggml::Tensor,
-
+pub struct Layer {
+    pub attention_norm: ggml::Tensor,
+    pub attention_norm_b: ggml::Tensor,
+    pub wo: ggml::Tensor,
+    pub wo_b: ggml::Tensor,
+    pub query_key_value: ggml::Tensor,
+    pub query_key_value_b: ggml::Tensor,
     // normalization
-    ffn_norm: ggml::Tensor,
-    ffn_norm_b: ggml::Tensor,
-
+    pub ffn_norm: ggml::Tensor,
+    pub ffn_norm_b: ggml::Tensor,
     // ff
-    w1: ggml::Tensor,
-    w1_b: ggml::Tensor,
-    w2: ggml::Tensor,
-    w2_b: ggml::Tensor,
+    pub w1: ggml::Tensor,
+    pub w1_b: ggml::Tensor,
+    pub w2: ggml::Tensor,
+    pub w2_b: ggml::Tensor,
 }
 
 /// The weights for the BLOOM model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
 pub struct BLOOM {
-    hparams: Hyperparameters,
-
-    tok_embeddings: ggml::Tensor,
-
-    norm: ggml::Tensor,
-    norm_b: ggml::Tensor,
-
-    output_norm: ggml::Tensor,
-    output_norm_b: ggml::Tensor,
-
-    output: ggml::Tensor,
-
-    layers: Vec<Layer>,
-
-    tensors: HashMap<String, ggml::Tensor>,
-
+    pub hparams: Hyperparameters,
+    pub tok_embeddings: ggml::Tensor,
+    pub norm: ggml::Tensor,
+    pub norm_b: ggml::Tensor,
+    pub output_norm: ggml::Tensor,
+    pub output_norm_b: ggml::Tensor,
+    pub output: ggml::Tensor,
+    pub layers: Vec<Layer>,
+    pub tensors: HashMap<String, ggml::Tensor>,
     // Must be kept alive for the model
-    _context: ggml::Context,
+    pub _context: ggml::Context,
 }
 
 impl Model for BLOOM {
@@ -752,28 +742,20 @@ impl Model for BLOOM {
 
             // self-attention
             {
-                //let n_i32 = n.try_into().unwrap();
                 let nb = current.get_nb()[1];
                 let q_current = ctx0.op_view_2d(
-                    &current,
-                    n_embd,
-                    n,
-                    nb,
-                    0 * std::mem::size_of::<f32>() * n_embd as usize,
+                    &current, n_embd, n, nb,
+                    //0 * std::mem::size_of::<f32>() * n_embd as usize,
+                    0,
                 );
-                let k_current = ctx0.op_view_2d(
-                    &current,
-                    n_embd,
-                    n,
-                    nb,
-                    1 * std::mem::size_of::<f32>() * n_embd as usize,
-                );
+                let k_current =
+                    ctx0.op_view_2d(&current, n_embd, n, nb, std::mem::size_of::<f32>() * n_embd);
                 let v_current = ctx0.op_view_2d(
                     &current,
                     n_embd,
                     n,
                     nb,
-                    2 * std::mem::size_of::<f32>() * n_embd as usize,
+                    2 * std::mem::size_of::<f32>() * n_embd,
                 );
 
                 // store key and value to memory
@@ -814,7 +796,7 @@ impl Model for BLOOM {
                         &ctx0.op_view_1d(
                             &session.memory_k,
                             (n_past + n) * n_embd,
-                            il * n_ctx as usize * session.memory_k.element_size() * n_embd as usize,
+                            il * n_ctx * session.memory_k.element_size() * n_embd,
                         ),
                         n_embd / n_head,
                         n_head,
