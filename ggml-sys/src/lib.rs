@@ -899,6 +899,17 @@ extern "C" {
         filename: *const ::std::os::raw::c_char,
     );
 }
+
+
+extern "C" {
+    pub fn ggml_alibi(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        n_past: ::std::os::raw::c_int,
+        n_head: ::std::os::raw::c_int,
+    ) -> *mut ggml_tensor;
+}
+
 pub const ggml_opt_type_GGML_OPT_ADAM: ggml_opt_type = 0;
 pub const ggml_opt_type_GGML_OPT_LBFGS: ggml_opt_type = 1;
 pub type ggml_opt_type = ::std::os::raw::c_uint;

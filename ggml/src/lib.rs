@@ -216,9 +216,9 @@ impl Context {
             ggml_sys::ggml_view_2d(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
-                usize_to_i32(nb1),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                nb1,
                 offset,
             )
         };
