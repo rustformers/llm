@@ -1,42 +1,90 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use llama_rs::TokenBias;
+use llama_rs::{
+    InferenceParameters, InferenceSessionParameters, ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
+};
+use rand::SeedableRng;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub enum Args {
-    #[command(name = "generate")]
-    Generate(Box<Generate>),
+    #[command()]
+    /// Use a model to infer the next tokens in a sequence, and exit
+    Infer(Box<Infer>),
 
-    #[command(name = "convert", hide = true)]
+    #[command()]
+    /// Use a model to dump the tokens for a given prompt
+    DumpTokens(Box<DumpTokens>),
+
+    #[command()]
+    /// Use a model to interactively generate tokens
+    Repl(Box<Repl>),
+
+    #[command()]
+    /// Use a model to interactively generate tokens, and chat with it
+    Chat(Box<Repl>),
+
+    #[command(hide = true)]
+    /// Convert a PyTorch model to a GGML model
     Convert(Box<Convert>),
 }
 
 #[derive(Parser, Debug)]
-pub struct Generate {
-    /// Where to load the model path from
-    #[arg(long, short = 'm')]
-    pub model_path: String,
+pub struct Infer {
+    #[command(flatten)]
+    pub model_load: ModelLoad,
 
-    /// The prompt to feed the generator
+    #[command(flatten)]
+    pub generate: Generate,
+
+    /// The prompt to feed the generator.
+    ///
+    /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
+    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
 
-    /// A file to read the prompt from.
+    /// Saves an inference session at the given path. The same session can then be
+    /// loaded from disk using `--load-session`.
     ///
-    /// If used with `--prompt`/`-p`, the prompt from the file will be used
-    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
-    #[arg(long, short = 'f', default_value = None)]
-    pub prompt_file: Option<String>,
+    /// Use this with `-n 0` to save just the prompt
+    #[arg(long, default_value = None)]
+    pub save_session: Option<PathBuf>,
 
-    /// Run in REPL mode.
+    /// Loads an inference session from the given path if present, and then saves
+    /// the result to the same path after inference is completed.
     ///
-    /// If used with `--prompt`/`-p`, the prompt from the file will be used
-    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
-    #[arg(long, short = 'R', default_value_t = false)]
-    pub repl: bool,
+    /// Equivalent to `--load-session` and `--save-session` with the same path,
+    /// but will not error if the path does not exist
+    #[arg(long, default_value = None)]
+    pub persist_session: Option<PathBuf>,
+}
 
+#[derive(Parser, Debug)]
+pub struct DumpTokens {
+    #[command(flatten)]
+    pub model_load: ModelLoad,
+
+    /// The prompt to feed the generator.
+    ///
+    /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
+    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
+    #[arg(long, short = 'p', default_value = None)]
+    pub prompt: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct Repl {
+    #[command(flatten)]
+    pub model_load: ModelLoad,
+
+    #[command(flatten)]
+    pub generate: Generate,
+}
+
+#[derive(Parser, Debug)]
+pub struct Generate {
     /// Sets the number of threads to use
     #[arg(long, short = 't')]
     pub num_threads: Option<usize>,
@@ -44,11 +92,6 @@ pub struct Generate {
     /// Sets how many tokens to predict
     #[arg(long, short = 'n')]
     pub num_predict: Option<usize>,
-
-    /// Sets the size of the context (in tokens). Allows feeding longer prompts.
-    /// Note that this affects memory. TODO: Unsure how large the limit is.
-    #[arg(long, default_value_t = 512)]
-    pub num_ctx_tokens: usize,
 
     /// How many tokens from the prompt at a time to feed the network. Does not
     /// affect generation.
@@ -68,7 +111,7 @@ pub struct Generate {
 
     /// Temperature
     #[arg(long, default_value_t = 0.80)]
-    pub temp: f32,
+    pub temperature: f32,
 
     /// Top-K: The top K words by score are kept during sampling.
     #[arg(long, default_value_t = 40)]
@@ -79,25 +122,10 @@ pub struct Generate {
     #[arg(long, default_value_t = 0.95)]
     pub top_p: f32,
 
-    /// Saves an inference session at the given path. The same session can then be
-    /// loaded from disk using `--load-session`.
-    ///
-    /// Use this with `-n 0` to save just the prompt
-    #[arg(long, default_value = None)]
-    pub save_session: Option<PathBuf>,
-
     /// Loads a saved inference session from the given path, previously saved using
     /// `--save-session`
     #[arg(long, default_value = None)]
     pub load_session: Option<PathBuf>,
-
-    /// Loads an inference session from the given path if present, and then saves
-    /// the result to the same path after inference is completed.
-    ///
-    /// Equivalent to `--load-session` and `--save-session` with the same path,
-    /// but will not error if the path does not exist
-    #[arg(long, default_value = None)]
-    pub persist_session: Option<PathBuf>,
 
     /// Specifies the seed to use during sampling. Note that, depending on
     /// hardware, the same seed may lead to different results on two separate
@@ -124,17 +152,10 @@ pub struct Generate {
     /// option will override this if specified.
     #[arg(long, default_value_t = false)]
     pub ignore_eos: bool,
-
-    /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
-    /// and then as a list of comma-separated string keys and token ID values.
-    ///
-    /// This will only work in non-`--repl` mode.
-    #[arg(long, default_value_t = false)]
-    pub dump_prompt_tokens: bool,
 }
 impl Generate {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(crate) fn autodetect_num_threads(&self) -> usize {
+    pub fn autodetect_num_threads(&self) -> usize {
         std::process::Command::new("sysctl")
             .arg("-n")
             .arg("hw.perflevel0.physicalcpu")
@@ -145,13 +166,160 @@ impl Generate {
     }
 
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    pub(crate) fn autodetect_num_threads(&self) -> usize {
+    pub fn autodetect_num_threads(&self) -> usize {
         num_cpus::get_physical()
     }
 
-    pub(crate) fn num_threads(&self) -> usize {
+    pub fn num_threads(&self) -> usize {
         self.num_threads
             .unwrap_or_else(|| self.autodetect_num_threads())
+    }
+
+    pub fn inference_session_parameters(&self) -> InferenceSessionParameters {
+        let mem_typ = if self.float16 {
+            ModelKVMemoryType::Float16
+        } else {
+            ModelKVMemoryType::Float32
+        };
+        InferenceSessionParameters {
+            memory_k_type: mem_typ,
+            memory_v_type: mem_typ,
+            repetition_penalty_last_n: self.repeat_last_n,
+        }
+    }
+
+    pub fn rng(&self) -> rand::rngs::StdRng {
+        if let Some(seed) = self.seed {
+            rand::rngs::StdRng::seed_from_u64(seed)
+        } else {
+            rand::rngs::StdRng::from_entropy()
+        }
+    }
+
+    pub fn inference_parameters(&self, session_loaded: bool) -> InferenceParameters {
+        InferenceParameters {
+            n_threads: self.num_threads(),
+            n_batch: self.batch_size,
+            top_k: self.top_k,
+            top_p: self.top_p,
+            repeat_penalty: self.repeat_penalty,
+            temperature: self.temperature,
+            bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
+                if self.ignore_eos {
+                    TokenBias::new(vec![(EOT_TOKEN_ID, -1.0)])
+                } else {
+                    TokenBias::default()
+                }
+            }),
+            play_back_previous_tokens: session_loaded,
+            ..Default::default()
+        }
+    }
+}
+fn parse_bias(s: &str) -> Result<TokenBias, String> {
+    s.parse()
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelLoad {
+    /// Where to load the model path from
+    #[arg(long, short = 'm')]
+    pub model_path: String,
+
+    /// A file to read the prompt from.
+    #[arg(long, short = 'f', default_value = None)]
+    pub prompt_file: Option<String>,
+
+    /// Sets the size of the context (in tokens). Allows feeding longer prompts.
+    /// Note that this affects memory. TODO: Unsure how large the limit is.
+    #[arg(long, default_value_t = 512)]
+    pub num_ctx_tokens: usize,
+}
+impl ModelLoad {
+    pub fn load(&self) -> (llama_rs::Model, llama_rs::Vocabulary) {
+        let (model, vocabulary) =
+            llama_rs::Model::load(&self.model_path, self.num_ctx_tokens, |progress| {
+                use llama_rs::LoadProgress;
+                match progress {
+                    LoadProgress::HyperparametersLoaded(hparams) => {
+                        log::debug!("Loaded hyperparameters {hparams:#?}")
+                    }
+                    LoadProgress::BadToken { index } => {
+                        log::info!("Warning: Bad token in vocab at index {index}")
+                    }
+                    LoadProgress::ContextSize { bytes } => log::info!(
+                        "ggml ctx size = {:.2} MB\n",
+                        bytes as f64 / (1024.0 * 1024.0)
+                    ),
+                    LoadProgress::PartLoading {
+                        file,
+                        current_part,
+                        total_parts,
+                    } => {
+                        let current_part = current_part + 1;
+                        log::info!(
+                            "Loading model part {}/{} from '{}'\n",
+                            current_part,
+                            total_parts,
+                            file.to_string_lossy(),
+                        )
+                    }
+                    LoadProgress::PartTensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        let current_tensor = current_tensor + 1;
+                        if current_tensor % 8 == 0 {
+                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                        }
+                    }
+                    LoadProgress::PartLoaded {
+                        file,
+                        byte_size,
+                        tensor_count,
+                    } => {
+                        log::info!("Loading of '{}' complete", file.to_string_lossy());
+                        log::info!(
+                            "Model size = {:.2} MB / num tensors = {}",
+                            byte_size as f64 / 1024.0 / 1024.0,
+                            tensor_count
+                        );
+                    }
+                }
+            })
+            .expect("Could not load model");
+
+        log::info!("Model fully loaded!");
+
+        (model, vocabulary)
+    }
+
+    pub fn prompt_file_contents(&self) -> Option<String> {
+        match &self.prompt_file {
+            Some(path) => {
+                match std::fs::read_to_string(path) {
+                    Ok(mut prompt) => {
+                        // Strip off the last character if it's exactly newline. Also strip off a single
+                        // carriage return if it's there. Since String must be valid UTF-8 it should be
+                        // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
+                        // bytes will always the high bit set.
+                        if matches!(prompt.as_bytes().last(), Some(b'\n')) {
+                            prompt.pop();
+                        }
+                        if matches!(prompt.as_bytes().last(), Some(b'\r')) {
+                            prompt.pop();
+                        }
+                        Some(prompt)
+                    }
+                    Err(err) => {
+                        log::error!("Could not read prompt file at {path}. Error {err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            _ => None,
+        }
     }
 }
 
@@ -186,8 +354,4 @@ impl From<ElementType> for llama_rs::ElementType {
             ElementType::F32 => llama_rs::ElementType::F32,
         }
     }
-}
-
-fn parse_bias(s: &str) -> Result<TokenBias, String> {
-    s.parse()
 }
