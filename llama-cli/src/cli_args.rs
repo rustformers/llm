@@ -129,7 +129,7 @@ pub struct Args {
 }
 impl Args {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(crate) fn num_threads(&self) -> usize {
+    pub(crate) fn autodetect_num_threads(&self) -> usize {
         std::process::Command::new("sysctl")
             .arg("-n")
             .arg("hw.perflevel0.physicalcpu")
@@ -140,8 +140,13 @@ impl Args {
     }
 
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    pub(crate) fn num_threads(&self) -> usize {
+    pub(crate) fn autodetect_num_threads(&self) -> usize {
         num_cpus::get_physical()
+    }
+
+    pub(crate) fn num_threads(&self) -> usize {
+        self.num_threads
+            .unwrap_or_else(|| self.autodetect_num_threads())
     }
 }
 

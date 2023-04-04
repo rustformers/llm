@@ -25,15 +25,15 @@ pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Quantized 4-bit (type 0).
-pub const TYPE_Q4_0: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_Q4_0;
+pub const TYPE_Q4_0: ggml_sys::ggml_type = ggml_sys::ggml_type_GGML_TYPE_Q4_0;
 /// Quantized 4-bit (type 1); used by GPTQ.
-pub const TYPE_Q4_1: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_Q4_1;
+pub const TYPE_Q4_1: ggml_sys::ggml_type = ggml_sys::ggml_type_GGML_TYPE_Q4_1;
 /// Integer 32-bit.
-pub const TYPE_I32: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_I32;
+pub const TYPE_I32: ggml_sys::ggml_type = ggml_sys::ggml_type_GGML_TYPE_I32;
 /// Float 16-bit.
-pub const TYPE_F16: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_F16;
+pub const TYPE_F16: ggml_sys::ggml_type = ggml_sys::ggml_type_GGML_TYPE_F16;
 /// Float 32-bit.
-pub const TYPE_F32: ggml_sys::ggml_type = ggml_sys::GGML_TYPE_F32;
+pub const TYPE_F32: ggml_sys::ggml_type = ggml_sys::ggml_type_GGML_TYPE_F32;
 
 /// Acts as a RAII-guard over a `ggml_sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
@@ -53,6 +53,7 @@ impl Context {
                 // Null here means we want ggml to own this memory. We don't
                 // support passing an owned buffer from the Rust side.
                 mem_buffer: std::ptr::null_mut(),
+                no_alloc: false,
             })
         };
         Self {
@@ -71,7 +72,7 @@ impl Context {
     /// Creates a new 1D tensor.
     pub fn new_tensor_1d(&self, typ: ggml_sys::ggml_type, ne0: usize) -> Tensor {
         let raw =
-            unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ, usize_to_i32(ne0)) };
+            unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ, usize_to_i64(ne0)) };
         self.new_tensor_raw(raw)
     }
 
@@ -81,8 +82,8 @@ impl Context {
             ggml_sys::ggml_new_tensor_2d(
                 self.ptr.as_ptr(),
                 typ,
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
             )
         };
         self.new_tensor_raw(raw)
@@ -100,9 +101,9 @@ impl Context {
             ggml_sys::ggml_new_tensor_3d(
                 self.ptr.as_ptr(),
                 typ,
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
-                usize_to_i32(ne2),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                usize_to_i64(ne2),
             )
         };
         self.new_tensor_raw(raw)
@@ -197,7 +198,7 @@ impl Context {
     /// Creates a 1D view over `a`.
     pub fn op_view_1d(&self, a: &Tensor, ne0: usize, offset: usize) -> Tensor {
         let tensor = unsafe {
-            ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(ne0), offset)
+            ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i64(ne0), offset)
         };
         self.new_tensor_raw(tensor)
     }
@@ -259,9 +260,9 @@ impl Context {
             ggml_sys::ggml_reshape_3d(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
-                usize_to_i32(ne2),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                usize_to_i64(ne2),
             )
         };
         self.new_tensor_raw(tensor)
@@ -372,12 +373,12 @@ impl Tensor {
     pub fn nelements(&self) -> usize {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
-            i32_to_usize(unsafe { ggml_sys::ggml_nelements(self.ptr.as_ptr()) })
+            i64_to_usize(unsafe { ggml_sys::ggml_nelements(self.ptr.as_ptr()) })
         })
     }
 
     /// Number of elements in each dimension.
-    pub fn get_ne(&self) -> [i32; 4] {
+    pub fn get_ne(&self) -> [i64; 4] {
         self.with_alive_ctx(|| unsafe { *self.ptr.as_ptr() }.ne)
     }
 
@@ -464,6 +465,14 @@ fn usize_to_i32(val: usize) -> i32 {
     i32::try_from(val).unwrap()
 }
 
+fn usize_to_i64(val: usize) -> i64 {
+    i64::try_from(val).unwrap()
+}
+
 fn i32_to_usize(val: i32) -> usize {
+    usize::try_from(val).unwrap()
+}
+
+fn i64_to_usize(val: i64) -> usize {
     usize::try_from(val).unwrap()
 }
