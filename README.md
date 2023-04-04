@@ -56,7 +56,7 @@ It can then be run through `llama-cli`.
 Clone the repository, and then build it through
 
 ```shell
-cargo build --release
+cargo build --release --bin llama-cli
 ```
 
 The resulting binary will be at `target/release/llama-cli[.exe]`.
@@ -64,7 +64,7 @@ The resulting binary will be at `target/release/llama-cli[.exe]`.
 It can also be run directly through Cargo, using
 
 ```shell
-cargo run --release -- <ARGS>
+cargo run --release --bin llama-cli -- <ARGS>
 ```
 
 This is useful for development.
