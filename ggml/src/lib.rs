@@ -39,11 +39,11 @@ pub enum Type {
 impl From<Type> for ggml_sys::ggml_type {
     fn from(t: Type) -> Self {
         match t {
-            Type::Q4_0 => ggml_sys::GGML_TYPE_Q4_0,
-            Type::Q4_1 => ggml_sys::GGML_TYPE_Q4_1,
-            Type::I32 => ggml_sys::GGML_TYPE_I32,
-            Type::F16 => ggml_sys::GGML_TYPE_F16,
-            Type::F32 => ggml_sys::GGML_TYPE_F32,
+            Type::Q4_0 => ggml_sys::ggml_type_GGML_TYPE_Q4_0,
+            Type::Q4_1 => ggml_sys::ggml_type_GGML_TYPE_Q4_1,
+            Type::I32 => ggml_sys::ggml_type_GGML_TYPE_I32,
+            Type::F16 => ggml_sys::ggml_type_GGML_TYPE_F16,
+            Type::F32 => ggml_sys::ggml_type_GGML_TYPE_F32,
         }
     }
 }
@@ -51,11 +51,11 @@ impl TryFrom<ggml_sys::ggml_type> for Type {
     type Error = ();
     fn try_from(t: ggml_sys::ggml_type) -> Result<Self, Self::Error> {
         match t {
-            ggml_sys::GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
-            ggml_sys::GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
-            ggml_sys::GGML_TYPE_I32 => Ok(Type::I32),
-            ggml_sys::GGML_TYPE_F16 => Ok(Type::F16),
-            ggml_sys::GGML_TYPE_F32 => Ok(Type::F32),
+            ggml_sys::ggml_type_GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
+            ggml_sys::ggml_type_GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
+            ggml_sys::ggml_type_GGML_TYPE_I32 => Ok(Type::I32),
+            ggml_sys::ggml_type_GGML_TYPE_F16 => Ok(Type::F16),
+            ggml_sys::ggml_type_GGML_TYPE_F32 => Ok(Type::F32),
             _ => Err(()),
         }
     }
@@ -90,6 +90,7 @@ impl Context {
                 // Null here means we want ggml to own this memory. We don't
                 // support passing an owned buffer from the Rust side.
                 mem_buffer: std::ptr::null_mut(),
+                no_alloc: false,
             })
         };
         Self {
@@ -107,8 +108,9 @@ impl Context {
 
     /// Creates a new 1D tensor.
     pub fn new_tensor_1d(&self, typ: Type, ne0: usize) -> Tensor {
-        let raw =
-            unsafe { ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ.into(), usize_to_i32(ne0)) };
+        let raw = unsafe {
+            ggml_sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ.into(), usize_to_i64(ne0))
+        };
         self.new_tensor_raw(raw)
     }
 
@@ -118,28 +120,22 @@ impl Context {
             ggml_sys::ggml_new_tensor_2d(
                 self.ptr.as_ptr(),
                 typ.into(),
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
             )
         };
         self.new_tensor_raw(raw)
     }
 
     /// Creates a new 3D tensor.
-    pub fn new_tensor_3d(
-        &self,
-        typ: Type,
-        ne0: usize,
-        ne1: usize,
-        ne2: usize,
-    ) -> Tensor {
+    pub fn new_tensor_3d(&self, typ: Type, ne0: usize, ne1: usize, ne2: usize) -> Tensor {
         let raw = unsafe {
             ggml_sys::ggml_new_tensor_3d(
                 self.ptr.as_ptr(),
                 typ.into(),
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
-                usize_to_i32(ne2),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                usize_to_i64(ne2),
             )
         };
         self.new_tensor_raw(raw)
@@ -234,7 +230,7 @@ impl Context {
     /// Creates a 1D view over `a`.
     pub fn op_view_1d(&self, a: &Tensor, ne0: usize, offset: usize) -> Tensor {
         let tensor = unsafe {
-            ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(ne0), offset)
+            ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i64(ne0), offset)
         };
         self.new_tensor_raw(tensor)
     }
@@ -274,9 +270,9 @@ impl Context {
             ggml_sys::ggml_reshape_3d(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
-                usize_to_i32(ne0),
-                usize_to_i32(ne1),
-                usize_to_i32(ne2),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                usize_to_i64(ne2),
             )
         };
         self.new_tensor_raw(tensor)
@@ -367,12 +363,12 @@ impl Tensor {
     pub fn nelements(&self) -> usize {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
-            i32_to_usize(unsafe { ggml_sys::ggml_nelements(self.ptr.as_ptr()) })
+            i64_to_usize(unsafe { ggml_sys::ggml_nelements(self.ptr.as_ptr()) })
         })
     }
 
     /// Number of elements in each dimension.
-    pub fn get_ne(&self) -> [i32; 4] {
+    pub fn get_ne(&self) -> [i64; 4] {
         self.with_alive_ctx(|| unsafe { *self.ptr.as_ptr() }.ne)
     }
 
@@ -459,6 +455,14 @@ fn usize_to_i32(val: usize) -> i32 {
     i32::try_from(val).unwrap()
 }
 
+fn usize_to_i64(val: usize) -> i64 {
+    i64::try_from(val).unwrap()
+}
+
 fn i32_to_usize(val: i32) -> usize {
+    usize::try_from(val).unwrap()
+}
+
+fn i64_to_usize(val: i64) -> usize {
     usize::try_from(val).unwrap()
 }

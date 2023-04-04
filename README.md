@@ -28,8 +28,7 @@ performance as the original code.
 
 ## Getting started
 
-Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up, and get a
-copy of the model's weights[^2].
+Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
 `llama-rs` is a Rust library, while `llama-cli` is a CLI application that wraps
 `llama-rs` and offers basic inference capabilities.
@@ -57,7 +56,7 @@ It can then be run through `llama-cli`.
 Clone the repository, and then build it through
 
 ```shell
-cargo build --release
+cargo build --release --bin llama-cli
 ```
 
 The resulting binary will be at `target/release/llama-cli[.exe]`.
@@ -65,10 +64,56 @@ The resulting binary will be at `target/release/llama-cli[.exe]`.
 It can also be run directly through Cargo, using
 
 ```shell
-cargo run --release -- <ARGS>
+cargo run --release --bin llama-cli -- <ARGS>
 ```
 
 This is useful for development.
+
+### Getting the weights
+
+In order to run the inference code in `llama-rs`, a copy of the model's weights
+are required. Currently, the only legal source to get the weights is [this
+repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama).
+Note that the choice of words also may or may not hint at the existence of other
+kinds of sources.
+
+After acquiring the weights, it is necessary to convert them into a format that
+is compatible with ggml. To achieve this, follow the steps outlined below:
+
+> **Warning** 
+> 
+> To run the Python scripts, a Python version of 3.9 or 3.10 is required. 3.11
+> is unsupported at the time of writing.
+
+
+``` shell
+# Convert the model to f16 ggml format
+python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
+
+# Quantize the model
+**Note** To quantize the model, for now using llama.cpp is necessary. This will be fixed once #84 is merged.
+```
+
+> **Note**
+> 
+> The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
+> additional information on how to obtain and run specific models. With some
+> caveats:
+>
+> Currently, `llama-rs` supports both the old (unversioned) and the new
+> (versioned) ggml formats, but not the mmap-ready version that was [recently
+> merged](https://github.com/ggerganov/llama.cpp/pull/613).
+
+
+*Support for other open source models is currently planned. For models where
+weights can be legally distributed, this section will be updated with scripts to
+make the install process as user-friendly as possible. Due to the model's legal
+requirements, this is currently not possible with LLaMA itself and a more
+lengthy setup is required.*
+
+- https://github.com/rustformers/llama-rs/pull/85
+- https://github.com/rustformers/llama-rs/issues/75
+
 
 ### Running
 
@@ -101,12 +146,6 @@ Some additional things to try:
 [^1]:
     A modern-ish C toolchain is required to compile `ggml`. A C++ toolchain
     should not be necessary.
-
-[^2]:
-    The only legal source to get the weights at the time of writing is
-    [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama).
-    The choice of words also may or may not hint at the existence of other
-    kinds of sources.
 
 ## Q&A
 
