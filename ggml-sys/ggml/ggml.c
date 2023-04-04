@@ -1038,8 +1038,8 @@ static void dequantize_row_q4_0(const void * restrict vx, float * restrict y, in
             const int8x16_t vq = vcombine_s8(vx_0, vx_1);
 
             // convert to 2x int16x8_t
-            const int16x8_t vi_0 = vmovl_s8(vget_low_s8 (vq));
-            const int16x8_t vi_1 = vmovl_s8(vget_high_s8(vq));
+            const int16x8_t vi_0 = vmovl_u8(vget_low_s8 (vq));
+            const int16x8_t vi_1 = vmovl_u8(vget_high_s8(vq));
 
             // convert to 4x float32x4_t
             const float32x4_t vf_0 = vcvtq_f32_s32(vmovl_s16(vget_low_s16 (vi_0)));
