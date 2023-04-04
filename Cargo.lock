@@ -226,7 +226,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate_ggml_bindings"
+name = "generate-ggml-bindings"
 version = "0.1.0"
 dependencies = [
  "bindgen",
