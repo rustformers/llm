@@ -18,7 +18,7 @@ fn enter_prompt(
     params: &InferenceParameters,
 ) -> Result<(), InferenceError> {
     let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
-    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))?;
+    session.feed_prompt::<Infallible>(model, vocab, params, prompt, |_| Ok(()))?;
     sp.stop();
     Ok(())
 }
@@ -71,7 +71,7 @@ fn repl_mode(
             session = model.start_session(*session_params);
 
             if let Some(ref chat_rules) = chat_rules {
-                enter_prompt(&chat_rules, &mut session, model, vocab, params)
+                enter_prompt(chat_rules, &mut session, model, vocab, params)
                     .expect("Chat rules exceed window length.");
                 reset_session = false;
             }
@@ -194,10 +194,8 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    } else if let Some(chat_rules) = &args.chat_rules_experimental {
-        Some(chat_rules.clone())
     } else {
-        None
+        args.chat_rules_experimental.as_ref().cloned()
     };
 
     let prompt = if let Some(path) = &args.prompt_file {
