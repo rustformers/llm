@@ -91,7 +91,7 @@ is compatible with ggml. To achieve this, follow the steps outlined below:
 python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 
 # Quantize the model
-TODO: Missing quantize command
+**Note** To quantize the model, for now using llama.cpp is necessary. This will be fixed once #84 is merged.
 ```
 
 > **Note**
