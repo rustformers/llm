@@ -3,7 +3,8 @@
 //! This is *incomplete* and does not convert the weights. It only converts the
 //! vocabulary and hyperparameters. It is included as a preliminary step to
 //! full conversion.
-
+///
+/// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
 use serde::Deserialize;
 use std::{

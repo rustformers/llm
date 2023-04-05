@@ -28,7 +28,7 @@ fn main() {
 }
 
 fn infer(args: &cli_args::Infer) {
-    let prompt = processed_prompt(&args.model_load, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_params = args.generate.inference_session_parameters();
     let (model, vocabulary) = args.model_load.load();
     let (mut session, session_loaded) = load_session_from_disk(
@@ -86,7 +86,7 @@ fn infer(args: &cli_args::Infer) {
 }
 
 fn dump_tokens(args: &cli_args::DumpTokens) {
-    let prompt = processed_prompt(&args.model_load, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let (_, vocabulary) = args.model_load.load();
     let toks = match vocabulary.tokenize(&prompt, false) {
         Ok(toks) => toks,
@@ -118,7 +118,7 @@ fn interactive(
     // to ensure that previous state is not carried over.
     chat_mode: bool,
 ) {
-    let prompt_file = args.model_load.prompt_file_contents();
+    let prompt_file = args.prompt_file.contents();
     let inference_session_params = args.generate.inference_session_parameters();
     let (model, vocabulary) = args.model_load.load();
     let (mut session, session_loaded) = load_session_from_disk(
@@ -191,8 +191,11 @@ fn interactive(
     }
 }
 
-fn processed_prompt(args: &cli_args::ModelLoad, prompt: Option<&str>) -> String {
-    if let Some(prompt_file) = args.prompt_file_contents() {
+fn load_prompt_file_with_prompt(
+    prompt_file: &cli_args::PromptFile,
+    prompt: Option<&str>,
+) -> String {
+    if let Some(prompt_file) = prompt_file.contents() {
         if let Some(prompt) = prompt {
             process_prompt(&prompt_file, prompt)
         } else {

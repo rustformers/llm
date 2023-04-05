@@ -14,11 +14,13 @@ pub enum Args {
     Infer(Box<Infer>),
 
     #[command()]
-    /// Use a model to dump the tokens for a given prompt
+    /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
+    /// and then as a list of comma-separated string keys and token ID values.
     DumpTokens(Box<DumpTokens>),
 
     #[command()]
-    /// Use a model to interactively generate tokens
+    /// Use a model to interactively prompt it multiple times, while
+    /// resetting the context between invocations
     Repl(Box<Repl>),
 
     #[command()]
@@ -31,6 +33,11 @@ pub enum Args {
 
     #[command(hide = true)]
     /// Convert a PyTorch model to a GGML model
+    ///
+    /// This is *not* fully implemented. This is a starting point for developers
+    /// to continue at a later stage.
+    ///
+    /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
     Convert(Box<Convert>),
 }
 
@@ -38,6 +45,9 @@ pub enum Args {
 pub struct Infer {
     #[command(flatten)]
     pub model_load: ModelLoad,
+
+    #[command(flatten)]
+    pub prompt_file: PromptFile,
 
     #[command(flatten)]
     pub generate: Generate,
@@ -70,6 +80,9 @@ pub struct DumpTokens {
     #[command(flatten)]
     pub model_load: ModelLoad,
 
+    #[command(flatten)]
+    pub prompt_file: PromptFile,
+
     /// The prompt to feed the generator.
     ///
     /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
@@ -82,6 +95,9 @@ pub struct DumpTokens {
 pub struct Repl {
     #[command(flatten)]
     pub model_load: ModelLoad,
+
+    #[command(flatten)]
+    pub prompt_file: PromptFile,
 
     #[command(flatten)]
     pub generate: Generate,
@@ -230,13 +246,18 @@ pub struct ModelLoad {
     #[arg(long, short = 'm')]
     pub model_path: String,
 
-    /// A file to read the prompt from.
-    #[arg(long, short = 'f', default_value = None)]
-    pub prompt_file: Option<String>,
-
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
-    /// Note that this affects memory. TODO: Unsure how large the limit is.
-    #[arg(long, default_value_t = 512)]
+    /// Note that this affects memory.
+    ///
+    /// LLaMA models are trained with a context size of 2048 tokens. If you
+    /// want to use a larger context size, you will need to retrain the model,
+    /// or use a model that was trained with a larger context size.
+    ///
+    /// Alternate methods to extend the context, including
+    /// [context clearing](https://github.com/rustformers/llama-rs/issues/77) are
+    /// being investigated, but are not yet implemented. Additionally, these
+    /// will likely not perform as well as a model with a larger context size.
+    #[arg(long, default_value_t = 2048)]
     pub num_ctx_tokens: usize,
 }
 impl ModelLoad {
@@ -298,8 +319,16 @@ impl ModelLoad {
 
         (model, vocabulary)
     }
+}
 
-    pub fn prompt_file_contents(&self) -> Option<String> {
+#[derive(Parser, Debug)]
+pub struct PromptFile {
+    /// A file to read the prompt from.
+    #[arg(long, short = 'f', default_value = None)]
+    pub prompt_file: Option<String>,
+}
+impl PromptFile {
+    pub fn contents(&self) -> Option<String> {
         match &self.prompt_file {
             Some(path) => {
                 match std::fs::read_to_string(path) {
