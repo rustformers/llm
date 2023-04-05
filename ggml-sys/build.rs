@@ -56,7 +56,9 @@ fn main() {
         }
         "aarch64" => {
             if compiler.is_like_clang() || compiler.is_like_gnu() {
-                build.flag("-mcpu=native");
+                if std::env::var("HOST") == std::env::var("TARGET") {
+                    build.flag("-mcpu=native");
+                }
                 build.flag("-pthread");
             }
         }
