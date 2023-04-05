@@ -14,7 +14,7 @@ follows:
   from inside the `CREDITS.md` file.
 - Run the bindgen script:
     ```shell
-    $ cargo run --bin generate_ggml_bindings ggml-sys
+    $ cargo run --bin generate-ggml-bindings ggml-sys
     ```
 - Fix any compiler errors that pop up due to the new version of the bindings and
   test the changes.
