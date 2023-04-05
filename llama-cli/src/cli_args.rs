@@ -23,7 +23,11 @@ pub enum Args {
 
     #[command()]
     /// Use a model to interactively generate tokens, and chat with it
-    Chat(Box<Repl>),
+    ///
+    /// Note that most, if not all, existing models are not trained for this
+    /// and do not support a long enough context window to be able to
+    /// have an extended conversation.
+    ChatExperimental(Box<Repl>),
 
     #[command(hide = true)]
     /// Convert a PyTorch model to a GGML model
