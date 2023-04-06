@@ -26,7 +26,7 @@ pub(crate) fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
 }
 
 /// Helper function. Reads a string from the buffer and returns it.
-pub(crate) fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
+pub(crate) fn read_string(reader: &mut impl BufRead, len: usize) -> Result<String, LoadError> {
     let mut buf = vec![0; len];
     reader
         .read_exact(&mut buf)
@@ -38,6 +38,11 @@ pub(crate) fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<St
     Ok(s)
 }
 
+// NOTE: Implementation from #![feature(buf_read_has_data_left)]
+fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
+    reader.fill_buf().map(|b| !b.is_empty())
+}
+
 #[derive(PartialEq)]
 pub(crate) enum ModelType {
     GGMF,
@@ -46,14 +51,11 @@ pub(crate) enum ModelType {
 }
 
 pub(crate) fn load_weights_ggmf_or_unversioned(
-    mut reader: std::io::BufReader<std::fs::File>,
+    file_offset: u64,
     main_path: &Path,
     load_progress_callback: impl Fn(LoadProgress),
     model: &Model,
 ) -> Result<(), LoadError> {
-    let file_offset = reader.stream_position()?;
-    drop(reader);
-
     let paths = util::find_all_model_files(main_path)?;
 
     let n_parts = paths.len();
@@ -76,125 +78,23 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
 
         // Load weights
         loop {
-            // NOTE: Implementation from #![feature(buf_read_has_data_left)]
-            let is_eof = part_reader.fill_buf().map(|b| b.is_empty())?;
-
-            if is_eof {
+            if !has_data_left(&mut part_reader)? {
                 break;
             }
 
             let n_dims = usize::try_from(read_i32(&mut part_reader)?)?;
             let length = read_i32(&mut part_reader)?;
-            let ftype = read_u32(&mut part_reader)?;
+            let ftype = read_i32(&mut part_reader)?;
 
-            let mut nelements = 1;
-            let mut ne = [1i64, 1i64];
-
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..n_dims {
-                ne[i] = read_i32(&mut part_reader)? as i64;
-                nelements *= usize::try_from(ne[i])?;
-            }
-
-            let tensor_name = read_string(&mut part_reader, length as usize)?;
-
-            let Some(tensor) = model.tensors.get(&tensor_name)
-                else {
-                    return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
-                };
-
-            // split_type = 0: split by columns
-            // split_type = 1: split by rows
-            //
-            // split_type = 0:
-            // regex:
-            //   - tok_embeddings.*
-            //   - layers.*.attention.wo.weight
-            //   - layers.*.feed_forward.w2.weight
-
-            // split_type = 1:
-            // regex:
-            //   - output.*
-            //   - layers.*.attention.wq.weight
-            //   - layers.*.attention.wk.weight
-            //   - layers.*.attention.wv.weight
-            //   - layers.*.feed_forward.w1.weight
-            //   - layers.*.feed_forward.w3.weight
-            #[allow(clippy::if_same_then_else)]
-            let split_type = if tensor_name.contains("tok_embeddings") {
-                0
-            } else if tensor_name.contains("layers") {
-                if tensor_name.contains("attention.wo.weight") {
-                    0
-                } else if tensor_name.contains("feed_forward.w2.weight") {
-                    0
-                } else {
-                    1
-                }
-            } else if tensor_name.contains("output") {
-                1
-            } else {
-                0
-            };
-
-            if n_dims == 1 {
-                if tensor.nelements() != nelements {
-                    return Err(LoadError::TensorWrongSize {
-                        tensor_name,
-                        path: part_path,
-                    });
-                }
-            } else if tensor.nelements() / n_parts != nelements {
-                return Err(LoadError::TensorWrongSize {
-                    tensor_name,
-                    path: part_path,
-                });
-            }
-
-            if n_dims == 1 {
-                if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
-                    return Err(LoadError::TensorWrongSize {
-                        tensor_name,
-                        path: part_path,
-                    });
-                }
-            } else if split_type == 0 {
-                if tensor.get_ne()[0] / i64::try_from(n_parts)? != ne[0]
-                    || tensor.get_ne()[1] != ne[1]
-                {
-                    return Err(LoadError::TensorWrongSize {
-                        tensor_name,
-                        path: part_path,
-                    });
-                }
-            } else if tensor.get_ne()[0] != ne[0]
-                || tensor.get_ne()[1] / i64::try_from(n_parts)? != ne[1]
-            {
-                return Err(LoadError::TensorWrongSize {
-                    tensor_name,
-                    path: part_path,
-                });
-            }
-
-            let bpe = match ftype {
-                0 => ggml::type_size(ggml::Type::F32),
-                1 => ggml::type_size(ggml::Type::F16),
-                2 => {
-                    assert_eq!(ne[0] % 64, 0);
-                    ggml::type_size(ggml::Type::Q4_0)
-                }
-                3 => {
-                    assert_eq!(ne[0] % 64, 0);
-                    ggml::type_size(ggml::Type::Q4_1)
-                }
-                _ => {
-                    return Err(LoadError::InvalidFtype {
-                        tensor_name,
-                        ftype,
-                        path: part_path,
-                    })
-                }
-            };
+            let (nelements, ne, tensor_name, tensor, split_type, bpe) = load_tensor_header_ggmf(
+                n_dims,
+                &mut part_reader,
+                length,
+                model,
+                &part_path,
+                n_parts,
+                ftype,
+            )?;
 
             if n_dims == 1 || n_parts == 1 {
                 if (nelements * bpe) / ggml::blck_size(tensor.get_type()) != tensor.nbytes() {
@@ -283,11 +183,188 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
     })
 }
 
+fn load_tensor_header_ggmf<'a>(
+    n_dims: usize,
+    reader: &mut BufReader<File>,
+    length: i32,
+    model: &'a Model,
+    path: &Path,
+    n_parts: usize,
+    ftype: i32,
+) -> Result<(usize, [i64; 2], String, &'a ggml::Tensor, i32, usize), LoadError> {
+    let mut nelements = 1;
+    let mut ne = [1i64, 1i64];
+    assert!(n_dims <= ne.len());
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..n_dims {
+        ne[i] = read_i32(reader)? as i64;
+        nelements *= usize::try_from(ne[i])?;
+    }
+    let tensor_name = read_string(reader, length as usize)?;
+    let Some(tensor) = model.tensors.get(&tensor_name)
+        else {
+            return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
+        };
+    #[allow(clippy::if_same_then_else)]
+    let split_type = if tensor_name.contains("tok_embeddings") {
+        0
+    } else if tensor_name.contains("layers") {
+        if tensor_name.contains("attention.wo.weight") {
+            0
+        } else if tensor_name.contains("feed_forward.w2.weight") {
+            0
+        } else {
+            1
+        }
+    } else if tensor_name.contains("output") {
+        1
+    } else {
+        0
+    };
+    if n_dims == 1 {
+        if tensor.nelements() != nelements {
+            return Err(LoadError::TensorWrongSize {
+                tensor_name,
+                path: path.to_owned(),
+            });
+        }
+    } else if tensor.nelements() / n_parts != nelements {
+        return Err(LoadError::TensorWrongSize {
+            tensor_name,
+            path: path.to_owned(),
+        });
+    }
+    if n_dims == 1 {
+        if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
+            return Err(LoadError::TensorWrongSize {
+                tensor_name,
+                path: path.to_owned(),
+            });
+        }
+    } else if split_type == 0 {
+        if tensor.get_ne()[0] / i64::try_from(n_parts)? != ne[0] || tensor.get_ne()[1] != ne[1] {
+            return Err(LoadError::TensorWrongSize {
+                tensor_name,
+                path: path.to_owned(),
+            });
+        }
+    } else if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] / i64::try_from(n_parts)? != ne[1] {
+        return Err(LoadError::TensorWrongSize {
+            tensor_name,
+            path: path.to_owned(),
+        });
+    }
+    let bpe = tensor_type_size(ftype, ne);
+    let bpe = match bpe {
+        Some(x) => x,
+        None => {
+            return Err(LoadError::InvalidFtype {
+                tensor_name,
+                ftype,
+                path: path.to_owned(),
+            });
+        }
+    };
+    Ok((nelements, ne, tensor_name, tensor, split_type, bpe))
+}
+
+fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
+    let bpe = match ftype {
+        0 => Some(ggml::type_size(ggml::Type::F32)),
+        1 => Some(ggml::type_size(ggml::Type::F16)),
+        2 => {
+            assert_eq!(ne[0] % 64, 0);
+            Some(ggml::type_size(ggml::Type::Q4_0))
+        }
+        3 => {
+            assert_eq!(ne[0] % 64, 0);
+            Some(ggml::type_size(ggml::Type::Q4_1))
+        }
+        _ => None,
+    };
+    bpe
+}
+
 pub(crate) fn load_weights_ggjt(
-    mut reader: std::io::BufReader<std::fs::File>,
-    main_path: &Path,
+    reader: &mut std::io::BufReader<&File>,
+    mmap: &Mmap,
+    path: &Path,
     load_progress_callback: impl Fn(LoadProgress),
     model: &Model,
-) -> Result<(), LoadError> {
-    todo!("GGJT load weights");
+) -> Result<(), LoadError>
+// where R: std::io::Read
+{
+    let mut loop_i = 0;
+    let mut total_loaded_bytes = 0;
+    load_progress_callback(LoadProgress::PartLoading {
+        file: path,
+        current_part: 0,
+        total_parts: 1,
+    });
+
+    loop {
+        if !has_data_left(reader)? {
+            break;
+        }
+
+        let n_dims = read_i32(reader)? as usize;
+        let length = read_i32(reader)?;
+        let ftype = read_i32(reader)?;
+
+        let mut nelements: usize = 1;
+        let mut ne = [1i64, 1];
+        assert!(n_dims <= ne.len());
+        for i in 0..n_dims {
+            let dim = read_i32(reader)? as usize;
+            ne[i] = dim as i64;
+            nelements *= dim;
+        }
+        let tensor_name = read_string(reader, length as usize)?;
+        let Some(tensor) = model.tensors.get(&tensor_name)
+        else {
+            return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
+        };
+
+        if tensor.nelements() != nelements {
+            return Err(LoadError::TensorWrongSize {
+                tensor_name,
+                path: path.to_owned(),
+            });
+        }
+        let tensor_ne = tensor.get_ne();
+        if tensor_ne[0] != ne[0] || tensor_ne[1] != ne[1] {
+            return Err(LoadError::TensorWrongSize {
+                tensor_name,
+                path: path.to_owned(),
+            });
+        }
+
+        _ = tensor_type_size(ftype, ne);
+
+        let offset_curr = reader.stream_position()?;
+        let offset_aligned: u64 = (offset_curr + 31) & (31 ^ u64::MAX);
+        unsafe {
+            let ptr = mmap.as_ptr().offset(offset_aligned as isize);
+            tensor.set_data(ptr as *mut std::ffi::c_void);
+        }
+        let tensor_data_size = tensor.nbytes() as u64;
+        reader.seek(SeekFrom::Start(offset_aligned + tensor_data_size))?;
+        total_loaded_bytes += tensor_data_size;
+
+        load_progress_callback(LoadProgress::PartTensorLoaded {
+            file: path,
+            current_tensor: loop_i,
+            tensor_count: model.tensors.len(),
+        });
+
+        loop_i += 1;
+    }
+
+    load_progress_callback(LoadProgress::PartLoaded {
+        file: path,
+        byte_size: total_loaded_bytes as usize,
+        tensor_count: loop_i,
+    });
+
+    return Ok(());
 }
