@@ -24,6 +24,7 @@ fn main() {
         Args::Repl(args) => interactive(&args, false),
         Args::ChatExperimental(args) => interactive(&args, true),
         Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
+        Args::Quantize(args) => quantize(&args),
     }
 }
 
@@ -189,6 +190,18 @@ fn interactive(
             }
         }
     }
+}
+
+fn quantize(args: &cli_args::Quantize) {
+    llama_rs::quantize::quantize(
+        &args.source,
+        &args.destination,
+        llama_rs::ElementType::Q4_0,
+        |p| {
+            println!("{p:?}");
+        },
+    )
+    .unwrap();
 }
 
 fn load_prompt_file_with_prompt(

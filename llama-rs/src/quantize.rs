@@ -55,13 +55,13 @@ pub enum QuantizeProgress<'a> {
 pub fn quantize(
     file_name_in: impl AsRef<Path>,
     file_name_out: impl AsRef<Path>,
-    itype: u8,
+    ty: crate::ElementType,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), LoadError> {
     use crate::file::*;
 
-    if itype != 2 && itype != 3 {
-        return Err(LoadError::InvalidItype(itype));
+    if !matches!(ty, crate::ElementType::Q4_0 | crate::ElementType::Q4_1) {
+        todo!("Unsupported quantization format. This should be an error.")
     }
 
     let file_in = file_name_in.as_ref();
@@ -218,7 +218,7 @@ pub fn quantize(
                     }
                 }
 
-                ftype = itype as u32;
+                ftype = ty.into();
             } else {
                 // Determines the total bytes were dealing with
                 let bpe = (nelements * if ftype == 0 { 4 } else { 2 }) as usize;
@@ -243,7 +243,7 @@ pub fn quantize(
 
                 let mut hist_cur = vec![0; 16];
 
-                let curr_size = if itype == 2 {
+                let curr_size = if matches!(ty, crate::ElementType::Q4_0) {
                     unsafe { quantize_q4_0(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }
                 } else {
                     unsafe { quantize_q4_1(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }

@@ -10,7 +10,6 @@ rust-version = "1.65"
 ggml = { path = "../ggml" }
 
 bytemuck = "1.13.1"
-half = "2.2.1"
 partial_sort = "0.2.0"
 thiserror = "1.0"
 rand = { workspace = true }
@@ -23,5 +22,9 @@ serde_json = { version = "1.0.94", optional = true }
 protobuf = { version = "= 2.14.0", optional = true }
 rust_tokenizers = { version = "3.1.2", optional = true }
 
+# Used for the `quantize` feature
+half = { version = "2.2.1", optional = true }
+
 [features]
 convert = ["dep:serde_json", "dep:protobuf", "dep:rust_tokenizers"]
+quantize = ["dep:half"]

@@ -21,6 +21,7 @@ pub use ggml::Type as ElementType;
 
 #[cfg(feature = "convert")]
 pub mod convert;
+#[cfg(feature = "quantize")]
 pub mod quantize;
 
 mod file;
@@ -523,9 +524,6 @@ pub enum LoadError {
         /// The path that failed.
         path: PathBuf,
     },
-    /// An invalid `itype` was encountered.
-    #[error("itype supplied was invalid: {0}")]
-    InvalidItype(u8),
 }
 
 #[derive(Error, Debug)]

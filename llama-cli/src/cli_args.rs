@@ -39,6 +39,9 @@ pub enum Args {
     ///
     /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
     Convert(Box<Convert>),
+
+    /// Quantize a GGML model to 4-bit.
+    Quantize(Box<Quantize>),
 }
 
 #[derive(Parser, Debug)]
@@ -244,7 +247,7 @@ fn parse_bias(s: &str) -> Result<TokenBias, String> {
 pub struct ModelLoad {
     /// Where to load the model path from
     #[arg(long, short = 'm')]
-    pub model_path: String,
+    pub model_path: PathBuf,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -365,6 +368,17 @@ pub struct Convert {
     /// File type to convert to
     #[arg(long, short = 't', value_enum, default_value_t = ElementType::Q4_0)]
     pub element_type: ElementType,
+}
+
+#[derive(Parser, Debug)]
+pub struct Quantize {
+    /// The path to the model to quantize
+    #[arg()]
+    pub source: PathBuf,
+
+    /// The path to save the quantized model to
+    #[arg()]
+    pub destination: PathBuf,
 }
 
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
