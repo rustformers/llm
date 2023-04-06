@@ -303,6 +303,26 @@ impl Context {
     pub fn used_mem(&self) -> usize {
         unsafe { ggml_sys::ggml_used_mem(self.ptr.as_ptr()) }
     }
+
+    /// Set scratch buffer
+    pub fn use_scratch(&self, scratch_buffer: Option<&mut Buffer>) {
+        let (size, data) = if let Some(buffer) = scratch_buffer {
+            (buffer.data.len(), buffer.data.as_ptr() as *mut c_void)
+        } else {
+            (0, std::ptr::null_mut())
+        };
+        // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
+        unsafe {
+            ggml_sys::ggml_set_scratch(
+                self.ptr.as_ptr(),
+                ggml_sys::ggml_scratch {
+                    offs: 0,
+                    size,
+                    data,
+                },
+            );
+        }
+    }
 }
 
 impl Drop for Context {
@@ -312,6 +332,25 @@ impl Drop for Context {
         unsafe {
             ggml_sys::ggml_free(self.ptr.as_ptr());
         }
+    }
+}
+
+/// Pre-allocated buffer
+pub struct Buffer {
+    data: Vec<u8>,
+}
+
+impl Buffer {
+    /// Creates new buffer
+    pub fn new(size: usize) -> Self {
+        let mut data: Vec<u8> = Vec::with_capacity(size);
+        // SAFETY: contents are left uninitialized. Don't use them.
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            data.set_len(size)
+        };
+
+        Buffer { data }
     }
 }
 

@@ -27,6 +27,8 @@ mod util;
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
+const SCRATCH_SIZE: usize = 512 * 1024 * 1024; // 512MB
+
 /// The hyperparameters of the model.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Hyperparameters {
@@ -103,6 +105,9 @@ pub struct InferenceSession {
 
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     last_logits: Vec<f32>,
+
+    /// Scratch buffers
+    scratch: [ggml::Buffer; 2],
 }
 impl InferenceSession {
     fn repetition_penalty_tokens(&self) -> &[TokenId] {
@@ -128,8 +133,16 @@ impl Clone for InferenceSession {
             mem_per_token: self.mem_per_token,
             tokens: self.tokens.clone(),
             last_logits: self.last_logits.clone(),
+            scratch: inference_session_scratch_buffers(),
         }
     }
+}
+
+fn inference_session_scratch_buffers() -> [ggml::Buffer; 2] {
+    [
+        ggml::Buffer::new(SCRATCH_SIZE),
+        ggml::Buffer::new(SCRATCH_SIZE),
+    ]
 }
 
 #[derive(serde::Serialize, Clone, PartialEq)]
@@ -1116,6 +1129,7 @@ impl Model {
             mem_per_token: 0,
             tokens: vec![],
             last_logits: vec![0.0; n_vocab],
+            scratch: inference_session_scratch_buffers(),
         }
     }
 
@@ -1150,7 +1164,15 @@ impl Model {
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
-        let mut buf_size = 1024 * 1024 * 1024;
+        let mut buf_size = 1024
+            * 1024
+            * if n_layer >= 80 {
+                1536
+            } else if n_layer >= 60 {
+                1280
+            } else {
+                1024
+            };
         if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
@@ -1188,6 +1210,8 @@ impl Model {
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
+
+            ctx0.use_scratch(Some(&mut session.scratch[0]));
 
             // norm
             {
@@ -1312,6 +1336,8 @@ impl Model {
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
             }
 
+            ctx0.use_scratch(Some(&mut session.scratch[1]));
+
             let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
             // feed-forward network
@@ -1345,6 +1371,8 @@ impl Model {
             input_layer = current;
         }
 
+        ctx0.use_scratch(Some(&mut session.scratch[0]));
+
         // Used at the end to optionally extract the embeddings.
         let embeddings_tensor;
 
@@ -1361,6 +1389,8 @@ impl Model {
         {
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
         }
+
+        ctx0.use_scratch(None);
 
         // logits -> probs
         // inpL = ctx0.op_soft_max(&inpL);
