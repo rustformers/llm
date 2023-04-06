@@ -144,6 +144,19 @@ Some additional things to try:
     A modern-ish C toolchain is required to compile `ggml`. A C++ toolchain
     should not be necessary.
 
+### Docker
+
+```shell
+# To build (This will take sometime, go grab some coffee).
+docker build -t llama-rs .
+
+# To run with prompt.
+docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
+
+# To run with prompt file and repl (will wait for user input).
+docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt --repl
+```
+
 ## Q&A
 
 ### Why did you do this?
