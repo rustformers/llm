@@ -117,17 +117,17 @@ lengthy setup is required._
 For example, try the following prompt:
 
 ```shell
-llama-cli -m <path>/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
+llama-cli infer -m <path>/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
 ```
 
 Some additional things to try:
 
 - Use `--help` to see a list of available options.
 - If you have the [alpaca-lora](https://github.com/tloen/alpaca-lora) weights,
-  try `--repl` mode!
+  try `repl` mode!
 
   ```shell
-  llama-cli -m <path>/ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt --repl
+  llama-cli repl -m <path>/ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
   ```
 
   ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
@@ -151,10 +151,10 @@ Some additional things to try:
 docker build -t llama-rs .
 
 # To run with prompt:
-docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
+docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs infer -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
 
 # To run with prompt file and repl (will wait for user input):
-docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt --repl
+docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs repl -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt
 ```
 
 ## Q&A
