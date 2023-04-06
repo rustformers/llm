@@ -250,6 +250,7 @@ impl Default for InferenceParameters {
 }
 
 /// Statistics about the inference process.
+#[derive(Debug, Clone, Copy)]
 pub struct InferenceStats {
     /// How long it took to feed the prompt.
     pub feed_prompt_duration: std::time::Duration,
@@ -291,6 +292,7 @@ type Token = String;
 type TokenScore = f32;
 
 /// The vocabulary used by a model.
+#[derive(Debug, Clone)]
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding token
     id_to_token: Vec<Token>,
@@ -545,7 +547,7 @@ pub enum InferenceError {
 }
 
 /// Used in a call to `evaluate` to request information from the transformer.
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct EvaluateOutputRequest {
     /// Returns all the logits for the provided batch of tokens.
     /// Output shape is n_batch * n_vocab
