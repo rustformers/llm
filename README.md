@@ -147,13 +147,13 @@ Some additional things to try:
 ### Docker
 
 ```shell
-# To build (This will take sometime, go grab some coffee).
+# To build (This will take some time, go grab some coffee):
 docker build -t llama-rs .
 
-# To run with prompt.
+# To run with prompt:
 docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
 
-# To run with prompt file and repl (will wait for user input).
+# To run with prompt file and repl (will wait for user input):
 docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt --repl
 ```
 
