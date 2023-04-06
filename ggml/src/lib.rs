@@ -14,8 +14,10 @@ use std::{
     sync::{Arc, Weak},
 };
 
-/// Magic constant for `ggml` files (versioned).
-pub const FILE_MAGIC: u32 = 0x67676d66;
+/// Magic constant for `ggml` files (versioned, ggmf).
+pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
+/// Magic constant for `ggml` files (versioned, ggjt).
+pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
 /// Magic constant for `ggml` files (unversioned).
 pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 
