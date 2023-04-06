@@ -59,6 +59,7 @@ fn main() {
                 if std::env::var("HOST") == std::env::var("TARGET") {
                     build.flag("-mcpu=native");
                 } else {
+                    #[allow(clippy::single_match)]
                     match target_os.as_str() {
                         "macos" => {
                             build.flag("-mcpu=apple-m1");
