@@ -598,13 +598,10 @@ impl Model {
         let main_path = path.as_ref();
 
         let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
-                    source: e,
-                    path: main_path.to_owned(),
-                })?;
-        let mut reader =
-            BufReader::new(
-                &file,
-            );
+            source: e,
+            path: main_path.to_owned(),
+        })?;
+        let mut reader = BufReader::new(&file);
 
         // Verify magic
         let model_type: ModelType = match read_u32(&mut reader)? {
@@ -666,13 +663,21 @@ impl Model {
                     ModelType::GGMF | ModelType::Unversioned => read_i32(&mut reader)? as usize,
                     ModelType::GGJT => read_u32(&mut reader)? as usize,
                 };
-                if let Ok(word) = read_string(&mut reader, len) {
-                    max_token_length = max_token_length.max(word.len());
-                    id_to_token.push(word.clone());
-                    token_to_id.insert(word, TokenId::try_from(i)?);
+                let maybe_word = if len > 0 {
+                    read_string(&mut reader, len)
                 } else {
-                    load_progress_callback(LoadProgress::BadToken { index: i });
-                    id_to_token.push("�".to_string());
+                    Ok("".into())
+                };
+                match maybe_word {
+                    Ok(word) => {
+                        max_token_length = max_token_length.max(word.len());
+                        id_to_token.push(word.clone());
+                        token_to_id.insert(word, TokenId::try_from(i)?);
+                    }
+                    Err(_e) => {
+                        load_progress_callback(LoadProgress::BadToken { index: i });
+                        id_to_token.push("�".to_string());
+                    }
                 }
 
                 // Token score, currently unused
@@ -817,11 +822,22 @@ impl Model {
             ModelType::GGMF | ModelType::Unversioned => {
                 let file_offset = reader.stream_position()?;
                 drop(reader);
-                load_weights_ggmf_or_unversioned(file_offset, main_path, load_progress_callback, &model)?
+                load_weights_ggmf_or_unversioned(
+                    file_offset,
+                    main_path,
+                    load_progress_callback,
+                    &model,
+                )?
             }
             ModelType::GGJT => {
                 let mmap = unsafe { Mmap::map(&file)? };
-                load_weights_ggjt(&mut reader, &mmap, main_path, load_progress_callback, &model)?;
+                load_weights_ggjt(
+                    &mut reader,
+                    &mmap,
+                    main_path,
+                    load_progress_callback,
+                    &model,
+                )?;
                 model.mmap = Some(mmap);
             }
         }

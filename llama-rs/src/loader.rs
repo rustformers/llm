@@ -339,7 +339,16 @@ pub(crate) fn load_weights_ggjt(
             });
         }
 
-        _ = tensor_type_size(ftype, ne);
+        match tensor_type_size(ftype, ne) {
+            Some(_) => {},
+            None => {
+                return Err(LoadError::InvalidFtype {
+                    tensor_name,
+                    ftype,
+                    path: path.to_owned(),
+                });
+            }
+        };
 
         let offset_curr = reader.stream_position()?;
         let offset_aligned: u64 = (offset_curr + 31) & (31 ^ u64::MAX);
