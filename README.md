@@ -80,13 +80,12 @@ kinds of sources.
 After acquiring the weights, it is necessary to convert them into a format that
 is compatible with ggml. To achieve this, follow the steps outlined below:
 
-> **Warning** 
-> 
+> **Warning**
+>
 > To run the Python scripts, a Python version of 3.9 or 3.10 is required. 3.11
 > is unsupported at the time of writing.
 
-
-``` shell
+```shell
 # Convert the model to f16 ggml format
 python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 
@@ -95,7 +94,7 @@ python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 ```
 
 > **Note**
-> 
+>
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models. With some
 > caveats:
@@ -104,16 +103,14 @@ python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 > (versioned) ggml formats, but not the mmap-ready version that was [recently
 > merged](https://github.com/ggerganov/llama.cpp/pull/613).
 
-
-*Support for other open source models is currently planned. For models where
+_Support for other open source models is currently planned. For models where
 weights can be legally distributed, this section will be updated with scripts to
 make the install process as user-friendly as possible. Due to the model's legal
 requirements, this is currently not possible with LLaMA itself and a more
-lengthy setup is required.*
+lengthy setup is required._
 
 - https://github.com/rustformers/llama-rs/pull/85
 - https://github.com/rustformers/llama-rs/issues/75
-
 
 ### Running
 
