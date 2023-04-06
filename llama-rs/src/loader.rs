@@ -43,13 +43,6 @@ fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
     reader.fill_buf().map(|b| !b.is_empty())
 }
 
-#[derive(PartialEq)]
-pub(crate) enum ModelType {
-    GGMF,
-    GGJT,
-    Unversioned,
-}
-
 pub(crate) fn load_weights_ggmf_or_unversioned(
     file_offset: u64,
     main_path: &Path,
