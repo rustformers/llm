@@ -14,6 +14,7 @@ use std::{
 };
 
 use serde::Deserialize;
+use memmap2::Mmap;
 use thiserror::Error;
 
 use partial_sort::PartialSort;
@@ -72,6 +73,8 @@ pub struct Model {
     layers: Vec<Layer>,
 
     tensors: HashMap<String, ggml::Tensor>,
+
+    mmap: Option<Mmap>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
@@ -511,7 +514,7 @@ pub enum LoadError {
         /// The name of the tensor.
         tensor_name: String,
         /// The format type that was encountered.
-        ftype: u32,
+        ftype: i32,
         /// The path that failed.
         path: PathBuf,
     },
@@ -594,12 +597,13 @@ impl Model {
 
         let main_path = path.as_ref();
 
-        let mut reader =
-            BufReader::new(
-                File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
+        let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
                     source: e,
                     path: main_path.to_owned(),
-                })?,
+                })?;
+        let mut reader =
+            BufReader::new(
+                &file,
             );
 
         // Verify magic
@@ -741,7 +745,7 @@ impl Model {
         // Initialize the context
         let context = ggml::Context::init(ctx_size);
 
-        let model = {
+        let mut model = {
             let mut tensors = HashMap::new();
 
             let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
@@ -805,15 +809,20 @@ impl Model {
                 layers,
                 tensors,
                 _context: context,
+                mmap: None,
             }
         };
 
         match model_type {
             ModelType::GGMF | ModelType::Unversioned => {
-                load_weights_ggmf_or_unversioned(reader, main_path, load_progress_callback, &model)?
+                let file_offset = reader.stream_position()?;
+                drop(reader);
+                load_weights_ggmf_or_unversioned(file_offset, main_path, load_progress_callback, &model)?
             }
             ModelType::GGJT => {
-                load_weights_ggjt(reader, main_path, load_progress_callback, &model)?
+                let mmap = unsafe { Mmap::map(&file)? };
+                load_weights_ggjt(&mut reader, &mmap, main_path, load_progress_callback, &model)?;
+                model.mmap = Some(mmap);
             }
         }
 
