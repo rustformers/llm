@@ -1,0 +1,7 @@
+[package]
+name = "ggml"
+version = { workspace = true }
+edition = "2021"
+
+[dependencies]
+ggml-sys = { path = "../ggml-sys" }

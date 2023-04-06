@@ -1,11 +1,15 @@
 [workspace]
 members = [
-    "ggml-raw",
+    "ggml-sys",
+    "ggml",
     "llama-rs",
-    "llama-cli"
+    "llama-cli",
+    "generate-ggml-bindings"
 ]
-
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
 
 [workspace.dependencies]
 rand = "0.8.5"

@@ -1,75 +1,98 @@
-use std::{convert::Infallible, io::Write};
+use std::{convert::Infallible, io::Write, path::Path};
 
-use cli_args::CLI_ARGS;
+use clap::Parser;
+use cli_args::Args;
 use llama_rs::{
-    InferenceError, InferenceParameters, InferenceSessionParameters, InferenceSnapshot,
-    ModelKVMemoryType, TokenBias, Vocabulary, EOD_TOKEN_ID,
+    convert::convert_pth_to_ggml, InferenceError, InferenceSession, InferenceSessionParameters,
+    Model,
 };
-use rand::thread_rng;
-use rand::SeedableRng;
 use rustyline::error::ReadlineError;
 
 mod cli_args;
+mod snapshot;
 
-fn repl_mode(
-    prompt: &str,
-    model: &llama_rs::Model,
-    vocab: &llama_rs::Vocabulary,
-    params: &InferenceParameters,
-    session_params: &InferenceSessionParameters,
-) {
-    let mut rl = rustyline::DefaultEditor::new().unwrap();
-    loop {
-        let readline = rl.readline(">> ");
-        match readline {
-            Ok(line) => {
-                let mut session = model.start_session(*session_params);
-                let prompt = prompt.replace("$PROMPT", &line);
-                let mut rng = thread_rng();
+fn main() {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
 
-                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
-                if let Err(InferenceError::ContextFull) =
-                    session.feed_prompt::<Infallible>(model, vocab, params, &prompt, |_| Ok(()))
-                {
-                    log::error!("Prompt exceeds context window length.")
-                };
-                sp.stop();
+    let cli_args = Args::parse();
+    match cli_args {
+        Args::Infer(args) => infer(&args),
+        Args::DumpTokens(args) => dump_tokens(&args),
+        Args::Repl(args) => interactive(&args, false),
+        Args::ChatExperimental(args) => interactive(&args, true),
+        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
+    }
+}
 
-                let res = session.inference_with_prompt::<Infallible>(
-                    model,
-                    vocab,
-                    params,
-                    "",
-                    CLI_ARGS.num_predict,
-                    &mut rng,
-                    |tk| {
-                        print!("{tk}");
-                        std::io::stdout().flush().unwrap();
-                        Ok(())
-                    },
-                );
-                println!();
+fn infer(args: &cli_args::Infer) {
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let inference_session_params = args.generate.inference_session_parameters();
+    let (model, vocabulary) = args.model_load.load();
+    let (mut session, session_loaded) = load_session_from_disk(
+        &model,
+        args.persist_session.as_deref(),
+        args.generate.load_session.as_deref(),
+        inference_session_params,
+    );
+    let inference_params = args.generate.inference_parameters(session_loaded);
 
-                if let Err(InferenceError::ContextFull) = res {
-                    log::error!("Reply exceeds context window length");
+    let mut rng = args.generate.rng();
+    let res = session.inference_with_prompt::<Infallible>(
+        &model,
+        &vocabulary,
+        &inference_params,
+        &prompt,
+        args.generate.num_predict,
+        &mut rng,
+        |t| {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
+
+            Ok(())
+        },
+    );
+    println!();
+
+    match res {
+        Ok(_) => (),
+        Err(llama_rs::InferenceError::ContextFull) => {
+            log::warn!("Context window full, stopping inference.")
+        }
+        Err(llama_rs::InferenceError::TokenizationFailed) => {
+            log::error!("Failed to tokenize initial prompt.");
+        }
+        Err(llama_rs::InferenceError::UserCallback(_))
+        | Err(llama_rs::InferenceError::EndOfText) => unreachable!("cannot fail"),
+    }
+
+    if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
+        // Write the memory to the cache file
+        // SAFETY: no other model functions used inside the block
+        unsafe {
+            match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
+                Ok(_) => {
+                    log::info!("Successfully wrote session to {session_path:?}");
                 }
-            }
-            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
-                break;
-            }
-            Err(err) => {
-                log::error!("{err}");
+                Err(err) => {
+                    log::error!("Could not write session at {session_path:?}: {err}");
+                    std::process::exit(1);
+                }
             }
         }
     }
 }
 
-fn dump_tokens(text: &str, vocab: &Vocabulary) -> Result<(), InferenceError> {
-    let toks = match vocab.tokenize(text, false) {
+fn dump_tokens(args: &cli_args::DumpTokens) {
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let (_, vocabulary) = args.model_load.load();
+    let toks = match vocabulary.tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
             log::error!("Could not tokenize prompt: {e}");
-            return Err(e);
+            std::process::exit(1);
         }
     };
     log::info!("=== Dumping prompt tokens:");
@@ -87,230 +110,132 @@ fn dump_tokens(text: &str, vocab: &Vocabulary) -> Result<(), InferenceError> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    Ok(())
 }
 
-fn main() {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .parse_default_env()
-        .init();
+fn interactive(
+    args: &cli_args::Repl,
+    // If set to false, the session will be cloned after each inference
+    // to ensure that previous state is not carried over.
+    chat_mode: bool,
+) {
+    let prompt_file = args.prompt_file.contents();
+    let inference_session_params = args.generate.inference_session_parameters();
+    let (model, vocabulary) = args.model_load.load();
+    let (mut session, session_loaded) = load_session_from_disk(
+        &model,
+        None,
+        args.generate.load_session.as_deref(),
+        inference_session_params,
+    );
+    let inference_params = args.generate.inference_parameters(session_loaded);
 
-    let args = &*CLI_ARGS;
+    let mut rng = args.generate.rng();
+    let mut rl = rustyline::DefaultEditor::new().unwrap();
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let session_backup = if chat_mode {
+                    None
+                } else {
+                    Some(session.clone())
+                };
 
-    let inference_params = InferenceParameters {
-        n_threads: args.num_threads as i32,
-        n_batch: args.batch_size,
-        top_k: args.top_k,
-        top_p: args.top_p,
-        repeat_penalty: args.repeat_penalty,
-        temp: args.temp,
-        bias_tokens: args.token_bias.clone().unwrap_or_else(|| {
-            if args.ignore_eos {
-                TokenBias::new(vec![(EOD_TOKEN_ID, -1.0)])
-            } else {
-                TokenBias::default()
-            }
-        }),
-    };
-    let inference_session_params = {
-        let mem_typ = if args.float16 {
-            ModelKVMemoryType::Float16
-        } else {
-            ModelKVMemoryType::Float32
-        };
-        InferenceSessionParameters {
-            memory_k_type: mem_typ,
-            memory_v_type: mem_typ,
-            last_n_size: args.repeat_last_n,
-        }
-    };
+                let prompt = prompt_file
+                    .as_deref()
+                    .map(|pf| process_prompt(pf, &line))
+                    .unwrap_or(line);
 
-    let prompt = if let Some(path) = &args.prompt_file {
-        match std::fs::read_to_string(path) {
-            Ok(mut prompt) => {
-                // Strip off the last character if it's exactly newline. Also strip off a single
-                // carriage return if it's there. Since String must be valid UTF-8 it should be
-                // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
-                // bytes will always the high bit set.
-                if matches!(prompt.as_bytes().last(), Some(b'\n')) {
-                    prompt.pop();
-                }
-                if matches!(prompt.as_bytes().last(), Some(b'\r')) {
-                    prompt.pop();
-                }
-                prompt
-            }
-            Err(err) => {
-                log::error!("Could not read prompt file at {path}. Error {err}");
-                std::process::exit(1);
-            }
-        }
-    } else if let Some(prompt) = &args.prompt {
-        prompt.clone()
-    } else {
-        log::error!("No prompt or prompt file was provided. See --help");
-        std::process::exit(1);
-    };
+                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
+                if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
+                    &model,
+                    &vocabulary,
+                    &inference_params,
+                    &prompt,
+                    |_| Ok(()),
+                ) {
+                    log::error!("Prompt exceeds context window length.")
+                };
+                sp.stop();
 
-    let (mut model, vocab) =
-        llama_rs::Model::load(&args.model_path, args.num_ctx_tokens as i32, |progress| {
-            use llama_rs::LoadProgress;
-            match progress {
-                LoadProgress::HyperparametersLoaded(hparams) => {
-                    log::debug!("Loaded HyperParams {hparams:#?}")
+                let res = session.inference_with_prompt::<Infallible>(
+                    &model,
+                    &vocabulary,
+                    &inference_params,
+                    "",
+                    args.generate.num_predict,
+                    &mut rng,
+                    |tk| {
+                        print!("{tk}");
+                        std::io::stdout().flush().unwrap();
+                        Ok(())
+                    },
+                );
+                println!();
+
+                if let Err(InferenceError::ContextFull) = res {
+                    log::error!("Reply exceeds context window length");
                 }
-                LoadProgress::BadToken { index } => {
-                    log::info!("Warning: Bad token in vocab at index {index}")
-                }
-                LoadProgress::ContextSize { bytes } => log::info!(
-                    "ggml ctx size = {:.2} MB\n",
-                    bytes as f64 / (1024.0 * 1024.0)
-                ),
-                LoadProgress::MemorySize { bytes, n_mem } => log::info!(
-                    "Memory size: {} MB {}",
-                    bytes as f32 / 1024.0 / 1024.0,
-                    n_mem
-                ),
-                LoadProgress::PartLoading {
-                    file,
-                    current_part,
-                    total_parts,
-                } => log::info!(
-                    "Loading model part {}/{} from '{}'\n",
-                    current_part,
-                    total_parts,
-                    file.to_string_lossy(),
-                ),
-                LoadProgress::PartTensorLoaded {
-                    current_tensor,
-                    tensor_count,
-                    ..
-                } => {
-                    if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                    }
-                }
-                LoadProgress::PartLoaded {
-                    file,
-                    byte_size,
-                    tensor_count,
-                } => {
-                    log::info!("Loading of '{}' complete", file.to_string_lossy());
-                    log::info!(
-                        "Model size = {:.2} MB / num tensors = {}",
-                        byte_size as f64 / 1024.0 / 1024.0,
-                        tensor_count
-                    );
+
+                if let Some(session_backup) = session_backup {
+                    session = session_backup;
                 }
             }
-        })
-        .expect("Could not load model");
-
-    log::info!("Model fully loaded!");
-
-    if args.dump_prompt_tokens {
-        dump_tokens(&prompt, &vocab).ok();
-        return;
-    }
-
-    let mut rng = if let Some(seed) = CLI_ARGS.seed {
-        rand::rngs::StdRng::seed_from_u64(seed)
-    } else {
-        rand::rngs::StdRng::from_entropy()
-    };
-
-    let mut session = if let Some(restore_path) = &args.restore_prompt {
-        let snapshot = InferenceSnapshot::load_from_disk(restore_path);
-        match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
-            Ok(session) => {
-                log::info!("Restored cached memory from {restore_path}");
-                session
+            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
+                break;
             }
             Err(err) => {
                 log::error!("{err}");
+            }
+        }
+    }
+}
+
+fn load_prompt_file_with_prompt(
+    prompt_file: &cli_args::PromptFile,
+    prompt: Option<&str>,
+) -> String {
+    if let Some(prompt_file) = prompt_file.contents() {
+        if let Some(prompt) = prompt {
+            process_prompt(&prompt_file, prompt)
+        } else {
+            prompt_file
+        }
+    } else if let Some(prompt) = prompt {
+        prompt.to_owned()
+    } else {
+        log::error!("No prompt or prompt file was provided. See --help");
+        std::process::exit(1);
+    }
+}
+
+pub fn load_session_from_disk(
+    model: &Model,
+    persist_session: Option<&Path>,
+    load_session: Option<&Path>,
+    inference_session_params: InferenceSessionParameters,
+) -> (InferenceSession, bool) {
+    fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
+        let snapshot = snapshot::load_from_disk(path);
+        match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
+            Ok(session) => {
+                log::info!("Loaded inference session from {path:?}");
+                session
+            }
+            Err(err) => {
+                eprintln!("Could not load inference session. Error: {err}");
                 std::process::exit(1);
             }
         }
-    } else {
-        model.start_session(inference_session_params)
-    };
-
-    if args.repl {
-        repl_mode(
-            &prompt,
-            &model,
-            &vocab,
-            &inference_params,
-            &inference_session_params,
-        );
-    } else if let Some(cache_path) = &args.cache_prompt {
-        let res =
-            session.feed_prompt::<Infallible>(&model, &vocab, &inference_params, &prompt, |t| {
-                print!("{t}");
-                std::io::stdout().flush().unwrap();
-
-                Ok(())
-            });
-
-        println!();
-
-        match res {
-            Ok(_) => (),
-            Err(InferenceError::ContextFull) => {
-                log::warn!(
-                    "Context is not large enough to fit the prompt. Saving intermediate state."
-                );
-            }
-            Err(llama_rs::InferenceError::TokenizationFailed) => {
-                log::error!("Failed to tokenize initial prompt. Exiting.");
-                return;
-            }
-            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
-        }
-
-        // Write the memory to the cache file
-        // SAFETY: no other model functions used inside the block
-        unsafe {
-            let memory = session.get_snapshot();
-            match memory.write_to_disk(cache_path) {
-                Ok(_) => {
-                    log::info!("Successfully written prompt cache to {cache_path}");
-                }
-                Err(err) => {
-                    eprintln!("Could not restore prompt. Error: {err}");
-                    std::process::exit(1);
-                }
-            }
-        }
-    } else {
-        let res = session.inference_with_prompt::<Infallible>(
-            &model,
-            &vocab,
-            &inference_params,
-            &prompt,
-            args.num_predict,
-            &mut rng,
-            |t| {
-                print!("{t}");
-                std::io::stdout().flush().unwrap();
-
-                Ok(())
-            },
-        );
-        println!();
-
-        match res {
-            Ok(stats) => {
-                println!("{}", stats);
-            }
-            Err(llama_rs::InferenceError::ContextFull) => {
-                log::warn!("Context window full, stopping inference.")
-            }
-            Err(llama_rs::InferenceError::TokenizationFailed) => {
-                log::error!("Failed to tokenize initial prompt.");
-            }
-            Err(llama_rs::InferenceError::UserCallback(_)) => unreachable!("cannot fail"),
-        }
     }
+
+    match (persist_session, load_session) {
+        (Some(path), _) if path.exists() => (load_snapshot_from_disk(model, path), true),
+        (_, Some(path)) => (load_snapshot_from_disk(model, path), true),
+        _ => (model.start_session(inference_session_params), false),
+    }
+}
+
+fn process_prompt(raw_prompt: &str, prompt: &str) -> String {
+    raw_prompt.replace("{{PROMPT}}", prompt)
 }

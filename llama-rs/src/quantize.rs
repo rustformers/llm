@@ -1,43 +1,62 @@
-use crate::ggml::{
-    quantize_q4_0, quantize_q4_1, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
-};
+//! Implements quantization of weights.
+
 use crate::{Hyperparameters, LoadError, Vocabulary};
+use ggml::{quantize_q4_0, quantize_q4_1, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION};
 use half::f16;
 use std::path::Path;
 
 const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
 
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
-pub enum QuantizeLoadProgress<'a> {
+
+/// Progress of quantization.
+pub enum QuantizeProgress<'a> {
+    /// Hyperparameters have been loaded.
     HyperparametersLoaded(&'a Hyperparameters),
-    LoadingWeight {
+    /// A tensor is being loaded.
+    TensorLoading {
+        /// Name of the tensor.
         name: &'a str,
+        /// Size of the tensor.
         size: [i32; 2],
-        elements: i32,
+        /// Type of the tensor.
         ftype: &'a str,
+        /// Number of elements in the tensor.
+        elements: i32,
     },
+    /// A tensor is being quantized.
     Quantizing,
+    /// A tensor has been quantized.
     Quantized {
+        /// The original size of the tensor.
         original_size: f32,
+        /// The reduced size of the tensor.
         reduced_size: f32,
+        /// The history of the quantization.
         history: Vec<f32>,
     },
+    /// A tensor has been skipped.
     Skipped {
+        /// The original size of the tensor.
         size: f32,
     },
+    /// A model is being quantized.
     Finished {
+        /// The original size of the model.
         original_size: f32,
+        /// The reduced size of the model.
         reduced_size: f32,
+        /// The history of the quantization.
         history: Vec<f32>,
     },
 }
 
+/// Quantizes a model.
 pub fn quantize(
     file_name_in: impl AsRef<Path>,
     file_name_out: impl AsRef<Path>,
     itype: u8,
-    qk: u8,
-    load_progress_callback: impl Fn(QuantizeLoadProgress),
+    progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), LoadError> {
     use crate::file::*;
 
@@ -64,7 +83,7 @@ pub fn quantize(
     {
         let magic = rw_u32(&mut finp, &mut fout)?;
         if magic == FILE_MAGIC_UNVERSIONED {
-            return Err(LoadError::UnversionedMagic);
+            todo!("Unversioned files are not supported yet")
         }
         if magic != FILE_MAGIC {
             return Err(LoadError::InvalidMagic {
@@ -84,15 +103,15 @@ pub fn quantize(
 
     // Load parameters
     {
-        hparams.n_vocab = rw_i32(&mut finp, &mut fout)?;
-        hparams.n_embd = rw_i32(&mut finp, &mut fout)?;
-        hparams.n_mult = rw_i32(&mut finp, &mut fout)?;
-        hparams.n_head = rw_i32(&mut finp, &mut fout)?;
-        hparams.n_layer = rw_i32(&mut finp, &mut fout)?;
-        hparams.n_rot = rw_i32(&mut finp, &mut fout)?;
-        hparams.f16_ = rw_i32(&mut finp, &mut fout)?;
+        hparams.n_vocab = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.n_embd = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.n_mult = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.n_head = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.n_layer = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.n_rot = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.f16_ = rw_i32(&mut finp, &mut fout)?.try_into()?;
     }
-    load_progress_callback(QuantizeLoadProgress::HyperparametersLoaded(&hparams));
+    progress_callback(QuantizeProgress::HyperparametersLoaded(&hparams));
 
     // load vocab
     let mut vocab = Vocabulary {
@@ -107,7 +126,7 @@ pub fn quantize(
         let word = rw_string(&mut finp, &mut fout, len)?;
         let score = rw_f32(&mut finp, &mut fout)?;
 
-        vocab.token_to_id.insert(word.clone(), i);
+        vocab.token_to_id.insert(word.clone(), i.try_into()?);
         vocab.id_to_token.push(word);
         vocab.id_to_token_score.push(score);
     }
@@ -140,8 +159,8 @@ pub fn quantize(
                 break;
             }
 
-            let mut ftype: i32;
-            if let Ok(r) = read_i32(&mut finp) {
+            let mut ftype: u32;
+            if let Ok(r) = read_u32(&mut finp) {
                 ftype = r;
             } else {
                 break;
@@ -156,7 +175,7 @@ pub fn quantize(
 
             let name = read_string(&mut finp, length)?;
 
-            load_progress_callback(QuantizeLoadProgress::LoadingWeight {
+            progress_callback(QuantizeProgress::TensorLoading {
                 name: &name,
                 size: ne,
                 elements: nelements,
@@ -170,6 +189,7 @@ pub fn quantize(
                 if ftype != 0 && ftype != 1 {
                     return Err(LoadError::InvalidFtype {
                         ftype,
+                        tensor_name: name,
                         path: file_in.to_owned(),
                     });
                 }
@@ -198,7 +218,7 @@ pub fn quantize(
                     }
                 }
 
-                ftype = itype as i32;
+                ftype = itype as u32;
             } else {
                 // Determines the total bytes were dealing with
                 let bpe = (nelements * if ftype == 0 { 4 } else { 2 }) as usize;
@@ -218,29 +238,15 @@ pub fn quantize(
             fout.write_all(name.as_bytes())?;
 
             if quantize {
-                load_progress_callback(QuantizeLoadProgress::Quantizing);
+                progress_callback(QuantizeProgress::Quantizing);
                 work.resize(nelements as usize, 0.0);
 
                 let mut hist_cur = vec![0; 16];
 
                 let curr_size = if itype == 2 {
-                    quantize_q4_0(
-                        &mut data_f32,
-                        &mut work,
-                        nelements,
-                        ne[0],
-                        qk as i32,
-                        &mut hist_cur,
-                    )
+                    unsafe { quantize_q4_0(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }
                 } else {
-                    quantize_q4_1(
-                        &mut data_f32,
-                        &mut work,
-                        nelements,
-                        ne[0],
-                        qk as i32,
-                        &mut hist_cur,
-                    )
+                    unsafe { quantize_q4_1(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }
                 };
 
                 // We divide curr size by 4
@@ -256,14 +262,14 @@ pub fn quantize(
                     new_hist.push(*val as f32 / nelements as f32);
                 }
 
-                load_progress_callback(QuantizeLoadProgress::Quantized {
+                progress_callback(QuantizeProgress::Quantized {
                     original_size: nelements as f32 * 4.0 / 1024.0 / 1024.0,
                     reduced_size: curr_size as f32 / 1024.0 / 1024.0,
                     history: new_hist,
                 });
             } else {
                 fout.write_all(&data_u8)?;
-                load_progress_callback(QuantizeLoadProgress::Skipped {
+                progress_callback(QuantizeProgress::Skipped {
                     size: data_u8.len() as f32 / 1024.0 / 1024.0,
                 });
                 total_size_new += data_u8.len();
@@ -273,7 +279,7 @@ pub fn quantize(
         }
 
         let sum_all: i64 = hist_all.iter().sum();
-        load_progress_callback(QuantizeLoadProgress::Finished {
+        progress_callback(QuantizeProgress::Finished {
             original_size: total_size_org as f32 / 1024.0 / 1024.0,
             reduced_size: total_size_new as f32 / 1024.0 / 1024.0,
             history: hist_all
