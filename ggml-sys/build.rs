@@ -56,7 +56,18 @@ fn main() {
         }
         "aarch64" => {
             if compiler.is_like_clang() || compiler.is_like_gnu() {
-                build.flag("-mcpu=native");
+                if std::env::var("HOST") == std::env::var("TARGET") {
+                    build.flag("-mcpu=native");
+                } else {
+                    #[allow(clippy::single_match)]
+                    match target_os.as_str() {
+                        "macos" => {
+                            build.flag("-mcpu=apple-m1");
+                            build.flag("-mfpu=neon");
+                        }
+                        _ => {}
+                    }
+                }
                 build.flag("-pthread");
             }
         }
