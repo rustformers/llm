@@ -233,11 +233,6 @@ pub struct InferenceParameters {
     pub bias_tokens: TokenBias,
     /// Whether or not previous tokens should be played back in [InferenceSession::inference_with_prompt].
     pub play_back_previous_tokens: bool,
-    /// If set, the inference process will behave more deterministically at the potential cost of performance.
-    ///
-    /// Note that this does not guarantee full determinism. When run on the same machine with the same parameters,
-    /// seed, and this set, inference should be identical, but this is not guaranteed to hold across machines.
-    pub increased_determinism: bool,
 }
 
 impl Default for InferenceParameters {
@@ -251,7 +246,6 @@ impl Default for InferenceParameters {
             temperature: 0.80,
             bias_tokens: TokenBias::default(),
             play_back_previous_tokens: false,
-            increased_determinism: true,
         }
     }
 }
@@ -1135,7 +1129,9 @@ impl Model {
         let n = input_tokens.len();
         let n_past = session.n_past;
         let n_threads = params.n_threads;
-        let increased_determinism = params.increased_determinism;
+
+        let memk_elsize = session.memory_k.element_size();
+        let memv_elsize = session.memory_v.element_size();
 
         let Hyperparameters {
             n_vocab,
@@ -1164,27 +1160,6 @@ impl Model {
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
-        // Defined here to avoid repetition and creating a binding inside nested loops.
-        // See the call site below for more context.
-        let vtrans_fun = |il: usize| -> ggml::Tensor {
-            ctx0.op_permute(
-                &ctx0.op_reshape_3d(
-                    &ctx0.op_view_1d(
-                        &session.memory_v,
-                        (n_past + n) * n_embd,
-                        il * n_ctx * session.memory_v.element_size() * n_embd,
-                    ),
-                    n_embd / n_head,
-                    n_head,
-                    n_past + n,
-                ),
-                1,
-                2,
-                0,
-                3,
-            )
-        };
-
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
@@ -1202,61 +1177,70 @@ impl Model {
 
             // self-attention
             {
-                let q_current = ctx0.op_mul_mat(&self.layers[il].wq, &current);
-                let k_current = ctx0.op_mul_mat(&self.layers[il].wk, &current);
-                let v_current = ctx0.op_mul_mat(&self.layers[il].wv, &current);
+                // compute Q and K and RoPE them
+                let q_current = ctx0.op_rope(
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_mul_mat(&self.layers[il].wq, &current),
+                        n_embd / n_head,
+                        n_head,
+                        n,
+                    ),
+                    n_past,
+                    n_rot,
+                    0,
+                );
+                let k_current = ctx0.op_rope(
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_mul_mat(&self.layers[il].wk, &current),
+                        n_embd / n_head,
+                        n_head,
+                        n,
+                    ),
+                    n_past,
+                    n_rot,
+                    0,
+                );
 
                 // store key and value to memory
-                if n >= 1 {
+                {
+                    // compute the transposed [N, n_embd] V matrix
+                    let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
+                        &ctx0.op_mul_mat(&self.layers[il].wv, &current),
+                        n_embd,
+                        n,
+                    ));
+
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
                         n * n_embd,
-                        (session.memory_k.element_size() * n_embd) * (il * n_ctx + n_past),
+                        (memk_elsize * n_embd) * (il * n_ctx + n_past),
                     );
 
-                    let v = ctx0.op_view_1d(
+                    let v = ctx0.op_view_2d(
                         &session.memory_v,
-                        n * n_embd,
-                        (session.memory_v.element_size() * n_embd) * (il * n_ctx + n_past),
+                        n,
+                        n_embd,
+                        n_ctx * memv_elsize,
+                        (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
                     );
 
+                    // important: storing RoPE-ed version of K in the KV cache!
                     gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
                     gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
                 }
 
-                // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-                let q = ctx0.op_permute(
-                    &ctx0.op_rope(
-                        &ctx0.op_cpy(
-                            &q_current,
-                            &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
-                        ),
-                        n_past,
-                        n_rot,
-                        0,
-                    ),
-                    0,
-                    2,
-                    1,
-                    3,
-                );
+                let q = ctx0.op_permute(&q_current, 0, 2, 1, 3);
 
-                // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
                 let k = ctx0.op_permute(
-                    &ctx0.op_rope(
-                        &ctx0.op_reshape_3d(
-                            &ctx0.op_view_1d(
-                                &session.memory_k,
-                                (n_past + n) * n_embd,
-                                il * n_ctx * session.memory_k.element_size() * n_embd,
-                            ),
-                            n_embd / n_head,
-                            n_head,
-                            n_past + n,
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_view_1d(
+                            &session.memory_k,
+                            (n_past + n) * n_embd,
+                            il * n_ctx * memk_elsize * n_embd,
                         ),
-                        n_past,
-                        n_rot,
-                        1,
+                        n_embd / n_head,
+                        n_head,
+                        n_past + n,
                     ),
                     0,
                     2,
@@ -1279,25 +1263,18 @@ impl Model {
                 // KQ = soft_max(KQ_masked)
                 let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
 
-                // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
-                let v_transposed = {
-                    if !increased_determinism {
-                        vtrans_fun(il)
-                    } else {
-                        ctx0.op_cpy(
-                            &vtrans_fun(il),
-                            &ctx0.new_tensor_3d(
-                                ggml::Type::F32,
-                                n_past + n,
-                                n_embd / n_head,
-                                n_head,
-                            ),
-                        )
-                    }
-                };
+                // split cached V into n_head heads
+                let v = ctx0.op_view_3d(
+                    &session.memory_v,
+                    n_past + n,
+                    n_embd / n_head,
+                    n_head,
+                    n_ctx * memv_elsize,
+                    n_ctx * memv_elsize * n_embd / n_head,
+                    il * n_ctx * memv_elsize * n_embd,
+                );
 
-                // KQV = transpose(V) * KQ_soft_max
-                let k_q_v = ctx0.op_mul_mat(&v_transposed, &k_q_soft_max);
+                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
