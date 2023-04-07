@@ -515,9 +515,6 @@ pub enum SnapshotError {
     /// Arbitrary I/O error.
     #[error("I/O error while reading or writing snapshot")]
     IO(#[from] std::io::Error),
-    /// Error during the serialization process.
-    #[error("error during snapshot serialization")]
-    Serialization(#[from] bincode::Error),
     /// Mismatch between the snapshotted memory and the in-memory memory.
     #[error("could not read snapshot due to size mismatch (self={self_size}, input={input_size})")]
     MemorySizeMismatch {
@@ -1662,20 +1659,6 @@ impl InferenceSession {
             memory_k,
             memory_v,
         }
-    }
-}
-
-impl<'a> InferenceSnapshotRef<'a> {
-    /// Write this snapshot to the given writer.
-    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), SnapshotError> {
-        Ok(bincode::serialize_into(writer, &self)?)
-    }
-}
-
-impl InferenceSnapshot {
-    /// Read a snapshot from the given reader.
-    pub fn read(reader: &mut impl std::io::Read) -> Result<Self, SnapshotError> {
-        Ok(bincode::deserialize_from(reader)?)
     }
 }
 
