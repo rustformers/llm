@@ -1,5 +1,3 @@
-use std::{fs::File, io::BufReader};
-
 use crate::*;
 
 pub(crate) fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
@@ -49,6 +47,8 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
     load_progress_callback: impl Fn(LoadProgress),
     model: &Model,
 ) -> Result<(), LoadError> {
+    use std::{fs::File, io::BufReader};
+
     let paths = util::find_all_model_files(main_path)?;
 
     let n_parts = paths.len();
@@ -178,7 +178,7 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
 
 fn load_tensor_header_ggmf<'a>(
     n_dims: usize,
-    reader: &mut BufReader<File>,
+    reader: &mut impl BufRead,
     length: i32,
     model: &'a Model,
     path: &Path,
@@ -279,7 +279,7 @@ fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
 }
 
 pub(crate) fn load_weights_ggjt(
-    reader: &mut std::io::BufReader<&File>,
+    reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
     path: &Path,
     load_progress_callback: impl Fn(LoadProgress),
@@ -344,7 +344,7 @@ pub(crate) fn load_weights_ggjt(
         };
 
         load_tensor(reader, mmap_base, tensor)?;
-        
+
         total_loaded_bytes += tensor.nbytes() as u64;
 
         load_progress_callback(LoadProgress::PartTensorLoaded {
@@ -366,7 +366,11 @@ pub(crate) fn load_weights_ggjt(
 }
 
 #[cfg(feature = "mmap")]
-fn load_tensor(reader: &mut BufReader<&File>, mmap_base: *const u8, tensor: &ggml::Tensor) -> Result<(), LoadError> {
+fn load_tensor(
+    reader: &mut (impl BufRead + Seek),
+    mmap_base: *const u8,
+    tensor: &ggml::Tensor,
+) -> Result<(), LoadError> {
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;
     unsafe {
@@ -378,13 +382,18 @@ fn load_tensor(reader: &mut BufReader<&File>, mmap_base: *const u8, tensor: &ggm
 }
 
 #[cfg(not(feature = "mmap"))]
-fn load_tensor<'a>(reader: &mut BufReader<&File>, mmap_base: *const u8, tensor: &'a ggml::Tensor) -> Result<(), LoadError> {
+fn load_tensor<'a>(
+    reader: &mut (impl BufRead + Seek),
+    mmap_base: *const u8,
+    tensor: &'a ggml::Tensor,
+) -> Result<(), LoadError> {
     _ = mmap_base;
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;
     reader.seek(SeekFrom::Start(offset_aligned))?;
 
-    let buf: &'a mut [u8] = unsafe { std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes()) };
+    let buf: &'a mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes()) };
     reader.read_exact(buf)?;
 
     Ok(())
