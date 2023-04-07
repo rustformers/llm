@@ -333,7 +333,7 @@ pub(crate) fn load_weights_ggjt(
         }
 
         match tensor_type_size(ftype, ne) {
-            Some(_) => {},
+            Some(_) => {}
             None => {
                 return Err(LoadError::InvalidFtype {
                     tensor_name,
@@ -344,7 +344,7 @@ pub(crate) fn load_weights_ggjt(
         };
 
         let offset_curr = reader.stream_position()?;
-        let offset_aligned: u64 = (offset_curr + 31) & (31 ^ u64::MAX);
+        let offset_aligned: u64 = (offset_curr + 31) & !31;
         unsafe {
             let ptr = mmap.as_ptr().offset(offset_aligned as isize);
             tensor.set_data(ptr as *mut std::ffi::c_void);
