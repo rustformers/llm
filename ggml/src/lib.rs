@@ -429,7 +429,7 @@ impl Tensor {
     /// # Safety
     ///
     /// The data must not be mutated while being read from.
-    pub unsafe fn data(&self) -> *const c_void {
+    pub unsafe fn data(&self) -> *mut c_void {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
             unsafe { *self.ptr.as_ptr() }.data

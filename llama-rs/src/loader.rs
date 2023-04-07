@@ -280,7 +280,7 @@ fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
 
 pub(crate) fn load_weights_ggjt(
     reader: &mut std::io::BufReader<&File>,
-    mmap: &Mmap,
+    mmap_base: *const u8,
     path: &Path,
     load_progress_callback: impl Fn(LoadProgress),
     model: &Model,
@@ -343,15 +343,9 @@ pub(crate) fn load_weights_ggjt(
             }
         };
 
-        let offset_curr = reader.stream_position()?;
-        let offset_aligned: u64 = (offset_curr + 31) & !31;
-        unsafe {
-            let ptr = mmap.as_ptr().offset(offset_aligned as isize);
-            tensor.set_data(ptr as *mut std::ffi::c_void);
-        }
-        let tensor_data_size = tensor.nbytes() as u64;
-        reader.seek(SeekFrom::Start(offset_aligned + tensor_data_size))?;
-        total_loaded_bytes += tensor_data_size;
+        load_tensor(reader, mmap_base, tensor)?;
+        
+        total_loaded_bytes += tensor.nbytes() as u64;
 
         load_progress_callback(LoadProgress::PartTensorLoaded {
             file: path,
@@ -369,4 +363,29 @@ pub(crate) fn load_weights_ggjt(
     });
 
     return Ok(());
+}
+
+#[cfg(feature = "mmap")]
+fn load_tensor(reader: &mut BufReader<&File>, mmap_base: *const u8, tensor: &ggml::Tensor) -> Result<(), LoadError> {
+    let offset_curr = reader.stream_position()?;
+    let offset_aligned: u64 = (offset_curr + 31) & !31;
+    unsafe {
+        let ptr = mmap_base.offset(offset_aligned as isize);
+        tensor.set_data(ptr as *mut std::ffi::c_void);
+    }
+    reader.seek(SeekFrom::Start(offset_aligned + tensor.nbytes() as u8))?;
+    Ok(())
+}
+
+#[cfg(not(feature = "mmap"))]
+fn load_tensor<'a>(reader: &mut BufReader<&File>, mmap_base: *const u8, tensor: &'a ggml::Tensor) -> Result<(), LoadError> {
+    _ = mmap_base;
+    let offset_curr = reader.stream_position()?;
+    let offset_aligned: u64 = (offset_curr + 31) & !31;
+    reader.seek(SeekFrom::Start(offset_aligned))?;
+
+    let buf: &'a mut [u8] = unsafe { std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes()) };
+    reader.read_exact(buf)?;
+
+    Ok(())
 }
