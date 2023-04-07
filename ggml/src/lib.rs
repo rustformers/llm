@@ -436,17 +436,17 @@ impl Tensor {
         })
     }
 
-    /// Set the tensor's data pointer (useful for mmap-ed data)
-    ///
-    /// # Safety
-    /// 
-    /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
-    pub unsafe fn set_data(&self, data_ptr: *mut c_void) {
-        self.with_alive_ctx(|| {
-            // SAFETY: The with_alive_call guarantees the context is alive
-            unsafe { *self.ptr.as_ptr() }.data = data_ptr;
-        })
-    }
+    // /// Set the tensor's data pointer (useful for mmap-ed data)
+    // ///
+    // /// # Safety
+    // /// 
+    // /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
+    // pub unsafe fn set_data(&self, data_ptr: *mut c_void) {
+    //     self.with_alive_ctx(|| {
+    //         // SAFETY: The with_alive_call guarantees the context is alive
+    //         unsafe { *self.ptr.as_ptr() }.data = data_ptr;
+    //     })
+    // }
 
     /// Number of elements in this tensor.
     pub fn nelements(&self) -> usize {
