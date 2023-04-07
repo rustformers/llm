@@ -343,7 +343,7 @@ pub(crate) fn load_weights_ggjt(
             }
         };
 
-        load_tensor(reader, mmap_base, tensor)?;
+        load_tensor_ggjt(reader, mmap_base, tensor)?;
 
         total_loaded_bytes += tensor.nbytes() as u64;
 
@@ -366,7 +366,7 @@ pub(crate) fn load_weights_ggjt(
 }
 
 #[cfg(feature = "mmap")]
-fn load_tensor(
+fn load_tensor_ggjt(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
     tensor: &ggml::Tensor,
@@ -382,7 +382,7 @@ fn load_tensor(
 }
 
 #[cfg(not(feature = "mmap"))]
-fn load_tensor<'a>(
+fn load_tensor_ggjt<'a>(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
     tensor: &'a ggml::Tensor,
