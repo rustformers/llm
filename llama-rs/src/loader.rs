@@ -52,7 +52,7 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
     let paths = util::find_all_model_files(main_path)?;
 
     let n_parts = paths.len();
-    Ok(for (i, part_path) in paths.into_iter().enumerate() {
+    for (i, part_path) in paths.into_iter().enumerate() {
         let part_id = i;
 
         load_progress_callback(LoadProgress::PartLoading {
@@ -173,9 +173,11 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
             byte_size: total_size,
             tensor_count: n_tensors.try_into()?,
         });
-    })
+    };
+    Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 fn load_tensor_header_ggmf<'a>(
     n_dims: usize,
     reader: &mut impl BufRead,
@@ -262,7 +264,8 @@ fn load_tensor_header_ggmf<'a>(
 }
 
 fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
-    let bpe = match ftype {
+    
+    match ftype {
         0 => Some(ggml::type_size(ggml::Type::F32)),
         1 => Some(ggml::type_size(ggml::Type::F16)),
         2 => {
@@ -274,8 +277,7 @@ fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
             Some(ggml::type_size(ggml::Type::Q4_1))
         }
         _ => None,
-    };
-    bpe
+    }
 }
 
 pub(crate) fn load_weights_ggjt(
@@ -307,6 +309,7 @@ pub(crate) fn load_weights_ggjt(
         let mut nelements: usize = 1;
         let mut ne = [1i64, 1];
         assert!(n_dims <= ne.len());
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n_dims {
             let dim = read_i32(reader)? as usize;
             ne[i] = dim as i64;
@@ -362,7 +365,7 @@ pub(crate) fn load_weights_ggjt(
         tensor_count: loop_i,
     });
 
-    return Ok(());
+    Ok(())
 }
 
 #[cfg(feature = "mmap")]

@@ -76,6 +76,7 @@ struct Layer {
 
 /// Model Version
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) enum ModelVersion {
     GGMF,
     GGJT,
@@ -98,7 +99,7 @@ pub struct Model {
 
     mmap: Option<Mmap>,
 
-    version: ModelVersion,
+    _version: ModelVersion,
 
     // Must be kept alive for the model
     _context: ggml::Context,
@@ -835,7 +836,7 @@ impl Model {
                 tensors,
                 _context: context,
                 mmap: None,
-                version: model_type,
+                _version: model_type,
             }
         };
 
