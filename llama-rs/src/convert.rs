@@ -28,12 +28,12 @@ pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
     let model_files = util::find_all_model_files(model_directory).unwrap();
 
     for (i, _file) in model_files.iter().enumerate() {
-        let fname_out = model_directory.join(format!("rust-model-{}.bin", element_type));
+        let fname_out = model_directory.join(format!("rust-model-{element_type}.bin"));
         let mut file = File::create(fname_out).expect("Unable to create file");
         write_header(file.borrow_mut(), &hparams).unwrap();
         write_tokens(file.borrow_mut(), &vocab).unwrap();
 
-        let _fname_model = model_directory.join(format!("consolidated.0{}.pth", i));
+        let _fname_model = model_directory.join(format!("consolidated.0{i}.pth"));
         // Todo process and write variables
     }
 }

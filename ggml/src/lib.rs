@@ -353,7 +353,7 @@ impl Tensor {
     ///
     /// # Safety
     ///
-    /// The data must not be mutated while being read from.
+    /// Only `std::slice::from_raw_parts_mut(tensor.data(), tensor.nbytes())` is safe to mutate.
     pub unsafe fn data(&self) -> *mut c_void {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
@@ -362,6 +362,10 @@ impl Tensor {
     }
 
     /// Set the tensor's data pointer (useful for mmap-ed data)
+    ///
+    /// # Safety
+    /// 
+    /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
     pub unsafe fn set_data(&self, data_ptr: *mut c_void) {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
