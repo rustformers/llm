@@ -1,10 +1,10 @@
 #![deny(missing_docs)]
 //! LLaMA-rs is a Rust port of the llama.cpp project. This allows running inference for Facebook's LLaMA model on a CPU with good performance using full precision, f16 or 4-bit quantized versions of the model.
 
-mod loader;
-mod util;
 #[cfg(feature = "convert")]
 pub mod convert;
+mod loader;
+mod util;
 
 use core::slice;
 use std::{
@@ -16,11 +16,11 @@ use std::{
     time,
 };
 
-use serde::Deserialize;
-use thiserror::Error;
+pub use ggml::Type as ElementType;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
-pub use ggml::Type as ElementType;
+use serde::Deserialize;
+use thiserror::Error;
 
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
@@ -40,8 +40,6 @@ impl Mmap {
     }
 }
 // map
-
-
 
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
