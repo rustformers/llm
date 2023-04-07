@@ -147,6 +147,12 @@ impl Context {
         self.new_tensor_raw(raw)
     }
 
+    /// Unknown, aside from the obvious. It's transposing something!
+    pub fn op_transpose(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { ggml_sys::ggml_transpose(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Unknown.
     pub fn op_get_rows(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
@@ -235,6 +241,55 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// Creates a 2D view over `a`.
+    pub fn op_view_2d(
+        &self,
+        a: &Tensor,
+        ne0: usize,
+        ne1: usize,
+        nb1: usize,
+        offset: usize,
+    ) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_view_2d(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                nb1,
+                offset,
+            )
+        };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a 3d view over `a`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn op_view_3d(
+        &self,
+        a: &Tensor,
+        ne0: usize,
+        ne1: usize,
+        ne2: usize,
+        nb1: usize,
+        nb2: usize,
+        offset: usize,
+    ) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_view_3d(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
+                usize_to_i64(ne2),
+                nb1,
+                nb2,
+                offset,
+            )
+        };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Copies `a` to `b` and returns `b`.
     pub fn op_cpy(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
@@ -259,6 +314,26 @@ impl Context {
                 usize_to_i32(axis1),
                 usize_to_i32(axis2),
                 usize_to_i32(axis3),
+            )
+        };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// In-place; reshapes `a` in accordance with the dimensions of `b`
+    pub fn op_reshape(&self, a: &Tensor, b: &Tensor) -> Tensor {
+        let tensor =
+            unsafe { ggml_sys::ggml_reshape(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// In-place; reshapes `a` in accordance with the specified dimensions.
+    pub fn op_reshape_2d(&self, a: &Tensor, ne0: usize, ne1: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_reshape_2d(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i64(ne0),
+                usize_to_i64(ne1),
             )
         };
         self.new_tensor_raw(tensor)

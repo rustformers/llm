@@ -796,6 +796,18 @@ extern "C" {
     ) -> *mut ggml_tensor;
 }
 extern "C" {
+    pub fn ggml_view_3d(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        ne0: i64,
+        ne1: i64,
+        ne2: i64,
+        nb1: usize,
+        nb2: usize,
+        offset: usize,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
     pub fn ggml_permute(
         ctx: *mut ggml_context,
         a: *mut ggml_tensor,

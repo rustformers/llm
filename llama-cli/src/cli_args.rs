@@ -232,7 +232,6 @@ impl Generate {
                 }
             }),
             play_back_previous_tokens: session_loaded,
-            ..Default::default()
         }
     }
 }
