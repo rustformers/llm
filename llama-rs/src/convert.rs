@@ -49,11 +49,12 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
     let mut token_to_id = HashMap::new();
     let mut max_token_length = 0;
 
+    // TODO: Does the original model use valid UTF-8 for its tokens? This seems a little suspect to me.
     for (idx, piece) in proto.get_pieces().iter().enumerate() {
-        let word = piece.get_piece().to_string();
+        let word = piece.get_piece().as_bytes();
         max_token_length = max_token_length.max(word.len());
-        id_to_token.push(word.clone());
-        token_to_id.insert(word, idx as i32);
+        id_to_token.push(word.to_owned());
+        token_to_id.insert(word.to_owned(), idx as i32);
         id_to_token_score.push(piece.get_score());
     }
     Vocabulary {
@@ -128,13 +129,20 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
 fn write_tokens(file: &mut File, vocab: &Vocabulary) -> Result<(), String> {
     let mut values: Vec<u8> = vec![];
     for (i, token) in vocab.id_to_token.iter().enumerate() {
-        let text = match token {
-            _ if token.contains("<unk>") => " \u{2047} ".as_bytes().to_vec(),
-            _ if token.contains("s>") => vec![],
-            _ if token.len() == 6 && token.contains("<0x") => {
-                vec![u8::from_str_radix(&token[3..5], 16).unwrap()]
+        // TODO: Not sure what the behaviour should be if the token is not valid UTF-8.
+        //
+        // Switching to the HF tokenizer should fix this.
+        let text = if let Ok(token) = std::str::from_utf8(token) {
+            match token {
+                _ if token.contains("<unk>") => " \u{2047} ".as_bytes().to_vec(),
+                _ if token.contains("s>") => vec![],
+                _ if token.len() == 6 && token.contains("<0x") => {
+                    vec![u8::from_str_radix(&token[3..5], 16).unwrap()]
+                }
+                _ => token.replace('\u{2581}', " ").as_bytes().to_vec(),
             }
-            _ => token.replace('\u{2581}', " ").as_bytes().to_vec(),
+        } else {
+            token.clone()
         };
         values.extend((text.len() as i32).to_le_bytes());
         values.extend(&text);

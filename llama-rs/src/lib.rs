@@ -319,7 +319,7 @@ impl Display for InferenceStats {
 }
 
 type TokenId = i32;
-type Token = String;
+type Token = Vec<u8>;
 type TokenScore = f32;
 
 /// The vocabulary used by a model.
@@ -339,7 +339,7 @@ pub struct Vocabulary {
     max_token_length: usize,
 }
 impl Vocabulary {
-    fn token(&self, idx: usize) -> &str {
+    fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
     }
 }
@@ -416,14 +416,6 @@ impl std::fmt::Display for TokenBias {
 pub enum LoadProgress<'a> {
     /// The hyperparameters have been loaded from the model.
     HyperparametersLoaded(&'a Hyperparameters),
-    /// A bad token was encountered during the loading process.
-    ///
-    /// This can be ignored, but invalid tokens will be replaced with
-    /// the `�` character.
-    BadToken {
-        /// The index within the vocabulary.
-        index: usize,
-    },
     /// The context has been created.
     ContextSize {
         /// The size of the context.
@@ -622,6 +614,48 @@ impl Model {
         })?;
         let mut reader = BufReader::new(&file);
 
+        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
+            let mut bytes = [0u8; N];
+            reader
+                .read_exact(&mut bytes)
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: N,
+                })?;
+            Ok(bytes)
+        }
+
+        fn read_bytes_with_len(
+            reader: &mut impl BufRead,
+            len: usize,
+        ) -> Result<Vec<u8>, LoadError> {
+            let mut bytes = vec![0u8; len];
+            reader
+                .read_exact(&mut bytes)
+                .map_err(|e| LoadError::ReadExactFailed {
+                    source: e,
+                    bytes: len,
+                })?;
+            Ok(bytes)
+        }
+
+        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
+            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
+        }
+
+        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
+            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
+        }
+
+        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
+            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
+        }
+
+        /// Helper function. Reads a string from the buffer and returns it.
+        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
+            Ok(String::from_utf8(read_bytes_with_len(reader, len)?)?)
+        }
+
         // Verify magic
         let model_type: ModelVersion = match read_u32(&mut reader)? {
             ggml::FILE_MAGIC_GGMF => ModelVersion::GGMF,
@@ -677,29 +711,11 @@ impl Model {
             let mut max_token_length = 0;
 
             for i in 0..hparams.n_vocab {
-                let len = match model_type {
-                    // `read_i32` maybe a typo
-                    ModelVersion::GGMF | ModelVersion::Unversioned => {
-                        read_i32(&mut reader)? as usize
-                    }
-                    ModelVersion::GGJT => read_u32(&mut reader)? as usize,
-                };
-                let maybe_word = if len > 0 {
-                    read_string(&mut reader, len)
-                } else {
-                    Ok("".into())
-                };
-                match maybe_word {
-                    Ok(word) => {
-                        max_token_length = max_token_length.max(word.len());
-                        id_to_token.push(word.clone());
-                        token_to_id.insert(word, TokenId::try_from(i)?);
-                    }
-                    Err(_e) => {
-                        load_progress_callback(LoadProgress::BadToken { index: i });
-                        id_to_token.push("�".to_string());
-                    }
-                }
+                let len = read_i32(&mut reader)?;
+                let token = read_bytes_with_len(&mut reader, len as usize)?;
+                max_token_length = max_token_length.max(token.len());
+                id_to_token.push(token.clone());
+                token_to_id.insert(token, TokenId::try_from(i)?);
 
                 // Token score, currently unused
                 match model_type {
@@ -1225,7 +1241,7 @@ impl InferenceSession {
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
-        callback: impl Fn(&str) -> Result<(), E>,
+        mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens: Vec<TokenId> = vocab
@@ -1262,7 +1278,7 @@ impl InferenceSession {
         vocab: &'v Vocabulary,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
-    ) -> Result<&'v str, InferenceError> {
+    ) -> Result<&'v [u8], InferenceError> {
         if self.n_past + 1 >= model.hparams.n_ctx {
             return Err(InferenceError::ContextFull);
         }
@@ -1303,15 +1319,19 @@ impl InferenceSession {
         prompt: &str,
         maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
-        callback: impl Fn(&str) -> Result<(), E>,
+        mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = maximum_token_count.unwrap_or(usize::MAX);
         if params.play_back_previous_tokens {
             // "Play back" the existing tokens, so that loading from an inference snapshot works
             // as expected.
+            let mut token_utf8_buf = TokenUtf8Buffer::new();
             for token_id in &self.tokens {
-                if let Err(e) = callback(vocab.token(*token_id as usize)) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
+                // Buffer the token until it's valid UTF-8, then call the callback.
+                if let Some(tokens) = token_utf8_buf.push(vocab.token(*token_id as usize)) {
+                    if let Err(e) = callback(&tokens) {
+                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    }
                 }
             }
         }
@@ -1322,7 +1342,13 @@ impl InferenceSession {
 
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
-        self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;
+        self.feed_prompt(
+            model,
+            vocab,
+            params,
+            prompt,
+            TokenUtf8Buffer::adapt_callback(&mut callback),
+        )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
 
@@ -1331,6 +1357,7 @@ impl InferenceSession {
         // EndOfText token, or we run out of space in the context window,
         // or we reach the specified limit.
         let mut tokens_processed = 0;
+        let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
             let token = match self.infer_next_token(model, vocab, params, rng) {
                 Ok(token) => token,
@@ -1338,8 +1365,11 @@ impl InferenceSession {
                 Err(e) => return Err(e),
             };
 
-            if let Err(e) = callback(token) {
-                return Err(InferenceError::UserCallback(Box::new(e)));
+            // Buffer the token until it's valid UTF-8, then call the callback.
+            if let Some(tokens) = token_utf8_buf.push(token) {
+                if let Err(e) = callback(&tokens) {
+                    return Err(InferenceError::UserCallback(Box::new(e)));
+                }
             }
 
             tokens_processed += 1;
@@ -1486,7 +1516,7 @@ impl Vocabulary {
         &'a self,
         text: &str,
         bos: bool,
-    ) -> Result<Vec<(&'a str, TokenId)>, InferenceError> {
+    ) -> Result<Vec<(&'a [u8], TokenId)>, InferenceError> {
         let len = text.len();
 
         let mut score = vec![0usize; len + 1];
@@ -1496,7 +1526,6 @@ impl Vocabulary {
             let max_len = (len - i).min(self.max_token_length);
             for sub_len in 1..=max_len {
                 let sub = &text.as_bytes()[i..i + sub_len];
-                let Ok(sub) = std::str::from_utf8(sub) else { continue; };
                 let token = self.token_to_id.get(sub);
 
                 if let Some(token) = token {
@@ -1520,19 +1549,57 @@ impl Vocabulary {
             if token_id == 0 {
                 return Err(InferenceError::TokenizationFailed);
             }
-            let token = self.id_to_token[token_id as usize].as_str();
+            let token = self.id_to_token[token_id as usize].as_slice();
             res.push((token, token_id));
             i -= token.len();
         }
 
         if bos {
             // TODO: replace with vocab.bos
-            res.push(("", 1));
+            res.push((&[], 1));
         }
 
         // Pieces are in reverse order so correct that
         res.reverse();
 
         Ok(res)
+    }
+}
+
+/// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
+///
+/// Tokens are *not* valid UTF-8 by themselves. However, the LLM will produce valid UTF-8
+/// from multiple tokens. This helps alleviate that issue.
+#[derive(Clone, PartialEq, Default)]
+pub struct TokenUtf8Buffer(Vec<u8>);
+impl TokenUtf8Buffer {
+    /// Create a new buffer.
+    pub const fn new() -> Self {
+        Self(vec![])
+    }
+
+    /// Add a token to the buffer. If the buffer contains a valid string of UTF-8 text,
+    /// it is returned and the buffer is cleared for next use.
+    pub fn push(&mut self, token: &[u8]) -> Option<String> {
+        self.0.extend_from_slice(token);
+        match std::str::from_utf8(&self.0) {
+            Ok(s) => {
+                let out = s.to_owned();
+                self.0 = vec![];
+                Some(out)
+            }
+            Err(..) => None,
+        }
+    }
+
+    /// Adapt a `&str` callback so that it can be used in a `&[u8]` context.
+    fn adapt_callback<'a, E: std::error::Error + 'static>(
+        mut callback: impl FnMut(&str) -> Result<(), E> + 'a,
+    ) -> impl FnMut(&[u8]) -> Result<(), E> + 'a {
+        let mut buffer = Self::new();
+        move |token| match buffer.push(token) {
+            Some(tokens) => callback(&tokens),
+            None => Ok(()),
+        }
     }
 }
