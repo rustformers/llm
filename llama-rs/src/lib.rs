@@ -2,6 +2,9 @@
 //! LLaMA-rs is a Rust port of the llama.cpp project. This allows running inference for Facebook's LLaMA model on a CPU with good performance using full precision, f16 or 4-bit quantized versions of the model.
 
 mod loader;
+mod util;
+#[cfg(feature = "convert")]
+pub mod convert;
 
 use core::slice;
 use std::{
@@ -14,18 +17,31 @@ use std::{
 };
 
 use serde::Deserialize;
-use memmap2::Mmap;
 use thiserror::Error;
-
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
-
 pub use ggml::Type as ElementType;
 
-#[cfg(feature = "convert")]
-pub mod convert;
+#[cfg(feature = "mmap")]
+use memmap2::Mmap;
 
-mod util;
+/// dummy struct
+#[cfg(not(feature = "mmap"))]
+pub(crate) struct Mmap;
+
+/// dummy impl
+#[cfg(not(feature = "mmap"))]
+impl Mmap {
+    pub(crate) unsafe fn map(_: &std::fs::File) -> Result<Self, LoadError> {
+        Ok(Mmap)
+    }
+    pub(crate) fn as_ptr(&self) -> *const u8 {
+        std::ptr::null()
+    }
+}
+// map
+
+
 
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
@@ -60,7 +76,6 @@ struct Layer {
     w3: ggml::Tensor,
 }
 
-
 /// Model Version
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum ModelVersion {
@@ -84,7 +99,7 @@ pub struct Model {
     tensors: HashMap<String, ggml::Tensor>,
 
     mmap: Option<Mmap>,
-    
+
     version: ModelVersion,
 
     // Must be kept alive for the model
@@ -671,7 +686,9 @@ impl Model {
             for i in 0..hparams.n_vocab {
                 let len = match model_type {
                     // `read_i32` maybe a typo
-                    ModelVersion::GGMF | ModelVersion::Unversioned => read_i32(&mut reader)? as usize,
+                    ModelVersion::GGMF | ModelVersion::Unversioned => {
+                        read_i32(&mut reader)? as usize
+                    }
                     ModelVersion::GGJT => read_u32(&mut reader)? as usize,
                 };
                 let maybe_word = if len > 0 {
@@ -843,14 +860,9 @@ impl Model {
             }
             ModelVersion::GGJT => {
                 let mmap = unsafe { Mmap::map(&file)? };
-                load_weights_ggjt(
-                    &mut reader,
-                    &mmap,
-                    main_path,
-                    load_progress_callback,
-                    &model,
-                )?;
+                let ptr = mmap.as_ptr();
                 model.mmap = Some(mmap);
+                load_weights_ggjt(&mut reader, ptr, main_path, load_progress_callback, &model)?;
             }
         }
 
