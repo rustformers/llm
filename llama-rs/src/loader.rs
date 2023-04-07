@@ -173,7 +173,7 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
             byte_size: total_size,
             tensor_count: n_tensors.try_into()?,
         });
-    };
+    }
     Ok(())
 }
 
@@ -264,7 +264,6 @@ fn load_tensor_header_ggmf<'a>(
 }
 
 fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
-    
     match ftype {
         0 => Some(ggml::type_size(ggml::Type::F32)),
         1 => Some(ggml::type_size(ggml::Type::F16)),
