@@ -9,9 +9,9 @@ When new GGML versions are pushed to llama.cpp (or one of the other repos
 hosting a copy of it) and we want to update our copy, the process should be as
 follows:
 
-- Update the `ggml.c` and `ggml.h` inside ggml-sys/ggml.
-- In that same folder, take note of the llama.cpp version these files were taken
-  from inside the `CREDITS.md` file.
+- Update the `ggml.c` and `ggml.h` inside `ggml-sys/ggml`.
+- In that same folder, update `CREDITS.txt` to indicate the llama.cpp version 
+  these files were taken from 
 - Run the bindgen script:
     ```shell
     $ cargo run --bin generate-ggml-bindings ggml-sys
