@@ -4,6 +4,7 @@
 #[cfg(feature = "convert")]
 pub mod convert;
 mod loader;
+pub mod loader2;
 mod util;
 
 use core::slice;
@@ -19,11 +20,12 @@ use std::{
 pub use ggml::Type as ElementType;
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
-use serde::Deserialize;
 use thiserror::Error;
 
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
+
+use crate::loader2::decode_element_type;
 
 /// dummy struct
 #[cfg(not(feature = "mmap"))]
@@ -45,7 +47,7 @@ impl Mmap {
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
 /// The hyperparameters of the model.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Hyperparameters {
     n_vocab: usize,
     n_ctx: usize,
@@ -54,7 +56,7 @@ pub struct Hyperparameters {
     n_head: usize,
     n_layer: usize,
     n_rot: usize,
-    f16_: u32,
+    element_type: ElementType,
 }
 
 struct Layer {
@@ -74,12 +76,15 @@ struct Layer {
     w3: ggml::Tensor,
 }
 
-/// Model Version
+/// file type containing the model
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[allow(clippy::upper_case_acronyms)]
-pub(crate) enum ModelVersion {
+pub enum ModelContainerType {
+    /// older than `GGJT`
     GGMF,
+    /// mmap-able format
     GGJT,
+    /// oldest ggml tensor file format
     Unversioned,
 }
 
@@ -99,7 +104,7 @@ pub struct Model {
 
     mmap: Option<Mmap>,
 
-    _version: ModelVersion,
+    _version: ModelContainerType,
 
     // Must be kept alive for the model
     _context: ggml::Context,
@@ -412,7 +417,7 @@ impl std::fmt::Display for TokenBias {
 
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LoadProgress<'a> {
     /// The hyperparameters have been loaded from the model.
     HyperparametersLoaded(&'a Hyperparameters),
@@ -484,6 +489,9 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+    #[error("unsupported f16_: {0}")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    UnsupportedElementtype(i32),
     #[error("invalid magic number for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
     InvalidMagic {
@@ -657,10 +665,10 @@ impl Model {
         }
 
         // Verify magic
-        let model_type: ModelVersion = match read_u32(&mut reader)? {
-            ggml::FILE_MAGIC_GGMF => ModelVersion::GGMF,
-            ggml::FILE_MAGIC_GGJT => ModelVersion::GGJT,
-            ggml::FILE_MAGIC_UNVERSIONED => ModelVersion::Unversioned,
+        let model_type: ModelContainerType = match read_u32(&mut reader)? {
+            ggml::FILE_MAGIC_GGMF => ModelContainerType::GGMF,
+            ggml::FILE_MAGIC_GGJT => ModelContainerType::GGJT,
+            ggml::FILE_MAGIC_UNVERSIONED => ModelContainerType::Unversioned,
             _ => {
                 return Err(LoadError::InvalidMagic {
                     path: main_path.to_owned(),
@@ -670,13 +678,13 @@ impl Model {
 
         // Load format version
         match model_type {
-            ModelVersion::GGMF | ModelVersion::GGJT => {
+            ModelContainerType::GGMF | ModelContainerType::GGJT => {
                 let _version: u32 = match read_u32(&mut reader)? {
                     ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                     version => return Err(LoadError::InvalidFormatVersion { value: version }),
                 };
             }
-            ModelVersion::Unversioned => {}
+            ModelContainerType::Unversioned => {}
         }
 
         // =================
@@ -693,7 +701,10 @@ impl Model {
             n_head: read_i32(&mut reader)?.try_into()?,
             n_layer: read_i32(&mut reader)?.try_into()?,
             n_rot: read_i32(&mut reader)?.try_into()?,
-            f16_: read_i32(&mut reader)?.try_into()?,
+            element_type: {
+                let ftype = read_i32(&mut reader)?;
+                decode_element_type(ftype).ok_or_else(|| LoadError::UnsupportedElementtype(ftype))
+            }?,
         };
 
         let n_ff =
@@ -719,12 +730,11 @@ impl Model {
 
                 // Token score, currently unused
                 match model_type {
-                    ModelVersion::GGMF | ModelVersion::GGJT => {
-                        if let Ok(score) = read_f32(&mut reader) {
-                            id_to_token_score.push(score);
-                        }
+                    ModelContainerType::GGMF | ModelContainerType::GGJT => {
+                        let score = read_f32(&mut reader)?;
+                        id_to_token_score.push(score);
                     }
-                    ModelVersion::Unversioned => {
+                    ModelContainerType::Unversioned => {
                         // Legacy model, set empty score
                         id_to_token_score.push(0.);
                     }
@@ -742,13 +752,7 @@ impl Model {
         // for the big tensors, we have the option to store the data in 16-bit
         // floats or quantized in order to save memory and also to speed up the
         // computation
-        let wtype = match hparams.f16_ {
-            0 => ggml::Type::F32,
-            1 => ggml::Type::F16,
-            2 => ggml::Type::Q4_0,
-            3 => ggml::Type::Q4_1,
-            invalid => return Err(LoadError::HyperparametersF16Invalid { ftype: invalid }),
-        };
+        let wtype = hparams.element_type;
 
         let n_embd = hparams.n_embd;
         let n_layer = hparams.n_layer;
@@ -857,7 +861,7 @@ impl Model {
         };
 
         match model_type {
-            ModelVersion::GGMF | ModelVersion::Unversioned => {
+            ModelContainerType::GGMF | ModelContainerType::Unversioned => {
                 let file_offset = reader.stream_position()?;
                 drop(reader);
                 load_weights_ggmf_or_unversioned(
@@ -867,7 +871,7 @@ impl Model {
                     &model,
                 )?
             }
-            ModelVersion::GGJT => {
+            ModelContainerType::GGJT => {
                 let mmap = unsafe { Mmap::map(&file)? };
                 let ptr = mmap.as_ptr();
                 model.mmap = Some(mmap);
@@ -955,7 +959,7 @@ impl Model {
             n_head,
             n_layer,
             n_rot,
-            f16_: _,
+            element_type: _,
         } = self.hparams;
 
         // For the first run, we need to guess a maximum buffer size so we can measure

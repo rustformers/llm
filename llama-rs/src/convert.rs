@@ -16,7 +16,7 @@ use std::{
     vec,
 };
 
-use crate::{util, Hyperparameters, Vocabulary};
+use crate::{util, Hyperparameters, Vocabulary, loader2::encode_element_type};
 
 /// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
@@ -82,13 +82,7 @@ fn load_hyperparameters(
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
     let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
-        f16_: match element_type {
-            ggml::Type::F32 => 0,
-            ggml::Type::F16 => 1,
-            ggml::Type::Q4_0 => 2,
-            ggml::Type::Q4_1 => 3,
-            _ => panic!("unsupported element type"),
-        },
+        element_type,
         n_ctx: 0,
         n_embd: json.dim,
         n_head: json.n_heads,
@@ -112,7 +106,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
         i32::try_from(hparams.n_head).unwrap(),
         i32::try_from(hparams.n_layer).unwrap(),
         i32::try_from(hparams.n_embd / hparams.n_head).unwrap(),
-        i32::try_from(hparams.f16_).unwrap(),
+        encode_element_type(hparams.element_type).unwrap(),
     ];
     let mut packed_values: Vec<u8> = vec![];
 

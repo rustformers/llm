@@ -24,10 +24,11 @@ pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
 pub enum Type {
     /// Quantized 4-bit (type 0).
+    #[default]
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
     Q4_1,

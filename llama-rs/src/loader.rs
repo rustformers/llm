@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{loader2::decode_element_type, *};
 
 pub(crate) fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
     let mut bytes = [0u8; N];
@@ -37,7 +37,7 @@ pub(crate) fn read_string(reader: &mut impl BufRead, len: usize) -> Result<Strin
 }
 
 // NOTE: Implementation from #![feature(buf_read_has_data_left)]
-fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
+pub(crate) fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
     reader.fill_buf().map(|b| !b.is_empty())
 }
 
@@ -173,7 +173,7 @@ pub(crate) fn load_weights_ggmf_or_unversioned(
             byte_size: total_size,
             tensor_count: n_tensors.try_into()?,
         });
-    };
+    }
     Ok(())
 }
 
@@ -264,20 +264,14 @@ fn load_tensor_header_ggmf<'a>(
 }
 
 fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
-    
+    let ftype = decode_element_type(ftype)?;
     match ftype {
-        0 => Some(ggml::type_size(ggml::Type::F32)),
-        1 => Some(ggml::type_size(ggml::Type::F16)),
-        2 => {
+        ElementType::Q4_0 | ElementType::Q4_1 => {
             assert_eq!(ne[0] % 64, 0);
-            Some(ggml::type_size(ggml::Type::Q4_0))
         }
-        3 => {
-            assert_eq!(ne[0] % 64, 0);
-            Some(ggml::type_size(ggml::Type::Q4_1))
-        }
-        _ => None,
+        _ => {}
     }
+    Some(ggml::type_size(ftype))
 }
 
 pub(crate) fn load_weights_ggjt(
