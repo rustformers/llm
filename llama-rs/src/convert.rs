@@ -16,7 +16,8 @@ use std::{
     vec,
 };
 
-use crate::{util, Hyperparameters, Vocabulary, loader2::encode_element_type};
+use crate::{util, Hyperparameters, Vocabulary};
+use llama_loader::encode_element_type;
 
 /// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {

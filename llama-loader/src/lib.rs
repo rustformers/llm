@@ -1,15 +1,31 @@
-#![allow(missing_docs)]
+//! standalone model loader
+//!
+//! Only the hyperparameter is llama-specific. Everything else can be reused for other LLM.
+#![allow(clippy::nonminimal_bool)]
 
-//! standalone model loader 
+pub mod util;
 
 use std::{
     io::{BufRead, Seek, SeekFrom},
     ops::ControlFlow,
 };
+use util::*;
 
-use crate::{loader::has_data_left, ElementType, ModelContainerType};
+pub type ElementType = ggml::Type;
 
-pub(crate) fn decode_element_type(ftype: i32) -> Option<ElementType> {
+/// file type containing the model
+#[derive(Debug, PartialEq, Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum ContainerType {
+    /// legacy format, oldest ggml tensor file format
+    GGML,
+    /// also legacy format, newer than GGML, older than GGJT
+    GGMF,
+    /// mmap-able format
+    GGJT,
+}
+
+pub fn decode_element_type(ftype: i32) -> Option<ElementType> {
     match ftype {
         0 => Some(ggml::Type::F32),
         1 => Some(ggml::Type::F16),
@@ -19,7 +35,7 @@ pub(crate) fn decode_element_type(ftype: i32) -> Option<ElementType> {
     }
 }
 
-pub(crate) fn encode_element_type(element_type: ElementType) -> Option<i32> {
+pub fn encode_element_type(element_type: ElementType) -> Option<i32> {
     match element_type {
         ggml::Type::F32 => Some(0),
         ggml::Type::F16 => Some(1),
@@ -29,38 +45,9 @@ pub(crate) fn encode_element_type(element_type: ElementType) -> Option<i32> {
     }
 }
 
-pub(crate) fn read_bytes<const N: usize>(
-    reader: &mut impl BufRead,
-) -> Result<[u8; N], std::io::Error> {
-    let mut bytes = [0u8; N];
-    reader.read_exact(&mut bytes)?;
-    Ok(bytes)
-}
-
-pub(crate) fn read_i32(reader: &mut impl BufRead) -> Result<i32, std::io::Error> {
-    Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
-}
-
-pub(crate) fn read_u32(reader: &mut impl BufRead) -> Result<u32, std::io::Error> {
-    Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
-}
-
-pub(crate) fn read_f32(reader: &mut impl BufRead) -> Result<f32, std::io::Error> {
-    Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
-}
-
-pub(crate) fn read_bytes_with_len(
-    reader: &mut impl BufRead,
-    len: usize,
-) -> Result<Vec<u8>, std::io::Error> {
-    let mut bytes = vec![0u8; len];
-    reader.read_exact(&mut bytes)?;
-    Ok(bytes)
-}
-
 /// The hyperparameters of the model.
 #[derive(Debug, Clone)]
-pub struct FixedHyperparameters {
+pub struct LlamaHyperparameters {
     pub n_vocab: usize,
     pub n_embd: usize,
     pub n_mult: usize,
@@ -90,7 +77,7 @@ pub enum LoadError<T> {
 
     #[error("unsupported tensor dtype/f16_: {0}")]
     UnsupportedElementtype(i32),
-    
+
     /// sanity check failed
     #[error("invariant broken: {0}")]
     InvariantBroken(String),
@@ -107,11 +94,11 @@ pub struct TensorInfo {
 
 #[allow(unused_variables)]
 pub trait LoadHandler<T> {
-    fn cb_container_type(&mut self, model_type: ModelContainerType) -> ControlFlow<T> {
+    fn cb_container_type(&mut self, model_type: ContainerType) -> ControlFlow<T> {
         ControlFlow::Continue(())
     }
 
-    fn cb_hyper_parameters(&mut self, hparams: FixedHyperparameters) -> ControlFlow<T> {
+    fn cb_hyper_parameters(&mut self, hparams: LlamaHyperparameters) -> ControlFlow<T> {
         ControlFlow::Continue(())
     }
 
@@ -134,30 +121,30 @@ pub fn load_model_from_reader<T>(
     handler: &mut impl LoadHandler<T>,
 ) -> Result<(), LoadError<T>> {
     // Verify magic
-    let container_type: ModelContainerType = match read_u32(&mut reader)? {
-        ggml::FILE_MAGIC_GGMF => ModelContainerType::GGMF,
-        ggml::FILE_MAGIC_GGJT => ModelContainerType::GGJT,
-        ggml::FILE_MAGIC_UNVERSIONED => ModelContainerType::Unversioned,
+    let container_type: ContainerType = match read_u32(&mut reader)? {
+        ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
+        ggml::FILE_MAGIC_GGJT => ContainerType::GGJT,
+        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
     retchk(handler.cb_container_type(container_type))?;
 
     // Load format version
     match container_type {
-        ModelContainerType::GGMF | ModelContainerType::GGJT => {
+        ContainerType::GGMF | ContainerType::GGJT => {
             let _version: u32 = match read_u32(&mut reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(version)),
             };
         }
-        ModelContainerType::Unversioned => {}
+        ContainerType::GGML => {}
     }
 
     // Load hyper params
     //
     // NOTE: Field order matters! Data is laid out in the file exactly
     // in this order.
-    let hparams = FixedHyperparameters {
+    let hparams = LlamaHyperparameters {
         n_vocab: read_i32(&mut reader)?.try_into()?,
         n_embd: read_i32(&mut reader)?.try_into()?,
         n_mult: read_i32(&mut reader)?.try_into()?,
@@ -174,8 +161,8 @@ pub fn load_model_from_reader<T>(
         let len = read_u32(&mut reader)?.try_into()?;
         let token = read_bytes_with_len(&mut reader, len)?;
         let token_score = match container_type {
-            ModelContainerType::GGMF | ModelContainerType::GGJT => read_f32(&mut reader)?,
-            ModelContainerType::Unversioned => {
+            ContainerType::GGMF | ContainerType::GGJT => read_f32(&mut reader)?,
+            ContainerType::GGML => {
                 // Legacy model, set empty score
                 0.
             }
@@ -185,12 +172,12 @@ pub fn load_model_from_reader<T>(
 
     // Load tensor data
     match container_type {
-        ModelContainerType::GGMF | ModelContainerType::Unversioned => {
+        ContainerType::GGMF | ContainerType::GGML => {
             let _file_offset = reader.stream_position()?;
             drop(reader);
             todo!()
         }
-        ModelContainerType::GGJT => load_weights_ggjt(&mut reader, handler),
+        ContainerType::GGJT => load_weights_ggjt(&mut reader, handler),
     }
 }
 
@@ -238,23 +225,28 @@ fn load_weights_ggjt<T>(
         }
 
         let tensor_info = TensorInfo {
-            name, dims, n_dims, n_elements, ftype,
+            name,
+            dims,
+            n_dims,
+            n_elements,
+            ftype,
         };
 
         // load tensor weights
         let offset_curr = reader.stream_position()?;
         let offset_aligned: u64 = (offset_curr + 31) & !31;
         reader.seek(SeekFrom::Start(offset_aligned))?;
-    
+
         let type_size = ggml::type_size(ftype);
         let buf = retchk(handler.tensor_buffer(tensor_info))?;
         let buf_len = buf.len();
         if !(buf_len == type_size * n_elements) {
-            return Err(LoadError::InvariantBroken(format!("{buf_len} == {type_size} * {n_elements}")));
+            return Err(LoadError::InvariantBroken(format!(
+                "{buf_len} == {type_size} * {n_elements}"
+            )));
         }
         reader.read_exact(buf)?;
     }
 
     Ok(())
 }
-

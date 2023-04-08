@@ -534,12 +534,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "llama-loader"
+version = "0.1.0"
+dependencies = [
+ "ggml",
+ "thiserror",
+]
+
+[[package]]
 name = "llama-rs"
 version = "0.1.0"
 dependencies = [
  "bincode",
  "bytemuck",
  "ggml",
+ "llama-loader",
  "memmap2",
  "partial_sort",
  "protobuf",

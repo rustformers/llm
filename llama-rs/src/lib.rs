@@ -4,14 +4,13 @@
 #[cfg(feature = "convert")]
 pub mod convert;
 mod loader;
-pub mod loader2;
 mod util;
 
 use core::slice;
 use std::{
     collections::HashMap,
     fmt::Display,
-    io::{BufRead, Read, Seek, SeekFrom},
+    io::Seek,
     path::{Path, PathBuf},
     str::FromStr,
     time,
@@ -25,7 +24,7 @@ use thiserror::Error;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
-use crate::loader2::decode_element_type;
+use llama_loader::{decode_element_type, ContainerType};
 
 /// dummy struct
 #[cfg(not(feature = "mmap"))]
@@ -76,18 +75,6 @@ struct Layer {
     w3: ggml::Tensor,
 }
 
-/// file type containing the model
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[allow(clippy::upper_case_acronyms)]
-pub enum ModelContainerType {
-    /// older than `GGJT`
-    GGMF,
-    /// mmap-able format
-    GGJT,
-    /// oldest ggml tensor file format
-    Unversioned,
-}
-
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
 pub struct Model {
@@ -104,7 +91,7 @@ pub struct Model {
 
     mmap: Option<Mmap>,
 
-    _version: ModelContainerType,
+    _version: ContainerType,
 
     // Must be kept alive for the model
     _context: ggml::Context,
@@ -665,10 +652,10 @@ impl Model {
         }
 
         // Verify magic
-        let model_type: ModelContainerType = match read_u32(&mut reader)? {
-            ggml::FILE_MAGIC_GGMF => ModelContainerType::GGMF,
-            ggml::FILE_MAGIC_GGJT => ModelContainerType::GGJT,
-            ggml::FILE_MAGIC_UNVERSIONED => ModelContainerType::Unversioned,
+        let model_type: ContainerType = match read_u32(&mut reader)? {
+            ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
+            ggml::FILE_MAGIC_GGJT => ContainerType::GGJT,
+            ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
             _ => {
                 return Err(LoadError::InvalidMagic {
                     path: main_path.to_owned(),
@@ -678,13 +665,13 @@ impl Model {
 
         // Load format version
         match model_type {
-            ModelContainerType::GGMF | ModelContainerType::GGJT => {
+            ContainerType::GGMF | ContainerType::GGJT => {
                 let _version: u32 = match read_u32(&mut reader)? {
                     ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                     version => return Err(LoadError::InvalidFormatVersion { value: version }),
                 };
             }
-            ModelContainerType::Unversioned => {}
+            ContainerType::GGML => {}
         }
 
         // =================
@@ -723,18 +710,18 @@ impl Model {
 
             for i in 0..hparams.n_vocab {
                 let len = read_i32(&mut reader)?;
-                let token = read_bytes_with_len(&mut reader, len as usize)?;
+                let token = read_bytes_with_len(&mut reader, len)?;
                 max_token_length = max_token_length.max(token.len());
                 id_to_token.push(token.clone());
                 token_to_id.insert(token, TokenId::try_from(i)?);
 
                 // Token score, currently unused
                 match model_type {
-                    ModelContainerType::GGMF | ModelContainerType::GGJT => {
+                    ContainerType::GGMF | ContainerType::GGJT => {
                         let score = read_f32(&mut reader)?;
                         id_to_token_score.push(score);
                     }
-                    ModelContainerType::Unversioned => {
+                    ContainerType::GGML => {
                         // Legacy model, set empty score
                         id_to_token_score.push(0.);
                     }
@@ -861,7 +848,7 @@ impl Model {
         };
 
         match model_type {
-            ModelContainerType::GGMF | ModelContainerType::Unversioned => {
+            ContainerType::GGMF | ContainerType::GGML => {
                 let file_offset = reader.stream_position()?;
                 drop(reader);
                 load_weights_ggmf_or_unversioned(
@@ -871,7 +858,7 @@ impl Model {
                     &model,
                 )?
             }
-            ModelContainerType::GGJT => {
+            ContainerType::GGJT => {
                 let mmap = unsafe { Mmap::map(&file)? };
                 let ptr = mmap.as_ptr();
                 model.mmap = Some(mmap);

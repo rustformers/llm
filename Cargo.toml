@@ -2,6 +2,7 @@
 members = [
     "ggml-sys",
     "ggml",
+    "llama-loader",
     "llama-rs",
     "llama-cli",
     "generate-ggml-bindings"
