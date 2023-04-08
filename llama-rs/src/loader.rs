@@ -6,29 +6,7 @@ use std::{
 use crate::ElementType;
 use crate::{util, LoadError, LoadProgress, Model};
 use llama_loader::decode_element_type;
-
-pub(crate) fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
-    let mut bytes = [0u8; N];
-    reader
-        .read_exact(&mut bytes)
-        .map_err(|e| LoadError::ReadExactFailed {
-            source: e,
-            bytes: N,
-        })?;
-    Ok(bytes)
-}
-
-pub(crate) fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-    Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
-}
-
-pub(crate) fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
-    Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
-}
-
-pub(crate) fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
-    Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
-}
+use llama_loader::util::*;
 
 /// Helper function. Reads a string from the buffer and returns it.
 pub(crate) fn read_string(reader: &mut impl BufRead, len: usize) -> Result<String, LoadError> {
@@ -41,11 +19,6 @@ pub(crate) fn read_string(reader: &mut impl BufRead, len: usize) -> Result<Strin
         })?;
     let s = String::from_utf8(buf)?;
     Ok(s)
-}
-
-// NOTE: Implementation from #![feature(buf_read_has_data_left)]
-pub(crate) fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
-    reader.fill_buf().map(|b| !b.is_empty())
 }
 
 pub(crate) fn load_weights_ggmf_or_unversioned(

@@ -109,7 +109,7 @@ pub trait LoadHandler<T> {
     }
 
     /// # Returns
-    /// 
+    ///
     /// `None` to skip copying
     /// `Some(buf)` to provide a buffer for copying weights into
     fn get_tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, Option<&mut [u8]>> {
@@ -242,10 +242,9 @@ fn load_weights_ggjt<T>(
             n_dims,
             n_elements,
             ftype,
-            start_offset: offset_aligned
+            start_offset: offset_aligned,
         };
 
-        
         let type_size = ggml::type_size(ftype);
         if let Some(buf) = retchk(handler.get_tensor_buffer(tensor_info))? {
             reader.seek(SeekFrom::Start(offset_aligned))?;
@@ -258,7 +257,9 @@ fn load_weights_ggjt<T>(
             reader.read_exact(buf)?;
         } else {
             // skip if no buffer is given
-            reader.seek(SeekFrom::Start(offset_aligned + (type_size * n_elements) as u64))?;
+            reader.seek(SeekFrom::Start(
+                offset_aligned + (type_size * n_elements) as u64,
+            ))?;
         }
     }
 

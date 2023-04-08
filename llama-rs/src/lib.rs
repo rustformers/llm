@@ -24,6 +24,7 @@ use thiserror::Error;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
+use llama_loader::util::*;
 use llama_loader::{decode_element_type, ContainerType};
 
 /// dummy struct
@@ -609,48 +610,6 @@ impl Model {
         })?;
         let mut reader = BufReader::new(&file);
 
-        fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
-            let mut bytes = [0u8; N];
-            reader
-                .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: N,
-                })?;
-            Ok(bytes)
-        }
-
-        fn read_bytes_with_len(
-            reader: &mut impl BufRead,
-            len: usize,
-        ) -> Result<Vec<u8>, LoadError> {
-            let mut bytes = vec![0u8; len];
-            reader
-                .read_exact(&mut bytes)
-                .map_err(|e| LoadError::ReadExactFailed {
-                    source: e,
-                    bytes: len,
-                })?;
-            Ok(bytes)
-        }
-
-        fn read_i32(reader: &mut impl BufRead) -> Result<i32, LoadError> {
-            Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_u32(reader: &mut impl BufRead) -> Result<u32, LoadError> {
-            Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        fn read_f32(reader: &mut impl BufRead) -> Result<f32, LoadError> {
-            Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
-        }
-
-        /// Helper function. Reads a string from the buffer and returns it.
-        fn read_string(reader: &mut BufReader<File>, len: usize) -> Result<String, LoadError> {
-            Ok(String::from_utf8(read_bytes_with_len(reader, len)?)?)
-        }
-
         // Verify magic
         let model_type: ContainerType = match read_u32(&mut reader)? {
             ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
@@ -710,7 +669,7 @@ impl Model {
 
             for i in 0..hparams.n_vocab {
                 let len = read_i32(&mut reader)?;
-                let token = read_bytes_with_len(&mut reader, len)?;
+                let token = read_bytes_with_len(&mut reader, len.try_into()?)?;
                 max_token_length = max_token_length.max(token.len());
                 id_to_token.push(token.clone());
                 token_to_id.insert(token, TokenId::try_from(i)?);
