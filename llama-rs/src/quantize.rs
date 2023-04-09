@@ -1,7 +1,9 @@
 //! Implements quantization of weights.
 
 use crate::{Hyperparameters, LoadError, Vocabulary};
-use ggml::{quantize_q4_0, quantize_q4_1, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION};
+use ggml::{
+    quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
+};
 use half::f16;
 use std::path::Path;
 
@@ -60,9 +62,11 @@ pub fn quantize(
 ) -> Result<(), LoadError> {
     use crate::file::*;
 
-    if !matches!(ty, crate::ElementType::Q4_0 | crate::ElementType::Q4_1) {
-        todo!("Unsupported quantization format. This should be an error.")
-    }
+    let itype: i32 = match ty {
+        Type::Q4_0 => 2,
+        Type::Q4_1 => 3,
+        _ => todo!("Unsupported quantization format. This should be an error."),
+    };
 
     let file_in = file_name_in.as_ref();
     let mut finp = BufReader::new(File::open(file_in).map_err(|e| LoadError::OpenFileFailed {
@@ -109,8 +113,10 @@ pub fn quantize(
         hparams.n_head = rw_i32(&mut finp, &mut fout)?.try_into()?;
         hparams.n_layer = rw_i32(&mut finp, &mut fout)?.try_into()?;
         hparams.n_rot = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.f16_ = rw_i32(&mut finp, &mut fout)?.try_into()?;
+        hparams.f16_ = read_i32(&mut finp)?.try_into()?;
+        fout.write_all(&itype.to_le_bytes())?;
     }
+
     progress_callback(QuantizeProgress::HyperparametersLoaded(&hparams));
 
     // load vocab
@@ -122,7 +128,7 @@ pub fn quantize(
     };
 
     for i in 0..hparams.n_vocab {
-        let len = rw_u32(&mut finp, &mut fout)? as usize;
+        let len = rw_u32(&mut finp, &mut fout)?.try_into()?;
         let word = rw_string(&mut finp, &mut fout, len)?;
         let score = rw_f32(&mut finp, &mut fout)?;
 
@@ -218,7 +224,7 @@ pub fn quantize(
                     }
                 }
 
-                ftype = ty.into();
+                ftype = itype.try_into()?;
             } else {
                 // Determines the total bytes were dealing with
                 let bpe = (nelements * if ftype == 0 { 4 } else { 2 }) as usize;
@@ -230,7 +236,7 @@ pub fn quantize(
             // Write data
             fout.write_all(&n_dims.to_le_bytes())?;
             fout.write_all(&(length as i32).to_le_bytes())?;
-            fout.write_all(&(ftype).to_le_bytes())?;
+            fout.write_all(&(ftype as i32).to_le_bytes())?;
 
             for i in 0..n_dims {
                 fout.write_all(&ne[i as usize].to_le_bytes())?;
@@ -249,7 +255,7 @@ pub fn quantize(
                     unsafe { quantize_q4_1(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }
                 };
 
-                // We divide curr size by 4
+                // We divide curr size by 4 since size refers to bytes
                 for i in work.iter().take(curr_size / 4) {
                     fout.write_all(&i.to_le_bytes())?;
                 }
