@@ -1130,9 +1130,6 @@ impl Model {
         let n_past = session.n_past;
         let n_threads = params.n_threads;
 
-        let memk_elsize = session.memory_k.element_size();
-        let memv_elsize = session.memory_v.element_size();
-
         let Hyperparameters {
             n_vocab,
             n_ctx,
@@ -1213,15 +1210,15 @@ impl Model {
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
                         n * n_embd,
-                        (memk_elsize * n_embd) * (il * n_ctx + n_past),
+                        n_embd * (il * n_ctx + n_past),
                     );
 
                     let v = ctx0.op_view_2d(
                         &session.memory_v,
                         n,
                         n_embd,
-                        n_ctx * memv_elsize,
-                        (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
+                        n_ctx,
+                        (il * n_ctx) * n_embd + n_past,
                     );
 
                     // important: storing RoPE-ed version of K in the KV cache!
@@ -1236,7 +1233,7 @@ impl Model {
                         &ctx0.op_view_1d(
                             &session.memory_k,
                             (n_past + n) * n_embd,
-                            il * n_ctx * memk_elsize * n_embd,
+                            il * n_ctx * n_embd,
                         ),
                         n_embd / n_head,
                         n_head,
@@ -1269,9 +1266,9 @@ impl Model {
                     n_past + n,
                     n_embd / n_head,
                     n_head,
-                    n_ctx * memv_elsize,
-                    n_ctx * memv_elsize * n_embd / n_head,
-                    il * n_ctx * memv_elsize * n_embd,
+                    n_ctx,
+                    n_ctx * n_embd / n_head,
+                    il * n_ctx * n_embd,
                 );
 
                 let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);

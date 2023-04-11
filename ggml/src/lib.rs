@@ -235,6 +235,7 @@ impl Context {
 
     /// Creates a 1D view over `a`.
     pub fn op_view_1d(&self, a: &Tensor, ne0: usize, offset: usize) -> Tensor {
+        let offset = offset * a.element_size();
         let tensor = unsafe {
             ggml_sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i64(ne0), offset)
         };
@@ -250,6 +251,10 @@ impl Context {
         nb1: usize,
         offset: usize,
     ) -> Tensor {
+        let elsize = a.element_size();
+        let offset = offset * elsize;
+        let nb1 = nb1 * elsize;
+
         let tensor = unsafe {
             ggml_sys::ggml_view_2d(
                 self.ptr.as_ptr(),
@@ -275,6 +280,11 @@ impl Context {
         nb2: usize,
         offset: usize,
     ) -> Tensor {
+        let elsize = a.element_size();
+        let offset = offset * elsize;
+        let nb1 = nb1 * elsize;
+        let nb2 = nb2 * elsize;
+
         let tensor = unsafe {
             ggml_sys::ggml_view_3d(
                 self.ptr.as_ptr(),
