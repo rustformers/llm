@@ -137,7 +137,7 @@ impl InferenceSession {
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let context = ggml::Context::init(self.memory_size);
+        let context = ggml::Context::init(self.memory_size, true);
         let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 
@@ -197,7 +197,7 @@ pub struct InferenceSnapshot {
 }
 
 /// Allowed types for the model memory K/V tensors.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ModelKVMemoryType {
     /// 16-bit float.
     Float16,
@@ -213,7 +213,7 @@ impl From<ModelKVMemoryType> for ggml::Type {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Parameters for an inference session.
 pub struct InferenceSessionParameters {
     /// The number of tokens to consider for the repetition penalty.
@@ -649,7 +649,7 @@ impl Model {
             n_rot: read_i32(&mut reader)?.try_into()?,
             element_type: {
                 let ftype = read_i32(&mut reader)?;
-                decode_element_type(ftype).ok_or_else(|| LoadError::UnsupportedElementtype(ftype))
+                decode_element_type(ftype).ok_or(LoadError::UnsupportedElementtype(ftype))
             }?,
         };
 
@@ -704,30 +704,34 @@ impl Model {
         let n_layer = hparams.n_layer;
         let n_vocab = hparams.n_vocab;
 
+        let alloc = !(cfg!(feature = "mmap") && model_type == ContainerType::GGJT);
+
         let ctx_size = {
             // Use 64-bit math to prevent overflow.
-            let mut ctx_size: usize = 0;
+            let mut ctx_size: usize = (5 + 10 * n_layer) * 256; // object overhead
 
-            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
+            if alloc {
+                let mut model_size: usize = 0;
 
-            ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
+                ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
+                ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
+                ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
 
-            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
+                model_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
 
-            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
+                model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
+                model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
+                model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
+                model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
 
-            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
-            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
-            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
-            ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
+                model_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
 
-            ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
+                model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
+                model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
+                model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
 
-            ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
-            ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
-            ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
-
-            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+                ctx_size += model_size;
+            }
 
             load_progress_callback(LoadProgress::ContextSize { bytes: ctx_size });
 
@@ -735,7 +739,7 @@ impl Model {
         };
 
         // Initialize the context
-        let context = ggml::Context::init(ctx_size);
+        let context = ggml::Context::init(ctx_size, alloc);
 
         let mut model = {
             let mut tensors = HashMap::new();
@@ -821,7 +825,13 @@ impl Model {
                 let mmap = unsafe { Mmap::map(&file)? };
                 let ptr = mmap.as_ptr();
                 model.mmap = Some(mmap);
-                load_weights_ggjt(&mut reader, ptr, main_path, load_progress_callback, &mut model)?;
+                load_weights_ggjt(
+                    &mut reader,
+                    ptr,
+                    main_path,
+                    load_progress_callback,
+                    &mut model,
+                )?;
             }
         }
 
@@ -856,7 +866,7 @@ impl Model {
             ctx_size
         };
 
-        let session_ctx = ggml::Context::init(ctx_size);
+        let session_ctx = ggml::Context::init(ctx_size, true);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -915,7 +925,7 @@ impl Model {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::Context::init(buf_size);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
@@ -1520,7 +1530,7 @@ impl Vocabulary {
 ///
 /// Tokens are *not* valid UTF-8 by themselves. However, the LLM will produce valid UTF-8
 /// from multiple tokens. This helps alleviate that issue.
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct TokenUtf8Buffer(Vec<u8>);
 impl TokenUtf8Buffer {
     /// Create a new buffer.

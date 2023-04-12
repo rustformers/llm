@@ -86,14 +86,14 @@ pub struct Context {
 }
 impl Context {
     /// Creates a new [Context] with the specified `mem_size` as a working area.
-    pub fn init(mem_size: usize) -> Self {
+    pub fn init(mem_size: usize, alloc: bool) -> Self {
         let raw = unsafe {
             ggml_sys::ggml_init(ggml_sys::ggml_init_params {
                 mem_size,
                 // Null here means we want ggml to own this memory. We don't
                 // support passing an owned buffer from the Rust side.
                 mem_buffer: std::ptr::null_mut(),
-                no_alloc: false,
+                no_alloc: !alloc,
             })
         };
         Self {
