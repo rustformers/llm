@@ -14,7 +14,7 @@ use util::*;
 pub type ElementType = ggml::Type;
 
 /// file type containing the model
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum ContainerType {
     /// legacy format, oldest ggml tensor file format

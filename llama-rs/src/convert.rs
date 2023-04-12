@@ -112,7 +112,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
     let mut packed_values: Vec<u8> = vec![];
 
     for value in values {
-        packed_values.extend(&value.to_le_bytes());
+        packed_values.extend(value.to_le_bytes());
     }
 
     fout.write_all(&packed_values)

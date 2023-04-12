@@ -313,7 +313,10 @@ impl ModelLoad {
             })
             .expect("Could not load model");
 
-        log::info!("Model fully loaded! Elapsed: {}ms", now.elapsed().as_millis());
+        log::info!(
+            "Model fully loaded! Elapsed: {}ms",
+            now.elapsed().as_millis()
+        );
 
         (model, vocabulary)
     }
