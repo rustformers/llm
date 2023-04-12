@@ -133,8 +133,13 @@ impl Clone for InferenceSession {
 }
 
 #[derive(serde::Serialize, Clone, PartialEq)]
-/// A serializable snapshot of the inference process. Can be saved to disk.
-// Keep in sync with [InferenceSession] and [InferenceSnapshot]
+/// A serializable snapshot of the inference process.
+/// Can be created by calling [InferenceSession::get_snapshot].
+///
+/// If serializing, ensure that your serializer is binary-efficient.
+/// This type contains a large array of bytes; traditional textual serializers
+/// are likely to serialize this as an array of numbers at extreme cost.
+// Keep in sync with [InferenceSession] and [InferenceSnapshot].
 pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
@@ -153,9 +158,9 @@ pub struct InferenceSnapshotRef<'a> {
 }
 
 /// A serializable snapshot of the inference process. Can be restored by calling
-/// `Model::restore_from_snapshot`.
+/// [Model::session_from_snapshot].
 #[derive(serde::Deserialize, Clone, PartialEq)]
-// Keep in sync with [InferenceSession] and [InferenceSnapshotRef]
+// Keep in sync with [InferenceSession] and [InferenceSnapshotRef].
 pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
@@ -548,10 +553,10 @@ pub enum InferenceError {
 #[derive(Default, Debug, Clone)]
 pub struct EvaluateOutputRequest {
     /// Returns all the logits for the provided batch of tokens.
-    /// Output shape is n_batch * n_vocab
+    /// Output shape is `n_batch * n_vocab`.
     pub all_logits: Option<Vec<f32>>,
     /// Returns the embeddings for the provided batch of tokens
-    /// Output shape is n_batch * n_embd
+    /// Output shape is `n_batch * n_embd`.
     pub embeddings: Option<Vec<f32>>,
 }
 
@@ -1384,7 +1389,7 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    /// Hydrates a previously obtained InferenceSnapshot for this model
+    /// Hydrates a previously obtained InferenceSnapshot for this model.
     pub fn session_from_snapshot(
         &self,
         snapshot: InferenceSnapshot,
