@@ -259,7 +259,7 @@ pub(crate) fn load_weights_ggjt(
     mmap_base: *const u8,
     path: &Path,
     load_progress_callback: impl Fn(LoadProgress),
-    model: &Model,
+    model: &mut Model,
 ) -> Result<(), LoadError>
 // where R: std::io::Read
 {
@@ -290,7 +290,7 @@ pub(crate) fn load_weights_ggjt(
             nelements *= dim;
         }
         let tensor_name = read_string(reader, length as usize)?;
-        let Some(tensor) = model.tensors.get(&tensor_name)
+        let Some(tensor) = model.tensors.get_mut(&tensor_name)
         else {
             return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
         };
@@ -346,7 +346,7 @@ pub(crate) fn load_weights_ggjt(
 fn load_tensor_ggjt(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
-    tensor: &ggml::Tensor,
+    tensor: &mut ggml::Tensor,
 ) -> Result<(), LoadError> {
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;
@@ -354,7 +354,7 @@ fn load_tensor_ggjt(
         let ptr = mmap_base.offset(offset_aligned as isize);
         tensor.set_data(ptr as *mut std::ffi::c_void);
     }
-    reader.seek(SeekFrom::Start(offset_aligned + tensor.nbytes() as u8))?;
+    reader.seek(SeekFrom::Start(offset_aligned + tensor.nbytes() as u64))?;
     Ok(())
 }
 

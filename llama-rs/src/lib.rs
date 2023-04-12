@@ -821,7 +821,7 @@ impl Model {
                 let mmap = unsafe { Mmap::map(&file)? };
                 let ptr = mmap.as_ptr();
                 model.mmap = Some(mmap);
-                load_weights_ggjt(&mut reader, ptr, main_path, load_progress_callback, &model)?;
+                load_weights_ggjt(&mut reader, ptr, main_path, load_progress_callback, &mut model)?;
             }
         }
 

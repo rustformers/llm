@@ -232,6 +232,7 @@ impl Generate {
                 }
             }),
             play_back_previous_tokens: session_loaded,
+            ..Default::default()
         }
     }
 }
@@ -261,6 +262,7 @@ pub struct ModelLoad {
 }
 impl ModelLoad {
     pub fn load(&self) -> (llama_rs::Model, llama_rs::Vocabulary) {
+        let now = std::time::Instant::now();
         let (model, vocabulary) =
             llama_rs::Model::load(&self.model_path, self.num_ctx_tokens, |progress| {
                 use llama_rs::LoadProgress;
@@ -311,7 +313,7 @@ impl ModelLoad {
             })
             .expect("Could not load model");
 
-        log::info!("Model fully loaded!");
+        log::info!("Model fully loaded! Elapsed: {}ms", now.elapsed().as_millis());
 
         (model, vocabulary)
     }

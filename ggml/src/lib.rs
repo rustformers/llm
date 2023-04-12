@@ -417,6 +417,14 @@ impl Tensor {
         }
     }
 
+    fn with_alive_ctx_mut<U>(&self, mut f: impl FnMut() -> U) -> U {
+        if let Some(_ctx) = self.ctx.upgrade() {
+            f()
+        } else {
+            panic!("Using a tensor after the context was dropped")
+        }
+    }
+
     /// Number of bytes used by this tensor.
     pub fn nbytes(&self) -> usize {
         self.with_alive_ctx(|| {
@@ -437,17 +445,18 @@ impl Tensor {
         })
     }
 
-    // /// Set the tensor's data pointer (useful for mmap-ed data)
-    // ///
-    // /// # Safety
-    // ///
-    // /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
-    // pub unsafe fn set_data(&self, data_ptr: *mut c_void) {
-    //     self.with_alive_ctx(|| {
-    //         // SAFETY: The with_alive_call guarantees the context is alive
-    //         unsafe { *self.ptr.as_ptr() }.data = data_ptr;
-    //     })
-    // }
+    /// Set the tensor's data pointer (useful for mmap-ed data)
+    ///
+    /// # Safety
+    ///
+    /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
+    pub unsafe fn set_data(&mut self, data_ptr: *mut c_void) {
+        let tensor = self.ptr.as_mut();
+        self.with_alive_ctx_mut(|| {
+            // SAFETY: The with_alive_call guarantees the context is alive
+            tensor.data = data_ptr;
+        })
+    }
 
     /// Number of elements in this tensor.
     pub fn nelements(&self) -> usize {
