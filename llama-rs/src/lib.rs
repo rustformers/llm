@@ -156,6 +156,21 @@ pub struct InferenceSnapshotRef<'a> {
     #[serde(with = "serde_bytes")]
     pub memory_v: &'a [u8],
 }
+impl InferenceSnapshotRef<'_> {
+    /// Creates an owned [InferenceSnapshot] from this [InferenceSnapshotRef].
+    ///
+    /// The [ToOwned] trait is not used due to its blanket implementation for all [Clone] types.
+    pub fn to_owned(&self) -> InferenceSnapshot {
+        InferenceSnapshot {
+            npast: self.npast,
+            session_params: self.session_params,
+            tokens: self.tokens.clone(),
+            last_logits: self.logits.clone(),
+            memory_k: self.memory_k.to_vec(),
+            memory_v: self.memory_v.to_vec(),
+        }
+    }
+}
 
 /// A serializable snapshot of the inference process. Can be restored by calling
 /// [Model::session_from_snapshot].
