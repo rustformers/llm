@@ -133,8 +133,13 @@ impl Clone for InferenceSession {
 }
 
 #[derive(serde::Serialize, Clone, PartialEq)]
-/// A serializable snapshot of the inference process. Can be saved to disk.
-// Keep in sync with [InferenceSession] and [InferenceSnapshot]
+/// A serializable snapshot of the inference process.
+/// Can be created by calling [InferenceSession::get_snapshot].
+///
+/// If serializing, ensure that your serializer is binary-efficient.
+/// This type contains a large array of bytes; traditional textual serializers
+/// are likely to serialize this as an array of numbers at extreme cost.
+// Keep in sync with [InferenceSession] and [InferenceSnapshot].
 pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
@@ -151,11 +156,26 @@ pub struct InferenceSnapshotRef<'a> {
     #[serde(with = "serde_bytes")]
     pub memory_v: &'a [u8],
 }
+impl InferenceSnapshotRef<'_> {
+    /// Creates an owned [InferenceSnapshot] from this [InferenceSnapshotRef].
+    ///
+    /// The [ToOwned] trait is not used due to its blanket implementation for all [Clone] types.
+    pub fn to_owned(&self) -> InferenceSnapshot {
+        InferenceSnapshot {
+            npast: self.npast,
+            session_params: self.session_params,
+            tokens: self.tokens.clone(),
+            last_logits: self.logits.clone(),
+            memory_k: self.memory_k.to_vec(),
+            memory_v: self.memory_v.to_vec(),
+        }
+    }
+}
 
 /// A serializable snapshot of the inference process. Can be restored by calling
-/// `Model::restore_from_snapshot`.
+/// [Model::session_from_snapshot].
 #[derive(serde::Deserialize, Clone, PartialEq)]
-// Keep in sync with [InferenceSession] and [InferenceSnapshotRef]
+// Keep in sync with [InferenceSession] and [InferenceSnapshotRef].
 pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
@@ -515,9 +535,6 @@ pub enum SnapshotError {
     /// Arbitrary I/O error.
     #[error("I/O error while reading or writing snapshot")]
     IO(#[from] std::io::Error),
-    /// Error during the serialization process.
-    #[error("error during snapshot serialization")]
-    Serialization(#[from] bincode::Error),
     /// Mismatch between the snapshotted memory and the in-memory memory.
     #[error("could not read snapshot due to size mismatch (self={self_size}, input={input_size})")]
     MemorySizeMismatch {
@@ -551,10 +568,10 @@ pub enum InferenceError {
 #[derive(Default, Debug, Clone)]
 pub struct EvaluateOutputRequest {
     /// Returns all the logits for the provided batch of tokens.
-    /// Output shape is n_batch * n_vocab
+    /// Output shape is `n_batch * n_vocab`.
     pub all_logits: Option<Vec<f32>>,
     /// Returns the embeddings for the provided batch of tokens
-    /// Output shape is n_batch * n_embd
+    /// Output shape is `n_batch * n_embd`.
     pub embeddings: Option<Vec<f32>>,
 }
 
@@ -1387,7 +1404,7 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    /// Hydrates a previously obtained InferenceSnapshot for this model
+    /// Hydrates a previously obtained InferenceSnapshot for this model.
     pub fn session_from_snapshot(
         &self,
         snapshot: InferenceSnapshot,
@@ -1662,20 +1679,6 @@ impl InferenceSession {
             memory_k,
             memory_v,
         }
-    }
-}
-
-impl<'a> InferenceSnapshotRef<'a> {
-    /// Write this snapshot to the given writer.
-    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), SnapshotError> {
-        Ok(bincode::serialize_into(writer, &self)?)
-    }
-}
-
-impl InferenceSnapshot {
-    /// Read a snapshot from the given reader.
-    pub fn read(reader: &mut impl std::io::Read) -> Result<Self, SnapshotError> {
-        Ok(bincode::deserialize_from(reader)?)
     }
 }
 

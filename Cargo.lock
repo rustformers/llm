@@ -460,6 +460,7 @@ checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 name = "llama-cli"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "clap",
  "env_logger",
  "llama-rs",
@@ -476,7 +477,6 @@ dependencies = [
 name = "llama-rs"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "bytemuck",
  "ggml",
  "partial_sort",
