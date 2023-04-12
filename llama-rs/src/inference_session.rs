@@ -365,7 +365,7 @@ impl InferenceSession {
             ctx_size
         };
 
-        let session_ctx = ggml::Context::init(ctx_size);
+        let session_ctx = ggml::Context::init(ctx_size, true);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -397,7 +397,7 @@ impl InferenceSession {
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let context = ggml::Context::init(self.memory_size);
+        let context = ggml::Context::init(self.memory_size, true);
         let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 
@@ -493,7 +493,7 @@ pub struct InferenceSnapshot {
     pub memory_v: Vec<u8>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Parameters for an inference session.
 pub struct InferenceSessionParameters {
     /// The number of tokens to consider for the repetition penalty.
@@ -550,7 +550,7 @@ impl Display for InferenceStats {
 }
 
 /// Allowed types for the model memory K/V tensors.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ModelKVMemoryType {
     /// 16-bit float.
     Float16,

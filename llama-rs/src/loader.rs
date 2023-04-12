@@ -247,30 +247,34 @@ pub(crate) fn load(
     let n_layer = hparams.n_layer;
     let n_vocab = hparams.n_vocab;
 
+    let alloc = !(cfg!(feature = "mmap") && model_type == ContainerType::GGJT);
+
     let ctx_size = {
         // Use 64-bit math to prevent overflow.
-        let mut ctx_size: usize = 0;
+        let mut ctx_size: usize = (5 + 10 * n_layer) * 256; // object overhead
 
-        ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
+        if alloc {
+            let mut model_size: usize = 0;
 
-        ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
+            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
+            ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
+            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
 
-        ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
+            model_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
 
-        ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
 
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
+            model_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
 
-        ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
+            model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
+            model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
+            model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
 
-        ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
-        ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
-        ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
-
-        ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+            ctx_size += model_size;
+        }
 
         load_progress_callback(LoadProgress::ContextSize { bytes: ctx_size });
 
@@ -278,7 +282,7 @@ pub(crate) fn load(
     };
 
     // Initialize the context
-    let context = ggml::Context::init(ctx_size);
+    let context = ggml::Context::init(ctx_size, alloc);
 
     let mut model = Model::new(context, hparams, vocabulary, n_ff, wtype, model_type);
     match model_type {

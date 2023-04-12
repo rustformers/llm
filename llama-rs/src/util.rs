@@ -21,7 +21,7 @@ pub(crate) use mulf;
 ///
 /// Tokens are *not* valid UTF-8 by themselves. However, the LLM will produce valid UTF-8
 /// from multiple tokens. This helps alleviate that issue.
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct TokenUtf8Buffer(Vec<u8>);
 impl TokenUtf8Buffer {
     /// Create a new buffer.
