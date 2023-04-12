@@ -647,7 +647,7 @@ fn load_weights_ggjt(
 fn load_tensor_ggjt(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
-    tensor: &ggml::Tensor,
+    tensor: &mut ggml::Tensor,
 ) -> Result<(), LoadError> {
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;
@@ -655,7 +655,7 @@ fn load_tensor_ggjt(
         let ptr = mmap_base.offset(offset_aligned as isize);
         tensor.set_data(ptr as *mut std::ffi::c_void);
     }
-    reader.seek(SeekFrom::Start(offset_aligned + tensor.nbytes() as u8))?;
+    reader.seek(SeekFrom::Start(offset_aligned + tensor.nbytes() as u64))?;
     Ok(())
 }
 
