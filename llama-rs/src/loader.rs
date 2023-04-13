@@ -7,9 +7,10 @@ use std::{
 use thiserror::Error;
 
 use crate::{
+    model::Layer,
     util::{self, mulf},
     vocabulary::TokenId,
-    Hyperparameters, Layer, Model, Vocabulary,
+    Hyperparameters, Model, Vocabulary,
 };
 
 /// Each variant represents a step within the process of loading the model.
@@ -332,15 +333,15 @@ pub fn load(
             layers.push(layer);
         }
 
-        Model {
+        Model::new(
             hparams,
             tok_embeddings,
             norm,
             output,
             layers,
             tensors,
-            _context: context,
-        }
+            context,
+        )
     };
 
     // Close the file, but keep its offset. That way we know how to skip the
