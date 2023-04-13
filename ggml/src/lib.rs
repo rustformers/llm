@@ -379,8 +379,10 @@ impl Context {
         unsafe { ggml_sys::ggml_used_mem(self.ptr.as_ptr()) }
     }
 
-    /// Set scratch buffer
-    pub fn use_scratch(&self, scratch_buffer: Option<&mut Buffer>) {
+    /// Sets the scratch buffer to be used by this [Context].
+    ///
+    /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
+    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a mut Buffer>) {
         let (size, data) = if let Some(buffer) = scratch_buffer {
             (buffer.data.len(), buffer.data.as_ptr() as *mut c_void)
         } else {
@@ -410,22 +412,28 @@ impl Drop for Context {
     }
 }
 
-/// Pre-allocated buffer
+/// A buffer of memory that can be used as a scratch buffer for a [Context].
+///
+/// See [Context::use_scratch].
 pub struct Buffer {
-    data: Vec<u8>,
+    data: Box<[u8]>,
 }
 
 impl Buffer {
-    /// Creates new buffer
+    /// Creates a new buffer of the specified size.
     pub fn new(size: usize) -> Self {
         let mut data: Vec<u8> = Vec::with_capacity(size);
-        // SAFETY: contents are left uninitialized. Don't use them.
+
+        // SAFETY: The contents are intentionally uninitialized, as they will be passed to
+        // the ggml C API which will fill them with data.
         #[allow(clippy::uninit_vec)]
         unsafe {
-            data.set_len(size)
-        };
+            data.set_len(size);
+        }
 
-        Buffer { data }
+        Buffer {
+            data: data.into_boxed_slice(),
+        }
     }
 }
 

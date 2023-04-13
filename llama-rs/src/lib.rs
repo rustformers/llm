@@ -27,7 +27,11 @@ mod util;
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
-const SCRATCH_SIZE: usize = 512 * 1024 * 1024; // 512MB
+// The size of a scratch buffer used for inference. This is used for temporary
+// storage of intermediate results during inference.
+//
+// The specific value was copied from `llama.cpp`.
+const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 
 /// The hyperparameters of the model.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -106,7 +110,10 @@ pub struct InferenceSession {
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     last_logits: Vec<f32>,
 
-    /// Scratch buffers
+    /// Scratch buffers used during inference.
+    ///
+    /// The number of scratch buffers was copied from `llama.cpp`.
+    /// There is no specific reason for this number, but one is insufficient.
     scratch: [ggml::Buffer; 2],
 }
 impl InferenceSession {
@@ -1171,15 +1178,18 @@ impl Model {
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
-        let mut buf_size = 1024
-            * 1024
-            * if n_layer >= 80 {
+        //
+        // These numbers are from `llama.cpp`, and could potentially be more efficient.
+        let mut buf_size = {
+            let buf_size_mb = if n_layer >= 80 {
                 1536
             } else if n_layer >= 60 {
                 1280
             } else {
                 1024
             };
+            buf_size_mb * 1024 * 1024
+        };
         if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
