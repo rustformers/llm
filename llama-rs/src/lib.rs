@@ -17,6 +17,7 @@ mod vocabulary;
 pub use ggml::Type as ElementType;
 pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
+    SnapshotError,
 };
 pub use loader::{LoadError, LoadProgress};
 pub use util::TokenUtf8Buffer;
@@ -151,22 +152,6 @@ impl Display for InferenceStats {
             (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64),
         )
     }
-}
-
-#[derive(Error, Debug)]
-/// Errors encountered during the snapshot process.
-pub enum SnapshotError {
-    /// Arbitrary I/O error.
-    #[error("I/O error while reading or writing snapshot")]
-    IO(#[from] std::io::Error),
-    /// Mismatch between the snapshotted memory and the in-memory memory.
-    #[error("could not read snapshot due to size mismatch (self={self_size}, input={input_size})")]
-    MemorySizeMismatch {
-        /// The size of the session memory in memory.
-        self_size: usize,
-        /// The size of the session memory in snapshot.
-        input_size: usize,
-    },
 }
 
 #[derive(Error, Debug)]

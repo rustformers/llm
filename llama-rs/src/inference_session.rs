@@ -1,5 +1,6 @@
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
+use thiserror::Error;
 
 use crate::{
     EvaluateOutputRequest, InferenceError, InferenceParameters, InferenceStats, Model, TokenId,
@@ -332,6 +333,22 @@ impl Clone for InferenceSession {
             scratch: scratch_buffers(),
         }
     }
+}
+
+#[derive(Error, Debug)]
+/// Errors encountered during the snapshot process.
+pub enum SnapshotError {
+    /// Arbitrary I/O error.
+    #[error("I/O error while reading or writing snapshot")]
+    IO(#[from] std::io::Error),
+    /// Mismatch between the snapshotted memory and the in-memory memory.
+    #[error("could not read snapshot due to size mismatch (self={self_size}, input={input_size})")]
+    MemorySizeMismatch {
+        /// The size of the session memory in memory.
+        self_size: usize,
+        /// The size of the session memory in snapshot.
+        input_size: usize,
+    },
 }
 
 #[derive(serde::Serialize, Clone, PartialEq)]
