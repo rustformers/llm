@@ -381,6 +381,28 @@ impl Context {
     pub fn used_mem(&self) -> usize {
         unsafe { ggml_sys::ggml_used_mem(self.ptr.as_ptr()) }
     }
+
+    /// Sets the scratch buffer to be used by this [Context].
+    ///
+    /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
+    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a mut Buffer>) {
+        let (size, data) = if let Some(buffer) = scratch_buffer {
+            (buffer.data.len(), buffer.data.as_ptr() as *mut c_void)
+        } else {
+            (0, std::ptr::null_mut())
+        };
+        // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
+        unsafe {
+            ggml_sys::ggml_set_scratch(
+                self.ptr.as_ptr(),
+                ggml_sys::ggml_scratch {
+                    offs: 0,
+                    size,
+                    data,
+                },
+            );
+        }
+    }
 }
 
 impl Drop for Context {
@@ -389,6 +411,31 @@ impl Drop for Context {
         // this drop call.
         unsafe {
             ggml_sys::ggml_free(self.ptr.as_ptr());
+        }
+    }
+}
+
+/// A buffer of memory that can be used as a scratch buffer for a [Context].
+///
+/// See [Context::use_scratch].
+pub struct Buffer {
+    data: Box<[u8]>,
+}
+
+impl Buffer {
+    /// Creates a new buffer of the specified size.
+    pub fn new(size: usize) -> Self {
+        let mut data: Vec<u8> = Vec::with_capacity(size);
+
+        // SAFETY: The contents are intentionally uninitialized, as they will be passed to
+        // the ggml C API which will fill them with data.
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            data.set_len(size);
+        }
+
+        Buffer {
+            data: data.into_boxed_slice(),
         }
     }
 }
@@ -409,7 +456,7 @@ impl Tensor {
         }
     }
 
-    fn with_alive_ctx<U>(&self, f: impl Fn() -> U) -> U {
+    fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
         if let Some(_ctx) = self.ctx.upgrade() {
             f()
         } else {

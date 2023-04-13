@@ -24,7 +24,7 @@ pub(crate) fn read_string(reader: &mut impl BufRead, len: usize) -> Result<Strin
 pub(crate) fn load_weights_ggmf_or_unversioned(
     file_offset: u64,
     main_path: &Path,
-    load_progress_callback: impl Fn(LoadProgress),
+    mut load_progress_callback: impl FnMut(LoadProgress),
     model: &Model,
 ) -> Result<(), LoadError> {
     use std::{fs::File, io::BufReader};
@@ -258,7 +258,7 @@ pub(crate) fn load_weights_ggjt(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
     path: &Path,
-    load_progress_callback: impl Fn(LoadProgress),
+    mut load_progress_callback: impl FnMut(LoadProgress),
     model: &Model,
 ) -> Result<(), LoadError>
 // where R: std::io::Read

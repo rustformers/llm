@@ -10,6 +10,7 @@ llama-rs = { path = "../llama-rs", features = ["convert"] }
 
 rand = { workspace = true }
 
+bincode = "1.3.3"
 clap = { version = "4.1.8", features = ["derive"] }
 env_logger = "0.10.0"
 log = "0.4"
