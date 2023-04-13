@@ -1,8 +1,6 @@
 #![deny(missing_docs)]
 //! LLaMA-rs is a Rust port of the llama.cpp project. This allows running inference for Facebook's LLaMA model on a CPU with good performance using full precision, f16 or 4-bit quantized versions of the model.
 
-use std::fmt::Display;
-
 use thiserror::Error;
 
 #[cfg(feature = "convert")]
@@ -22,9 +20,7 @@ pub use inference_session::{
 pub use loader::{LoadError, LoadProgress};
 pub use model::{Hyperparameters, Model};
 pub use util::TokenUtf8Buffer;
-pub use vocabulary::{TokenBias, Vocabulary};
-
-use vocabulary::TokenId;
+pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
@@ -52,7 +48,6 @@ pub struct InferenceParameters {
     /// Whether or not previous tokens should be played back in [InferenceSession::inference_with_prompt].
     pub play_back_previous_tokens: bool,
 }
-
 impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
@@ -65,44 +60,6 @@ impl Default for InferenceParameters {
             bias_tokens: TokenBias::default(),
             play_back_previous_tokens: false,
         }
-    }
-}
-
-/// Statistics about the inference process.
-#[derive(Debug, Clone, Copy)]
-pub struct InferenceStats {
-    /// How long it took to feed the prompt.
-    pub feed_prompt_duration: std::time::Duration,
-    /// How many tokens the prompt was.
-    pub prompt_tokens: usize,
-    /// How long it took to predict new tokens.
-    pub predict_duration: std::time::Duration,
-    /// The number of predicted tokens.
-    pub predict_tokens: usize,
-}
-
-impl Default for InferenceStats {
-    fn default() -> Self {
-        Self {
-            feed_prompt_duration: std::time::Duration::from_secs(0),
-            prompt_tokens: 0,
-            predict_duration: std::time::Duration::from_secs(0),
-            predict_tokens: 0,
-        }
-    }
-}
-
-impl Display for InferenceStats {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "feed_prompt_duration: {}ms\nprompt_tokens: {}\npredict_duration: {}ms\npredict_tokens: {}\nper_token_duration: {:.3}ms",
-            self.feed_prompt_duration.as_millis(),
-            self.prompt_tokens,
-            self.predict_duration.as_millis(),
-            self.predict_tokens,
-            (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64),
-        )
     }
 }
 

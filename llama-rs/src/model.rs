@@ -400,7 +400,7 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    /// Hydrates a previously obtained InferenceSnapshot for this model.
+    /// Hydrates a previously obtained [InferenceSnapshot] for this model.
     pub fn session_from_snapshot(
         &self,
         snapshot: InferenceSnapshot,

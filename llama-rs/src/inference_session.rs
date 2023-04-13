@@ -1,10 +1,12 @@
+use std::fmt::Display;
+
 use partial_sort::PartialSort;
 use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    EvaluateOutputRequest, InferenceError, InferenceParameters, InferenceStats, Model, TokenId,
-    TokenUtf8Buffer, Vocabulary, EOT_TOKEN_ID,
+    EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId, TokenUtf8Buffer,
+    Vocabulary, EOT_TOKEN_ID,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -422,7 +424,6 @@ pub struct InferenceSessionParameters {
     /// The type of the memory V tensor.
     pub memory_v_type: ModelKVMemoryType,
 }
-
 impl Default for InferenceSessionParameters {
     fn default() -> Self {
         Self {
@@ -430,6 +431,42 @@ impl Default for InferenceSessionParameters {
             memory_k_type: ModelKVMemoryType::Float32,
             memory_v_type: ModelKVMemoryType::Float32,
         }
+    }
+}
+
+/// Statistics about the inference process.
+#[derive(Debug, Clone, Copy)]
+pub struct InferenceStats {
+    /// How long it took to feed the prompt.
+    pub feed_prompt_duration: std::time::Duration,
+    /// How many tokens the prompt was.
+    pub prompt_tokens: usize,
+    /// How long it took to predict new tokens.
+    pub predict_duration: std::time::Duration,
+    /// The number of predicted tokens.
+    pub predict_tokens: usize,
+}
+impl Default for InferenceStats {
+    fn default() -> Self {
+        Self {
+            feed_prompt_duration: std::time::Duration::from_secs(0),
+            prompt_tokens: 0,
+            predict_duration: std::time::Duration::from_secs(0),
+            predict_tokens: 0,
+        }
+    }
+}
+impl Display for InferenceStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "feed_prompt_duration: {}ms\nprompt_tokens: {}\npredict_duration: {}ms\npredict_tokens: {}\nper_token_duration: {:.3}ms",
+            self.feed_prompt_duration.as_millis(),
+            self.prompt_tokens,
+            self.predict_duration.as_millis(),
+            self.predict_tokens,
+            (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64),
+        )
     }
 }
 

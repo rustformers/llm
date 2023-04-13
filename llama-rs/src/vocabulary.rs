@@ -2,7 +2,8 @@ use std::{collections::HashMap, str::FromStr};
 
 use crate::InferenceError;
 
-pub(crate) type TokenId = i32;
+/// The identifier of a token in a vocabulary.
+pub type TokenId = i32;
 pub(crate) type Token = Vec<u8>;
 pub(crate) type TokenScore = f32;
 
