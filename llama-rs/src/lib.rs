@@ -570,7 +570,7 @@ impl Model {
     pub fn load(
         path: impl AsRef<Path>,
         n_context_tokens: usize,
-        load_progress_callback: impl Fn(LoadProgress),
+        mut load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<(Model, Vocabulary), LoadError> {
         use std::fs::File;
         use std::io::BufReader;
@@ -1768,7 +1768,21 @@ impl TokenUtf8Buffer {
                 self.0 = vec![];
                 Some(out)
             }
-            Err(..) => None,
+            Err(..) => {
+                for i in 1..self.0.len() {
+                    let slice = &self.0[i..];
+                    if slice.is_empty() {
+                        break;
+                    }
+
+                    if let Ok(s) = std::str::from_utf8(slice) {
+                        let out = s.to_owned();
+                        self.0 = vec![];
+                        return Some(out);
+                    }
+                }
+                None
+            }
         }
     }
 
@@ -1781,5 +1795,32 @@ impl TokenUtf8Buffer {
             Some(tokens) => callback(&tokens),
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(b"hello").as_deref(), Some("hello"));
+        assert_eq!(buffer.push(&[0xE2, 0x82, 0xAC]).as_deref(), Some("€"));
+    }
+
+    #[test]
+    fn test_partial_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
+    }
+
+    #[test]
+    fn test_invalid_prelude_for_valid_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(&[0xD8]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
     }
 }

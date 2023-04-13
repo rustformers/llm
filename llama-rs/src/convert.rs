@@ -129,9 +129,6 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
 fn write_tokens(file: &mut File, vocab: &Vocabulary) -> Result<(), String> {
     let mut values: Vec<u8> = vec![];
     for (i, token) in vocab.id_to_token.iter().enumerate() {
-        // TODO: Not sure what the behaviour should be if the token is not valid UTF-8.
-        //
-        // Switching to the HF tokenizer should fix this.
         let text = if let Ok(token) = std::str::from_utf8(token) {
             match token {
                 _ if token.contains("<unk>") => " \u{2047} ".as_bytes().to_vec(),
