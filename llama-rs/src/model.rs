@@ -22,24 +22,79 @@ pub struct Model {
 
     layers: Vec<Layer>,
 
-    pub(crate) tensors: HashMap<String, ggml::Tensor>,
+    tensors: HashMap<String, ggml::Tensor>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
 }
 impl Model {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
+        context: ggml::Context,
         hparams: Hyperparameters,
         vocabulary: Vocabulary,
-        tok_embeddings: ggml::Tensor,
-        norm: ggml::Tensor,
-        output: ggml::Tensor,
-        layers: Vec<Layer>,
-        tensors: HashMap<String, ggml::Tensor>,
-        context: ggml::Context,
-    ) -> Self {
-        Self {
+        n_ff: usize,
+        wtype: ggml::Type,
+    ) -> Model {
+        let n_embd = hparams.n_embd;
+        let n_layer = hparams.n_layer;
+        let n_vocab = hparams.n_vocab;
+
+        let mut tensors = HashMap::new();
+
+        let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
+        let norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
+        let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
+
+        tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
+        tensors.insert("norm.weight".to_owned(), norm.share());
+        tensors.insert("output.weight".to_owned(), output.share());
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                attention_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
+                wq: context.new_tensor_2d(wtype, n_embd, n_embd),
+                wk: context.new_tensor_2d(wtype, n_embd, n_embd),
+                wv: context.new_tensor_2d(wtype, n_embd, n_embd),
+                wo: context.new_tensor_2d(wtype, n_embd, n_embd),
+                ffn_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
+                w1: context.new_tensor_2d(wtype, n_embd, n_ff),
+                w2: context.new_tensor_2d(wtype, n_ff, n_embd),
+                w3: context.new_tensor_2d(wtype, n_embd, n_ff),
+            };
+
+            tensors.insert(
+                format!("layers.{i}.attention_norm.weight"),
+                layer.attention_norm.share(),
+            );
+
+            tensors.insert(format!("layers.{i}.attention.wq.weight"), layer.wq.share());
+            tensors.insert(format!("layers.{i}.attention.wk.weight"), layer.wk.share());
+            tensors.insert(format!("layers.{i}.attention.wv.weight"), layer.wv.share());
+            tensors.insert(format!("layers.{i}.attention.wo.weight"), layer.wo.share());
+
+            tensors.insert(
+                format!("layers.{i}.ffn_norm.weight"),
+                layer.ffn_norm.share(),
+            );
+
+            tensors.insert(
+                format!("layers.{i}.feed_forward.w1.weight"),
+                layer.w1.share(),
+            );
+            tensors.insert(
+                format!("layers.{i}.feed_forward.w2.weight"),
+                layer.w2.share(),
+            );
+            tensors.insert(
+                format!("layers.{i}.feed_forward.w3.weight"),
+                layer.w3.share(),
+            );
+
+            layers.push(layer);
+        }
+
+        Model {
             hparams,
             vocabulary,
             tok_embeddings,
@@ -440,6 +495,10 @@ impl Model {
     pub fn vocabulary(&self) -> &Vocabulary {
         &self.vocabulary
     }
+
+    pub(crate) fn tensors(&self) -> &HashMap<String, ggml::Tensor> {
+        &self.tensors
+    }
 }
 
 /// The hyperparameters of the model.
@@ -463,19 +522,19 @@ pub struct Hyperparameters {
     pub f16_: u32,
 }
 
-pub(crate) struct Layer {
-    pub attention_norm: ggml::Tensor,
+struct Layer {
+    attention_norm: ggml::Tensor,
 
-    pub wq: ggml::Tensor,
-    pub wk: ggml::Tensor,
-    pub wv: ggml::Tensor,
-    pub wo: ggml::Tensor,
+    wq: ggml::Tensor,
+    wk: ggml::Tensor,
+    wv: ggml::Tensor,
+    wo: ggml::Tensor,
 
     // normalization
-    pub ffn_norm: ggml::Tensor,
+    ffn_norm: ggml::Tensor,
 
     // ff
-    pub w1: ggml::Tensor,
-    pub w2: ggml::Tensor,
-    pub w3: ggml::Tensor,
+    w1: ggml::Tensor,
+    w2: ggml::Tensor,
+    w3: ggml::Tensor,
 }

@@ -7,7 +7,6 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    model::Layer,
     util::{self, mulf},
     vocabulary::TokenId,
     Hyperparameters, Model, Vocabulary,
@@ -277,73 +276,7 @@ pub fn load(
     // Initialize the context
     let context = ggml::Context::init(ctx_size);
 
-    let model = {
-        let mut tensors = HashMap::new();
-
-        let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
-        let norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
-        let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
-
-        tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
-        tensors.insert("norm.weight".to_owned(), norm.share());
-        tensors.insert("output.weight".to_owned(), output.share());
-
-        let mut layers = Vec::new();
-        for i in 0..n_layer {
-            let layer = Layer {
-                attention_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
-                wq: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wk: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wv: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                ffn_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
-                w1: context.new_tensor_2d(wtype, n_embd, n_ff),
-                w2: context.new_tensor_2d(wtype, n_ff, n_embd),
-                w3: context.new_tensor_2d(wtype, n_embd, n_ff),
-            };
-
-            tensors.insert(
-                format!("layers.{i}.attention_norm.weight"),
-                layer.attention_norm.share(),
-            );
-
-            tensors.insert(format!("layers.{i}.attention.wq.weight"), layer.wq.share());
-            tensors.insert(format!("layers.{i}.attention.wk.weight"), layer.wk.share());
-            tensors.insert(format!("layers.{i}.attention.wv.weight"), layer.wv.share());
-            tensors.insert(format!("layers.{i}.attention.wo.weight"), layer.wo.share());
-
-            tensors.insert(
-                format!("layers.{i}.ffn_norm.weight"),
-                layer.ffn_norm.share(),
-            );
-
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w1.weight"),
-                layer.w1.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w2.weight"),
-                layer.w2.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w3.weight"),
-                layer.w3.share(),
-            );
-
-            layers.push(layer);
-        }
-
-        Model::new(
-            hparams,
-            vocabulary,
-            tok_embeddings,
-            norm,
-            output,
-            layers,
-            tensors,
-            context,
-        )
-    };
+    let model = Model::new(context, hparams, vocabulary, n_ff, wtype);
 
     // Close the file, but keep its offset. That way we know how to skip the
     // metadata when loading the parts.
@@ -394,7 +327,7 @@ pub fn load(
 
             let tensor_name = read_string(&mut part_reader, length as usize)?;
 
-            let Some(tensor) = model.tensors.get(&tensor_name)
+            let Some(tensor) = model.tensors().get(&tensor_name)
                 else {
                     return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
                 };
@@ -567,7 +500,7 @@ pub fn load(
             load_progress_callback(LoadProgress::PartTensorLoaded {
                 file: &part_path,
                 current_tensor: n_tensors.try_into()?,
-                tensor_count: model.tensors.len(),
+                tensor_count: model.tensors().len(),
             });
         }
 
