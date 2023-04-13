@@ -477,7 +477,7 @@ impl Tensor {
     /// # Safety
     ///
     /// Only `std::slice::from_raw_parts_mut(tensor.data(), tensor.nbytes())` is safe to mutate.
-    pub unsafe fn data(&self) -> *mut c_void {
+    pub unsafe fn data(&mut self) -> *mut c_void {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
             unsafe { *self.ptr.as_ptr() }.data
@@ -529,12 +529,12 @@ impl Tensor {
     /// # Safety
     ///
     /// This tensor must not be written to or read by from any other code.
-    pub unsafe fn write_data(&self, src: &[u8]) {
+    pub unsafe fn write_data(&mut self, src: &[u8]) {
         std::ptr::copy_nonoverlapping(src.as_ptr(), self.data() as *mut u8, src.len())
     }
 
     /// Zeroes out this tensor.
-    pub fn zero_data(&self) {
+    pub fn zero_data(&mut self) {
         unsafe { std::ptr::write_bytes(self.data() as *mut u8, 0, self.nbytes()) }
     }
 

@@ -281,7 +281,6 @@ pub(crate) fn load(
     let context = ggml::Context::init(ctx_size);
 
     let mut model = Model::new(context, hparams, vocabulary, n_ff, wtype, model_type);
-
     match model_type {
         ContainerType::GGMF | ContainerType::GGML => {
             let file_offset = reader.stream_position()?;
@@ -290,14 +289,20 @@ pub(crate) fn load(
                 file_offset,
                 main_path,
                 load_progress_callback,
-                &model,
+                model.tensors_mut(),
             )?
         }
         ContainerType::GGJT => {
             let mmap = unsafe { Mmap::map(&file)? };
             let ptr = mmap.as_ptr();
             model.mmap = Some(mmap);
-            load_weights_ggjt(&mut reader, ptr, main_path, load_progress_callback, &model)?;
+            load_weights_ggjt(
+                &mut reader,
+                ptr,
+                main_path,
+                load_progress_callback,
+                model.tensors_mut(),
+            )?;
         }
     }
 
@@ -321,7 +326,7 @@ fn load_weights_ggmf_or_unversioned(
     file_offset: u64,
     main_path: &Path,
     mut load_progress_callback: impl FnMut(LoadProgress),
-    model: &Model,
+    tensors: &mut HashMap<String, ggml::Tensor>,
 ) -> Result<(), LoadError> {
     use std::{fs::File, io::BufReader};
 
@@ -359,7 +364,7 @@ fn load_weights_ggmf_or_unversioned(
                 n_dims,
                 &mut part_reader,
                 length,
-                model,
+                tensors,
                 &part_path,
                 n_parts,
                 ftype,
@@ -440,7 +445,7 @@ fn load_weights_ggmf_or_unversioned(
             load_progress_callback(LoadProgress::PartTensorLoaded {
                 file: &part_path,
                 current_tensor: n_tensors.try_into()?,
-                tensor_count: model.tensors().len(),
+                tensor_count: tensors.len(),
             });
         }
 
@@ -458,11 +463,11 @@ fn load_tensor_header_ggmf<'a>(
     n_dims: usize,
     reader: &mut impl BufRead,
     length: i32,
-    model: &'a Model,
+    tensors: &'a mut HashMap<String, ggml::Tensor>,
     path: &Path,
     n_parts: usize,
     ftype: i32,
-) -> Result<(usize, [i64; 2], String, &'a ggml::Tensor, i32, usize), LoadError> {
+) -> Result<(usize, [i64; 2], String, &'a mut ggml::Tensor, i32, usize), LoadError> {
     let mut nelements = 1;
     let mut ne = [1i64, 1i64];
     assert!(n_dims <= ne.len());
@@ -472,7 +477,7 @@ fn load_tensor_header_ggmf<'a>(
         nelements *= usize::try_from(ne[i])?;
     }
     let tensor_name = read_string(reader, length as usize)?;
-    let Some(tensor) = model.tensors().get(&tensor_name)
+    let Some(tensor) = tensors.get_mut(&tensor_name)
         else {
             return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
         };
@@ -555,7 +560,7 @@ fn load_weights_ggjt(
     mmap_base: *const u8,
     path: &Path,
     mut load_progress_callback: impl FnMut(LoadProgress),
-    model: &Model,
+    tensors: &mut HashMap<String, ggml::Tensor>,
 ) -> Result<(), LoadError>
 // where R: std::io::Read
 {
@@ -586,7 +591,7 @@ fn load_weights_ggjt(
             nelements *= dim;
         }
         let tensor_name = read_string(reader, length as usize)?;
-        let Some(tensor) = model.tensors().get(&tensor_name)
+        let Some(tensor) = tensors.get_mut(&tensor_name)
         else {
             return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
         };
@@ -623,7 +628,7 @@ fn load_weights_ggjt(
         load_progress_callback(LoadProgress::PartTensorLoaded {
             file: path,
             current_tensor: loop_i,
-            tensor_count: model.tensors().len(),
+            tensor_count: tensors.len(),
         });
 
         loop_i += 1;
@@ -658,7 +663,7 @@ fn load_tensor_ggjt(
 fn load_tensor_ggjt<'a>(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
-    tensor: &'a ggml::Tensor,
+    tensor: &'a mut ggml::Tensor,
 ) -> Result<(), LoadError> {
     _ = mmap_base;
     let offset_curr = reader.stream_position()?;

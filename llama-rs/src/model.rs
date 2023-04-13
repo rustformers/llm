@@ -187,7 +187,7 @@ impl Model {
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -432,8 +432,8 @@ impl Model {
         &self.vocabulary
     }
 
-    pub(crate) fn tensors(&self) -> &HashMap<String, ggml::Tensor> {
-        &self.tensors
+    pub(crate) fn tensors_mut(&mut self) -> &mut HashMap<String, ggml::Tensor> {
+        &mut self.tensors
     }
 }
 
