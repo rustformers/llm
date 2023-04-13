@@ -26,7 +26,7 @@ pub fn read_or_create_session(
         let snapshot = unwrap_or_exit(bincode::deserialize_from(decoder), || {
             format!("Could not deserialize inference session from {path:?}")
         });
-        let session = unwrap_or_exit(model.session_from_snapshot(snapshot), || {
+        let session = unwrap_or_exit(InferenceSession::from_snapshot(snapshot, model), || {
             format!("Could not convert snapshot from {path:?} to session")
         });
         log::info!("Loaded inference session from {path:?}");

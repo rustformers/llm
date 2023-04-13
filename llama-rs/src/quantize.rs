@@ -5,7 +5,8 @@ use ggml::{
     quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
 };
 use half::f16;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
 
@@ -53,13 +54,38 @@ pub enum QuantizeProgress<'a> {
     },
 }
 
+#[derive(Error, Debug)]
+/// Errors encountered during the quantization process.
+pub enum QuantizeError {
+    #[error("could not load model")]
+    /// There was an error while attempting to load the model.
+    Load(#[from] LoadError),
+    #[error("non-specific I/O error")]
+    /// A non-specific IO error.
+    IO(#[from] std::io::Error),
+    #[error("could not convert bytes to a UTF-8 string")]
+    /// One of the strings encountered was not valid UTF-8.
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("invalid integer conversion")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+    #[error("could not create file {path:?}")]
+    /// A file failed to create.
+    CreateFileFailed {
+        /// The original error.
+        source: std::io::Error,
+        /// The path that failed.
+        path: PathBuf,
+    },
+}
+
 /// Quantizes a model.
 pub fn quantize(
     file_name_in: impl AsRef<Path>,
     file_name_out: impl AsRef<Path>,
     ty: crate::ElementType,
     progress_callback: impl Fn(QuantizeProgress),
-) -> Result<(), LoadError> {
+) -> Result<(), QuantizeError> {
     use crate::file::*;
 
     let itype: i32 = match ty {
@@ -77,7 +103,7 @@ pub fn quantize(
     let file_out = file_name_out.as_ref();
     let mut fout =
         BufWriter::new(
-            File::create(file_out).map_err(|e| LoadError::CreateFileFailed {
+            File::create(file_out).map_err(|e| QuantizeError::CreateFileFailed {
                 source: e,
                 path: file_out.to_owned(),
             })?,
@@ -92,14 +118,16 @@ pub fn quantize(
         if magic != FILE_MAGIC {
             return Err(LoadError::InvalidMagic {
                 path: file_in.to_owned(),
-            });
+            }
+            .into());
         }
 
         let format_version = rw_u32(&mut finp, &mut fout)?;
         if format_version != FORMAT_VERSION {
             return Err(LoadError::InvalidFormatVersion {
                 value: format_version,
-            });
+            }
+            .into());
         }
     }
 
@@ -197,7 +225,8 @@ pub fn quantize(
                         ftype,
                         tensor_name: name,
                         path: file_in.to_owned(),
-                    });
+                    }
+                    .into());
                 }
 
                 data_f32.resize(nelements as usize, 0.0);
