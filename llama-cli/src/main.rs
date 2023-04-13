@@ -27,7 +27,7 @@ fn main() {
 fn infer(args: &cli_args::Infer) {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_params = args.generate.inference_session_parameters();
-    let (model, vocabulary) = args.model_load.load();
+    let model = args.model_load.load();
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         &model,
         args.persist_session.as_deref(),
@@ -39,7 +39,6 @@ fn infer(args: &cli_args::Infer) {
     let mut rng = args.generate.rng();
     let res = session.inference_with_prompt::<Infallible>(
         &model,
-        &vocabulary,
         &inference_params,
         &prompt,
         args.generate.num_predict,
@@ -73,8 +72,8 @@ fn infer(args: &cli_args::Infer) {
 
 fn dump_tokens(args: &cli_args::DumpTokens) {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let (_, vocabulary) = args.model_load.load();
-    let toks = match vocabulary.tokenize(&prompt, false) {
+    let model = args.model_load.load();
+    let toks = match model.vocabulary().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
             log::error!("Could not tokenize prompt: {e}");
@@ -106,7 +105,7 @@ fn interactive(
 ) {
     let prompt_file = args.prompt_file.contents();
     let inference_session_params = args.generate.inference_session_parameters();
-    let (model, vocabulary) = args.model_load.load();
+    let model = args.model_load.load();
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         &model,
         None,
@@ -135,7 +134,6 @@ fn interactive(
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
                     &model,
-                    &vocabulary,
                     &inference_params,
                     &prompt,
                     |_| Ok(()),
@@ -146,7 +144,6 @@ fn interactive(
 
                 let res = session.inference_with_prompt::<Infallible>(
                     &model,
-                    &vocabulary,
                     &inference_params,
                     "",
                     args.generate.num_predict,
