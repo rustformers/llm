@@ -6,7 +6,6 @@ use std::{
     fmt::Display,
     io::{BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use serde::Deserialize;
@@ -17,12 +16,16 @@ pub mod convert;
 
 mod inference_session;
 mod util;
+mod vocabulary;
 
 pub use ggml::Type as ElementType;
 pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
 };
 pub use util::TokenUtf8Buffer;
+pub use vocabulary::{TokenBias, Vocabulary};
+
+use vocabulary::TokenId;
 
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
@@ -149,98 +152,6 @@ impl Display for InferenceStats {
             self.predict_tokens,
             (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64),
         )
-    }
-}
-
-type TokenId = i32;
-type Token = Vec<u8>;
-type TokenScore = f32;
-
-/// The vocabulary used by a model.
-#[derive(Debug, Clone)]
-pub struct Vocabulary {
-    /// Maps every integer (index) token id to its corresponding token
-    id_to_token: Vec<Token>,
-
-    /// Maps every integer (index) token id to corresponding score
-    #[allow(dead_code)]
-    id_to_token_score: Vec<TokenScore>,
-
-    /// Maps a token to a token id
-    token_to_id: HashMap<Token, TokenId>,
-
-    /// The longest token in this vocabulary
-    max_token_length: usize,
-}
-impl Vocabulary {
-    fn token(&self, idx: usize) -> &[u8] {
-        &self.id_to_token[idx]
-    }
-}
-
-#[derive(Default, Clone, Debug, PartialEq)]
-/// A list of tokens to bias during the process of inferencing.
-///
-/// When a biased token is encountered, the bias will be used
-/// instead of the inferred logit during the sampling process.
-///
-/// This can be used to disable the generation of responses
-/// with specific tokens by setting their corresponding bias
-/// to -1.0.
-pub struct TokenBias(Vec<(TokenId, f32)>);
-
-impl TokenBias {
-    /// Create a [TokenBias] from an existing `Vec`.
-    pub fn new(mut v: Vec<(TokenId, f32)>) -> Self {
-        v.sort_by_cached_key(|(tid, _)| *tid);
-        v.dedup_by_key(|(tid, _)| *tid);
-        Self(v)
-    }
-
-    /// Retrieves the bias for a given token, if available.
-    pub fn get(&self, tid: TokenId) -> Option<f32> {
-        self.0
-            .binary_search_by_key(&tid, |(tid, _)| *tid)
-            .map(|idx| self.0[idx].1)
-            .ok()
-    }
-}
-
-impl FromStr for TokenBias {
-    type Err = String;
-
-    /// A comma separated list of token biases. The list should be in the format
-    /// "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS is a
-    /// floating point number.
-    /// For example, "1=-1.0,2=-1.0" sets the bias for token IDs 1
-    /// (start of document) and 2 (end of document) to -1.0 which effectively
-    /// disables the model from generating responses containing those token IDs.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let x = s
-            .split(',')
-            .map(|kv| {
-                let (k, v) = kv
-                    .trim()
-                    .split_once('=')
-                    .ok_or_else(|| "Missing '=' in bias item".to_owned())?;
-                let tid: TokenId = k
-                    .trim()
-                    .parse()
-                    .map_err(|e: std::num::ParseIntError| e.to_string())?;
-                let bias: f32 = v
-                    .trim()
-                    .parse()
-                    .map_err(|e: std::num::ParseFloatError| e.to_string())?;
-                Result::<_, String>::Ok((tid, bias))
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(TokenBias::new(x))
-    }
-}
-
-impl std::fmt::Display for TokenBias {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
     }
 }
 
@@ -1291,64 +1202,5 @@ impl Model {
         session.last_logits = snapshot.last_logits;
 
         Ok(session)
-    }
-}
-
-impl Vocabulary {
-    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
-    /// Tokenize a `text` with this vocabulary.
-    ///
-    /// `bos` controls whether a beginning-of-string token should be inserted.
-    pub fn tokenize<'a>(
-        &'a self,
-        text: &str,
-        bos: bool,
-    ) -> Result<Vec<(&'a [u8], TokenId)>, InferenceError> {
-        let len = text.len();
-
-        let mut score = vec![0usize; len + 1];
-        let mut prev = vec![TokenId::default(); len + 1];
-
-        for i in 0..len {
-            let max_len = (len - i).min(self.max_token_length);
-            for sub_len in 1..=max_len {
-                let sub = &text.as_bytes()[i..i + sub_len];
-                let token = self.token_to_id.get(sub);
-
-                if let Some(token) = token {
-                    let token_score = sub.len() * sub.len();
-                    let local_score = score[i] + token_score;
-                    let next = i + sub_len;
-
-                    if score[next] < local_score {
-                        score[next] = local_score;
-                        prev[next] = *token;
-                    }
-                }
-            }
-        }
-
-        // Backward pass
-        let mut res = vec![];
-        let mut i = len;
-        while i > 0 {
-            let token_id = prev[i];
-            if token_id == 0 {
-                return Err(InferenceError::TokenizationFailed);
-            }
-            let token = self.id_to_token[token_id as usize].as_slice();
-            res.push((token, token_id));
-            i -= token.len();
-        }
-
-        if bos {
-            // TODO: replace with vocab.bos
-            res.push((&[], 1));
-        }
-
-        // Pieces are in reverse order so correct that
-        res.reverse();
-
-        Ok(res)
     }
 }
