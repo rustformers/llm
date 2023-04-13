@@ -268,9 +268,6 @@ impl ModelLoad {
                     LoadProgress::HyperparametersLoaded(hparams) => {
                         log::debug!("Loaded hyperparameters {hparams:#?}")
                     }
-                    LoadProgress::BadToken { index } => {
-                        log::info!("Warning: Bad token in vocab at index {index}")
-                    }
                     LoadProgress::ContextSize { bytes } => log::info!(
                         "ggml ctx size = {:.2} MB\n",
                         bytes as f64 / (1024.0 * 1024.0)

@@ -406,7 +406,7 @@ impl Tensor {
         }
     }
 
-    fn with_alive_ctx<U>(&self, f: impl Fn() -> U) -> U {
+    fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
         if let Some(_ctx) = self.ctx.upgrade() {
             f()
         } else {
