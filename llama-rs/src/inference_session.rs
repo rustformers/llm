@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::{
     EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId, TokenUtf8Buffer,
-    Vocabulary, EOT_TOKEN_ID,
+    EOT_TOKEN_ID,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -62,12 +62,13 @@ impl InferenceSession {
     pub fn feed_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
-        vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
         mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
+
+        let vocab = model.vocabulary();
         let prompt_tokens: Vec<TokenId> = vocab
             .tokenize(prompt, beginning_of_sentence)?
             .iter()
@@ -98,8 +99,7 @@ impl InferenceSession {
     /// Infer the next token for this session.
     pub fn infer_next_token<'v>(
         &mut self,
-        model: &Model,
-        vocab: &'v Vocabulary,
+        model: &'v Model,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
@@ -125,7 +125,7 @@ impl InferenceSession {
         if next_token as TokenId == EOT_TOKEN_ID {
             Err(InferenceError::EndOfText)
         } else {
-            Ok(vocab.token(next_token as usize))
+            Ok(model.vocabulary().token(next_token as usize))
         }
     }
 
@@ -134,11 +134,9 @@ impl InferenceSession {
     /// The `callback` is called with each new token until inference is complete.
     ///
     /// If `params.play_back_previous_tokens` is specified, this will "play back" all existing tokens in the session.
-    #[allow(clippy::too_many_arguments)]
     pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &Model,
-        vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
         maximum_token_count: Option<usize>,
@@ -152,7 +150,9 @@ impl InferenceSession {
             let mut token_utf8_buf = TokenUtf8Buffer::new();
             for token_id in &self.tokens {
                 // Buffer the token until it's valid UTF-8, then call the callback.
-                if let Some(tokens) = token_utf8_buf.push(vocab.token(*token_id as usize)) {
+                if let Some(tokens) =
+                    token_utf8_buf.push(model.vocabulary().token(*token_id as usize))
+                {
                     if let Err(e) = callback(&tokens) {
                         return Err(InferenceError::UserCallback(Box::new(e)));
                     }
@@ -168,7 +168,6 @@ impl InferenceSession {
         // context window with new data.
         self.feed_prompt(
             model,
-            vocab,
             params,
             prompt,
             TokenUtf8Buffer::adapt_callback(&mut callback),
@@ -183,7 +182,7 @@ impl InferenceSession {
         let mut tokens_processed = 0;
         let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
-            let token = match self.infer_next_token(model, vocab, params, rng) {
+            let token = match self.infer_next_token(model, params, rng) {
                 Ok(token) => token,
                 Err(InferenceError::EndOfText) => break,
                 Err(e) => return Err(e),

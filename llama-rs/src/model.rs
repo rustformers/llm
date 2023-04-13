@@ -13,6 +13,8 @@ use crate::{
 pub struct Model {
     pub(crate) hparams: Hyperparameters,
 
+    vocabulary: Vocabulary,
+
     tok_embeddings: ggml::Tensor,
 
     norm: ggml::Tensor,
@@ -26,8 +28,10 @@ pub struct Model {
     _context: ggml::Context,
 }
 impl Model {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         hparams: Hyperparameters,
+        vocabulary: Vocabulary,
         tok_embeddings: ggml::Tensor,
         norm: ggml::Tensor,
         output: ggml::Tensor,
@@ -37,6 +41,7 @@ impl Model {
     ) -> Self {
         Self {
             hparams,
+            vocabulary,
             tok_embeddings,
             norm,
             output,
@@ -53,7 +58,7 @@ impl Model {
         path: impl AsRef<Path>,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<(Model, Vocabulary), LoadError> {
+    ) -> Result<Model, LoadError> {
         loader::load(path, n_context_tokens, load_progress_callback)
     }
 
@@ -429,6 +434,11 @@ impl Model {
         session.last_logits = snapshot.last_logits;
 
         Ok(session)
+    }
+
+    /// Returns the vocabulary used by this model.
+    pub fn vocabulary(&self) -> &Vocabulary {
+        &self.vocabulary
     }
 }
 

@@ -138,7 +138,7 @@ pub fn load(
     path: impl AsRef<Path>,
     n_context_tokens: usize,
     mut load_progress_callback: impl FnMut(LoadProgress),
-) -> Result<(Model, Vocabulary), LoadError> {
+) -> Result<Model, LoadError> {
     use std::fs::File;
     use std::io::BufReader;
 
@@ -197,7 +197,7 @@ pub fn load(
     // ===============
     // Load vocabulary
     // ===============
-    let vocab = {
+    let vocabulary = {
         let mut id_to_token = vec![];
         let mut id_to_token_score = vec![];
         let mut token_to_id = HashMap::new();
@@ -335,6 +335,7 @@ pub fn load(
 
         Model::new(
             hparams,
+            vocabulary,
             tok_embeddings,
             norm,
             output,
@@ -577,7 +578,7 @@ pub fn load(
         });
     }
 
-    Ok((model, vocab))
+    Ok(model)
 }
 
 pub fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], LoadError> {
