@@ -232,7 +232,6 @@ impl Generate {
                 }
             }),
             play_back_previous_tokens: session_loaded,
-            ..Default::default()
         }
     }
 }
@@ -268,9 +267,6 @@ impl ModelLoad {
                 match progress {
                     LoadProgress::HyperparametersLoaded(hparams) => {
                         log::debug!("Loaded hyperparameters {hparams:#?}")
-                    }
-                    LoadProgress::BadToken { index } => {
-                        log::info!("Warning: Bad token in vocab at index {index}")
                     }
                     LoadProgress::ContextSize { bytes } => log::info!(
                         "ggml ctx size = {:.2} MB\n",

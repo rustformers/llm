@@ -1,11 +1,8 @@
-use std::{convert::Infallible, io::Write, path::Path};
+use std::{convert::Infallible, io::Write};
 
 use clap::Parser;
 use cli_args::Args;
-use llama_rs::{
-    convert::convert_pth_to_ggml, InferenceError, InferenceSession, InferenceSessionParameters,
-    Model,
-};
+use llama_rs::{convert::convert_pth_to_ggml, InferenceError};
 use rustyline::error::ReadlineError;
 
 mod cli_args;
@@ -31,7 +28,7 @@ fn infer(args: &cli_args::Infer) {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_params = args.generate.inference_session_parameters();
     let (model, vocabulary) = args.model_load.load();
-    let (mut session, session_loaded) = load_session_from_disk(
+    let (mut session, session_loaded) = snapshot::read_or_create_session(
         &model,
         args.persist_session.as_deref(),
         args.generate.load_session.as_deref(),
@@ -70,18 +67,7 @@ fn infer(args: &cli_args::Infer) {
 
     if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
         // Write the memory to the cache file
-        // SAFETY: no other model functions used inside the block
-        unsafe {
-            match snapshot::write_to_disk(&session.get_snapshot(), session_path) {
-                Ok(_) => {
-                    log::info!("Successfully wrote session to {session_path:?}");
-                }
-                Err(err) => {
-                    log::error!("Could not write session at {session_path:?}: {err}");
-                    std::process::exit(1);
-                }
-            }
-        }
+        snapshot::write_session(session, session_path);
     }
 }
 
@@ -121,7 +107,7 @@ fn interactive(
     let prompt_file = args.prompt_file.contents();
     let inference_session_params = args.generate.inference_session_parameters();
     let (model, vocabulary) = args.model_load.load();
-    let (mut session, session_loaded) = load_session_from_disk(
+    let (mut session, session_loaded) = snapshot::read_or_create_session(
         &model,
         None,
         args.generate.load_session.as_deref(),
@@ -206,33 +192,6 @@ fn load_prompt_file_with_prompt(
     } else {
         log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
-    }
-}
-
-pub fn load_session_from_disk(
-    model: &Model,
-    persist_session: Option<&Path>,
-    load_session: Option<&Path>,
-    inference_session_params: InferenceSessionParameters,
-) -> (InferenceSession, bool) {
-    fn load_snapshot_from_disk(model: &Model, path: &Path) -> InferenceSession {
-        let snapshot = snapshot::load_from_disk(path);
-        match snapshot.and_then(|snapshot| model.session_from_snapshot(snapshot)) {
-            Ok(session) => {
-                log::info!("Loaded inference session from {path:?}");
-                session
-            }
-            Err(err) => {
-                eprintln!("Could not load inference session. Error: {err}");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    match (persist_session, load_session) {
-        (Some(path), _) if path.exists() => (load_snapshot_from_disk(model, path), true),
-        (_, Some(path)) => (load_snapshot_from_disk(model, path), true),
-        _ => (model.start_session(inference_session_params), false),
     }
 }
 

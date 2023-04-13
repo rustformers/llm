@@ -19,11 +19,6 @@ extern "C" {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct ggml_object {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct ggml_context {
     _unused: [u8; 0],
 }
@@ -73,6 +68,70 @@ pub const ggml_op_GGML_OP_FLASH_ATTN: ggml_op = 33;
 pub const ggml_op_GGML_OP_FLASH_FF: ggml_op = 34;
 pub const ggml_op_GGML_OP_COUNT: ggml_op = 35;
 pub type ggml_op = ::std::os::raw::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ggml_object {
+    pub offs: usize,
+    pub size: usize,
+    pub next: *mut ggml_object,
+    pub padding: [::std::os::raw::c_char; 8usize],
+}
+#[test]
+fn bindgen_test_layout_ggml_object() {
+    const UNINIT: ::std::mem::MaybeUninit<ggml_object> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<ggml_object>(),
+        32usize,
+        concat!("Size of: ", stringify!(ggml_object))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<ggml_object>(),
+        8usize,
+        concat!("Alignment of ", stringify!(ggml_object))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).offs) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(ggml_object),
+            "::",
+            stringify!(offs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).size) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(ggml_object),
+            "::",
+            stringify!(size)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).next) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(ggml_object),
+            "::",
+            stringify!(next)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).padding) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(ggml_object),
+            "::",
+            stringify!(padding)
+        )
+    );
+}
+pub const GGML_OBJECT_SIZE: usize = 32;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_tensor {
@@ -564,17 +623,6 @@ extern "C" {
     pub fn ggml_set_scratch(ctx: *mut ggml_context, scratch: ggml_scratch) -> usize;
 }
 extern "C" {
-    pub fn ggml_mlock_supported() -> bool;
-}
-extern "C" {
-    pub fn ggml_mlock(
-        ctx: *mut ggml_context,
-        opt_extra_addr: *const ::std::os::raw::c_void,
-        opt_extra_len: usize,
-        err_p: *mut *mut ::std::os::raw::c_char,
-    ) -> bool;
-}
-extern "C" {
     pub fn ggml_new_tensor(
         ctx: *mut ggml_context,
         type_: ggml_type,
@@ -792,6 +840,18 @@ extern "C" {
         ne0: i64,
         ne1: i64,
         nb1: usize,
+        offset: usize,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_view_3d(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        ne0: i64,
+        ne1: i64,
+        ne2: i64,
+        nb1: usize,
+        nb2: usize,
         offset: usize,
     ) -> *mut ggml_tensor;
 }
@@ -1315,4 +1375,84 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_cpu_has_vsx() -> ::std::os::raw::c_int;
+}
+pub type dequantize_row_q_t = ::std::option::Option<
+    unsafe extern "C" fn(x: *const ::std::os::raw::c_void, y: *mut f32, k: ::std::os::raw::c_int),
+>;
+pub type quantize_row_q_t = ::std::option::Option<
+    unsafe extern "C" fn(x: *const f32, y: *mut ::std::os::raw::c_void, k: ::std::os::raw::c_int),
+>;
+pub type vec_dot_q_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        n: ::std::os::raw::c_int,
+        s: *mut f32,
+        x: *const ::std::os::raw::c_void,
+        y: *const ::std::os::raw::c_void,
+    ),
+>;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct quantize_fns_t {
+    pub dequantize_row_q: dequantize_row_q_t,
+    pub quantize_row_q: quantize_row_q_t,
+    pub quantize_row_q_reference: quantize_row_q_t,
+    pub vec_dot_q: vec_dot_q_t,
+}
+#[test]
+fn bindgen_test_layout_quantize_fns_t() {
+    const UNINIT: ::std::mem::MaybeUninit<quantize_fns_t> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<quantize_fns_t>(),
+        32usize,
+        concat!("Size of: ", stringify!(quantize_fns_t))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<quantize_fns_t>(),
+        8usize,
+        concat!("Alignment of ", stringify!(quantize_fns_t))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).dequantize_row_q) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(quantize_fns_t),
+            "::",
+            stringify!(dequantize_row_q)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).quantize_row_q) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(quantize_fns_t),
+            "::",
+            stringify!(quantize_row_q)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).quantize_row_q_reference) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(quantize_fns_t),
+            "::",
+            stringify!(quantize_row_q_reference)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).vec_dot_q) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(quantize_fns_t),
+            "::",
+            stringify!(vec_dot_q)
+        )
+    );
+}
+extern "C" {
+    pub fn ggml_internal_get_quantize_fn(i: usize) -> quantize_fns_t;
 }
