@@ -30,6 +30,12 @@ mod util;
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 
+// The size of a scratch buffer used for inference. This is used for temporary
+// storage of intermediate results during inference.
+//
+// The specific value was copied from `llama.cpp`.
+const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
+
 /// The hyperparameters of the model.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Hyperparameters {
@@ -106,6 +112,12 @@ pub struct InferenceSession {
 
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     last_logits: Vec<f32>,
+
+    /// Scratch buffers used during inference.
+    ///
+    /// The number of scratch buffers was copied from `llama.cpp`.
+    /// There is no specific reason for this number, but one is insufficient.
+    scratch: [ggml::Buffer; 2],
 }
 impl InferenceSession {
     fn repetition_penalty_tokens(&self) -> &[TokenId] {
@@ -131,13 +143,26 @@ impl Clone for InferenceSession {
             mem_per_token: self.mem_per_token,
             tokens: self.tokens.clone(),
             last_logits: self.last_logits.clone(),
+            scratch: inference_session_scratch_buffers(),
         }
     }
 }
 
+fn inference_session_scratch_buffers() -> [ggml::Buffer; 2] {
+    [
+        ggml::Buffer::new(SCRATCH_SIZE),
+        ggml::Buffer::new(SCRATCH_SIZE),
+    ]
+}
+
 #[derive(serde::Serialize, Clone, PartialEq)]
-/// A serializable snapshot of the inference process. Can be saved to disk.
-// Keep in sync with [InferenceSession] and [InferenceSnapshot]
+/// A serializable snapshot of the inference process.
+/// Can be created by calling [InferenceSession::get_snapshot].
+///
+/// If serializing, ensure that your serializer is binary-efficient.
+/// This type contains a large array of bytes; traditional textual serializers
+/// are likely to serialize this as an array of numbers at extreme cost.
+// Keep in sync with [InferenceSession] and [InferenceSnapshot].
 pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
@@ -154,11 +179,26 @@ pub struct InferenceSnapshotRef<'a> {
     #[serde(with = "serde_bytes")]
     pub memory_v: &'a [u8],
 }
+impl InferenceSnapshotRef<'_> {
+    /// Creates an owned [InferenceSnapshot] from this [InferenceSnapshotRef].
+    ///
+    /// The [ToOwned] trait is not used due to its blanket implementation for all [Clone] types.
+    pub fn to_owned(&self) -> InferenceSnapshot {
+        InferenceSnapshot {
+            npast: self.npast,
+            session_params: self.session_params,
+            tokens: self.tokens.clone(),
+            last_logits: self.logits.clone(),
+            memory_k: self.memory_k.to_vec(),
+            memory_v: self.memory_v.to_vec(),
+        }
+    }
+}
 
 /// A serializable snapshot of the inference process. Can be restored by calling
-/// `Model::restore_from_snapshot`.
+/// [Model::session_from_snapshot].
 #[derive(serde::Deserialize, Clone, PartialEq)]
-// Keep in sync with [InferenceSession] and [InferenceSnapshotRef]
+// Keep in sync with [InferenceSession] and [InferenceSnapshotRef].
 pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
@@ -236,11 +276,6 @@ pub struct InferenceParameters {
     pub bias_tokens: TokenBias,
     /// Whether or not previous tokens should be played back in [InferenceSession::inference_with_prompt].
     pub play_back_previous_tokens: bool,
-    /// If set, the inference process will behave more deterministically at the potential cost of performance.
-    ///
-    /// Note that this does not guarantee full determinism. When run on the same machine with the same parameters,
-    /// seed, and this set, inference should be identical, but this is not guaranteed to hold across machines.
-    pub increased_determinism: bool,
 }
 
 impl Default for InferenceParameters {
@@ -254,7 +289,6 @@ impl Default for InferenceParameters {
             temperature: 0.80,
             bias_tokens: TokenBias::default(),
             play_back_previous_tokens: false,
-            increased_determinism: true,
         }
     }
 }
@@ -298,7 +332,7 @@ impl Display for InferenceStats {
 }
 
 type TokenId = i32;
-type Token = String;
+type Token = Vec<u8>;
 type TokenScore = f32;
 
 /// The vocabulary used by a model.
@@ -318,7 +352,7 @@ pub struct Vocabulary {
     max_token_length: usize,
 }
 impl Vocabulary {
-    fn token(&self, idx: usize) -> &str {
+    fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
     }
 }
@@ -395,14 +429,6 @@ impl std::fmt::Display for TokenBias {
 pub enum LoadProgress<'a> {
     /// The hyperparameters have been loaded from the model.
     HyperparametersLoaded(&'a Hyperparameters),
-    /// A bad token was encountered during the loading process.
-    ///
-    /// This can be ignored, but invalid tokens will be replaced with
-    /// the `�` character.
-    BadToken {
-        /// The index within the vocabulary.
-        index: usize,
-    },
     /// The context has been created.
     ContextSize {
         /// The size of the context.
@@ -532,9 +558,6 @@ pub enum SnapshotError {
     /// Arbitrary I/O error.
     #[error("I/O error while reading or writing snapshot")]
     IO(#[from] std::io::Error),
-    /// Error during the serialization process.
-    #[error("error during snapshot serialization")]
-    Serialization(#[from] bincode::Error),
     /// Mismatch between the snapshotted memory and the in-memory memory.
     #[error("could not read snapshot due to size mismatch (self={self_size}, input={input_size})")]
     MemorySizeMismatch {
@@ -568,10 +591,10 @@ pub enum InferenceError {
 #[derive(Default, Debug, Clone)]
 pub struct EvaluateOutputRequest {
     /// Returns all the logits for the provided batch of tokens.
-    /// Output shape is n_batch * n_vocab
+    /// Output shape is `n_batch * n_vocab`.
     pub all_logits: Option<Vec<f32>>,
     /// Returns the embeddings for the provided batch of tokens
-    /// Output shape is n_batch * n_embd
+    /// Output shape is `n_batch * n_embd`.
     pub embeddings: Option<Vec<f32>>,
 }
 
@@ -595,9 +618,9 @@ impl Model {
     pub fn load(
         path: impl AsRef<Path>,
         n_context_tokens: usize,
-        load_progress_callback: impl Fn(LoadProgress),
+        mut load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<(Model, Vocabulary), LoadError> {
-        use crate::file::{read_f32, read_i32, read_string, read_u32};
+        use crate::file::{read_bytes_with_len, read_f32, read_i32, read_string, read_u32};
         use std::fs::File;
         use std::io::BufReader;
 
@@ -664,14 +687,10 @@ impl Model {
 
             for i in 0..hparams.n_vocab {
                 let len = read_i32(&mut reader)?;
-                if let Ok(word) = read_string(&mut reader, len as usize) {
-                    max_token_length = max_token_length.max(word.len());
-                    id_to_token.push(word.clone());
-                    token_to_id.insert(word, TokenId::try_from(i)?);
-                } else {
-                    load_progress_callback(LoadProgress::BadToken { index: i });
-                    id_to_token.push("�".to_string());
-                }
+                let token = read_bytes_with_len(&mut reader, len as usize)?;
+                max_token_length = max_token_length.max(token.len());
+                id_to_token.push(token.clone());
+                token_to_id.insert(token, TokenId::try_from(i)?);
 
                 // Token score, currently unused
                 if !is_legacy_model {
@@ -1092,6 +1111,7 @@ impl Model {
             mem_per_token: 0,
             tokens: vec![],
             last_logits: vec![0.0; n_vocab],
+            scratch: inference_session_scratch_buffers(),
         }
     }
 
@@ -1111,7 +1131,9 @@ impl Model {
         let n = input_tokens.len();
         let n_past = session.n_past;
         let n_threads = params.n_threads;
-        let increased_determinism = params.increased_determinism;
+
+        let memk_elsize = session.memory_k.element_size();
+        let memv_elsize = session.memory_v.element_size();
 
         let Hyperparameters {
             n_vocab,
@@ -1126,7 +1148,18 @@ impl Model {
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
-        let mut buf_size = 1024 * 1024 * 1024;
+        //
+        // These numbers are from `llama.cpp`, and could potentially be more efficient.
+        let mut buf_size = {
+            let buf_size_mb = if n_layer >= 80 {
+                1536
+            } else if n_layer >= 60 {
+                1280
+            } else {
+                1024
+            };
+            buf_size_mb * 1024 * 1024
+        };
         if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
@@ -1140,30 +1173,11 @@ impl Model {
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
-        // Defined here to avoid repetition and creating a binding inside nested loops.
-        // See the call site below for more context.
-        let vtrans_fun = |il: usize| -> ggml::Tensor {
-            ctx0.op_permute(
-                &ctx0.op_reshape_3d(
-                    &ctx0.op_view_1d(
-                        &session.memory_v,
-                        (n_past + n) * n_embd,
-                        il * n_ctx * session.memory_v.element_size() * n_embd,
-                    ),
-                    n_embd / n_head,
-                    n_head,
-                    n_past + n,
-                ),
-                1,
-                2,
-                0,
-                3,
-            )
-        };
-
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
+
+            ctx0.use_scratch(Some(&mut session.scratch[0]));
 
             // norm
             {
@@ -1178,61 +1192,70 @@ impl Model {
 
             // self-attention
             {
-                let q_current = ctx0.op_mul_mat(&self.layers[il].wq, &current);
-                let k_current = ctx0.op_mul_mat(&self.layers[il].wk, &current);
-                let v_current = ctx0.op_mul_mat(&self.layers[il].wv, &current);
+                // compute Q and K and RoPE them
+                let q_current = ctx0.op_rope(
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_mul_mat(&self.layers[il].wq, &current),
+                        n_embd / n_head,
+                        n_head,
+                        n,
+                    ),
+                    n_past,
+                    n_rot,
+                    0,
+                );
+                let k_current = ctx0.op_rope(
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_mul_mat(&self.layers[il].wk, &current),
+                        n_embd / n_head,
+                        n_head,
+                        n,
+                    ),
+                    n_past,
+                    n_rot,
+                    0,
+                );
 
                 // store key and value to memory
-                if n >= 1 {
+                {
+                    // compute the transposed [N, n_embd] V matrix
+                    let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
+                        &ctx0.op_mul_mat(&self.layers[il].wv, &current),
+                        n_embd,
+                        n,
+                    ));
+
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
                         n * n_embd,
-                        (session.memory_k.element_size() * n_embd) * (il * n_ctx + n_past),
+                        (memk_elsize * n_embd) * (il * n_ctx + n_past),
                     );
 
-                    let v = ctx0.op_view_1d(
+                    let v = ctx0.op_view_2d(
                         &session.memory_v,
-                        n * n_embd,
-                        (session.memory_v.element_size() * n_embd) * (il * n_ctx + n_past),
+                        n,
+                        n_embd,
+                        n_ctx * memv_elsize,
+                        (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
                     );
 
+                    // important: storing RoPE-ed version of K in the KV cache!
                     gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
                     gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
                 }
 
-                // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-                let q = ctx0.op_permute(
-                    &ctx0.op_rope(
-                        &ctx0.op_cpy(
-                            &q_current,
-                            &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
-                        ),
-                        n_past,
-                        n_rot,
-                        0,
-                    ),
-                    0,
-                    2,
-                    1,
-                    3,
-                );
+                let q = ctx0.op_permute(&q_current, 0, 2, 1, 3);
 
-                // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
                 let k = ctx0.op_permute(
-                    &ctx0.op_rope(
-                        &ctx0.op_reshape_3d(
-                            &ctx0.op_view_1d(
-                                &session.memory_k,
-                                (n_past + n) * n_embd,
-                                il * n_ctx * session.memory_k.element_size() * n_embd,
-                            ),
-                            n_embd / n_head,
-                            n_head,
-                            n_past + n,
+                    &ctx0.op_reshape_3d(
+                        &ctx0.op_view_1d(
+                            &session.memory_k,
+                            (n_past + n) * n_embd,
+                            il * n_ctx * memk_elsize * n_embd,
                         ),
-                        n_past,
-                        n_rot,
-                        1,
+                        n_embd / n_head,
+                        n_head,
+                        n_past + n,
                     ),
                     0,
                     2,
@@ -1255,25 +1278,18 @@ impl Model {
                 // KQ = soft_max(KQ_masked)
                 let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
 
-                // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
-                let v_transposed = {
-                    if !increased_determinism {
-                        vtrans_fun(il)
-                    } else {
-                        ctx0.op_cpy(
-                            &vtrans_fun(il),
-                            &ctx0.new_tensor_3d(
-                                ggml::Type::F32,
-                                n_past + n,
-                                n_embd / n_head,
-                                n_head,
-                            ),
-                        )
-                    }
-                };
+                // split cached V into n_head heads
+                let v = ctx0.op_view_3d(
+                    &session.memory_v,
+                    n_past + n,
+                    n_embd / n_head,
+                    n_head,
+                    n_ctx * memv_elsize,
+                    n_ctx * memv_elsize * n_embd / n_head,
+                    il * n_ctx * memv_elsize * n_embd,
+                );
 
-                // KQV = transpose(V) * KQ_soft_max
-                let k_q_v = ctx0.op_mul_mat(&v_transposed, &k_q_soft_max);
+                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
@@ -1287,6 +1303,8 @@ impl Model {
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
             }
+
+            ctx0.use_scratch(Some(&mut session.scratch[1]));
 
             let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
@@ -1321,6 +1339,8 @@ impl Model {
             input_layer = current;
         }
 
+        ctx0.use_scratch(Some(&mut session.scratch[0]));
+
         // Used at the end to optionally extract the embeddings.
         let embeddings_tensor;
 
@@ -1337,6 +1357,8 @@ impl Model {
         {
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
         }
+
+        ctx0.use_scratch(None);
 
         // logits -> probs
         // inpL = ctx0.op_soft_max(&inpL);
@@ -1386,7 +1408,7 @@ impl Model {
         session.n_past += input_tokens.len();
     }
 
-    /// Hydrates a previously obtained InferenceSnapshot for this model
+    /// Hydrates a previously obtained InferenceSnapshot for this model.
     pub fn session_from_snapshot(
         &self,
         snapshot: InferenceSnapshot,
@@ -1426,7 +1448,7 @@ impl InferenceSession {
         vocab: &Vocabulary,
         params: &InferenceParameters,
         prompt: &str,
-        callback: impl Fn(&str) -> Result<(), E>,
+        mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
         let prompt_tokens: Vec<TokenId> = vocab
@@ -1463,7 +1485,7 @@ impl InferenceSession {
         vocab: &'v Vocabulary,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
-    ) -> Result<&'v str, InferenceError> {
+    ) -> Result<&'v [u8], InferenceError> {
         if self.n_past + 1 >= model.hparams.n_ctx {
             return Err(InferenceError::ContextFull);
         }
@@ -1504,15 +1526,19 @@ impl InferenceSession {
         prompt: &str,
         maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
-        callback: impl Fn(&str) -> Result<(), E>,
+        mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = maximum_token_count.unwrap_or(usize::MAX);
         if params.play_back_previous_tokens {
             // "Play back" the existing tokens, so that loading from an inference snapshot works
             // as expected.
+            let mut token_utf8_buf = TokenUtf8Buffer::new();
             for token_id in &self.tokens {
-                if let Err(e) = callback(vocab.token(*token_id as usize)) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
+                // Buffer the token until it's valid UTF-8, then call the callback.
+                if let Some(tokens) = token_utf8_buf.push(vocab.token(*token_id as usize)) {
+                    if let Err(e) = callback(&tokens) {
+                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    }
                 }
             }
         }
@@ -1523,7 +1549,13 @@ impl InferenceSession {
 
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
-        self.feed_prompt(model, vocab, params, prompt, |tk| callback(tk))?;
+        self.feed_prompt(
+            model,
+            vocab,
+            params,
+            prompt,
+            TokenUtf8Buffer::adapt_callback(&mut callback),
+        )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
 
@@ -1532,6 +1564,7 @@ impl InferenceSession {
         // EndOfText token, or we run out of space in the context window,
         // or we reach the specified limit.
         let mut tokens_processed = 0;
+        let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
             let token = match self.infer_next_token(model, vocab, params, rng) {
                 Ok(token) => token,
@@ -1539,8 +1572,11 @@ impl InferenceSession {
                 Err(e) => return Err(e),
             };
 
-            if let Err(e) = callback(token) {
-                return Err(InferenceError::UserCallback(Box::new(e)));
+            // Buffer the token until it's valid UTF-8, then call the callback.
+            if let Some(tokens) = token_utf8_buf.push(token) {
+                if let Err(e) = callback(&tokens) {
+                    return Err(InferenceError::UserCallback(Box::new(e)));
+                }
             }
 
             tokens_processed += 1;
@@ -1664,20 +1700,6 @@ impl InferenceSession {
     }
 }
 
-impl<'a> InferenceSnapshotRef<'a> {
-    /// Write this snapshot to the given writer.
-    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<(), SnapshotError> {
-        Ok(bincode::serialize_into(writer, &self)?)
-    }
-}
-
-impl InferenceSnapshot {
-    /// Read a snapshot from the given reader.
-    pub fn read(reader: &mut impl std::io::Read) -> Result<Self, SnapshotError> {
-        Ok(bincode::deserialize_from(reader)?)
-    }
-}
-
 impl Vocabulary {
     // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
     /// Tokenize a `text` with this vocabulary.
@@ -1687,7 +1709,7 @@ impl Vocabulary {
         &'a self,
         text: &str,
         bos: bool,
-    ) -> Result<Vec<(&'a str, TokenId)>, InferenceError> {
+    ) -> Result<Vec<(&'a [u8], TokenId)>, InferenceError> {
         let len = text.len();
 
         let mut score = vec![0usize; len + 1];
@@ -1697,7 +1719,6 @@ impl Vocabulary {
             let max_len = (len - i).min(self.max_token_length);
             for sub_len in 1..=max_len {
                 let sub = &text.as_bytes()[i..i + sub_len];
-                let Ok(sub) = std::str::from_utf8(sub) else { continue; };
                 let token = self.token_to_id.get(sub);
 
                 if let Some(token) = token {
@@ -1721,19 +1742,98 @@ impl Vocabulary {
             if token_id == 0 {
                 return Err(InferenceError::TokenizationFailed);
             }
-            let token = self.id_to_token[token_id as usize].as_str();
+            let token = self.id_to_token[token_id as usize].as_slice();
             res.push((token, token_id));
             i -= token.len();
         }
 
         if bos {
             // TODO: replace with vocab.bos
-            res.push(("", 1));
+            res.push((&[], 1));
         }
 
         // Pieces are in reverse order so correct that
         res.reverse();
 
         Ok(res)
+    }
+}
+
+/// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
+///
+/// Tokens are *not* valid UTF-8 by themselves. However, the LLM will produce valid UTF-8
+/// from multiple tokens. This helps alleviate that issue.
+#[derive(Clone, PartialEq, Default)]
+pub struct TokenUtf8Buffer(Vec<u8>);
+impl TokenUtf8Buffer {
+    /// Create a new buffer.
+    pub const fn new() -> Self {
+        Self(vec![])
+    }
+
+    /// Add a token to the buffer. If the buffer contains a valid string of UTF-8 text,
+    /// it is returned and the buffer is cleared for next use.
+    pub fn push(&mut self, token: &[u8]) -> Option<String> {
+        self.0.extend_from_slice(token);
+        match std::str::from_utf8(&self.0) {
+            Ok(s) => {
+                let out = s.to_owned();
+                self.0 = vec![];
+                Some(out)
+            }
+            Err(..) => {
+                for i in 1..self.0.len() {
+                    let slice = &self.0[i..];
+                    if slice.is_empty() {
+                        break;
+                    }
+
+                    if let Ok(s) = std::str::from_utf8(slice) {
+                        let out = s.to_owned();
+                        self.0 = vec![];
+                        return Some(out);
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Adapt a `&str` callback so that it can be used in a `&[u8]` context.
+    fn adapt_callback<'a, E: std::error::Error + 'static>(
+        mut callback: impl FnMut(&str) -> Result<(), E> + 'a,
+    ) -> impl FnMut(&[u8]) -> Result<(), E> + 'a {
+        let mut buffer = Self::new();
+        move |token| match buffer.push(token) {
+            Some(tokens) => callback(&tokens),
+            None => Ok(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(b"hello").as_deref(), Some("hello"));
+        assert_eq!(buffer.push(&[0xE2, 0x82, 0xAC]).as_deref(), Some("€"));
+    }
+
+    #[test]
+    fn test_partial_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
+    }
+
+    #[test]
+    fn test_invalid_prelude_for_valid_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(&[0xD8]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
     }
 }

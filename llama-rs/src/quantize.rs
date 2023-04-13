@@ -129,7 +129,7 @@ pub fn quantize(
 
     for i in 0..hparams.n_vocab {
         let len = rw_u32(&mut finp, &mut fout)?.try_into()?;
-        let word = rw_string(&mut finp, &mut fout, len)?;
+        let word = rw_bytes_with_len(&mut finp, &mut fout, len)?;
         let score = rw_f32(&mut finp, &mut fout)?;
 
         vocab.token_to_id.insert(word.clone(), i.try_into()?);
