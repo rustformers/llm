@@ -5,8 +5,8 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId, TokenUtf8Buffer,
-    EOT_TOKEN_ID,
+    util::mulf, EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId,
+    TokenUtf8Buffer, EOT_TOKEN_ID,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -51,13 +51,6 @@ pub struct InferenceSession {
     pub(crate) scratch: [ggml::Buffer; 2],
 }
 impl InferenceSession {
-    fn repetition_penalty_tokens(&self) -> &[TokenId] {
-        &self.tokens[self
-            .tokens
-            .len()
-            .saturating_sub(self.params.repetition_penalty_last_n)..]
-    }
-
     /// Feed a prompt to the model for this session.
     pub fn feed_prompt<E: std::error::Error + 'static>(
         &mut self,
@@ -314,6 +307,93 @@ impl InferenceSession {
             memory_v,
         }
     }
+
+    /// Creates an [InferenceSession] from a snapshot.
+    pub fn from_snapshot(
+        snapshot: InferenceSnapshot,
+        model: &Model,
+    ) -> Result<Self, SnapshotError> {
+        let mut session = model.start_session(snapshot.session_params);
+
+        if session.memory_k.nbytes() != snapshot.memory_k.len()
+            || session.memory_v.nbytes() != snapshot.memory_v.len()
+        {
+            return Err(SnapshotError::MemorySizeMismatch {
+                self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
+                input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
+            });
+        }
+
+        // SAFETY: We have exclusive access to Session, which means no one else
+        // should be touching the context's memory. We can write to it because
+        // we already checked the size.
+        unsafe {
+            session.memory_k.write_data(&snapshot.memory_k);
+            session.memory_v.write_data(&snapshot.memory_v);
+        }
+
+        session.n_past = snapshot.npast;
+        session.tokens = snapshot.tokens;
+        session.last_logits = snapshot.last_logits;
+
+        Ok(session)
+    }
+}
+impl InferenceSession {
+    pub(crate) fn new(
+        params: InferenceSessionParameters,
+        n_ctx: usize,
+        n_layer: usize,
+        n_embd: usize,
+        n_vocab: usize,
+    ) -> InferenceSession {
+        let ctx_size = {
+            let mut ctx_size = 0;
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_k_type.into())
+            ); // memory_k
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(params.memory_v_type.into())
+            ); // memory_v
+            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+            ctx_size
+        };
+
+        let session_ctx = ggml::Context::init(ctx_size);
+
+        // Initialize key + value memory tensors
+        let n_mem = n_layer * n_ctx;
+        let n_elements = n_embd * n_mem;
+        let memory_k = session_ctx.new_tensor_1d(params.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(params.memory_v_type.into(), n_elements);
+
+        InferenceSession {
+            _session_ctx: session_ctx,
+            memory_size: ctx_size,
+            params,
+            memory_k,
+            memory_v,
+            n_past: 0,
+            mem_per_token: 0,
+            tokens: vec![],
+            last_logits: vec![0.0; n_vocab],
+            scratch: scratch_buffers(),
+        }
+    }
+}
+impl InferenceSession {
+    fn repetition_penalty_tokens(&self) -> &[TokenId] {
+        &self.tokens[self
+            .tokens
+            .len()
+            .saturating_sub(self.params.repetition_penalty_last_n)..]
+    }
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
@@ -486,7 +566,7 @@ impl From<ModelKVMemoryType> for ggml::Type {
     }
 }
 
-pub fn scratch_buffers() -> [ggml::Buffer; 2] {
+fn scratch_buffers() -> [ggml::Buffer; 2] {
     [
         ggml::Buffer::new(SCRATCH_SIZE),
         ggml::Buffer::new(SCRATCH_SIZE),

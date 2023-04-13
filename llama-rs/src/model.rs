@@ -3,9 +3,8 @@ use std::{collections::HashMap, path::Path};
 use serde::Deserialize;
 
 use crate::{
-    inference_session, loader, util::mulf, vocabulary::TokenId, EvaluateOutputRequest,
-    InferenceParameters, InferenceSession, InferenceSessionParameters, InferenceSnapshot,
-    LoadError, LoadProgress, SnapshotError, Vocabulary,
+    loader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters, InferenceSession,
+    InferenceSessionParameters, LoadError, LoadProgress, Vocabulary,
 };
 
 /// The weights for the LLaMA model. All the mutable state is split into a
@@ -119,52 +118,13 @@ impl Model {
 
     /// Starts a new `InferenceSession` for this model.
     pub fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
-        let Hyperparameters {
-            n_ctx,
-            n_embd,
-            n_layer,
-            n_vocab,
-            ..
-        } = self.hparams;
-
-        let ctx_size = {
-            let mut ctx_size = 0;
-            ctx_size += mulf!(
-                n_ctx,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(params.memory_k_type.into())
-            ); // memory_k
-            ctx_size += mulf!(
-                n_ctx,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(params.memory_v_type.into())
-            ); // memory_v
-            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
-            ctx_size
-        };
-
-        let session_ctx = ggml::Context::init(ctx_size);
-
-        // Initialize key + value memory tensors
-        let n_mem = n_layer * n_ctx;
-        let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(params.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(params.memory_v_type.into(), n_elements);
-
-        InferenceSession {
-            _session_ctx: session_ctx,
-            memory_size: ctx_size,
+        InferenceSession::new(
             params,
-            memory_k,
-            memory_v,
-            n_past: 0,
-            mem_per_token: 0,
-            tokens: vec![],
-            last_logits: vec![0.0; n_vocab],
-            scratch: inference_session::scratch_buffers(),
-        }
+            self.hparams.n_ctx,
+            self.hparams.n_layer,
+            self.hparams.n_embd,
+            self.hparams.n_vocab,
+        )
     }
 
     /// Evaluates the transformer.
@@ -458,37 +418,6 @@ impl Model {
 
         // Adjust n_past to new length.
         session.n_past += input_tokens.len();
-    }
-
-    /// Hydrates a previously obtained [InferenceSnapshot] for this model.
-    pub fn session_from_snapshot(
-        &self,
-        snapshot: InferenceSnapshot,
-    ) -> Result<InferenceSession, SnapshotError> {
-        let mut session = self.start_session(snapshot.session_params);
-
-        if session.memory_k.nbytes() != snapshot.memory_k.len()
-            || session.memory_v.nbytes() != snapshot.memory_v.len()
-        {
-            return Err(SnapshotError::MemorySizeMismatch {
-                self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
-                input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
-            });
-        }
-
-        // SAFETY: We have exclusive access to Session, which means no one else
-        // should be touching the context's memory. We can write to it because
-        // we already checked the size.
-        unsafe {
-            session.memory_k.write_data(&snapshot.memory_k);
-            session.memory_v.write_data(&snapshot.memory_v);
-        }
-
-        session.n_past = snapshot.npast;
-        session.tokens = snapshot.tokens;
-        session.last_logits = snapshot.last_logits;
-
-        Ok(session)
     }
 
     /// Returns the vocabulary used by this model.
