@@ -387,6 +387,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ggml-loader"
+version = "0.1.0"
+dependencies = [
+ "ggml",
+ "thiserror",
+]
+
+[[package]]
 name = "ggml-sys"
 version = "0.1.0"
 dependencies = [
@@ -535,20 +543,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "llama-loader"
-version = "0.1.0"
-dependencies = [
- "ggml",
- "thiserror",
-]
-
-[[package]]
 name = "llama-rs"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
  "ggml",
- "llama-loader",
+ "ggml-loader",
  "memmap2",
  "partial_sort",
  "protobuf",

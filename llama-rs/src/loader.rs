@@ -9,8 +9,8 @@ use crate::{
     Mmap, Model, TokenId, Vocabulary,
 };
 use crate::{ElementType, Hyperparameters};
-use llama_loader::util::*;
-use llama_loader::{decode_element_type, ContainerType};
+use ggml_loader::util::*;
+use ggml_loader::ContainerType;
 use thiserror::Error;
 
 /// Each variant represents a step within the process of loading the model.

@@ -1,4 +1,6 @@
-use std::io::BufRead;
+pub use std::io::{BufRead, Seek, SeekFrom};
+
+use crate::{ElementType, LoadError};
 
 pub fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], std::io::Error> {
     let mut bytes = [0u8; N];
@@ -30,4 +32,31 @@ pub fn read_bytes_with_len(
 // NOTE: Implementation from #![feature(buf_read_has_data_left)]
 pub fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
     reader.fill_buf().map(|b| !b.is_empty())
+}
+
+pub fn decode_element_type(ftype: i32) -> Option<ElementType> {
+    match ftype {
+        0 => Some(ggml::Type::F32),
+        1 => Some(ggml::Type::F16),
+        2 => Some(ggml::Type::Q4_0),
+        3 => Some(ggml::Type::Q4_1),
+        _ => None,
+    }
+}
+
+pub fn encode_element_type(element_type: ElementType) -> Option<i32> {
+    match element_type {
+        ggml::Type::F32 => Some(0),
+        ggml::Type::F16 => Some(1),
+        ggml::Type::Q4_0 => Some(2),
+        ggml::Type::Q4_1 => Some(3),
+        _ => None,
+    }
+}
+
+pub fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T>> {
+    match decode_element_type(ftype) {
+        Some(x) => Ok(x),
+        None => Err(LoadError::UnsupportedElementtype(ftype)),
+    }
 }

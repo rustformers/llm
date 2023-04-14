@@ -5,7 +5,7 @@ use crate::{
     InferenceSessionParameters, LoadError, LoadProgress, Mmap, Vocabulary,
 };
 
-use llama_loader::ContainerType;
+use ggml_loader::ContainerType;
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.

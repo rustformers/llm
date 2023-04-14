@@ -1,5 +1,5 @@
 [package]
-name = "llama-loader"
+name = "ggml-loader"
 version = "0.1.0"
 edition = "2021"
 

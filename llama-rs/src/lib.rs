@@ -8,6 +8,7 @@ pub mod convert;
 
 mod inference_session;
 mod loader;
+mod loader2;
 mod model;
 mod util;
 mod vocabulary;

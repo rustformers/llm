@@ -5,10 +5,7 @@
 
 pub mod util;
 
-use std::{
-    io::{BufRead, Seek, SeekFrom},
-    ops::ControlFlow,
-};
+use std::ops::ControlFlow;
 use util::*;
 
 pub type ElementType = ggml::Type;
@@ -23,38 +20,6 @@ pub enum ContainerType {
     GGMF,
     /// mmap-able format
     GGJT,
-}
-
-pub fn decode_element_type(ftype: i32) -> Option<ElementType> {
-    match ftype {
-        0 => Some(ggml::Type::F32),
-        1 => Some(ggml::Type::F16),
-        2 => Some(ggml::Type::Q4_0),
-        3 => Some(ggml::Type::Q4_1),
-        _ => None,
-    }
-}
-
-pub fn encode_element_type(element_type: ElementType) -> Option<i32> {
-    match element_type {
-        ggml::Type::F32 => Some(0),
-        ggml::Type::F16 => Some(1),
-        ggml::Type::Q4_0 => Some(2),
-        ggml::Type::Q4_1 => Some(3),
-        _ => None,
-    }
-}
-
-/// The hyperparameters of the model.
-#[derive(Debug, Clone)]
-pub struct LlamaHyperparameters {
-    pub n_vocab: usize,
-    pub n_embd: usize,
-    pub n_mult: usize,
-    pub n_head: usize,
-    pub n_layer: usize,
-    pub n_rot: usize,
-    pub tensor_element_type: ElementType,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -99,26 +64,6 @@ pub struct TensorInfo {
 #[derive(Debug, Clone)]
 pub struct PartialHyperparameters {
     pub n_vocab: usize,
-}
-
-/// use this to load params for llama model inside [`LoadHandler::load_hyper_parameters`]
-pub fn load_llama_hparams<T, R: BufRead + Seek>(
-    reader: &mut R,
-) -> Result<(LlamaHyperparameters, PartialHyperparameters), LoadError<T>> {
-    // NOTE: Field order matters! Data is laid out in the file exactly in this order.
-    let hparams = LlamaHyperparameters {
-        n_vocab: read_i32(reader)?.try_into()?,
-        n_embd: read_i32(reader)?.try_into()?,
-        n_mult: read_i32(reader)?.try_into()?,
-        n_head: read_i32(reader)?.try_into()?,
-        n_layer: read_i32(reader)?.try_into()?,
-        n_rot: read_i32(reader)?.try_into()?,
-        tensor_element_type: decode_element_type_res(read_i32(reader)?)?,
-    };
-    let partial = PartialHyperparameters {
-        n_vocab: hparams.n_vocab,
-    };
-    Ok((hparams, partial))
 }
 
 #[allow(unused_variables)]
@@ -215,14 +160,7 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
     }
 }
 
-fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T>> {
-    match decode_element_type(ftype) {
-        Some(x) => Ok(x),
-        None => Err(LoadError::UnsupportedElementtype(ftype)),
-    }
-}
-
-fn load_weights_ggjt<T, R: BufRead + Seek>(
+pub fn load_weights_ggjt<T, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<T, R>,
 ) -> Result<(), LoadError<T>> {
@@ -233,7 +171,7 @@ fn load_weights_ggjt<T, R: BufRead + Seek>(
 ///
 /// `align`
 /// align to 4 bytes before reading tensor weights
-fn load_weights<T, R: BufRead + Seek>(
+pub fn load_weights<T, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<T, R>,
     align: bool,

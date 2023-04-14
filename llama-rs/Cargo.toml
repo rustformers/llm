@@ -8,7 +8,7 @@ rust-version = "1.65"
 
 [dependencies]
 ggml = { path = "../ggml" }
-llama-loader = { path = "../llama-loader" }
+ggml-loader = { path = "../ggml-loader" }
 
 rand = { workspace = true }
 
