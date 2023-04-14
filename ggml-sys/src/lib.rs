@@ -10,6 +10,7 @@ pub const GGML_MAX_NODES: u32 = 4096;
 pub const GGML_MAX_PARAMS: u32 = 16;
 pub const GGML_MAX_CONTEXTS: u32 = 64;
 pub const GGML_MAX_OPT: u32 = 4;
+pub const GGML_DEFAULT_N_THREADS: u32 = 4;
 pub type ggml_fp16_t = u16;
 extern "C" {
     pub fn ggml_fp16_to_fp32(x: ggml_fp16_t) -> f32;
@@ -22,13 +23,13 @@ extern "C" {
 pub struct ggml_context {
     _unused: [u8; 0],
 }
-pub const ggml_type_GGML_TYPE_Q4_0: ggml_type = 0;
-pub const ggml_type_GGML_TYPE_Q4_1: ggml_type = 1;
-pub const ggml_type_GGML_TYPE_I8: ggml_type = 2;
-pub const ggml_type_GGML_TYPE_I16: ggml_type = 3;
-pub const ggml_type_GGML_TYPE_I32: ggml_type = 4;
-pub const ggml_type_GGML_TYPE_F16: ggml_type = 5;
-pub const ggml_type_GGML_TYPE_F32: ggml_type = 6;
+pub const ggml_type_GGML_TYPE_F32: ggml_type = 0;
+pub const ggml_type_GGML_TYPE_F16: ggml_type = 1;
+pub const ggml_type_GGML_TYPE_Q4_0: ggml_type = 2;
+pub const ggml_type_GGML_TYPE_Q4_1: ggml_type = 3;
+pub const ggml_type_GGML_TYPE_I8: ggml_type = 4;
+pub const ggml_type_GGML_TYPE_I16: ggml_type = 5;
+pub const ggml_type_GGML_TYPE_I32: ggml_type = 6;
 pub const ggml_type_GGML_TYPE_COUNT: ggml_type = 7;
 pub type ggml_type = ::std::os::raw::c_uint;
 pub const ggml_op_GGML_OP_NONE: ggml_op = 0;
@@ -54,19 +55,22 @@ pub const ggml_op_GGML_OP_RMS_NORM: ggml_op = 19;
 pub const ggml_op_GGML_OP_MUL_MAT: ggml_op = 20;
 pub const ggml_op_GGML_OP_SCALE: ggml_op = 21;
 pub const ggml_op_GGML_OP_CPY: ggml_op = 22;
-pub const ggml_op_GGML_OP_RESHAPE: ggml_op = 23;
-pub const ggml_op_GGML_OP_VIEW: ggml_op = 24;
-pub const ggml_op_GGML_OP_PERMUTE: ggml_op = 25;
-pub const ggml_op_GGML_OP_TRANSPOSE: ggml_op = 26;
-pub const ggml_op_GGML_OP_GET_ROWS: ggml_op = 27;
-pub const ggml_op_GGML_OP_DIAG_MASK_INF: ggml_op = 28;
-pub const ggml_op_GGML_OP_SOFT_MAX: ggml_op = 29;
-pub const ggml_op_GGML_OP_ROPE: ggml_op = 30;
-pub const ggml_op_GGML_OP_CONV_1D_1S: ggml_op = 31;
-pub const ggml_op_GGML_OP_CONV_1D_2S: ggml_op = 32;
-pub const ggml_op_GGML_OP_FLASH_ATTN: ggml_op = 33;
-pub const ggml_op_GGML_OP_FLASH_FF: ggml_op = 34;
-pub const ggml_op_GGML_OP_COUNT: ggml_op = 35;
+pub const ggml_op_GGML_OP_CONT: ggml_op = 23;
+pub const ggml_op_GGML_OP_RESHAPE: ggml_op = 24;
+pub const ggml_op_GGML_OP_VIEW: ggml_op = 25;
+pub const ggml_op_GGML_OP_PERMUTE: ggml_op = 26;
+pub const ggml_op_GGML_OP_TRANSPOSE: ggml_op = 27;
+pub const ggml_op_GGML_OP_GET_ROWS: ggml_op = 28;
+pub const ggml_op_GGML_OP_DIAG_MASK_INF: ggml_op = 29;
+pub const ggml_op_GGML_OP_SOFT_MAX: ggml_op = 30;
+pub const ggml_op_GGML_OP_ROPE: ggml_op = 31;
+pub const ggml_op_GGML_OP_CONV_1D_1S: ggml_op = 32;
+pub const ggml_op_GGML_OP_CONV_1D_2S: ggml_op = 33;
+pub const ggml_op_GGML_OP_FLASH_ATTN: ggml_op = 34;
+pub const ggml_op_GGML_OP_FLASH_FF: ggml_op = 35;
+pub const ggml_op_GGML_OP_MAP_UNARY: ggml_op = 36;
+pub const ggml_op_GGML_OP_MAP_BINARY: ggml_op = 37;
+pub const ggml_op_GGML_OP_COUNT: ggml_op = 38;
 pub type ggml_op = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -802,6 +806,9 @@ extern "C" {
     ) -> *mut ggml_tensor;
 }
 extern "C" {
+    pub fn ggml_cont(ctx: *mut ggml_context, a: *mut ggml_tensor) -> *mut ggml_tensor;
+}
+extern "C" {
     pub fn ggml_reshape(
         ctx: *mut ggml_context,
         a: *mut ggml_tensor,
@@ -925,6 +932,32 @@ extern "C" {
         b1: *mut ggml_tensor,
         c0: *mut ggml_tensor,
         c1: *mut ggml_tensor,
+    ) -> *mut ggml_tensor;
+}
+pub type ggml_unary_op_f32_t = ::std::option::Option<
+    unsafe extern "C" fn(arg1: ::std::os::raw::c_int, arg2: *mut f32, arg3: *const f32),
+>;
+pub type ggml_binary_op_f32_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        arg1: ::std::os::raw::c_int,
+        arg2: *mut f32,
+        arg3: *const f32,
+        arg4: *const f32,
+    ),
+>;
+extern "C" {
+    pub fn ggml_map_unary_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        fun: ggml_unary_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_binary_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        b: *mut ggml_tensor,
+        fun: ggml_binary_op_f32_t,
     ) -> *mut ggml_tensor;
 }
 extern "C" {
