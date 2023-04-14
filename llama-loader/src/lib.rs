@@ -94,19 +94,40 @@ pub struct TensorInfo {
     pub start_offset: u64,
 }
 
-#[allow(unused_variables)]
-pub trait LoadHandler<T> {
-    fn got_container_type(&mut self, model_type: ContainerType) -> ControlFlow<T> {
-        ControlFlow::Continue(())
-    }
+/// Info in hyperparameter used for later loading tasks. Used in callback.
+/// see [`LoadHandler::load_hyper_parameters`]
+#[derive(Debug, Clone)]
+pub struct PartialHyperparameters {
+    pub n_vocab: usize,
+}
 
-    fn got_hyper_parameters(&mut self, hparams: LlamaHyperparameters) -> ControlFlow<T> {
+/// use this to load params for llama model inside [`LoadHandler::load_hyper_parameters`]
+pub fn load_llama_hparams<T, R: BufRead + Seek>(reader: &mut R) -> Result<(LlamaHyperparameters, PartialHyperparameters), LoadError<T>> {
+    // NOTE: Field order matters! Data is laid out in the file exactly in this order.
+    let hparams = LlamaHyperparameters {
+        n_vocab: read_i32(reader)?.try_into()?,
+        n_embd: read_i32(reader)?.try_into()?,
+        n_mult: read_i32(reader)?.try_into()?,
+        n_head: read_i32(reader)?.try_into()?,
+        n_layer: read_i32(reader)?.try_into()?,
+        n_rot: read_i32(reader)?.try_into()?,
+        tensor_element_type: decode_element_type_res(read_i32(reader)?)?,
+    };
+    let partial = PartialHyperparameters { n_vocab: hparams.n_vocab };
+    Ok((hparams, partial))
+}
+
+#[allow(unused_variables)]
+pub trait LoadHandler<T, R: BufRead + Seek> {
+    fn got_container_type(&mut self, model_type: ContainerType) -> ControlFlow<T> {
         ControlFlow::Continue(())
     }
 
     fn got_vocab_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> ControlFlow<T> {
         ControlFlow::Continue(())
     }
+
+    fn load_hyper_parameters(&mut self, reader: &mut R) -> ControlFlow<T, PartialHyperparameters>;
 
     /// # Returns
     ///
@@ -117,6 +138,12 @@ pub trait LoadHandler<T> {
     }
 }
 
+#[test]
+fn can_be_vtable() {
+    use std::mem::MaybeUninit;
+    let _a: MaybeUninit<Box<dyn LoadHandler<(), std::fs::File>>> = MaybeUninit::uninit();
+}
+
 fn retchk<A, B>(model_type: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
     match model_type {
         ControlFlow::Continue(x) => Ok(x),
@@ -124,9 +151,9 @@ fn retchk<A, B>(model_type: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
     }
 }
 
-pub fn load_model_from_reader<T>(
-    mut reader: impl BufRead + Seek,
-    handler: &mut impl LoadHandler<T>,
+pub fn load_model_from_reader<T, R: BufRead + Seek>(
+    mut reader: R,
+    handler: &mut impl LoadHandler<T, R>,
 ) -> Result<(), LoadError<T>> {
     // Verify magic
     let container_type: ContainerType = match read_u32(&mut reader)? {
@@ -149,20 +176,8 @@ pub fn load_model_from_reader<T>(
     }
 
     // Load hyper params
-    //
-    // NOTE: Field order matters! Data is laid out in the file exactly
-    // in this order.
-    let hparams = LlamaHyperparameters {
-        n_vocab: read_i32(&mut reader)?.try_into()?,
-        n_embd: read_i32(&mut reader)?.try_into()?,
-        n_mult: read_i32(&mut reader)?.try_into()?,
-        n_head: read_i32(&mut reader)?.try_into()?,
-        n_layer: read_i32(&mut reader)?.try_into()?,
-        n_rot: read_i32(&mut reader)?.try_into()?,
-        tensor_element_type: decode_element_type_res(read_i32(&mut reader)?)?,
-    };
+    let hparams = retchk(handler.load_hyper_parameters(&mut reader))?;
     let n_vocab = hparams.n_vocab;
-    retchk(handler.got_hyper_parameters(hparams))?;
 
     // Load vocabulary
     for i in 0..n_vocab {
@@ -196,9 +211,9 @@ fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T>> {
     }
 }
 
-fn load_weights_ggjt<T>(
-    reader: &mut (impl BufRead + Seek),
-    handler: &mut impl LoadHandler<T>,
+fn load_weights_ggjt<T, R: BufRead + Seek>(
+    reader: &mut R,
+    handler: &mut impl LoadHandler<T, R>,
 ) -> Result<(), LoadError<T>> {
     while has_data_left(reader)? {
         // load tensor header
