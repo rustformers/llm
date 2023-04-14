@@ -102,7 +102,9 @@ pub struct PartialHyperparameters {
 }
 
 /// use this to load params for llama model inside [`LoadHandler::load_hyper_parameters`]
-pub fn load_llama_hparams<T, R: BufRead + Seek>(reader: &mut R) -> Result<(LlamaHyperparameters, PartialHyperparameters), LoadError<T>> {
+pub fn load_llama_hparams<T, R: BufRead + Seek>(
+    reader: &mut R,
+) -> Result<(LlamaHyperparameters, PartialHyperparameters), LoadError<T>> {
     // NOTE: Field order matters! Data is laid out in the file exactly in this order.
     let hparams = LlamaHyperparameters {
         n_vocab: read_i32(reader)?.try_into()?,
@@ -113,7 +115,9 @@ pub fn load_llama_hparams<T, R: BufRead + Seek>(reader: &mut R) -> Result<(Llama
         n_rot: read_i32(reader)?.try_into()?,
         tensor_element_type: decode_element_type_res(read_i32(reader)?)?,
     };
-    let partial = PartialHyperparameters { n_vocab: hparams.n_vocab };
+    let partial = PartialHyperparameters {
+        n_vocab: hparams.n_vocab,
+    };
     Ok((hparams, partial))
 }
 
@@ -129,11 +133,19 @@ pub trait LoadHandler<T, R: BufRead + Seek> {
 
     fn load_hyper_parameters(&mut self, reader: &mut R) -> ControlFlow<T, PartialHyperparameters>;
 
+    /// multi-file loading is not supported
+    /// To handle that yourself, return [`ControlFlow::Break(_)`] here
+    fn load_multipart(&mut self, reader: &mut R) -> ControlFlow<T> {
+        ControlFlow::Continue(())
+    }
+
+    /// callback to get tensor buffer to populate
+    ///
     /// # Returns
     ///
     /// `None` to skip copying
     /// `Some(buf)` to provide a buffer for copying weights into
-    fn get_tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, Option<&mut [u8]>> {
+    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, Option<&mut [u8]>> {
         ControlFlow::Continue(None)
     }
 }
@@ -152,11 +164,11 @@ fn retchk<A, B>(model_type: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
 }
 
 pub fn load_model_from_reader<T, R: BufRead + Seek>(
-    mut reader: R,
+    reader: &mut R,
     handler: &mut impl LoadHandler<T, R>,
 ) -> Result<(), LoadError<T>> {
     // Verify magic
-    let container_type: ContainerType = match read_u32(&mut reader)? {
+    let container_type: ContainerType = match read_u32(reader)? {
         ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
         ggml::FILE_MAGIC_GGJT => ContainerType::GGJT,
         ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
@@ -167,7 +179,7 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
     // Load format version
     match container_type {
         ContainerType::GGMF | ContainerType::GGJT => {
-            let _version: u32 = match read_u32(&mut reader)? {
+            let _version: u32 = match read_u32(reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(version)),
             };
@@ -176,15 +188,15 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
     }
 
     // Load hyper params
-    let hparams = retchk(handler.load_hyper_parameters(&mut reader))?;
+    let hparams = retchk(handler.load_hyper_parameters(reader))?;
     let n_vocab = hparams.n_vocab;
 
     // Load vocabulary
     for i in 0..n_vocab {
-        let len = read_u32(&mut reader)?.try_into()?;
-        let token = read_bytes_with_len(&mut reader, len)?;
+        let len = read_u32(reader)?.try_into()?;
+        let token = read_bytes_with_len(reader, len)?;
         let token_score = match container_type {
-            ContainerType::GGMF | ContainerType::GGJT => read_f32(&mut reader)?,
+            ContainerType::GGMF | ContainerType::GGJT => read_f32(reader)?,
             ContainerType::GGML => {
                 // Legacy model, set empty score
                 0.
@@ -196,11 +208,10 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
     // Load tensor data
     match container_type {
         ContainerType::GGMF | ContainerType::GGML => {
-            let _file_offset = reader.stream_position()?;
-            drop(reader);
-            todo!()
+            retchk(handler.load_multipart(reader))?;
+            load_weights(reader, handler, false)
         }
-        ContainerType::GGJT => load_weights_ggjt(&mut reader, handler),
+        ContainerType::GGJT => load_weights_ggjt(reader, handler),
     }
 }
 
@@ -214,6 +225,18 @@ fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T>> {
 fn load_weights_ggjt<T, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<T, R>,
+) -> Result<(), LoadError<T>> {
+    load_weights(reader, handler, true)
+}
+
+/// # Params
+///
+/// `align`
+/// align to 4 bytes before reading tensor weights
+fn load_weights<T, R: BufRead + Seek>(
+    reader: &mut R,
+    handler: &mut impl LoadHandler<T, R>,
+    align: bool,
 ) -> Result<(), LoadError<T>> {
     while has_data_left(reader)? {
         // load tensor header
@@ -249,7 +272,11 @@ fn load_weights_ggjt<T, R: BufRead + Seek>(
 
         // load tensor weights
         let offset_curr = reader.stream_position()?;
-        let offset_aligned: u64 = (offset_curr + 31) & !31;
+        let offset_aligned: u64 = if align {
+            (offset_curr + 31) & !31
+        } else {
+            offset_curr
+        };
 
         let tensor_info = TensorInfo {
             name,
@@ -261,8 +288,10 @@ fn load_weights_ggjt<T, R: BufRead + Seek>(
         };
 
         let type_size = ggml::type_size(ftype);
-        if let Some(buf) = retchk(handler.get_tensor_buffer(tensor_info))? {
-            reader.seek(SeekFrom::Start(offset_aligned))?;
+        if let Some(buf) = retchk(handler.tensor_buffer(tensor_info))? {
+            if align {
+                reader.seek(SeekFrom::Start(offset_aligned))?;
+            }
             let buf_len = buf.len();
             if !(buf_len == type_size * n_elements) {
                 return Err(LoadError::InvariantBroken(format!(
