@@ -2,6 +2,7 @@
 members = [
     "ggml-sys",
     "ggml",
+    "llama",
     "llama-rs",
     "llama-cli",
     "generate-ggml-bindings"
@@ -12,4 +13,6 @@ resolver = "2"
 version = "0.1.0"
 
 [workspace.dependencies]
+bytemuck = "1.13.1"
 rand = "0.8.5"
+serde = { version = "1.0", features = ["derive"] }

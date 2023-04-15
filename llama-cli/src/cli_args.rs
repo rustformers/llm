@@ -260,9 +260,9 @@ pub struct ModelLoad {
     pub num_ctx_tokens: usize,
 }
 impl ModelLoad {
-    pub fn load(&self) -> llama_rs::Model {
-        let model = llama_rs::Model::load(&self.model_path, self.num_ctx_tokens, |progress| {
-            use llama_rs::LoadProgress;
+    pub fn load(&self) -> llama::Llama {
+        let model = llama::Llama::load(&self.model_path, self.num_ctx_tokens, |progress| {
+            use llama::LoadProgress;
             match progress {
                 LoadProgress::HyperparametersLoaded(hparams) => {
                     log::debug!("Loaded hyperparameters {hparams:#?}")

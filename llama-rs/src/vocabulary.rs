@@ -11,16 +11,16 @@ pub(crate) type TokenScore = f32;
 #[derive(Debug, Clone)]
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding token
-    pub(crate) id_to_token: Vec<Token>,
+    pub id_to_token: Vec<Token>,
 
     /// Maps every integer (index) token id to corresponding score
-    pub(crate) id_to_token_score: Vec<TokenScore>,
+    pub id_to_token_score: Vec<TokenScore>,
 
     /// Maps a token to a token id
-    pub(crate) token_to_id: HashMap<Token, TokenId>,
+    pub token_to_id: HashMap<Token, TokenId>,
 
     /// The longest token in this vocabulary
-    pub(crate) max_token_length: usize,
+    pub max_token_length: usize,
 }
 impl Vocabulary {
     pub(crate) fn token(&self, idx: usize) -> &[u8] {

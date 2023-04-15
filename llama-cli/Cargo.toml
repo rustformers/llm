@@ -6,7 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llama-rs = { path = "../llama-rs", features = ["convert"] }
+llama = { path = "../llama", features = ["convert"] }
+llama-rs = { path = "../llama-rs" }
 
 rand = { workspace = true }
 

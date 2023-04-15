@@ -1,7 +1,3 @@
-use std::path::{Path, PathBuf};
-
-use crate::LoadError;
-
 /// NOTE: The original code relies in promotion rules and automatic cast between
 /// int to float. What we do instead is use this macro to convert every term of
 /// the multiplication to f64, which should have enough precision bits to hold
@@ -9,13 +5,12 @@ use crate::LoadError;
 /// the ctx_size found using this code, and the one in llama.cpp. The number for
 /// rust ends up being slightly lower, but no "out of memory" errors are
 /// reported by ggml.
+#[macro_export]
 macro_rules! mulf {
     ($term:expr, $($terms:expr),*) => {
         usize::try_from((($term as f64) $(* ($terms as f64))*) as u64).unwrap()
     };
 }
-
-pub(crate) use mulf;
 
 /// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
 ///
@@ -66,94 +61,5 @@ impl TokenUtf8Buffer {
             Some(tokens) => callback(&tokens),
             None => Ok(()),
         }
-    }
-}
-
-pub(crate) fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
-    Ok(collect_related_paths(
-        main_path,
-        std::fs::read_dir(main_path.parent().ok_or_else(|| LoadError::NoParentPath {
-            path: main_path.to_owned(),
-        })?)?
-        .filter_map(Result::ok)
-        .map(|de| de.path()),
-    ))
-}
-
-fn collect_related_paths(
-    main_path: &Path,
-    directory_paths: impl Iterator<Item = PathBuf>,
-) -> Vec<PathBuf> {
-    let main_filename = main_path.file_name().and_then(|p| p.to_str());
-
-    let mut paths: Vec<PathBuf> = directory_paths
-        .filter(|p| {
-            p.file_name()
-                .and_then(|p| p.to_str())
-                .zip(main_filename)
-                .map(|(part_filename, main_filename)| {
-                    match part_filename.strip_prefix(main_filename) {
-                        Some(suffix) => {
-                            suffix.is_empty()
-                                || (suffix
-                                    .strip_prefix('.')
-                                    .map(|s| s.parse::<usize>().is_ok())
-                                    .unwrap_or(false))
-                        }
-                        None => false,
-                    }
-                })
-                .unwrap_or(false)
-        })
-        .collect();
-    paths.sort();
-    paths
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_collect_related_paths() {
-        let main_path = PathBuf::from("/models/llama.bin");
-        let directory_paths = [
-            "/models/llama.bin",
-            "/models/llama.bin.1",
-            "/models/llama.bin.2",
-            "/models/llama.bin.tmp",
-        ]
-        .map(PathBuf::from);
-        let expected_paths = [
-            "/models/llama.bin",
-            "/models/llama.bin.1",
-            "/models/llama.bin.2",
-        ]
-        .map(PathBuf::from);
-
-        let output_paths = collect_related_paths(&main_path, directory_paths.into_iter());
-        assert_eq!(expected_paths.as_slice(), output_paths);
-    }
-
-    #[test]
-    fn test_valid_utf8() {
-        let mut buffer = TokenUtf8Buffer::new();
-        assert_eq!(buffer.push(b"hello").as_deref(), Some("hello"));
-        assert_eq!(buffer.push(&[0xE2, 0x82, 0xAC]).as_deref(), Some("€"));
-    }
-
-    #[test]
-    fn test_partial_utf8() {
-        let mut buffer = TokenUtf8Buffer::new();
-        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
-        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
-    }
-
-    #[test]
-    fn test_invalid_prelude_for_valid_utf8() {
-        let mut buffer = TokenUtf8Buffer::new();
-        assert_eq!(buffer.push(&[0xD8]).as_deref(), None);
-        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
-        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
     }
 }

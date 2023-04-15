@@ -3,13 +3,11 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "convert")]
-pub mod convert;
-
 mod inference_session;
-mod loader;
-mod model;
-mod util;
+/// Large language model
+pub mod model;
+/// Utilities
+pub mod util;
 mod vocabulary;
 
 pub use ggml::Type as ElementType;
@@ -17,8 +15,7 @@ pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
     SnapshotError,
 };
-pub use loader::{LoadError, LoadProgress};
-pub use model::{Hyperparameters, Model};
+pub use model::Model;
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 

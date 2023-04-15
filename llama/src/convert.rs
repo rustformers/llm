@@ -16,7 +16,7 @@ use std::{
     vec,
 };
 
-use crate::{util, Hyperparameters, Vocabulary};
+use crate::{ggml_loader::find_all_model_files, Hyperparameters, Vocabulary};
 
 /// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
@@ -25,7 +25,7 @@ pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
 
     let hparams = load_hyperparameters(model_directory, element_type, &vocab);
 
-    let model_files = util::find_all_model_files(model_directory).unwrap();
+    let model_files = find_all_model_files(model_directory).unwrap();
 
     for (i, _file) in model_files.iter().enumerate() {
         let fname_out = model_directory.join(format!("rust-model-{}.bin", element_type));

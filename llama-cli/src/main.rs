@@ -2,8 +2,10 @@ use std::{convert::Infallible, io::Write};
 
 use clap::Parser;
 use cli_args::Args;
-use llama_rs::{convert::convert_pth_to_ggml, InferenceError};
 use rustyline::error::ReadlineError;
+
+use llama::convert::convert_pth_to_ggml;
+use llama_rs::{InferenceError, Model};
 
 mod cli_args;
 mod snapshot;

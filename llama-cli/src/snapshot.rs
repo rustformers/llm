@@ -13,12 +13,12 @@ use zstd::{
 const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
 
 pub fn read_or_create_session(
-    model: &Model,
+    model: &llama::Llama,
     persist_session: Option<&Path>,
     load_session: Option<&Path>,
     inference_session_params: InferenceSessionParameters,
 ) -> (InferenceSession, bool) {
-    fn load(model: &Model, path: &Path) -> InferenceSession {
+    fn load(model: &llama::Llama, path: &Path) -> InferenceSession {
         let file = unwrap_or_exit(File::open(path), || format!("Could not open file {path:?}"));
         let decoder = unwrap_or_exit(Decoder::new(BufReader::new(file)), || {
             format!("Could not create decoder for {path:?}")

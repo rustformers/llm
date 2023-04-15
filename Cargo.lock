@@ -457,12 +457,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 
 [[package]]
+name = "llama"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llama-rs",
+ "protobuf",
+ "rust_tokenizers",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "llama-cli"
 version = "0.1.0"
 dependencies = [
  "bincode",
  "clap",
  "env_logger",
+ "llama",
  "llama-rs",
  "log",
  "num_cpus",
@@ -480,12 +495,9 @@ dependencies = [
  "bytemuck",
  "ggml",
  "partial_sort",
- "protobuf",
  "rand",
- "rust_tokenizers",
  "serde",
  "serde_bytes",
- "serde_json",
  "thiserror",
 ]
 
