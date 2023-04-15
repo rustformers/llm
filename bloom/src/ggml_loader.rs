@@ -10,14 +10,14 @@ use ggml::loader::{
 };
 use llama_rs::{mulf, TokenId, Vocabulary};
 
-use crate::{Hyperparameters, Llama};
+use crate::{Bloom, Hyperparameters};
 
 /// Load a model from disk
 pub fn load(
     path: impl AsRef<Path>,
-    n_context_tokens: usize,
+    n_ctx: usize,
     mut load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
-) -> Result<Llama, LoadError> {
+) -> Result<Bloom, LoadError> {
     use std::fs::File;
     use std::io::BufReader;
 
@@ -59,17 +59,15 @@ pub fn load(
     // in this order.
     let hparams = Hyperparameters {
         n_vocab: read_i32(&mut reader)?.try_into()?,
-        n_ctx: n_context_tokens,
+        n_ctx,
         n_embd: read_i32(&mut reader)?.try_into()?,
         n_mult: read_i32(&mut reader)?.try_into()?,
         n_head: read_i32(&mut reader)?.try_into()?,
         n_layer: read_i32(&mut reader)?.try_into()?,
-        n_rot: read_i32(&mut reader)?.try_into()?,
         f16_: read_i32(&mut reader)?.try_into()?,
     };
 
-    let n_ff =
-        ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
+    let n_ff = ((4 * hparams.n_embd + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
 
     load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
 
@@ -124,27 +122,35 @@ pub fn load(
     let n_vocab = hparams.n_vocab;
 
     let ctx_size = {
-        // Use 64-bit math to prevent overflow.
         let mut ctx_size: usize = 0;
 
         ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
 
         ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
+        ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm_b
+
+        ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // output_norm
+        ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // output_norm_b
 
         ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
 
         ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
+        ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm_b
 
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
-        ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
+        ctx_size += mulf!(n_layer, 3, n_embd, n_embd, ggml::type_sizef(wtype)); //query_key_value
+        ctx_size += mulf!(n_layer, 3, n_embd, ggml::type_sizef(ggml::Type::F32)); //query_key_value_b
+
         ctx_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
+        ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // wo_b
 
         ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
+        ctx_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm_b
 
         ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
+        ctx_size += mulf!(n_layer, n_ff, ggml::type_sizef(ggml::Type::F32)); // w1_b
+
         ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
-        ctx_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
+        ctx_size += mulf!(n_layer, n_ff, ggml::type_sizef(ggml::Type::F32)); // w2_b
 
         ctx_size += (5 + 10 * n_layer) * 256; // object overhead
 
@@ -154,9 +160,9 @@ pub fn load(
     };
 
     // Initialize the context
-    let context = ggml::Context::init(ctx_size);
+    let context = ggml::Context::init(ctx_size as usize);
 
-    let model = Llama::new(context, hparams, vocabulary, n_ff, wtype);
+    let model = Bloom::new(context, hparams, vocabulary, n_ff, wtype);
 
     // Close the file, but keep its offset. That way we know how to skip the
     // metadata when loading the parts.
@@ -164,6 +170,7 @@ pub fn load(
     drop(reader);
 
     let paths = find_all_model_files(main_path)?;
+
     let n_parts = paths.len();
 
     for (i, part_path) in paths.into_iter().enumerate() {
@@ -171,7 +178,7 @@ pub fn load(
 
         load_progress_callback(LoadProgress::PartLoading {
             file: &part_path,
-            current_part: i,
+            current_part: i + 1,
             total_parts: n_parts,
         });
 
@@ -196,7 +203,7 @@ pub fn load(
             let length = read_i32(&mut part_reader)?;
             let ftype = read_u32(&mut part_reader)?;
 
-            let mut nelements = 1;
+            let mut nelements: usize = 1;
             let mut ne = [1i64, 1i64];
 
             #[allow(clippy::needless_range_loop)]
@@ -207,10 +214,10 @@ pub fn load(
 
             let tensor_name = read_string(&mut part_reader, length as usize)?;
 
-            let Some(tensor) = model.tensors().get(&tensor_name)
-                else {
-                    return Err(LoadError::UnknownTensor { tensor_name, path: part_path });
-                };
+            let Some(tensor) = model.tensors.get(&tensor_name)
+              else {
+                  return Err(LoadError::UnknownTensor { tensor_name, path: part_path.to_path_buf() });
+              };
 
             // split_type = 0: split by columns
             // split_type = 1: split by rows
@@ -250,13 +257,13 @@ pub fn load(
                 if tensor.nelements() != nelements {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
             } else if tensor.nelements() / n_parts != nelements {
                 return Err(LoadError::TensorWrongSize {
                     tensor_name,
-                    path: part_path,
+                    path: part_path.to_path_buf(),
                 });
             }
 
@@ -264,7 +271,7 @@ pub fn load(
                 if tensor.get_ne()[0] != ne[0] || tensor.get_ne()[1] != ne[1] {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
             } else if split_type == 0 {
@@ -273,7 +280,7 @@ pub fn load(
                 {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
             } else if tensor.get_ne()[0] != ne[0]
@@ -281,7 +288,7 @@ pub fn load(
             {
                 return Err(LoadError::TensorWrongSize {
                     tensor_name,
-                    path: part_path,
+                    path: part_path.to_path_buf(),
                 });
             }
 
@@ -298,18 +305,20 @@ pub fn load(
                 }
                 _ => {
                     return Err(LoadError::InvalidFtype {
-                        tensor_name,
                         ftype,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
+                        tensor_name,
                     })
                 }
             };
 
             if n_dims == 1 || n_parts == 1 {
-                if (nelements * bpe) / ggml::blck_size(tensor.get_type()) != tensor.nbytes() {
+                if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
+                    != tensor.nbytes()
+                {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
 
@@ -326,12 +335,12 @@ pub fn load(
 
                 total_size += tensor.nbytes();
             } else {
-                if (nelements * bpe) / ggml::blck_size(tensor.get_type())
+                if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
                     != tensor.nbytes() / n_parts
                 {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
-                        path: part_path,
+                        path: part_path.to_path_buf(),
                     });
                 }
 
@@ -346,7 +355,8 @@ pub fn load(
                     for i1 in 0..ne[1] {
                         let offset_row = i1 as usize * row_size;
                         let offset = offset_row
-                            + ((part_id * np0 as usize) / ggml::blck_size(tensor.get_type()))
+                            + ((part_id * np0 as usize)
+                                / ggml::blck_size(tensor.get_type()) as usize)
                                 * ggml::type_size(tensor.get_type());
                         // SAFETY: yolo, same as original code
                         unsafe {
@@ -358,6 +368,7 @@ pub fn load(
                     }
                 } else {
                     let np1 = ne[1];
+
                     let row_size = (usize::try_from(tensor.get_ne()[0])?
                         / ggml::blck_size(tensor.get_type()))
                         * ggml::type_size(tensor.get_type());
@@ -380,7 +391,7 @@ pub fn load(
             load_progress_callback(LoadProgress::PartTensorLoaded {
                 file: &part_path,
                 current_tensor: n_tensors.try_into()?,
-                tensor_count: model.tensors().len(),
+                tensor_count: model.tensors.len(),
             });
         }
 

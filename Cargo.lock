@@ -61,6 +61,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "bloom"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llama-rs",
+]
+
+[[package]]
+name = "bloom-cli"
+version = "0.1.0"
+dependencies = [
+ "bloom",
+ "clap",
+ "env_logger",
+ "ggml",
+ "llama-rs",
+ "log",
+ "num_cpus",
+ "once_cell",
+ "rand",
+ "rustyline",
+ "spinners",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -324,6 +350,8 @@ name = "ggml"
 version = "0.1.0"
 dependencies = [
  "ggml-sys",
+ "log",
+ "thiserror",
 ]
 
 [[package]]
@@ -467,16 +495,15 @@ dependencies = [
  "rust_tokenizers",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
 name = "llama-cli"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "clap",
  "env_logger",
+ "ggml",
  "llama",
  "llama-rs",
  "log",
@@ -485,20 +512,22 @@ dependencies = [
  "rand",
  "rustyline",
  "spinners",
- "zstd",
 ]
 
 [[package]]
 name = "llama-rs"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "bytemuck",
  "ggml",
+ "log",
  "partial_sort",
  "rand",
  "serde",
  "serde_bytes",
  "thiserror",
+ "zstd",
 ]
 
 [[package]]

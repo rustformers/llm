@@ -4,8 +4,7 @@ use clap::Parser;
 use cli_args::Args;
 use rustyline::error::ReadlineError;
 
-use llama::convert::convert_pth_to_ggml;
-use llama_rs::{InferenceError, Model, snapshot};
+use llama_rs::{snapshot, InferenceError, Model};
 
 mod cli_args;
 
@@ -21,7 +20,6 @@ fn main() {
         Args::DumpTokens(args) => dump_tokens(&args),
         Args::Repl(args) => interactive(&args, false),
         Args::ChatExperimental(args) => interactive(&args, true),
-        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
     }
 }
 

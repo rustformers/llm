@@ -1,13 +1,13 @@
 [package]
-name = "llama-cli"
+name = "bloom-cli"
 version = { workspace = true }
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bloom = { path = "../bloom" }
 ggml = { path = "../ggml" }
-llama = { path = "../llama", features = ["convert"] }
 llama-rs = { path = "../llama-rs" }
 
 log = { workspace = true }

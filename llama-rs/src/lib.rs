@@ -3,11 +3,14 @@
 
 use thiserror::Error;
 
-mod inference_session;
 /// Large language model
 pub mod model;
 /// Utilities
 pub mod util;
+/// Snapshots
+pub mod snapshot;
+
+mod inference_session;
 mod vocabulary;
 
 pub use ggml::Type as ElementType;

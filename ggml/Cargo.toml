@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 ggml-sys = { path = "../ggml-sys" }
+
+log = { workspace = true }
+
+thiserror = "1.0"

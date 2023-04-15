@@ -33,15 +33,6 @@ pub enum Args {
     /// and do not support a long enough context window to be able to
     /// have an extended conversation.
     ChatExperimental(Box<Repl>),
-
-    #[command(hide = true)]
-    /// Convert a PyTorch model to a GGML model
-    ///
-    /// This is *not* fully implemented. This is a starting point for developers
-    /// to continue at a later stage.
-    ///
-    /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
-    Convert(Box<Convert>),
 }
 
 #[derive(Parser, Debug)]
@@ -263,8 +254,8 @@ pub struct ModelLoad {
     pub num_ctx_tokens: usize,
 }
 impl ModelLoad {
-    pub fn load(&self) -> llama::Llama {
-        let model = llama::Llama::load(&self.model_path, self.num_ctx_tokens, load_progress)
+    pub fn load(&self) -> bloom::Bloom {
+        let model = bloom::Bloom::load(&self.model_path, self.num_ctx_tokens, load_progress)
             .expect("Could not load model");
 
         log::info!("Model fully loaded!");

@@ -1,0 +1,12 @@
+[package]
+name = "bloom"
+version = { workspace = true }
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ggml = { path = "../ggml" }
+llama-rs = { path = "../llama-rs" }
+
+bytemuck = { workspace = true }

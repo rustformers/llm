@@ -14,6 +14,9 @@ use std::{
     sync::{Arc, Weak},
 };
 
+/// GGML loading utilities
+pub mod loader;
+
 /// Magic constant for `ggml` files (versioned).
 pub const FILE_MAGIC: u32 = 0x67676d66;
 /// Magic constant for `ggml` files (unversioned).
@@ -461,6 +464,26 @@ impl Context {
                 },
             );
         }
+    }
+
+    /// TODO: something something
+    pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_alibi(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i32(n_past),
+                usize_to_i32(n_head),
+            )
+        };
+
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Gaussian Error Linear Units
+    pub fn op_gelu(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { ggml_sys::ggml_gelu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
     }
 }
 

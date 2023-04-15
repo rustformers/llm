@@ -6,13 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytemuck = { workspace = true }
 ggml = { path = "../ggml" }
 llama-rs = { path = "../llama-rs" }
 
+bytemuck = { workspace = true }
 serde = { workspace = true }
-
-thiserror = "1.0"
 
 # Used for the `convert` feature
 serde_json = { version = "1.0", optional = true }

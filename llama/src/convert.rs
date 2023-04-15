@@ -16,7 +16,9 @@ use std::{
     vec,
 };
 
-use crate::{ggml_loader::find_all_model_files, Hyperparameters, Vocabulary};
+use ggml::loader::find_all_model_files;
+
+use crate::{Hyperparameters, Vocabulary};
 
 /// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {

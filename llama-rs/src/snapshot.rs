@@ -1,10 +1,12 @@
-use llama_rs::{InferenceSession, InferenceSessionParameters, Model};
 use std::{
     error::Error,
     fs::File,
     io::{BufReader, BufWriter},
     path::Path,
 };
+
+use crate::{InferenceSession, InferenceSessionParameters, Model};
+
 use zstd::{
     stream::{read::Decoder, write::Encoder},
     zstd_safe::CompressionLevel,
@@ -12,13 +14,14 @@ use zstd::{
 
 const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
 
+/// Read or create a session
 pub fn read_or_create_session(
-    model: &llama::Llama,
+    model: &impl Model,
     persist_session: Option<&Path>,
     load_session: Option<&Path>,
     inference_session_params: InferenceSessionParameters,
 ) -> (InferenceSession, bool) {
-    fn load(model: &llama::Llama, path: &Path) -> InferenceSession {
+    fn load(model: &impl Model, path: &Path) -> InferenceSession {
         let file = unwrap_or_exit(File::open(path), || format!("Could not open file {path:?}"));
         let decoder = unwrap_or_exit(Decoder::new(BufReader::new(file)), || {
             format!("Could not create decoder for {path:?}")
@@ -40,7 +43,8 @@ pub fn read_or_create_session(
     }
 }
 
-pub fn write_session(mut session: llama_rs::InferenceSession, path: &Path) {
+/// Write the session
+pub fn write_session(mut session: InferenceSession, path: &Path) {
     // SAFETY: the session is consumed here, so nothing else can access it.
     let snapshot = unsafe { session.get_snapshot() };
     let file = unwrap_or_exit(File::create(path), || {

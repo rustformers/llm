@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "bloom",
+    "bloom-cli",
     "ggml-sys",
     "ggml",
     "llama",
@@ -14,5 +16,6 @@ version = "0.1.0"
 
 [workspace.dependencies]
 bytemuck = "1.13.1"
+log = "0.4"
 rand = "0.8.5"
 serde = { version = "1.0", features = ["derive"] }
