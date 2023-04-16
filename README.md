@@ -30,10 +30,11 @@ performance as the original code.
 
 Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
-`llama-rs` is a Rust library, while `llama-cli` is a CLI application that wraps
-`llama-rs` and offers basic inference capabilities.
+`llm-base`, `bloom`, and `llama` are Rust libraries, while `bloom-cli` and
+`llama-cli` are a CLI applications that wrap `bloom` and `llama`, respectively,
+and offer basic inference capabilities.
 
-The following instructions explain how to build `llama-cli`.
+The following instructions explain how to build the CLI applications.
 
 **NOTE**: For best results, make sure to build and run in release mode.
 Debug builds are going to be very slow.
@@ -43,33 +44,34 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llama-rs llama-cli
+cargo install --git https://github.com/rustformers/llama-rs bloom-cli llama-cli
 ```
 
-to install `llama-cli` to your Cargo `bin` directory, which `rustup` is likely to
-have added to your `PATH`.
+to install `bloom-cli` and `llama-cli` to your Cargo `bin` directory, which
+`rustup` is likely to have added to your `PATH`.
 
-It can then be run through `llama-cli`.
+The CLI applications can then be run through `bloom-cli` and `llama-cli`, respectively.
 
 ### Building from repository
 
 Clone the repository, and then build it through
 
 ```shell
-cargo build --release --bin llama-cli
+cargo build --release
 ```
 
-The resulting binary will be at `target/release/llama-cli[.exe]`.
+The resulting binaries will be at `target/release/bloom-cli[.exe]` and
+`target/release/llama-cli[.exe]`, respectively.
 
-It can also be run directly through Cargo, using
+They can also be run directly through Cargo, using
 
 ```shell
-cargo run --release --bin llama-cli -- <ARGS>
+cargo run --release --bin {bloom,llama}-cli -- <ARGS>
 ```
 
 This is useful for development.
 
-### Getting the weights
+### Getting LLaMA weights
 
 In order to run the inference code in `llama-rs`, a copy of the model's weights
 are required. Currently, the only legal source to get the weights is [this
@@ -102,6 +104,14 @@ python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 > Currently, `llama-rs` supports both the old (unversioned) and the new
 > (versioned) ggml formats, but not the mmap-ready version that was [recently
 > merged](https://github.com/ggerganov/llama.cpp/pull/613).
+
+### BLOOM
+
+The open-source [BLOOM](https://bigscience.huggingface.co/blog/bloom) model is
+also supported.
+[More information](https://huggingface.co/docs/transformers/model_doc/bloom)
+about BLOOM is available on HuggingFace, as are some
+[quantized models](https://huggingface.co/models?search=bloom%20ggml).
 
 _Support for other open source models is currently planned. For models where
 weights can be legally distributed, this section will be updated with scripts to
