@@ -34,7 +34,6 @@ pub struct Llama {
 }
 
 impl Model for Llama {
-    type Model = Llama;
     type Hyperparameters = Hyperparameters;
     type Layer = Layer;
 

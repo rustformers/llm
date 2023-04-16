@@ -5,8 +5,6 @@ use crate::{
 
 /// A large language model.
 pub trait Model {
-    /// The model type.
-    type Model;
     /// Hyperparameters for the model
     type Hyperparameters;
     /// Layer for the model

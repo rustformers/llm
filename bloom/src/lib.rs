@@ -28,7 +28,6 @@ pub struct Bloom {
 }
 
 impl Model for Bloom {
-    type Model = Bloom;
     type Hyperparameters = Hyperparameters;
     type Layer = Layer;
 
