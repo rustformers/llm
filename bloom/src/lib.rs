@@ -29,7 +29,6 @@ pub struct Bloom {
 
 impl Model for Bloom {
     type Hyperparameters = Hyperparameters;
-    type Layer = Layer;
 
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(

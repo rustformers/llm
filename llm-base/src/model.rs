@@ -7,8 +7,6 @@ use crate::{
 pub trait Model {
     /// Hyperparameters for the model
     type Hyperparameters;
-    /// Layer for the model
-    type Layer;
 
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;

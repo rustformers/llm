@@ -35,7 +35,6 @@ pub struct Llama {
 
 impl Model for Llama {
     type Hyperparameters = Hyperparameters;
-    type Layer = Layer;
 
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(
