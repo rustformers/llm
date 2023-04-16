@@ -204,6 +204,7 @@ enum ggml_type {
     GGML_TYPE_F16  = 1,
     GGML_TYPE_Q4_0 = 2,
     GGML_TYPE_Q4_1 = 3,
+    GGML_TYPE_Q8_0 = 4,
     GGML_TYPE_I8,
     GGML_TYPE_I16,
     GGML_TYPE_I32,
@@ -353,6 +354,8 @@ size_t  ggml_nbytes   (const struct ggml_tensor * tensor);
 int    ggml_blck_size (enum ggml_type type);
 size_t ggml_type_size (enum ggml_type type); // size in bytes for all elements in a block
 float  ggml_type_sizef(enum ggml_type type); // ggml_type_size()/ggml_blck_size() as float
+
+const char * ggml_type_name(enum ggml_type type);
 
 size_t ggml_element_size(const struct ggml_tensor * tensor);
 
@@ -834,6 +837,7 @@ typedef struct {
     dequantize_row_q_t dequantize_row_q;
     quantize_row_q_t   quantize_row_q;
     quantize_row_q_t   quantize_row_q_reference;
+    quantize_row_q_t   quantize_row_q_dot;
     vec_dot_q_t        vec_dot_q;
 } quantize_fns_t;
 
