@@ -5,7 +5,7 @@ use rand::SeedableRng;
 
 use ggml::loader::load_progress;
 
-use llama_rs::{
+use llm_base::{
     InferenceParameters, InferenceSessionParameters, ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
 
@@ -330,13 +330,13 @@ pub enum ElementType {
     /// Float 32-bit.
     F32,
 }
-impl From<ElementType> for llama_rs::ElementType {
+impl From<ElementType> for llm_base::ElementType {
     fn from(model_type: ElementType) -> Self {
         match model_type {
-            ElementType::Q4_0 => llama_rs::ElementType::Q4_0,
-            ElementType::Q4_1 => llama_rs::ElementType::Q4_1,
-            ElementType::F16 => llama_rs::ElementType::F16,
-            ElementType::F32 => llama_rs::ElementType::F32,
+            ElementType::Q4_0 => llm_base::ElementType::Q4_0,
+            ElementType::Q4_1 => llm_base::ElementType::Q4_1,
+            ElementType::F16 => llm_base::ElementType::F16,
+            ElementType::F32 => llm_base::ElementType::F32,
         }
     }
 }

@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 bloom = { path = "../bloom" }
 ggml = { path = "../ggml" }
-llama-rs = { path = "../llama-rs" }
+llm-base = { path = "../llm-base" }
 
 log = { workspace = true }
 rand = { workspace = true }

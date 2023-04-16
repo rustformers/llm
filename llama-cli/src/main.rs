@@ -5,7 +5,7 @@ use cli_args::Args;
 use rustyline::error::ReadlineError;
 
 use llama::convert::convert_pth_to_ggml;
-use llama_rs::{snapshot, InferenceError, Model};
+use llm_base::{snapshot, InferenceError, Model};
 
 mod cli_args;
 
@@ -55,14 +55,15 @@ fn infer(args: &cli_args::Infer) {
 
     match res {
         Ok(_) => (),
-        Err(llama_rs::InferenceError::ContextFull) => {
+        Err(InferenceError::ContextFull) => {
             log::warn!("Context window full, stopping inference.")
         }
-        Err(llama_rs::InferenceError::TokenizationFailed) => {
+        Err(InferenceError::TokenizationFailed) => {
             log::error!("Failed to tokenize initial prompt.");
         }
-        Err(llama_rs::InferenceError::UserCallback(_))
-        | Err(llama_rs::InferenceError::EndOfText) => unreachable!("cannot fail"),
+        Err(InferenceError::UserCallback(_)) | Err(InferenceError::EndOfText) => {
+            unreachable!("cannot fail")
+        }
     }
 
     if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {

@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 ggml = { path = "../ggml" }
 llama = { path = "../llama", features = ["convert"] }
-llama-rs = { path = "../llama-rs" }
+llm-base = { path = "../llm-base" }
 
 log = { workspace = true }
 rand = { workspace = true }

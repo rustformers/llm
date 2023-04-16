@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use ggml::loader::{LoadError, LoadProgress};
-use llama_rs::{model::Model, InferenceSession, InferenceSessionParameters, Vocabulary};
+use llm_base::{
+    EvaluateOutputRequest, InferenceParameters, InferenceSession, InferenceSessionParameters,
+    Model, TokenId, Vocabulary,
+};
 
 #[cfg(feature = "convert")]
 pub mod convert;
@@ -48,9 +51,9 @@ impl Model for Llama {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &llama_rs::InferenceParameters,
-        input_tokens: &[llama_rs::TokenId],
-        output_request: &mut llama_rs::EvaluateOutputRequest,
+        params: &InferenceParameters,
+        input_tokens: &[TokenId],
+        output_request: &mut EvaluateOutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;

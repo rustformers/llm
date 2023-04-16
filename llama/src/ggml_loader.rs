@@ -8,7 +8,7 @@ use ggml::loader::{
     find_all_model_files, read_bytes_with_len, read_f32, read_i32, read_string, read_u32,
     LoadError, LoadProgress,
 };
-use llama_rs::{mulf, TokenId, Vocabulary};
+use llm_base::{mulf, TokenId, Vocabulary};
 
 use crate::{Hyperparameters, Llama};
 

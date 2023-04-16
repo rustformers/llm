@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 ggml = { path = "../ggml" }
-llama-rs = { path = "../llama-rs" }
+llm-base = { path = "../llm-base" }
 
 bytemuck = { workspace = true }

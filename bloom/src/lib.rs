@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use ggml::loader::{LoadError, LoadProgress};
-use llama_rs::{InferenceSession, Model, Vocabulary};
+use llm_base::{
+    EvaluateOutputRequest, InferenceParameters, InferenceSession, InferenceSessionParameters,
+    Model, TokenId, Vocabulary,
+};
 
 mod ggml_loader;
 
@@ -29,7 +32,7 @@ impl Model for Bloom {
     type Hyperparameters = Hyperparameters;
     type Layer = Layer;
 
-    fn start_session(&self, params: llama_rs::InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(
             params,
             self.hparams.n_ctx,
@@ -41,10 +44,10 @@ impl Model for Bloom {
 
     fn evaluate(
         &self,
-        session: &mut llama_rs::InferenceSession,
-        params: &llama_rs::InferenceParameters,
-        input_tokens: &[llama_rs::TokenId],
-        output_request: &mut llama_rs::EvaluateOutputRequest,
+        session: &mut InferenceSession,
+        params: &InferenceParameters,
+        input_tokens: &[TokenId],
+        output_request: &mut EvaluateOutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;
