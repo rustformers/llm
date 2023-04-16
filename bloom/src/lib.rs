@@ -498,7 +498,7 @@ pub struct Hyperparameters {
     pub f16_: u32,
 }
 
-pub struct Layer {
+struct Layer {
     pub attention_norm: ggml::Tensor,
     pub attention_norm_b: ggml::Tensor,
     pub wo: ggml::Tensor,
