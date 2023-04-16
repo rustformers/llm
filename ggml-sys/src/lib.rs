@@ -27,10 +27,11 @@ pub const ggml_type_GGML_TYPE_F32: ggml_type = 0;
 pub const ggml_type_GGML_TYPE_F16: ggml_type = 1;
 pub const ggml_type_GGML_TYPE_Q4_0: ggml_type = 2;
 pub const ggml_type_GGML_TYPE_Q4_1: ggml_type = 3;
-pub const ggml_type_GGML_TYPE_I8: ggml_type = 4;
-pub const ggml_type_GGML_TYPE_I16: ggml_type = 5;
-pub const ggml_type_GGML_TYPE_I32: ggml_type = 6;
-pub const ggml_type_GGML_TYPE_COUNT: ggml_type = 7;
+pub const ggml_type_GGML_TYPE_Q8_0: ggml_type = 4;
+pub const ggml_type_GGML_TYPE_I8: ggml_type = 5;
+pub const ggml_type_GGML_TYPE_I16: ggml_type = 6;
+pub const ggml_type_GGML_TYPE_I32: ggml_type = 7;
+pub const ggml_type_GGML_TYPE_COUNT: ggml_type = 8;
 pub type ggml_type = ::std::os::raw::c_uint;
 pub const ggml_op_GGML_OP_NONE: ggml_op = 0;
 pub const ggml_op_GGML_OP_DUP: ggml_op = 1;
@@ -610,6 +611,9 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_type_sizef(type_: ggml_type) -> f32;
+}
+extern "C" {
+    pub fn ggml_type_name(type_: ggml_type) -> *const ::std::os::raw::c_char;
 }
 extern "C" {
     pub fn ggml_element_size(tensor: *const ggml_tensor) -> usize;
@@ -1429,6 +1433,7 @@ pub struct quantize_fns_t {
     pub dequantize_row_q: dequantize_row_q_t,
     pub quantize_row_q: quantize_row_q_t,
     pub quantize_row_q_reference: quantize_row_q_t,
+    pub quantize_row_q_dot: quantize_row_q_t,
     pub vec_dot_q: vec_dot_q_t,
 }
 #[test]
@@ -1437,7 +1442,7 @@ fn bindgen_test_layout_quantize_fns_t() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<quantize_fns_t>(),
-        32usize,
+        40usize,
         concat!("Size of: ", stringify!(quantize_fns_t))
     );
     assert_eq!(
@@ -1476,8 +1481,18 @@ fn bindgen_test_layout_quantize_fns_t() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).vec_dot_q) as usize - ptr as usize },
+        unsafe { ::std::ptr::addr_of!((*ptr).quantize_row_q_dot) as usize - ptr as usize },
         24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(quantize_fns_t),
+            "::",
+            stringify!(quantize_row_q_dot)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).vec_dot_q) as usize - ptr as usize },
+        32usize,
         concat!(
             "Offset of field: ",
             stringify!(quantize_fns_t),
