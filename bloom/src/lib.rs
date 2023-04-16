@@ -136,15 +136,13 @@ impl Model for Bloom {
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
                         n * n_embd,
-                        (session.memory_k.element_size() * n_embd)
-                            * (il * n_ctx + n_past),
+                        (session.memory_k.element_size() * n_embd) * (il * n_ctx + n_past),
                     );
 
                     let v = ctx0.op_view_1d(
                         &session.memory_v,
                         n * n_embd,
-                        (session.memory_v.element_size() * n_embd)
-                            * (il * n_ctx + n_past),
+                        (session.memory_v.element_size() * n_embd) * (il * n_ctx + n_past),
                     );
 
                     gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));

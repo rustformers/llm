@@ -313,9 +313,7 @@ pub fn load(
             };
 
             if n_dims == 1 || n_parts == 1 {
-                if (nelements * bpe) / ggml::blck_size(tensor.get_type())
-                    != tensor.nbytes()
-                {
+                if (nelements * bpe) / ggml::blck_size(tensor.get_type()) != tensor.nbytes() {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path.to_path_buf(),
@@ -355,8 +353,7 @@ pub fn load(
                     for i1 in 0..ne[1] {
                         let offset_row = i1 as usize * row_size;
                         let offset = offset_row
-                            + ((part_id * np0 as usize)
-                                / ggml::blck_size(tensor.get_type()))
+                            + ((part_id * np0 as usize) / ggml::blck_size(tensor.get_type()))
                                 * ggml::type_size(tensor.get_type());
                         // SAFETY: yolo, same as original code
                         unsafe {
