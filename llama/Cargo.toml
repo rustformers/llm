@@ -19,3 +19,6 @@ rust_tokenizers = { version = "3.1.2", optional = true }
 
 [features]
 convert = ["dep:serde_json", "dep:protobuf", "dep:rust_tokenizers"]
+
+[dev-dependencies]
+rand = { workspace = true }

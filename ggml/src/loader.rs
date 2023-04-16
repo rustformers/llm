@@ -260,3 +260,53 @@ fn collect_related_paths(
     paths.sort();
     paths
 }
+
+#[cfg(test)]
+mod tests {
+    use llm_base::TokenUtf8Buffer;
+
+    use super::*;
+
+    #[test]
+    fn test_collect_related_paths() {
+        let main_path = PathBuf::from("/models/llama.bin");
+        let directory_paths = [
+            "/models/llama.bin",
+            "/models/llama.bin.1",
+            "/models/llama.bin.2",
+            "/models/llama.bin.tmp",
+        ]
+        .map(PathBuf::from);
+        let expected_paths = [
+            "/models/llama.bin",
+            "/models/llama.bin.1",
+            "/models/llama.bin.2",
+        ]
+        .map(PathBuf::from);
+
+        let output_paths = collect_related_paths(&main_path, directory_paths.into_iter());
+        assert_eq!(expected_paths.as_slice(), output_paths);
+    }
+
+    #[test]
+    fn test_valid_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(b"hello").as_deref(), Some("hello"));
+        assert_eq!(buffer.push(&[0xE2, 0x82, 0xAC]).as_deref(), Some("€"));
+    }
+
+    #[test]
+    fn test_partial_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
+    }
+
+    #[test]
+    fn test_invalid_prelude_for_valid_utf8() {
+        let mut buffer = TokenUtf8Buffer::new();
+        assert_eq!(buffer.push(&[0xD8]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
+        assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
+    }
+}

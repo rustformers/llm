@@ -9,3 +9,6 @@ ggml-sys = { path = "../ggml-sys" }
 log = { workspace = true }
 
 thiserror = "1.0"
+
+[dev-dependencies]
+llm-base = { path = "../llm-base" }

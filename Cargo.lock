@@ -67,6 +67,7 @@ dependencies = [
  "bytemuck",
  "ggml",
  "llm-base",
+ "rand",
 ]
 
 [[package]]
@@ -350,6 +351,7 @@ name = "ggml"
 version = "0.1.0"
 dependencies = [
  "ggml-sys",
+ "llm-base",
  "log",
  "thiserror",
 ]
@@ -492,6 +494,7 @@ dependencies = [
  "ggml",
  "llm-base",
  "protobuf",
+ "rand",
  "rust_tokenizers",
  "serde",
  "serde_json",
