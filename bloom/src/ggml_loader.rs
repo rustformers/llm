@@ -160,7 +160,7 @@ pub fn load(
     };
 
     // Initialize the context
-    let context = ggml::Context::init(ctx_size as usize);
+    let context = ggml::Context::init(ctx_size);
 
     let model = Bloom::new(context, hparams, vocabulary, n_ff, wtype);
 
@@ -313,7 +313,7 @@ pub fn load(
             };
 
             if n_dims == 1 || n_parts == 1 {
-                if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
+                if (nelements * bpe) / ggml::blck_size(tensor.get_type())
                     != tensor.nbytes()
                 {
                     return Err(LoadError::TensorWrongSize {
@@ -335,7 +335,7 @@ pub fn load(
 
                 total_size += tensor.nbytes();
             } else {
-                if (nelements as usize * bpe) / ggml::blck_size(tensor.get_type()) as usize
+                if (nelements * bpe) / ggml::blck_size(tensor.get_type())
                     != tensor.nbytes() / n_parts
                 {
                     return Err(LoadError::TensorWrongSize {
@@ -356,7 +356,7 @@ pub fn load(
                         let offset_row = i1 as usize * row_size;
                         let offset = offset_row
                             + ((part_id * np0 as usize)
-                                / ggml::blck_size(tensor.get_type()) as usize)
+                                / ggml::blck_size(tensor.get_type()))
                                 * ggml::type_size(tensor.get_type());
                         // SAFETY: yolo, same as original code
                         unsafe {

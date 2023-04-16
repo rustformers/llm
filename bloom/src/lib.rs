@@ -87,7 +87,7 @@ impl Model for Bloom {
             input_layer = ctx0.op_add(&ctx0.op_repeat(&self.norm_b, &input_layer), &input_layer);
         }
 
-        for il in 0..n_layer as usize {
+        for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
 
@@ -138,15 +138,15 @@ impl Model for Bloom {
                     let k = ctx0.op_view_1d(
                         &session.memory_k,
                         n * n_embd,
-                        (session.memory_k.element_size() * n_embd as usize)
-                            * (il * n_ctx as usize + n_past as usize),
+                        (session.memory_k.element_size() * n_embd)
+                            * (il * n_ctx + n_past),
                     );
 
                     let v = ctx0.op_view_1d(
                         &session.memory_v,
                         n * n_embd,
-                        (session.memory_v.element_size() * n_embd as usize)
-                            * (il * n_ctx as usize + n_past as usize),
+                        (session.memory_v.element_size() * n_embd)
+                            * (il * n_ctx + n_past),
                     );
 
                     gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
@@ -307,17 +307,17 @@ impl Model for Bloom {
 
         // return result for just the last token
         // SAFETY: yolo
-        assert_eq!(session.last_logits.len(), n_vocab as usize);
+        assert_eq!(session.last_logits.len(), { n_vocab });
         unsafe {
             input_layer.read_data(
-                n_vocab as usize * (n - 1) * std::mem::size_of::<f32>(),
+                n_vocab * (n - 1) * std::mem::size_of::<f32>(),
                 bytemuck::cast_slice_mut(&mut session.last_logits),
             )
         };
 
         // Extract logits
         if let Some(all_logits) = &mut output_request.all_logits {
-            all_logits.resize(n_vocab as usize * n, 0.0);
+            all_logits.resize(n_vocab * n, 0.0);
             // SAFETY: Tensor data can be read (properly aligned, initialized,
             // data will not be mutated or otherwise aliased during the copy),
             // and we're not reading past the end of the tensor data.
@@ -329,7 +329,7 @@ impl Model for Bloom {
 
         // Extract embeddings
         if let Some(embeddings) = &mut output_request.embeddings {
-            embeddings.resize(n_embd as usize * n, 0.0);
+            embeddings.resize(n_embd * n, 0.0);
             // SAFETY: Same rationale as for the "Extract logits" section applies.
             assert_eq!(embeddings_tensor.nelements(), n_embd * n);
             unsafe {
