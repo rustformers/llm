@@ -14,7 +14,7 @@ pub trait Model {
 
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
-    
+
     /// Evaluates the transformer.
     ///
     /// The provided `output_request` struct lets you specify which additional

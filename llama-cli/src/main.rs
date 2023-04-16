@@ -5,7 +5,7 @@ use cli_args::Args;
 use rustyline::error::ReadlineError;
 
 use llama::convert::convert_pth_to_ggml;
-use llama_rs::{InferenceError, Model, snapshot};
+use llama_rs::{snapshot, InferenceError, Model};
 
 mod cli_args;
 

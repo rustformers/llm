@@ -5,10 +5,10 @@ use thiserror::Error;
 
 /// Large language model
 pub mod model;
-/// Utilities
-pub mod util;
 /// Snapshots
 pub mod snapshot;
+/// Utilities
+pub mod util;
 
 mod inference_session;
 mod vocabulary;

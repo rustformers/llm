@@ -1,6 +1,7 @@
 use std::{
+    fmt::Debug,
     io::BufRead,
-    path::{Path, PathBuf}, fmt::Debug,
+    path::{Path, PathBuf},
 };
 
 use thiserror::Error;
