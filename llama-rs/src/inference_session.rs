@@ -473,7 +473,7 @@ impl InferenceSnapshotRef<'_> {
 }
 
 /// A serializable snapshot of the inference process. Can be restored by calling
-/// [Model::session_from_snapshot].
+/// [InferenceSession::from_snapshot].
 #[derive(serde::Deserialize, Clone, PartialEq)]
 // Keep in sync with [InferenceSession] and [InferenceSnapshotRef].
 pub struct InferenceSnapshot {
