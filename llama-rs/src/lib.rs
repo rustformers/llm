@@ -33,7 +33,7 @@ pub(crate) struct Mmap;
 /// dummy impl
 #[cfg(not(feature = "mmap"))]
 impl Mmap {
-    pub(crate) unsafe fn map(_: &std::fs::File) -> Result<Self, LoadError> {
+    pub(crate) unsafe fn map(_: &std::fs::File) -> std::io::Result<Self> {
         Ok(Mmap)
     }
     pub(crate) fn as_ptr(&self) -> *const u8 {

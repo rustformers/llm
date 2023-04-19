@@ -136,6 +136,14 @@ pub enum LoadError {
         path: PathBuf,
     },
 }
+impl From<util::FindAllModelFilesError> for LoadError {
+    fn from(value: util::FindAllModelFilesError) -> Self {
+        match value {
+            util::FindAllModelFilesError::NoParentPath { path } => LoadError::NoParentPath { path },
+            util::FindAllModelFilesError::IO(err) => LoadError::IO(err),
+        }
+    }
+}
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
