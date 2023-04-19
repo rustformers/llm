@@ -8,7 +8,7 @@ pub(crate) type Token = Vec<u8>;
 pub(crate) type TokenScore = f32;
 
 /// The vocabulary used by a model.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding token
     pub(crate) id_to_token: Vec<Token>,

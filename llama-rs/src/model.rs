@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::Path};
 
 use crate::{
-    loader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Mmap, Vocabulary,
+    loader, loader2, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
+    InferenceSession, InferenceSessionParameters, LoadError, LoadProgress, Mmap, Vocabulary,
 };
 
 use ggml_loader::ContainerType;
@@ -120,7 +120,13 @@ impl Model {
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
-        loader::load(path, n_context_tokens, load_progress_callback)
+        const USE_LOADER_2: bool = false;
+
+        if USE_LOADER_2 {
+            loader2::load(path, n_context_tokens, load_progress_callback)
+        } else {
+            loader::load(path, n_context_tokens, load_progress_callback)
+        }
     }
 
     /// Starts a new `InferenceSession` for this model.
@@ -438,7 +444,7 @@ impl Model {
 }
 
 /// The hyperparameters of the model.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
     /// n_vocab
     pub n_vocab: usize,

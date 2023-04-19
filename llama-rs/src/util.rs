@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use crate::LoadError;
-
 /// NOTE: The original code relies in promotion rules and automatic cast between
 /// int to float. What we do instead is use this macro to convert every term of
 /// the multiplication to f64, which should have enough precision bits to hold
