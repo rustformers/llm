@@ -57,6 +57,6 @@ pub fn encode_element_type(element_type: ElementType) -> Option<i32> {
 pub fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T>> {
     match decode_element_type(ftype) {
         Some(x) => Ok(x),
-        None => Err(LoadError::UnsupportedElementtype(ftype)),
+        None => Err(LoadError::UnsupportedElementType(ftype)),
     }
 }

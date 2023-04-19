@@ -41,7 +41,7 @@ pub enum LoadError<T> {
     UserInterrupted(T),
 
     #[error("unsupported tensor dtype/f16_: {0}")]
-    UnsupportedElementtype(i32),
+    UnsupportedElementType(i32),
 
     /// sanity check failed
     #[error("invariant broken: {0}")]
