@@ -2,8 +2,9 @@ use std::{collections::HashMap, path::Path};
 
 use crate::{
     loader, loader2, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
-    InferenceSession, InferenceSessionParameters, LoadError, LoadProgress, Mmap, Vocabulary,
+    InferenceSession, InferenceSessionParameters, LoadError, LoadProgress, Vocabulary,
 };
+use memmap2::Mmap;
 
 use ggml_loader::ContainerType;
 
@@ -23,7 +24,8 @@ pub struct Model {
 
     tensors: HashMap<String, ggml::Tensor>,
 
-    pub(crate) mmap: Option<Mmap>,
+    /// Needs to kept alive while the model is alive
+    _mmap: Option<Mmap>,
 
     _version: ContainerType,
 
@@ -38,6 +40,7 @@ impl Model {
         n_ff: usize,
         wtype: ggml::Type,
         model_type: ContainerType,
+        mmap: Option<Mmap>,
     ) -> Model {
         let n_embd = hparams.n_embd;
         let n_layer = hparams.n_layer;
@@ -107,7 +110,7 @@ impl Model {
             layers,
             tensors,
             _context: context,
-            mmap: None,
+            _mmap: mmap,
             _version: model_type,
         }
     }
@@ -117,15 +120,16 @@ impl Model {
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: impl AsRef<Path>,
+        use_mmap: bool,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
         const USE_LOADER_2: bool = false;
 
         if USE_LOADER_2 {
-            loader2::load(path, n_context_tokens, load_progress_callback)
+            loader2::load(path, use_mmap, n_context_tokens, load_progress_callback)
         } else {
-            loader::load(path, n_context_tokens, load_progress_callback)
+            loader::load(path, use_mmap, n_context_tokens, load_progress_callback)
         }
     }
 

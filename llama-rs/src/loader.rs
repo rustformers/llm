@@ -8,14 +8,16 @@ use std::{
 
 use crate::{
     util::{self, mulf},
-    LoadError, LoadProgress, Mmap, Model, TokenId, Vocabulary,
+    LoadError, LoadProgress, Model, TokenId, Vocabulary,
 };
 use crate::{ElementType, Hyperparameters};
 use ggml_loader::util::*;
 use ggml_loader::ContainerType;
+use memmap2::Mmap;
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
+    use_mmap: bool,
     n_context_tokens: usize,
     mut load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Model, LoadError> {
@@ -124,7 +126,7 @@ pub(crate) fn load(
     let n_layer = hparams.n_layer;
     let n_vocab = hparams.n_vocab;
 
-    let alloc = !(cfg!(feature = "mmap") && model_type == ContainerType::GGJT);
+    let alloc = !(use_mmap && model_type == ContainerType::GGJT);
 
     let ctx_size = {
         // Use 64-bit math to prevent overflow.
@@ -161,7 +163,15 @@ pub(crate) fn load(
     // Initialize the context
     let context = ggml::Context::init(ctx_size, alloc);
 
-    let mut model = Model::new(context, hparams, vocabulary, n_ff, wtype, model_type);
+    let (mmap, mmap_ptr) = if use_mmap && model_type == ContainerType::GGJT {
+        let mmap = unsafe { Mmap::map(&file)? };
+        let ptr = mmap.as_ptr();
+        (Some(mmap), Some(ptr))
+    } else {
+        (None, None)
+    };
+
+    let mut model = Model::new(context, hparams, vocabulary, n_ff, wtype, model_type, mmap);
     match model_type {
         ContainerType::GGMF | ContainerType::GGML => {
             let file_offset = reader.stream_position()?;
@@ -174,12 +184,9 @@ pub(crate) fn load(
             )?
         }
         ContainerType::GGJT => {
-            let mmap = unsafe { Mmap::map(&file)? };
-            let ptr = mmap.as_ptr();
-            model.mmap = Some(mmap);
             load_weights_ggjt(
                 &mut reader,
-                ptr,
+                mmap_ptr,
                 main_path,
                 load_progress_callback,
                 model.tensors_mut(),
@@ -438,7 +445,7 @@ fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
 
 fn load_weights_ggjt(
     reader: &mut (impl BufRead + Seek),
-    mmap_base: *const u8,
+    mmap_base: Option<*const u8>,
     path: &Path,
     mut load_progress_callback: impl FnMut(LoadProgress),
     tensors: &mut HashMap<String, ggml::Tensor>,
@@ -502,7 +509,11 @@ fn load_weights_ggjt(
             }
         };
 
-        load_tensor_ggjt(reader, mmap_base, tensor)?;
+        if let Some(mmap_base) = mmap_base {
+            load_tensor_ggjt_mmap(reader, mmap_base, tensor)?;
+        } else {
+            load_tensor_ggjt_copy(reader, tensor)?;
+        }
 
         total_loaded_bytes += tensor.nbytes() as u64;
 
@@ -524,8 +535,7 @@ fn load_weights_ggjt(
     Ok(())
 }
 
-#[cfg(feature = "mmap")]
-fn load_tensor_ggjt(
+fn load_tensor_ggjt_mmap(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
     tensor: &mut ggml::Tensor,
@@ -540,13 +550,10 @@ fn load_tensor_ggjt(
     Ok(())
 }
 
-#[cfg(not(feature = "mmap"))]
-fn load_tensor_ggjt<'a>(
+fn load_tensor_ggjt_copy<'a>(
     reader: &mut (impl BufRead + Seek),
-    mmap_base: *const u8,
     tensor: &'a mut ggml::Tensor,
 ) -> Result<(), LoadError> {
-    _ = mmap_base;
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;
     reader.seek(SeekFrom::Start(offset_aligned))?;

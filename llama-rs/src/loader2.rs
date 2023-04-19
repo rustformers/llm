@@ -46,6 +46,7 @@ impl LoadError {
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
+    use_mmap: bool,
     n_context_tokens: usize,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Model, LoadError> {
@@ -60,11 +61,14 @@ pub(crate) fn load(
     let path = path.as_ref().to_owned();
     let mut loader = Loader {
         path: path.clone(),
-        state: LoadState::Vocabulary(Vocabulary::default()),
+        n_ctx: n_context_tokens,
+        load_progress_callback,
+        use_mmap,
+
         hyperparameters: Hyperparameters::default(),
         container_type: ContainerType::GGJT,
-        load_progress_callback,
-        n_ctx: n_context_tokens,
+
+        state: LoadState::Vocabulary(Vocabulary::default()),
     };
 
     ggml_loader::load_model_from_reader(&mut reader, &mut loader)
@@ -89,6 +93,7 @@ struct Loader<F: FnMut(LoadProgress)> {
     path: PathBuf,
     n_ctx: usize,
     load_progress_callback: F,
+    use_mmap: bool,
 
     // Internal state
     hyperparameters: Hyperparameters,
@@ -164,7 +169,7 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
                 })
             }
         };
-        let alloc = !(cfg!(feature = "mmap") && self.container_type == ContainerType::GGJT);
+        let alloc = !(self.use_mmap && self.container_type == ContainerType::GGJT);
 
         let Hyperparameters {
             n_vocab,
@@ -220,6 +225,7 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             n_ff,
             wtype,
             self.container_type,
+            None,
         ));
         ControlFlow::Continue(())
     }

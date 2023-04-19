@@ -24,25 +24,6 @@ pub use model::{Hyperparameters, Model};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
-#[cfg(feature = "mmap")]
-use memmap2::Mmap;
-
-/// dummy struct
-#[cfg(not(feature = "mmap"))]
-pub(crate) struct Mmap;
-
-/// dummy impl
-#[cfg(not(feature = "mmap"))]
-impl Mmap {
-    pub(crate) unsafe fn map(_: &std::fs::File) -> std::io::Result<Self> {
-        Ok(Mmap)
-    }
-    pub(crate) fn as_ptr(&self) -> *const u8 {
-        std::ptr::null()
-    }
-}
-// map
-
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
 

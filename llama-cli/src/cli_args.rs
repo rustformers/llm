@@ -258,57 +258,67 @@ pub struct ModelLoad {
     /// will likely not perform as well as a model with a larger context size.
     #[arg(long, default_value_t = 2048)]
     pub num_ctx_tokens: usize,
+
+    /// Don't use mmap to load the model.
+    #[arg(long)]
+    pub no_mmap: bool,
 }
 impl ModelLoad {
     pub fn load(&self) -> llama_rs::Model {
         let now = std::time::Instant::now();
-        let model = llama_rs::Model::load(&self.model_path, self.num_ctx_tokens, |progress| {
-            use llama_rs::LoadProgress;
-            match progress {
-                LoadProgress::HyperparametersLoaded(hparams) => {
-                    log::debug!("Loaded hyperparameters {hparams:#?}")
-                }
-                LoadProgress::ContextSize { bytes } => log::info!(
-                    "ggml ctx size = {:.2} MB\n",
-                    bytes as f64 / (1024.0 * 1024.0)
-                ),
-                LoadProgress::PartLoading {
-                    file,
-                    current_part,
-                    total_parts,
-                } => {
-                    let current_part = current_part + 1;
-                    log::info!(
-                        "Loading model part {}/{} from '{}'\n",
+        let model = llama_rs::Model::load(
+            &self.model_path,
+            !self.no_mmap,
+            self.num_ctx_tokens,
+            |progress| {
+                use llama_rs::LoadProgress;
+                match progress {
+                    LoadProgress::HyperparametersLoaded(hparams) => {
+                        log::debug!("Loaded hyperparameters {hparams:#?}")
+                    }
+                    LoadProgress::ContextSize { bytes } => log::info!(
+                        "ggml ctx size = {:.2} MB\n",
+                        bytes as f64 / (1024.0 * 1024.0)
+                    ),
+                    LoadProgress::PartLoading {
+                        file,
                         current_part,
                         total_parts,
-                        file.to_string_lossy(),
-                    )
-                }
-                LoadProgress::PartTensorLoaded {
-                    current_tensor,
-                    tensor_count,
-                    ..
-                } => {
-                    let current_tensor = current_tensor + 1;
-                    if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                    } => {
+                        let current_part = current_part + 1;
+                        log::info!(
+                            "Loading model part {}/{} from '{}' (mmap: {})\n",
+                            current_part,
+                            total_parts,
+                            file.to_string_lossy(),
+                            !self.no_mmap
+                        )
+                    }
+                    LoadProgress::PartTensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        let current_tensor = current_tensor + 1;
+                        if current_tensor % 8 == 0 {
+                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                        }
+                    }
+                    LoadProgress::PartLoaded {
+                        file,
+                        byte_size,
+                        tensor_count,
+                    } => {
+                        log::info!("Loading of '{}' complete", file.to_string_lossy());
+                        log::info!(
+                            "Model size = {:.2} MB / num tensors = {}",
+                            byte_size as f64 / 1024.0 / 1024.0,
+                            tensor_count
+                        );
                     }
                 }
-                LoadProgress::PartLoaded {
-                    file,
-                    byte_size,
-                    tensor_count,
-                } => {
-                    log::info!("Loading of '{}' complete", file.to_string_lossy());
-                    log::info!(
-                        "Model size = {:.2} MB / num tensors = {}",
-                        byte_size as f64 / 1024.0 / 1024.0,
-                        tensor_count
-                    );
-                }
-            }
-        })
+            },
+        )
         .expect("Could not load model");
 
         log::info!(
