@@ -236,6 +236,68 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// Creates a new tensor with result of mapping `fun` with `a`.
+    ///
+    /// `cnt` is the number of `f32` elements to be mapped.
+    /// `src` is source for elements to be mapped.
+    /// `dst` is the destination for mapped elements.
+    ///
+    /// # Safety
+    ///
+    /// This is marked unsafe since we're passing pointers into C code, and not
+    /// only vanilla pointers but a pointer to a function. For obvious reasons, it's
+    /// important not to do anything crazy like mutate any of these values concurrently.
+    ///
+    /// Don't make assumptions about how/when the function will be called. It may be called
+    /// on a row, it may be called on a whole tensor. It may be called concurrently or not.
+    /// Once you give that function pointer to C land, all bets are off.
+    pub unsafe fn op_map_unary(
+        &self,
+        a: &Tensor,
+        fun: unsafe extern "C" fn(cnt: ::std::os::raw::c_int, dst: *mut f32, src: *const f32),
+    ) -> Tensor {
+        let tensor =
+            unsafe { ggml_sys::ggml_map_unary_f32(self.ptr.as_ptr(), a.ptr.as_ptr(), Some(fun)) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with result of mapping `fun` with `a` and `b`.
+    ///
+    /// `cnt` is the number of `f32` elements to be mapped.
+    /// `src0`, `src1` are the sources of elements to be mapped.
+    /// `dst` is the destination for mapped elements.
+    ///
+    /// # Safety
+    ///
+    /// This is marked unsafe since we're passing pointers into C code, and not
+    /// only vanilla pointers but a pointer to a function. For obvious reasons, it's
+    /// important not to do anything crazy like mutate any of these values concurrently.
+    ///
+    /// Don't make assumptions about how/when the function will be called. It may be called
+    /// on a row, it may be called on a whole tensor. It may be called concurrently or not.
+    /// Once you give that function pointer to C land, all bets are off.
+    pub unsafe fn op_map_binary(
+        &self,
+        a: &Tensor,
+        b: &Tensor,
+        fun: unsafe extern "C" fn(
+            cnt: ::std::os::raw::c_int,
+            dst: *mut f32,
+            src0: *const f32,
+            src1: *const f32,
+        ),
+    ) -> Tensor {
+        let tensor = unsafe {
+            ggml_sys::ggml_map_binary_f32(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                b.ptr.as_ptr(),
+                Some(fun),
+            )
+        };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Creates a 1D view over `a`.
     pub fn op_view_1d(&self, a: &Tensor, ne0: usize, offset: usize) -> Tensor {
         let tensor = unsafe {
