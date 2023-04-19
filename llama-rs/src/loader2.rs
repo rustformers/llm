@@ -1,7 +1,7 @@
 //! ggml-loader aux
 
-use ggml_loader::*;
 use ggml_loader::util::*;
+use ggml_loader::*;
 
 /// The hyperparameters of the model.
 #[derive(Debug, Clone)]
@@ -16,6 +16,7 @@ pub struct LlamaHyperparameters {
 }
 
 /// use this to load params for llama model inside [`LoadHandler::load_hyper_parameters`]
+#[allow(dead_code)]
 pub fn load_llama_hparams<T, R: BufRead + Seek>(
     reader: &mut R,
 ) -> Result<(LlamaHyperparameters, PartialHyperparameters), LoadError<T>> {
