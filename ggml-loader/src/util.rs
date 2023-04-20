@@ -1,4 +1,5 @@
 pub use std::io::{BufRead, Seek, SeekFrom};
+use std::ops::ControlFlow;
 
 use crate::{ElementType, LoadError};
 
@@ -58,5 +59,19 @@ pub fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T
     match decode_element_type(ftype) {
         Some(x) => Ok(x),
         None => Err(LoadError::UnsupportedElementType(ftype)),
+    }
+}
+
+pub fn retchk<A, B>(model_type: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
+    match model_type {
+        ControlFlow::Continue(x) => Ok(x),
+        ControlFlow::Break(y) => Err(LoadError::UserInterrupted(y)),
+    }
+}
+
+pub fn brkchk<A, B>(model_type: Result<B, A>) -> ControlFlow<A, B> {
+    match model_type {
+        Ok(x) => ControlFlow::Continue(x),
+        Err(y) => ControlFlow::Break(y),
     }
 }

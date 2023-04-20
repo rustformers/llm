@@ -124,9 +124,9 @@ impl Model {
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
-        const USE_LOADER_2: bool = false;
+        let use_loader_2: bool = std::env::var("USE_LOADER_2").is_ok();
 
-        if USE_LOADER_2 {
+        if use_loader_2 {
             loader2::load(path, use_mmap, n_context_tokens, load_progress_callback)
         } else {
             loader::load(path, use_mmap, n_context_tokens, load_progress_callback)

@@ -1,5 +1,7 @@
 use std::{collections::HashMap, str::FromStr};
 
+use thiserror::Error;
+
 use crate::InferenceError;
 
 /// The identifier of a token in a vocabulary.
@@ -16,13 +18,49 @@ pub struct Vocabulary {
     /// Maps every integer (index) token id to corresponding score
     pub(crate) id_to_token_score: Vec<TokenScore>,
 
+    // todo: use a radix tree
     /// Maps a token to a token id
     pub(crate) token_to_id: HashMap<Token, TokenId>,
 
     /// The longest token in this vocabulary
     pub(crate) max_token_length: usize,
 }
+
+#[derive(Debug, Clone, Error)]
+pub enum AddTokenError {
+    #[error("the id of token added should be {expected_id}; is {actual_id}")]
+    WrongId {
+        expected_id: TokenId,
+        actual_id: TokenId,
+    },
+    #[error("a token with the same id already exists, id={id}")]
+    AlreadyAdded { id: TokenId },
+}
+
 impl Vocabulary {
+    /// Add a token to the vocabulary.
+    ///
+    /// The token added must have `id` directly after the last token in the vocabulary.
+    pub fn push_token(
+        &mut self,
+        id: TokenId,
+        content: Token,
+        score: TokenScore,
+    ) -> Result<(), AddTokenError> {
+        assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
+        if self.id_to_token.len() != id as usize || self.id_to_token_score.len() != id as usize {
+            return Err(AddTokenError::WrongId {
+                expected_id: self.id_to_token.len() as TokenId,
+                actual_id: id,
+            });
+        }
+        self.max_token_length = self.max_token_length.max(content.len());
+        self.id_to_token.push(content.clone());
+        self.id_to_token_score.push(score);
+        self.token_to_id.insert(content, id);
+        Ok(())
+    }
+
     pub(crate) fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
     }

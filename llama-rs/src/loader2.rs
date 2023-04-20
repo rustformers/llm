@@ -17,10 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    util::mulf, Hyperparameters, LoadError, LoadProgress, Model, TokenId, UnexpectedState,
-    Vocabulary,
-};
+use crate::{util::mulf, Hyperparameters, LoadError, LoadProgress, Model, TokenId, Vocabulary};
 
 impl LoadError {
     fn from_ggml_loader_error(value: ggml_loader::LoadError<LoadError>, path: PathBuf) -> Self {
@@ -61,46 +58,36 @@ pub(crate) fn load(
     let path = path.as_ref().to_owned();
     let mut loader = Loader {
         path: path.clone(),
+        vocab: Default::default(),
+        model: None,
         n_ctx: n_context_tokens,
         load_progress_callback,
         use_mmap,
 
         hyperparameters: Hyperparameters::default(),
         container_type: ContainerType::GGJT,
-
-        state: LoadState::Vocabulary(Vocabulary::default()),
     };
 
     ggml_loader::load_model_from_reader(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_ggml_loader_error(err, path.clone()))?;
 
-    match loader.state {
-        LoadState::Vocabulary(_) => Err(LoadError::UnexpectedState {
-            path,
-            state: UnexpectedState::Vocabulary,
-            context: "Encountered vocabulary state while finalizing model".to_string(),
-        }),
-        LoadState::Model(model) => Ok(model),
-    }
+    Ok(loader.model.expect("model should be initialized"))
 }
 
-enum LoadState {
-    Vocabulary(Vocabulary),
-    Model(Model),
-}
 struct Loader<F: FnMut(LoadProgress)> {
-    // Context
+    // input data and options
     path: PathBuf,
     n_ctx: usize,
-    load_progress_callback: F,
     use_mmap: bool,
 
     // Internal state
-    hyperparameters: Hyperparameters,
     container_type: ContainerType,
-
-    state: LoadState,
+    hyperparameters: Hyperparameters,
+    model: Option<Model>,
+    vocab: Vocabulary,
+    load_progress_callback: F,
 }
+
 impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File>> for Loader<F> {
     fn load_hyper_parameters(
         &mut self,
@@ -127,50 +114,68 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
     }
 
     fn got_vocab_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> ControlFlow<LoadError> {
-        let vocab = match &mut self.state {
-            LoadState::Vocabulary(v) => v,
-            LoadState::Model(_) => {
-                return ControlFlow::Break(LoadError::UnexpectedState {
-                    path: self.path.clone(),
-                    state: UnexpectedState::Model,
-                    context: "Encountered model state while loading vocabulary".to_string(),
-                })
-            }
-        };
-        vocab.max_token_length = vocab.max_token_length.max(token.len());
-        vocab.id_to_token.push(token.clone());
         let id = match TokenId::try_from(i) {
             Ok(id) => id,
             Err(err) => return ControlFlow::Break(LoadError::InvalidIntegerConversion(err)),
         };
-        vocab.token_to_id.insert(token, id);
-        vocab.id_to_token_score.push(score);
+        self.vocab
+            .push_token(id, token, score)
+            .expect("vocab should be valid");
 
         ControlFlow::Continue(())
     }
 
     fn load_multipart(&mut self, _reader: &mut BufReader<&File>) -> ControlFlow<LoadError> {
-        // TODO: implement multipart loading
+        // todo
+        log::warn!("multipart model is not supported");
+        ControlFlow::Continue(())
+    }
 
+    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, Option<&mut [u8]>> {
+        if self.model.is_none() {
+            self.model = Some(self.create_model(self.vocab.clone()));
+        }
+        let model = &mut self.model.as_mut().expect("initialized");
+
+        let tensor_name = match String::from_utf8(info.name) {
+            Ok(n) => n,
+            Err(err) => return ControlFlow::Break(LoadError::InvalidUtf8(err)),
+        };
+
+        let tensor = match model.tensors_mut().get_mut(&tensor_name) {
+            Some(tensor) => tensor,
+            None => {
+                return ControlFlow::Break(LoadError::UnknownTensor {
+                    path: self.path.clone(),
+                    tensor_name,
+                })
+            }
+        };
+
+        // todo: support mmap
+        let buf: &mut [u8] =
+            unsafe { std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes()) };
+
+        let tensor_count = model.tensors_mut().len();
+        (self.load_progress_callback)(LoadProgress::PartTensorLoaded {
+            file: &self.path,
+            // TODO: keep track of tensors loaded
+            current_tensor: 0,
+            tensor_count,
+        });
+
+        ControlFlow::Continue(Some(buf))
+    }
+}
+
+impl<F: FnMut(LoadProgress)> Loader<F> {
+    fn create_model(&mut self, vocabulary: Vocabulary) -> Model {
         (self.load_progress_callback)(LoadProgress::PartLoading {
             file: &self.path,
             current_part: 0,
             total_parts: 1,
         });
-
-        let vocabulary = match &self.state {
-            LoadState::Vocabulary(v) => v.clone(),
-            LoadState::Model(_) => {
-                return ControlFlow::Break(LoadError::UnexpectedState {
-                    path: self.path.clone(),
-                    state: UnexpectedState::Model,
-                    context: "Encountered model state while transitioning into model state"
-                        .to_string(),
-                })
-            }
-        };
         let alloc = !(self.use_mmap && self.container_type == ContainerType::GGJT);
-
         let Hyperparameters {
             n_vocab,
             n_embd,
@@ -179,10 +184,8 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             element_type,
             ..
         } = self.hyperparameters;
-
         let n_ff = ((2 * (4 * n_embd) / 3 + n_mult - 1) / n_mult) * n_mult;
         let wtype = element_type;
-
         let ctx_size = {
             // Use 64-bit math to prevent overflow.
             let mut ctx_size: usize = (5 + 10 * n_layer) * 256; // object overhead
@@ -214,11 +217,9 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
 
             ctx_size
         };
-
         // Initialize the context
         let context = ggml::Context::init(ctx_size, alloc);
-
-        self.state = LoadState::Model(Model::new(
+        Model::new(
             context,
             self.hyperparameters,
             vocabulary,
@@ -226,48 +227,7 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             wtype,
             self.container_type,
             None,
-        ));
-        ControlFlow::Continue(())
-    }
-
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, Option<&mut [u8]>> {
-        let model = match &mut self.state {
-            LoadState::Model(m) => m,
-            LoadState::Vocabulary(_) => {
-                return ControlFlow::Break(LoadError::UnexpectedState {
-                    path: self.path.clone(),
-                    state: UnexpectedState::Vocabulary,
-                    context: "Encountered vocabulary state while populating tensors".to_string(),
-                })
-            }
-        };
-
-        let tensor_name = match String::from_utf8(info.name) {
-            Ok(n) => n,
-            Err(err) => return ControlFlow::Break(LoadError::InvalidUtf8(err)),
-        };
-
-        let tensor = match model.tensors_mut().get_mut(&tensor_name) {
-            Some(tensor) => tensor,
-            None => {
-                return ControlFlow::Break(LoadError::UnknownTensor {
-                    path: self.path.clone(),
-                    tensor_name,
-                })
-            }
-        };
-
-        let buf: &mut [u8] =
-            unsafe { std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes()) };
-
-        (self.load_progress_callback)(LoadProgress::PartTensorLoaded {
-            file: &self.path,
-            // TODO: keep track of tensors loaded
-            current_tensor: 0,
-            tensor_count: model.tensors_mut().len(),
-        });
-
-        ControlFlow::Continue(Some(buf))
+        )
     }
 }
 

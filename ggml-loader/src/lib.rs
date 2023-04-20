@@ -101,13 +101,6 @@ fn can_be_vtable() {
     let _a: MaybeUninit<Box<dyn LoadHandler<(), std::fs::File>>> = MaybeUninit::uninit();
 }
 
-fn retchk<A, B>(model_type: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
-    match model_type {
-        ControlFlow::Continue(x) => Ok(x),
-        ControlFlow::Break(y) => Err(LoadError::UserInterrupted(y)),
-    }
-}
-
 pub fn load_model_from_reader<T, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<T, R>,

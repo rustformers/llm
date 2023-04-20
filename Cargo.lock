@@ -549,6 +549,7 @@ dependencies = [
  "bytemuck",
  "ggml",
  "ggml-loader",
+ "log",
  "memmap2",
  "partial_sort",
  "protobuf",
