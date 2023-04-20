@@ -31,7 +31,7 @@ impl LoadError {
             ggml_loader::LoadError::UserInterrupted(err) => err,
             ggml_loader::LoadError::UnsupportedElementType(ty) => {
                 LoadError::HyperparametersF16Invalid {
-                    ftype: ty.try_into().unwrap(),
+                    ftype: ty,
                 }
             }
             ggml_loader::LoadError::InvariantBroken(invariant) => {

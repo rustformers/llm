@@ -97,7 +97,7 @@ pub enum LoadError {
     /// The `f16` hyperparameter had an invalid value.
     HyperparametersF16Invalid {
         /// The format type that was encountered.
-        ftype: u32,
+        ftype: i32,
     },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
     /// The tensor `tensor_name` was encountered during the loading of `path`, but was not seen during

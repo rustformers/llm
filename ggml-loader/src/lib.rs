@@ -149,15 +149,8 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
             retchk(handler.load_multipart(reader))?;
             load_weights(reader, handler, false)
         }
-        ContainerType::GGJT => load_weights_ggjt(reader, handler),
+        ContainerType::GGJT => load_weights(reader, handler, true),
     }
-}
-
-pub fn load_weights_ggjt<T, R: BufRead + Seek>(
-    reader: &mut R,
-    handler: &mut impl LoadHandler<T, R>,
-) -> Result<(), LoadError<T>> {
-    load_weights(reader, handler, true)
 }
 
 /// # Params
