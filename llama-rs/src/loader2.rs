@@ -31,9 +31,7 @@ impl LoadError {
             ggml_loader::LoadError::FailedCast(err) => LoadError::InvalidIntegerConversion(err),
             ggml_loader::LoadError::UserInterrupted(err) => err,
             ggml_loader::LoadError::UnsupportedElementType(ty) => {
-                LoadError::HyperparametersF16Invalid {
-                    ftype: ty,
-                }
+                LoadError::HyperparametersF16Invalid { ftype: ty }
             }
             ggml_loader::LoadError::InvariantBroken(invariant) => {
                 LoadError::InvariantBroken { path, invariant }
@@ -168,7 +166,9 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
                 let ptr = map.as_ptr().offset(info.start_offset as isize);
                 let tensor = get_tensor!();
                 tensor.set_data(ptr as *mut std::ffi::c_void);
-                TensorDataTreatment::SeekPast { n_bytes: tensor.nbytes() }
+                TensorDataTreatment::SeekPast {
+                    n_bytes: tensor.nbytes(),
+                }
             },
             None => {
                 let tensor = get_tensor!();
@@ -250,14 +250,14 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
         };
 
         Ok(Model::new(
-                    context,
-                    self.hyperparameters,
-                    vocabulary,
-                    n_ff,
-                    wtype,
-                    self.container_type,
-                    mmap,
-                ))
+            context,
+            self.hyperparameters,
+            vocabulary,
+            n_ff,
+            wtype,
+            self.container_type,
+            mmap,
+        ))
     }
 
     fn use_mmap(&mut self) -> bool {

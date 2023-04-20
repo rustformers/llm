@@ -80,7 +80,7 @@ pub enum TensorDataTreatment<'a> {
     CopyInto(&'a mut [u8]),
     SeekPast {
         /// should be `tensor.nbytes`
-        n_bytes: usize
+        n_bytes: usize,
     },
 }
 
