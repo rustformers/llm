@@ -25,7 +25,7 @@ pub struct Model {
     tensors: HashMap<String, ggml::Tensor>,
 
     /// Needs to kept alive while the model is alive
-    _mmap: Option<Mmap>,
+    pub(crate) mmap: Option<Mmap>,
 
     _version: ContainerType,
 
@@ -39,7 +39,7 @@ impl Model {
         vocabulary: Vocabulary,
         n_ff: usize,
         wtype: ggml::Type,
-        model_type: ContainerType,
+        container_type: ContainerType,
         mmap: Option<Mmap>,
     ) -> Model {
         let n_embd = hparams.n_embd;
@@ -110,8 +110,8 @@ impl Model {
             layers,
             tensors,
             _context: context,
-            _mmap: mmap,
-            _version: model_type,
+            mmap,
+            _version: container_type,
         }
     }
 
@@ -120,16 +120,16 @@ impl Model {
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: impl AsRef<Path>,
-        use_mmap: bool,
+        prefer_mmap: bool,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
         let use_loader_2: bool = std::env::var("USE_LOADER_2").is_ok();
 
         if use_loader_2 {
-            loader2::load(path, use_mmap, n_context_tokens, load_progress_callback)
+            loader2::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
         } else {
-            loader::load(path, use_mmap, n_context_tokens, load_progress_callback)
+            loader::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
         }
     }
 

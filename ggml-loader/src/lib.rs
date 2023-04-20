@@ -22,6 +22,16 @@ pub enum ContainerType {
     GGJT,
 }
 
+impl ContainerType {
+    pub fn support_mmap(&self) -> bool {
+        match self {
+            ContainerType::GGML => false,
+            ContainerType::GGMF => false,
+            ContainerType::GGJT => true,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError<T> {
     #[error("invalid file magic number: {0}")]
@@ -66,9 +76,17 @@ pub struct PartialHyperparameters {
     pub n_vocab: usize,
 }
 
+pub enum TensorDataTreatment<'a> {
+    CopyInto(&'a mut [u8]),
+    SeekPast {
+        /// should be `tensor.nbytes`
+        n_bytes: usize
+    },
+}
+
 #[allow(unused_variables)]
 pub trait LoadHandler<T, R: BufRead + Seek> {
-    fn got_container_type(&mut self, model_type: ContainerType) -> ControlFlow<T> {
+    fn got_container_type(&mut self, container_type: ContainerType) -> ControlFlow<T> {
         ControlFlow::Continue(())
     }
 
@@ -90,9 +108,7 @@ pub trait LoadHandler<T, R: BufRead + Seek> {
     ///
     /// `None` to skip copying
     /// `Some(buf)` to provide a buffer for copying weights into
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, Option<&mut [u8]>> {
-        ControlFlow::Continue(None)
-    }
+    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, TensorDataTreatment>;
 }
 
 #[test]
@@ -164,6 +180,9 @@ pub fn load_weights<T, R: BufRead + Seek>(
 ) -> Result<(), LoadError<T>> {
     while has_data_left(reader)? {
         // load tensor header
+        let start_pos = reader.stream_position()?;
+        dbg!(start_pos);
+
         let n_dims: usize = read_i32(reader)?.try_into()?;
         let name_len = read_i32(reader)?;
         let ftype = decode_element_type_res(read_i32(reader)?)?;
@@ -211,23 +230,17 @@ pub fn load_weights<T, R: BufRead + Seek>(
             start_offset: offset_aligned,
         };
 
-        let type_size = ggml::type_size(ftype);
-        if let Some(buf) = retchk(handler.tensor_buffer(tensor_info))? {
-            if align {
-                reader.seek(SeekFrom::Start(offset_aligned))?;
+        match retchk(handler.tensor_buffer(tensor_info))? {
+            TensorDataTreatment::CopyInto(buf) => {
+                if align {
+                    reader.seek(SeekFrom::Start(offset_aligned))?;
+                }
+                reader.read_exact(buf)?;
             }
-            let buf_len = buf.len();
-            if !(buf_len == type_size * n_elements) {
-                return Err(LoadError::InvariantBroken(format!(
-                    "{buf_len} == {type_size} * {n_elements}"
-                )));
+            TensorDataTreatment::SeekPast { n_bytes } => {
+                // skip if no buffer is given
+                reader.seek(SeekFrom::Start(offset_aligned + n_bytes as u64))?;
             }
-            reader.read_exact(buf)?;
-        } else {
-            // skip if no buffer is given
-            reader.seek(SeekFrom::Start(
-                offset_aligned + (type_size * n_elements) as u64,
-            ))?;
         }
     }
 

@@ -17,7 +17,7 @@ use memmap2::Mmap;
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
-    use_mmap: bool,
+    prefer_mmap: bool,
     n_context_tokens: usize,
     mut load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Model, LoadError> {
@@ -126,7 +126,7 @@ pub(crate) fn load(
     let n_layer = hparams.n_layer;
     let n_vocab = hparams.n_vocab;
 
-    let alloc = !(use_mmap && model_type == ContainerType::GGJT);
+    let alloc = !(prefer_mmap && model_type.support_mmap());
 
     let ctx_size = {
         // Use 64-bit math to prevent overflow.
@@ -163,7 +163,7 @@ pub(crate) fn load(
     // Initialize the context
     let context = ggml::Context::init(ctx_size, alloc);
 
-    let (mmap, mmap_ptr) = if use_mmap && model_type == ContainerType::GGJT {
+    let (mmap, mmap_ptr) = if prefer_mmap && model_type.support_mmap() {
         let mmap = unsafe { Mmap::map(&file)? };
         let ptr = mmap.as_ptr();
         (Some(mmap), Some(ptr))

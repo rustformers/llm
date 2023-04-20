@@ -388,8 +388,8 @@ pub enum ElementType {
     F32,
 }
 impl From<ElementType> for llama_rs::ElementType {
-    fn from(model_type: ElementType) -> Self {
-        match model_type {
+    fn from(t: ElementType) -> Self {
+        match t {
             ElementType::Q4_0 => llama_rs::ElementType::Q4_0,
             ElementType::Q4_1 => llama_rs::ElementType::Q4_1,
             ElementType::F16 => llama_rs::ElementType::F16,

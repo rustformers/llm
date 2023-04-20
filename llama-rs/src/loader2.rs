@@ -9,6 +9,7 @@
 
 use ggml_loader::util::*;
 use ggml_loader::*;
+use memmap2::Mmap;
 
 use std::{
     fs::File,
@@ -43,7 +44,7 @@ impl LoadError {
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
-    use_mmap: bool,
+    prefer_mmap: bool,
     n_context_tokens: usize,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Model, LoadError> {
@@ -62,8 +63,9 @@ pub(crate) fn load(
         model: None,
         n_ctx: n_context_tokens,
         load_progress_callback,
-        use_mmap,
+        preper_mmap: prefer_mmap,
 
+        tensor_accumulator: 0,
         hyperparameters: Hyperparameters::default(),
         container_type: ContainerType::GGJT,
     };
@@ -78,9 +80,10 @@ struct Loader<F: FnMut(LoadProgress)> {
     // input data and options
     path: PathBuf,
     n_ctx: usize,
-    use_mmap: bool,
+    preper_mmap: bool,
 
     // Internal state
+    tensor_accumulator: usize,
     container_type: ContainerType,
     hyperparameters: Hyperparameters,
     model: Option<Model>,
@@ -108,8 +111,8 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
         ControlFlow::Continue(partial)
     }
 
-    fn got_container_type(&mut self, model_type: ContainerType) -> ControlFlow<LoadError> {
-        self.container_type = model_type;
+    fn got_container_type(&mut self, t: ContainerType) -> ControlFlow<LoadError> {
+        self.container_type = t;
         ControlFlow::Continue(())
     }
 
@@ -131,9 +134,9 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
         ControlFlow::Continue(())
     }
 
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, Option<&mut [u8]>> {
+    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, TensorDataTreatment> {
         if self.model.is_none() {
-            self.model = Some(self.create_model(self.vocab.clone()));
+            self.model = Some(brkchk(self.create_model(self.vocab.clone()))?);
         }
         let model = &mut self.model.as_mut().expect("initialized");
 
@@ -142,40 +145,59 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             Err(err) => return ControlFlow::Break(LoadError::InvalidUtf8(err)),
         };
 
-        let tensor = match model.tensors_mut().get_mut(&tensor_name) {
-            Some(tensor) => tensor,
-            None => {
-                return ControlFlow::Break(LoadError::UnknownTensor {
-                    path: self.path.clone(),
-                    tensor_name,
-                })
-            }
-        };
+        let tensor_count = model.tensors_mut().len();
+
+        // to satisfy borrow checker
+        macro_rules! get_tensor {
+            () => {
+                match model.tensors_mut().get_mut(&tensor_name) {
+                    Some(tensor) => tensor,
+                    None => {
+                        return ControlFlow::Break(LoadError::UnknownTensor {
+                            path: self.path.clone(),
+                            tensor_name,
+                        })
+                    }
+                }
+            };
+        }
 
         // todo: support mmap
-        let buf: &mut [u8] =
-            unsafe { std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes()) };
-
-        let tensor_count = model.tensors_mut().len();
+        let ret = match &model.mmap {
+            Some(map) => unsafe {
+                let ptr = map.as_ptr().offset(info.start_offset as isize);
+                let tensor = get_tensor!();
+                tensor.set_data(ptr as *mut std::ffi::c_void);
+                TensorDataTreatment::SeekPast { n_bytes: tensor.nbytes() }
+            },
+            None => {
+                let tensor = get_tensor!();
+                let buf: &mut [u8] = unsafe {
+                    std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
+                };
+                TensorDataTreatment::CopyInto(buf)
+            }
+        };
         (self.load_progress_callback)(LoadProgress::PartTensorLoaded {
             file: &self.path,
             // TODO: keep track of tensors loaded
-            current_tensor: 0,
+            current_tensor: self.tensor_accumulator,
             tensor_count,
         });
+        self.tensor_accumulator += 1;
 
-        ControlFlow::Continue(Some(buf))
+        ControlFlow::Continue(ret)
     }
 }
 
 impl<F: FnMut(LoadProgress)> Loader<F> {
-    fn create_model(&mut self, vocabulary: Vocabulary) -> Model {
+    fn create_model(&mut self, vocabulary: Vocabulary) -> Result<Model, LoadError> {
         (self.load_progress_callback)(LoadProgress::PartLoading {
             file: &self.path,
             current_part: 0,
             total_parts: 1,
         });
-        let alloc = !(self.use_mmap && self.container_type == ContainerType::GGJT);
+        let alloc = !(self.use_mmap());
         let Hyperparameters {
             n_vocab,
             n_embd,
@@ -219,15 +241,27 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
         };
         // Initialize the context
         let context = ggml::Context::init(ctx_size, alloc);
-        Model::new(
-            context,
-            self.hyperparameters,
-            vocabulary,
-            n_ff,
-            wtype,
-            self.container_type,
-            None,
-        )
+
+        let mmap = if self.container_type.support_mmap() {
+            let file = File::open(&self.path)?;
+            Some(unsafe { Mmap::map(&file)? })
+        } else {
+            None
+        };
+
+        Ok(Model::new(
+                    context,
+                    self.hyperparameters,
+                    vocabulary,
+                    n_ff,
+                    wtype,
+                    self.container_type,
+                    mmap,
+                ))
+    }
+
+    fn use_mmap(&mut self) -> bool {
+        self.preper_mmap && self.container_type.support_mmap()
     }
 }
 
