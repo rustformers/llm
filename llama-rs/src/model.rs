@@ -124,7 +124,12 @@ impl Model {
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
-        let use_loader_2: bool = std::env::var("USE_LOADER_2").is_ok();
+        let use_loader_2: bool = match std::env::var("GGML_LOADER").as_deref() {
+            Ok("2") => true,
+            Ok("1") => false,
+            Ok(_) => panic!("Please use GGML_LOADER=1 or GGML_LOADER=2"),
+            Err(_) => true,
+        };
 
         if use_loader_2 {
             loader2::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
