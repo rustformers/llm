@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use color_eyre::eyre::{Result, WrapErr};
 use llama_rs::{
     InferenceParameters, InferenceSessionParameters, ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
@@ -260,7 +261,7 @@ pub struct ModelLoad {
     pub num_ctx_tokens: usize,
 }
 impl ModelLoad {
-    pub fn load(&self) -> llama_rs::Model {
+    pub fn load(&self) -> Result<llama_rs::Model> {
         let model = llama_rs::Model::load(&self.model_path, self.num_ctx_tokens, |progress| {
             use llama_rs::LoadProgress;
             match progress {
@@ -308,11 +309,11 @@ impl ModelLoad {
                 }
             }
         })
-        .expect("Could not load model");
+        .wrap_err("Failed to load model")?;
 
         log::info!("Model fully loaded!");
 
-        model
+        Ok(model)
     }
 }
 
