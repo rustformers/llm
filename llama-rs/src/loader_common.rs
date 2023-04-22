@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::{util::FindAllModelFilesError, Hyperparameters};
+use crate::{util::FindAllModelFilesError, vocabulary::AddTokenError, Hyperparameters};
 
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
@@ -78,6 +78,9 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+    /// While loading, a token could not be added to the vocabulary.
+    #[error("failed to add token to vocabulary: {0}")]
+    VocabularyAddTokenFailed(#[from] AddTokenError),
     #[error("unsupported f16_: {0}")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     UnsupportedElementType(i32),
@@ -135,6 +138,16 @@ pub enum LoadError {
         path: PathBuf,
         /// The invariant that was broken.
         invariant: String,
+    },
+    /// The model could not be created.
+    ///
+    /// This implies that there were no tensors in the model to be loaded.
+    ///
+    /// This error is not relevant unless `loader2` is being used.
+    #[error("could not create model from {path:?}")]
+    ModelNotCreated {
+        /// The path that failed.
+        path: PathBuf,
     },
 }
 impl From<FindAllModelFilesError> for LoadError {

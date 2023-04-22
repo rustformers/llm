@@ -62,7 +62,7 @@ pub(crate) fn load(
     ggml_loader::load_model_from_reader(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_ggml_loader_error(err, path.clone()))?;
 
-    Ok(loader.model.expect("model should be initialized"))
+    loader.model.ok_or(LoadError::ModelNotCreated { path })
 }
 
 struct Loader<F: FnMut(LoadProgress)> {
@@ -110,9 +110,9 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             Ok(id) => id,
             Err(err) => return ControlFlow::Break(LoadError::InvalidIntegerConversion(err)),
         };
-        self.vocab
-            .push_token(id, token, score)
-            .expect("vocab should be valid");
+        if let Err(err) = self.vocab.push_token(id, token, score) {
+            return ControlFlow::Break(LoadError::from(err));
+        }
 
         ControlFlow::Continue(())
     }
@@ -124,10 +124,13 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
     }
 
     fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, TensorDataTreatment> {
-        if self.model.is_none() {
-            self.model = Some(brkchk(self.create_model(self.vocab.clone()))?);
-        }
-        let model = &mut self.model.as_mut().expect("initialized");
+        let model = match &mut self.model {
+            Some(model) => model,
+            None => {
+                let model = brkchk(self.create_model(self.vocab.clone()))?;
+                self.model.get_or_insert(model)
+            }
+        };
 
         let tensor_name = match String::from_utf8(info.name) {
             Ok(n) => n,

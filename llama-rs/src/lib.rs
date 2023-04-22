@@ -22,7 +22,7 @@ pub use inference_session::{
 pub use loader_common::{LoadError, LoadProgress};
 pub use model::{Hyperparameters, Model};
 pub use util::TokenUtf8Buffer;
-pub use vocabulary::{TokenBias, TokenId, Vocabulary};
+pub use vocabulary::{AddTokenError, TokenBias, TokenId, Vocabulary};
 
 /// The end of text token.
 pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)

@@ -27,14 +27,22 @@ pub struct Vocabulary {
 }
 
 #[derive(Debug, Clone, Error)]
+/// Errors encountered when adding a token to a vocabulary.
 pub enum AddTokenError {
     #[error("the id of token added should be {expected_id}; is {actual_id}")]
+    /// The token that was added does not have the expected ID.
     WrongId {
+        /// The expected ID.
         expected_id: TokenId,
+        /// The actual ID.
         actual_id: TokenId,
     },
     #[error("a token with the same id already exists, id={id}")]
-    AlreadyAdded { id: TokenId },
+    /// A token with the same ID was already added.
+    AlreadyAdded {
+        /// The ID of the token that was already added.
+        id: TokenId,
+    },
 }
 
 impl Vocabulary {
@@ -57,7 +65,9 @@ impl Vocabulary {
         self.max_token_length = self.max_token_length.max(content.len());
         self.id_to_token.push(content.clone());
         self.id_to_token_score.push(score);
-        self.token_to_id.insert(content, id);
+        if self.token_to_id.insert(content, id).is_some() {
+            return Err(AddTokenError::AlreadyAdded { id });
+        }
         Ok(())
     }
 
