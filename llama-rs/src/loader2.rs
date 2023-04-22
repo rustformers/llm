@@ -128,7 +128,7 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             Some(model) => model,
             None => {
                 let model = brkchk(self.create_model(self.vocab.clone()))?;
-                self.model.get_or_insert(model)
+                self.model.insert(model)
             }
         };
 
