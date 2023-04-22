@@ -136,18 +136,6 @@ pub enum LoadError {
         /// The invariant that was broken.
         invariant: String,
     },
-    /// The loader was in an unexpected state.
-    ///
-    /// This error is not relevant unless `loader2` is being used.
-    #[error("unexpected state {state:?} in {path:?}: {context}")]
-    UnexpectedState {
-        /// The path that failed.
-        path: PathBuf,
-        /// The state that was encountered.
-        state: UnexpectedState,
-        /// Context about what was expected.
-        context: String,
-    },
 }
 impl From<FindAllModelFilesError> for LoadError {
     fn from(value: FindAllModelFilesError) -> Self {
@@ -156,13 +144,4 @@ impl From<FindAllModelFilesError> for LoadError {
             FindAllModelFilesError::IO(err) => LoadError::Io(err),
         }
     }
-}
-
-#[derive(Debug)]
-/// The state that the loader was in when an error was encountered.
-pub enum UnexpectedState {
-    /// The loader was in the `Vocabulary` state.
-    Vocabulary,
-    /// The loader was in the `Model` state.
-    Model,
 }
