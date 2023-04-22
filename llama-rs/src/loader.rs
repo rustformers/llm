@@ -84,37 +84,25 @@ pub(crate) fn load(
     // Load vocabulary
     // ===============
     let vocabulary = {
-        let mut id_to_token = vec![];
-        let mut id_to_token_score = vec![];
-        let mut token_to_id = HashMap::new();
-        let mut max_token_length = 0;
+        let mut vocab = Vocabulary::default();
 
         for i in 0..hparams.n_vocab {
             let len = read_i32(&mut reader)?;
+            let id = i as TokenId;
             let token = read_bytes_with_len(&mut reader, len.try_into()?)?;
-            max_token_length = max_token_length.max(token.len());
-            id_to_token.push(token.clone());
-            token_to_id.insert(token, TokenId::try_from(i)?);
 
-            // Token score, currently unused
-            match model_type {
-                ContainerType::GGMF | ContainerType::GGJT => {
-                    let score = read_f32(&mut reader)?;
-                    id_to_token_score.push(score);
-                }
+            let score = match model_type {
+                ContainerType::GGMF | ContainerType::GGJT => read_f32(&mut reader)?,
                 ContainerType::GGML => {
                     // Legacy model, set empty score
-                    id_to_token_score.push(0.);
+                    0.
                 }
-            }
+            };
+
+            vocab.push_token(id, token, score)?;
         }
 
-        Vocabulary {
-            id_to_token,
-            id_to_token_score,
-            token_to_id,
-            max_token_length,
-        }
+        vocab
     };
 
     // for the big tensors, we have the option to store the data in 16-bit

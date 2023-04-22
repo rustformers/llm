@@ -37,12 +37,6 @@ pub enum AddTokenError {
         /// The actual ID.
         actual_id: TokenId,
     },
-    #[error("a token with the same id already exists, id={id}")]
-    /// A token with the same ID was already added.
-    AlreadyAdded {
-        /// The ID of the token that was already added.
-        id: TokenId,
-    },
 }
 
 impl Vocabulary {
@@ -65,9 +59,7 @@ impl Vocabulary {
         self.max_token_length = self.max_token_length.max(content.len());
         self.id_to_token.push(content.clone());
         self.id_to_token_score.push(score);
-        if self.token_to_id.insert(content, id).is_some() {
-            return Err(AddTokenError::AlreadyAdded { id });
-        }
+        self.token_to_id.insert(content, id);
         Ok(())
     }
 
