@@ -1,12 +1,3 @@
-//! This is an experimental, *incomplete* implementation of a loader based on `ggml_loader`.
-//!
-//! At the time of writing, it does not successfully load any models.
-//!
-//! GGML/GGMF fails with an invariant broken error, and GGJT fails with an unexpected state error.
-//!
-//! It also does not support mmap, but it shouldn't be too hard to add: mmap as is done in `loader`, then populate
-//! the tensor from the [TensorInfo].
-
 use ggml_loader::util::*;
 use ggml_loader::*;
 use memmap2::Mmap;
@@ -160,7 +151,6 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             };
         }
 
-        // todo: support mmap
         let ret = match &model.mmap {
             Some(map) => unsafe {
                 let ptr = map.as_ptr().offset(info.start_offset as isize);
@@ -180,7 +170,6 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
         };
         (self.load_progress_callback)(LoadProgress::PartTensorLoaded {
             file: &self.path,
-            // TODO: keep track of tensors loaded
             current_tensor: self.tensor_accumulator,
             tensor_count,
         });
