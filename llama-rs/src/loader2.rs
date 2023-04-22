@@ -9,7 +9,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{util::mulf, Hyperparameters, LoadError, LoadProgress, Model, TokenId, Vocabulary};
+use crate::{
+    util::{self, mulf},
+    Hyperparameters, LoadError, LoadProgress, Model, TokenId, Vocabulary,
+};
 
 impl LoadError {
     fn from_ggml_loader_error(value: ggml_loader::LoadError<LoadError>, path: PathBuf) -> Self {
@@ -38,6 +41,11 @@ pub(crate) fn load(
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Model, LoadError> {
     let main_path = path.as_ref();
+
+    let paths = util::find_all_model_files(main_path)?;
+    if paths.len() != 1 {
+        return Err(LoadError::MultipartNotSupported { paths });
+    }
 
     let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
         source: e,
@@ -115,17 +123,11 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
         ControlFlow::Continue(())
     }
 
-    fn load_multipart(&mut self, _reader: &mut BufReader<&File>) -> ControlFlow<LoadError> {
-        // todo
-        log::warn!("multipart model is not supported");
-        ControlFlow::Continue(())
-    }
-
     fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, TensorDataTreatment> {
         let model = match &mut self.model {
             Some(model) => model,
             None => {
-                let model = brkchk(self.create_model(self.vocab.clone()))?;
+                let model = result_to_controlflow(self.create_model(self.vocab.clone()))?;
                 self.model.insert(model)
             }
         };

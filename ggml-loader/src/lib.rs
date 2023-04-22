@@ -96,12 +96,6 @@ pub trait LoadHandler<T, R: BufRead + Seek> {
 
     fn load_hyper_parameters(&mut self, reader: &mut R) -> ControlFlow<T, PartialHyperparameters>;
 
-    /// multi-file loading is not supported
-    /// To handle that yourself, return [`ControlFlow::Break(_)`] here
-    fn load_multipart(&mut self, reader: &mut R) -> ControlFlow<T> {
-        ControlFlow::Continue(())
-    }
-
     /// callback to get tensor buffer to populate
     ///
     /// # Returns
@@ -128,7 +122,7 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
         ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
-    retchk(handler.got_container_type(container_type))?;
+    controlflow_to_result(handler.got_container_type(container_type))?;
 
     // Load format version
     match container_type {
@@ -142,7 +136,7 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
     }
 
     // Load hyper params
-    let hparams = retchk(handler.load_hyper_parameters(reader))?;
+    let hparams = controlflow_to_result(handler.load_hyper_parameters(reader))?;
     let n_vocab = hparams.n_vocab;
 
     // Load vocabulary
@@ -156,15 +150,12 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
                 0.
             }
         };
-        retchk(handler.got_vocab_token(i, token, token_score))?;
+        controlflow_to_result(handler.got_vocab_token(i, token, token_score))?;
     }
 
     // Load tensor data
     match container_type {
-        ContainerType::GGMF | ContainerType::GGML => {
-            retchk(handler.load_multipart(reader))?;
-            load_weights(reader, handler, false)
-        }
+        ContainerType::GGMF | ContainerType::GGML => load_weights(reader, handler, false),
         ContainerType::GGJT => load_weights(reader, handler, true),
     }
 }
@@ -227,7 +218,7 @@ pub fn load_weights<T, R: BufRead + Seek>(
             start_offset: offset_aligned,
         };
 
-        match retchk(handler.tensor_buffer(tensor_info))? {
+        match controlflow_to_result(handler.tensor_buffer(tensor_info))? {
             TensorDataTreatment::CopyInto(buf) => {
                 if align {
                     reader.seek(SeekFrom::Start(offset_aligned))?;

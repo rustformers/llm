@@ -146,6 +146,14 @@ pub enum LoadError {
         /// The path that failed.
         path: PathBuf,
     },
+    /// Multiple parts of the model were found.
+    ///
+    /// Multi-part models are not supported. Please convert the model to a single part.
+    #[error("multipart models are not supported")]
+    MultipartNotSupported {
+        /// The paths that were found.
+        paths: Vec<PathBuf>,
+    },
 }
 impl From<FindAllModelFilesError> for LoadError {
     fn from(value: FindAllModelFilesError) -> Self {

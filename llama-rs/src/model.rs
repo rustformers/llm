@@ -124,6 +124,9 @@ impl Model {
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
+        // Loader2 is the default. It can support GGML, GGMF and GGJT, but does not support multipart models.
+        //
+        // Loader1 is the old loader. It can support multipart models, but will be deprecated.
         let use_loader_2: bool = match std::env::var("GGML_LOADER").as_deref() {
             Ok("2") => true,
             Ok("1") => false,

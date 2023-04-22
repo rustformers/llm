@@ -62,14 +62,14 @@ pub fn decode_element_type_res<T>(ftype: i32) -> Result<ElementType, LoadError<T
     }
 }
 
-pub fn retchk<A, B>(x: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
+pub fn controlflow_to_result<A, B>(x: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
     match x {
         ControlFlow::Continue(x) => Ok(x),
         ControlFlow::Break(y) => Err(LoadError::UserInterrupted(y)),
     }
 }
 
-pub fn brkchk<A, B, C: Into<A>>(x: Result<B, C>) -> ControlFlow<A, B> {
+pub fn result_to_controlflow<A, B, C: Into<A>>(x: Result<B, C>) -> ControlFlow<A, B> {
     match x {
         Ok(x) => ControlFlow::Continue(x),
         Err(y) => ControlFlow::Break(y.into()),
