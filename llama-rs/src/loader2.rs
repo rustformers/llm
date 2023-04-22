@@ -61,7 +61,7 @@ pub(crate) fn load(
         model: None,
         n_ctx: n_context_tokens,
         load_progress_callback,
-        preper_mmap: prefer_mmap,
+        prefer_mmap,
 
         tensor_accumulator: 0,
         hyperparameters: Hyperparameters::default(),
@@ -78,7 +78,7 @@ struct Loader<F: FnMut(LoadProgress)> {
     // input data and options
     path: PathBuf,
     n_ctx: usize,
-    preper_mmap: bool,
+    prefer_mmap: bool,
 
     // Internal state
     tensor_accumulator: usize,
@@ -242,7 +242,7 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
         // Initialize the context
         let context = ggml::Context::init(ctx_size, alloc);
 
-        let mmap = if self.container_type.support_mmap() {
+        let mmap = if self.use_mmap() {
             let file = File::open(&self.path)?;
             Some(unsafe { Mmap::map(&file)? })
         } else {
@@ -261,7 +261,7 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
     }
 
     fn use_mmap(&mut self) -> bool {
-        self.preper_mmap && self.container_type.support_mmap()
+        self.prefer_mmap && self.container_type.support_mmap()
     }
 }
 
