@@ -180,9 +180,6 @@ pub fn load_weights<T, R: BufRead + Seek>(
 ) -> Result<(), LoadError<T>> {
     while has_data_left(reader)? {
         // load tensor header
-        let start_pos = reader.stream_position()?;
-        dbg!(start_pos);
-
         let n_dims: usize = read_i32(reader)?.try_into()?;
         let name_len = read_i32(reader)?;
         let ftype = decode_element_type_res(read_i32(reader)?)?;
