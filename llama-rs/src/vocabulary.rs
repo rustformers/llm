@@ -28,7 +28,11 @@ impl Vocabulary {
     /// Add a token to the vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
-    pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
+    ///
+    /// # Panics
+    /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
+    ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
+    pub(crate) fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
         // These are loader invariants. If this is broken, then the loader is broken and this is a bug,
         // not an issue with the model itself.
         assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
