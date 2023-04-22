@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use color_eyre::eyre::{Result, WrapErr};
 use llama_rs::{
     InferenceParameters, InferenceSessionParameters, ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
@@ -264,7 +265,7 @@ pub struct ModelLoad {
     pub no_mmap: bool,
 }
 impl ModelLoad {
-    pub fn load(&self) -> llama_rs::Model {
+    pub fn load(&self) -> Result<llama_rs::Model> {
         let now = std::time::Instant::now();
         let model = llama_rs::Model::load(
             &self.model_path,
@@ -319,14 +320,14 @@ impl ModelLoad {
                 }
             },
         )
-        .expect("Could not load model");
+        .wrap_err("Could not load model")?;
 
         log::info!(
             "Model fully loaded! Elapsed: {}ms",
             now.elapsed().as_millis()
         );
 
-        model
+        Ok(model)
     }
 }
 
