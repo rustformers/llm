@@ -14,18 +14,21 @@ use std::{
     sync::{Arc, Weak},
 };
 
-/// Magic constant for `ggml` files (versioned).
-pub const FILE_MAGIC: u32 = 0x67676d66;
+/// Magic constant for `ggml` files (versioned, ggmf).
+pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
+/// Magic constant for `ggml` files (versioned, ggjt).
+pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
 /// Magic constant for `ggml` files (unversioned).
 pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
 pub enum Type {
     /// Quantized 4-bit (type 0).
+    #[default]
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
     Q4_1,
@@ -83,14 +86,14 @@ pub struct Context {
 }
 impl Context {
     /// Creates a new [Context] with the specified `mem_size` as a working area.
-    pub fn init(mem_size: usize) -> Self {
+    pub fn init(mem_size: usize, alloc: bool) -> Self {
         let raw = unsafe {
             ggml_sys::ggml_init(ggml_sys::ggml_init_params {
                 mem_size,
                 // Null here means we want ggml to own this memory. We don't
                 // support passing an owned buffer from the Rust side.
                 mem_buffer: std::ptr::null_mut(),
-                no_alloc: false,
+                no_alloc: !alloc,
             })
         };
         Self {
@@ -523,6 +526,14 @@ impl Tensor {
         }
     }
 
+    fn with_alive_ctx_mut<U>(&self, mut f: impl FnMut() -> U) -> U {
+        if let Some(_ctx) = self.ctx.upgrade() {
+            f()
+        } else {
+            panic!("Using a tensor after the context was dropped")
+        }
+    }
+
     /// Number of bytes used by this tensor.
     pub fn nbytes(&self) -> usize {
         self.with_alive_ctx(|| {
@@ -535,11 +546,24 @@ impl Tensor {
     ///
     /// # Safety
     ///
-    /// The data must not be mutated while being read from.
-    pub unsafe fn data(&self) -> *mut c_void {
+    /// Only `std::slice::from_raw_parts_mut(tensor.data(), tensor.nbytes())` is safe to mutate.
+    pub unsafe fn data(&mut self) -> *mut c_void {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
             unsafe { *self.ptr.as_ptr() }.data
+        })
+    }
+
+    /// Set the tensor's data pointer (useful for mmap-ed data)
+    ///
+    /// # Safety
+    ///
+    /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
+    pub unsafe fn set_data(&mut self, data_ptr: *mut c_void) {
+        let tensor = self.ptr.as_mut();
+        self.with_alive_ctx_mut(|| {
+            // SAFETY: The with_alive_call guarantees the context is alive
+            tensor.data = data_ptr;
         })
     }
 
@@ -576,12 +600,12 @@ impl Tensor {
     /// # Safety
     ///
     /// This tensor must not be written to or read by from any other code.
-    pub unsafe fn write_data(&self, src: &[u8]) {
+    pub unsafe fn write_data(&mut self, src: &[u8]) {
         std::ptr::copy_nonoverlapping(src.as_ptr(), self.data() as *mut u8, src.len())
     }
 
     /// Zeroes out this tensor.
-    pub fn zero_data(&self) {
+    pub fn zero_data(&mut self) {
         unsafe { std::ptr::write_bytes(self.data() as *mut u8, 0, self.nbytes()) }
     }
 

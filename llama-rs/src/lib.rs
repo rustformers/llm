@@ -8,6 +8,8 @@ pub mod convert;
 
 mod inference_session;
 mod loader;
+mod loader2;
+mod loader_common;
 mod model;
 mod util;
 mod vocabulary;
@@ -17,7 +19,7 @@ pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
     SnapshotError,
 };
-pub use loader::{LoadError, LoadProgress};
+pub use loader_common::{LoadError, LoadProgress};
 pub use model::{Hyperparameters, Model};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
