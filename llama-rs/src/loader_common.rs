@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::{util::FindAllModelFilesError, vocabulary::AddTokenError, Hyperparameters};
+use crate::{util::FindAllModelFilesError, Hyperparameters};
 
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
@@ -78,9 +78,6 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
-    /// While loading, a token could not be added to the vocabulary.
-    #[error("failed to add token to vocabulary: {0}")]
-    VocabularyAddTokenFailed(#[from] AddTokenError),
     #[error("unsupported f16_: {0}")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     UnsupportedElementType(i32),

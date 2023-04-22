@@ -110,9 +110,7 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
             Ok(id) => id,
             Err(err) => return ControlFlow::Break(LoadError::InvalidIntegerConversion(err)),
         };
-        if let Err(err) = self.vocab.push_token(id, token, score) {
-            return ControlFlow::Break(LoadError::from(err));
-        }
+        self.vocab.push_token(id, token, score);
 
         ControlFlow::Continue(())
     }

@@ -1,7 +1,5 @@
 use std::{collections::HashMap, str::FromStr};
 
-use thiserror::Error;
-
 use crate::InferenceError;
 
 /// The identifier of a token in a vocabulary.
@@ -26,41 +24,23 @@ pub struct Vocabulary {
     pub(crate) max_token_length: usize,
 }
 
-#[derive(Debug, Clone, Error)]
-/// Errors encountered when adding a token to a vocabulary.
-pub enum AddTokenError {
-    #[error("the id of token added should be {expected_id}; is {actual_id}")]
-    /// The token that was added does not have the expected ID.
-    WrongId {
-        /// The expected ID.
-        expected_id: TokenId,
-        /// The actual ID.
-        actual_id: TokenId,
-    },
-}
-
 impl Vocabulary {
     /// Add a token to the vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
-    pub fn push_token(
-        &mut self,
-        id: TokenId,
-        content: Token,
-        score: TokenScore,
-    ) -> Result<(), AddTokenError> {
+    pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
+        // These are loader invariants. If this is broken, then the loader is broken and this is a bug,
+        // not an issue with the model itself.
         assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
         if self.id_to_token.len() != id as usize || self.id_to_token_score.len() != id as usize {
-            return Err(AddTokenError::WrongId {
-                expected_id: self.id_to_token.len() as TokenId,
-                actual_id: id,
-            });
+            let expected_id = self.id_to_token.len() as TokenId;
+            panic!("the id of token added should be {expected_id}; is {id}");
         }
+
         self.max_token_length = self.max_token_length.max(content.len());
         self.id_to_token.push(content.clone());
         self.id_to_token_score.push(score);
         self.token_to_id.insert(content, id);
-        Ok(())
     }
 
     pub(crate) fn token(&self, idx: usize) -> &[u8] {

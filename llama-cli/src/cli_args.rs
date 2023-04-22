@@ -288,7 +288,7 @@ impl ModelLoad {
                     } => {
                         let current_part = current_part + 1;
                         log::info!(
-                            "Loading model part {}/{} from '{}' (mmap: {})\n",
+                            "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
                             current_part,
                             total_parts,
                             file.to_string_lossy(),

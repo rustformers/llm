@@ -99,7 +99,7 @@ pub(crate) fn load(
                 }
             };
 
-            vocab.push_token(id, token, score)?;
+            vocab.push_token(id, token, score);
         }
 
         vocab
