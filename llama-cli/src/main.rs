@@ -2,6 +2,7 @@ use std::{convert::Infallible, io::Write};
 
 use clap::Parser;
 use cli_args::Args;
+use color_eyre::eyre::Result;
 use rustyline::error::ReadlineError;
 
 use llama::convert::convert_pth_to_ggml;
@@ -9,26 +10,29 @@ use llm_base::{snapshot, InferenceError, Model};
 
 mod cli_args;
 
-fn main() {
+fn main() -> Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .parse_default_env()
         .init();
+    color_eyre::install()?;
 
     let cli_args = Args::parse();
     match cli_args {
-        Args::Infer(args) => infer(&args),
-        Args::DumpTokens(args) => dump_tokens(&args),
-        Args::Repl(args) => interactive(&args, false),
-        Args::ChatExperimental(args) => interactive(&args, true),
+        Args::Infer(args) => infer(&args)?,
+        Args::DumpTokens(args) => dump_tokens(&args)?,
+        Args::Repl(args) => interactive(&args, false)?,
+        Args::ChatExperimental(args) => interactive(&args, true)?,
         Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
     }
+
+    Ok(())
 }
 
-fn infer(args: &cli_args::Infer) {
+fn infer(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_params = args.generate.inference_session_parameters();
-    let model = args.model_load.load();
+    let model = args.model_load.load()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         &model,
         args.persist_session.as_deref(),
@@ -70,11 +74,13 @@ fn infer(args: &cli_args::Infer) {
         // Write the memory to the cache file
         snapshot::write_session(session, session_path);
     }
+
+    Ok(())
 }
 
-fn dump_tokens(args: &cli_args::DumpTokens) {
+fn dump_tokens(args: &cli_args::DumpTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let model = args.model_load.load();
+    let model = args.model_load.load()?;
     let toks = match model.vocabulary().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
@@ -97,6 +103,8 @@ fn dump_tokens(args: &cli_args::DumpTokens) {
             .collect::<Vec<_>>()
             .join(", ")
     );
+
+    Ok(())
 }
 
 fn interactive(
@@ -104,10 +112,10 @@ fn interactive(
     // If set to false, the session will be cloned after each inference
     // to ensure that previous state is not carried over.
     chat_mode: bool,
-) {
+) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
     let inference_session_params = args.generate.inference_session_parameters();
-    let model = args.model_load.load();
+    let model = args.model_load.load()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         &model,
         None,
@@ -117,7 +125,7 @@ fn interactive(
     let inference_params = args.generate.inference_parameters(session_loaded);
 
     let mut rng = args.generate.rng();
-    let mut rl = rustyline::DefaultEditor::new().unwrap();
+    let mut rl = rustyline::DefaultEditor::new()?;
     loop {
         let readline = rl.readline(">> ");
         match readline {
@@ -174,6 +182,8 @@ fn interactive(
             }
         }
     }
+
+    Ok(())
 }
 
 fn load_prompt_file_with_prompt(

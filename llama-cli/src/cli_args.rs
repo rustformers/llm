@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use color_eyre::eyre::{Result, WrapErr};
 use rand::SeedableRng;
 
 use ggml::loader::load_progress;
@@ -263,13 +264,13 @@ pub struct ModelLoad {
     pub num_ctx_tokens: usize,
 }
 impl ModelLoad {
-    pub fn load(&self) -> llama::Llama {
+    pub fn load(&self) -> Result<llama::Llama> {
         let model = llama::Llama::load(&self.model_path, self.num_ctx_tokens, load_progress)
-            .expect("Could not load model");
+            .wrap_err("Could not load model")?;
 
         log::info!("Model fully loaded!");
 
-        model
+        Ok(model)
     }
 }
 

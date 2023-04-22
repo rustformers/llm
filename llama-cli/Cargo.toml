@@ -19,3 +19,5 @@ num_cpus = "1.15.0"
 once_cell = "1.17.1"
 rustyline = "11.0.0"
 spinners = "4.1.0"
+zstd = { version = "0.12", default-features = false }
+color-eyre = { version = "0.6.2", default-features = false }
