@@ -17,6 +17,7 @@ use std::{
 };
 
 use crate::{util, Hyperparameters, Vocabulary};
+use ggml_loader::util::encode_element_type;
 
 /// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
@@ -28,12 +29,12 @@ pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
     let model_files = util::find_all_model_files(model_directory).unwrap();
 
     for (i, _file) in model_files.iter().enumerate() {
-        let fname_out = model_directory.join(format!("rust-model-{}.bin", element_type));
+        let fname_out = model_directory.join(format!("rust-model-{element_type}.bin"));
         let mut file = File::create(fname_out).expect("Unable to create file");
         write_header(file.borrow_mut(), &hparams).unwrap();
         write_tokens(file.borrow_mut(), &vocab).unwrap();
 
-        let _fname_model = model_directory.join(format!("consolidated.0{}.pth", i));
+        let _fname_model = model_directory.join(format!("consolidated.0{i}.pth"));
         // Todo process and write variables
     }
 }
@@ -82,13 +83,7 @@ fn load_hyperparameters(
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
     let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
-        f16_: match element_type {
-            ggml::Type::F32 => 0,
-            ggml::Type::F16 => 1,
-            ggml::Type::Q4_0 => 2,
-            ggml::Type::Q4_1 => 3,
-            _ => panic!("unsupported element type"),
-        },
+        element_type,
         n_ctx: 0,
         n_embd: json.dim,
         n_head: json.n_heads,
@@ -112,7 +107,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
         i32::try_from(hparams.n_head).unwrap(),
         i32::try_from(hparams.n_layer).unwrap(),
         i32::try_from(hparams.n_embd / hparams.n_head).unwrap(),
-        i32::try_from(hparams.f16_).unwrap(),
+        encode_element_type(hparams.element_type).unwrap(),
     ];
     let mut packed_values: Vec<u8> = vec![];
 

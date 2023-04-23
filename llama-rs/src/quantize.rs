@@ -1,8 +1,12 @@
 //! Implements quantization of weights.
 
-use crate::{Hyperparameters, LoadError, Vocabulary};
+use crate::{loader::read_string, Hyperparameters, LoadError, Vocabulary};
 use ggml::{
-    quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
+    quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC_GGMF, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
+};
+use ggml_loader::{
+    util::{decode_element_type_res, read_i32},
+    ContainerType,
 };
 use half::f16;
 use std::path::{Path, PathBuf};
@@ -10,7 +14,7 @@ use thiserror::Error;
 
 const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
 
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, Debug)]
 
 /// Progress of quantization.
 pub enum QuantizeProgress<'a> {
@@ -115,7 +119,7 @@ pub fn quantize(
         if magic == FILE_MAGIC_UNVERSIONED {
             todo!("Unversioned files are not supported yet")
         }
-        if magic != FILE_MAGIC {
+        if magic != FILE_MAGIC_GGMF {
             return Err(LoadError::InvalidMagic {
                 path: file_in.to_owned(),
             }
@@ -125,7 +129,8 @@ pub fn quantize(
         let format_version = rw_u32(&mut finp, &mut fout)?;
         if format_version != FORMAT_VERSION {
             return Err(LoadError::InvalidFormatVersion {
-                value: format_version,
+                container_type: ContainerType::GGMF,
+                version: format_version,
             }
             .into());
         }
@@ -141,7 +146,10 @@ pub fn quantize(
         hparams.n_head = rw_i32(&mut finp, &mut fout)?.try_into()?;
         hparams.n_layer = rw_i32(&mut finp, &mut fout)?.try_into()?;
         hparams.n_rot = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.f16_ = read_i32(&mut finp)?.try_into()?;
+        let ftype = read_i32(&mut finp)?;
+        hparams.element_type = decode_element_type_res(ftype)
+            .map_err(|err| LoadError::from_ggml_loader_error(err, file_in.to_owned()))?;
+        fout.write_all(&ftype.to_le_bytes())?;
         fout.write_all(&itype.to_le_bytes())?;
     }
 
@@ -193,8 +201,8 @@ pub fn quantize(
                 break;
             }
 
-            let mut ftype: u32;
-            if let Ok(r) = read_u32(&mut finp) {
+            let mut ftype: i32;
+            if let Ok(r) = read_i32(&mut finp) {
                 ftype = r;
             } else {
                 break;
@@ -253,7 +261,7 @@ pub fn quantize(
                     }
                 }
 
-                ftype = itype.try_into()?;
+                ftype = itype;
             } else {
                 // Determines the total bytes were dealing with
                 let bpe = (nelements * if ftype == 0 { 4 } else { 2 }) as usize;

@@ -1,11 +1,12 @@
 use std::{collections::HashMap, path::Path};
 
-use serde::Deserialize;
-
 use crate::{
-    loader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Vocabulary,
+    loader, loader2, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
+    InferenceSession, InferenceSessionParameters, LoadError, LoadProgress, Vocabulary,
 };
+use memmap2::Mmap;
+
+use ggml_loader::ContainerType;
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
@@ -23,6 +24,11 @@ pub struct Model {
 
     tensors: HashMap<String, ggml::Tensor>,
 
+    /// Needs to kept alive while the model is alive
+    pub(crate) mmap: Option<Mmap>,
+
+    _version: ContainerType,
+
     // Must be kept alive for the model
     _context: ggml::Context,
 }
@@ -33,6 +39,8 @@ impl Model {
         vocabulary: Vocabulary,
         n_ff: usize,
         wtype: ggml::Type,
+        container_type: ContainerType,
+        mmap: Option<Mmap>,
     ) -> Model {
         let n_embd = hparams.n_embd;
         let n_layer = hparams.n_layer;
@@ -102,6 +110,8 @@ impl Model {
             layers,
             tensors,
             _context: context,
+            mmap,
+            _version: container_type,
         }
     }
 
@@ -110,10 +120,25 @@ impl Model {
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: impl AsRef<Path>,
+        prefer_mmap: bool,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Model, LoadError> {
-        loader::load(path, n_context_tokens, load_progress_callback)
+        // Loader2 is the default. It can support GGML, GGMF and GGJT, but does not support multipart models.
+        //
+        // Loader1 is the old loader. It can support multipart models, but will be deprecated.
+        let use_loader_2: bool = match std::env::var("GGML_LOADER").as_deref() {
+            Ok("2") => true,
+            Ok("1") => false,
+            Ok(_) => panic!("Please use GGML_LOADER=1 or GGML_LOADER=2"),
+            Err(_) => true,
+        };
+
+        if use_loader_2 {
+            loader2::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        } else {
+            loader::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        }
     }
 
     /// Starts a new `InferenceSession` for this model.
@@ -155,7 +180,7 @@ impl Model {
             n_head,
             n_layer,
             n_rot,
-            f16_: _,
+            element_type: _,
         } = self.hparams;
 
         // For the first run, we need to guess a maximum buffer size so we can measure
@@ -176,11 +201,11 @@ impl Model {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::Context::init(buf_size);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -425,13 +450,13 @@ impl Model {
         &self.vocabulary
     }
 
-    pub(crate) fn tensors(&self) -> &HashMap<String, ggml::Tensor> {
-        &self.tensors
+    pub(crate) fn tensors_mut(&mut self) -> &mut HashMap<String, ggml::Tensor> {
+        &mut self.tensors
     }
 }
 
 /// The hyperparameters of the model.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
     /// n_vocab
     pub n_vocab: usize,
@@ -447,8 +472,8 @@ pub struct Hyperparameters {
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
-    /// f16_
-    pub f16_: u32,
+    /// element_type
+    pub element_type: crate::ElementType,
 }
 
 struct Layer {

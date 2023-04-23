@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use crate::LoadError;
-
 /// NOTE: The original code relies in promotion rules and automatic cast between
 /// int to float. What we do instead is use this macro to convert every term of
 /// the multiplication to f64, which should have enough precision bits to hold
@@ -16,12 +14,13 @@ macro_rules! mulf {
 }
 
 pub(crate) use mulf;
+use thiserror::Error;
 
 /// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
 ///
 /// Tokens are *not* valid UTF-8 by themselves. However, the LLM will produce valid UTF-8
 /// from multiple tokens. This helps alleviate that issue.
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct TokenUtf8Buffer(Vec<u8>);
 impl TokenUtf8Buffer {
     /// Create a new buffer.
@@ -69,11 +68,29 @@ impl TokenUtf8Buffer {
     }
 }
 
-pub(crate) fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
+#[derive(Error, Debug)]
+/// Errors encountered during the loading process.
+pub enum FindAllModelFilesError {
+    #[error("no parent path for {path:?}")]
+    /// There is no parent path for a given path.
+    NoParentPath {
+        /// The path without a parent.
+        path: PathBuf,
+    },
+    #[error("non-specific I/O error")]
+    /// A non-specific IO error.
+    IO(#[from] std::io::Error),
+}
+
+pub(crate) fn find_all_model_files(
+    main_path: &Path,
+) -> Result<Vec<PathBuf>, FindAllModelFilesError> {
     Ok(collect_related_paths(
         main_path,
-        std::fs::read_dir(main_path.parent().ok_or_else(|| LoadError::NoParentPath {
-            path: main_path.to_owned(),
+        std::fs::read_dir(main_path.parent().ok_or_else(|| {
+            FindAllModelFilesError::NoParentPath {
+                path: main_path.to_owned(),
+            }
         })?)?
         .filter_map(Result::ok)
         .map(|de| de.path()),

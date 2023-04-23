@@ -8,7 +8,7 @@ pub(crate) type Token = Vec<u8>;
 pub(crate) type TokenScore = f32;
 
 /// The vocabulary used by a model.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Vocabulary {
     /// Maps every integer (index) token id to its corresponding token
     pub(crate) id_to_token: Vec<Token>,
@@ -16,13 +16,37 @@ pub struct Vocabulary {
     /// Maps every integer (index) token id to corresponding score
     pub(crate) id_to_token_score: Vec<TokenScore>,
 
+    // todo: use a radix tree
     /// Maps a token to a token id
     pub(crate) token_to_id: HashMap<Token, TokenId>,
 
     /// The longest token in this vocabulary
     pub(crate) max_token_length: usize,
 }
+
 impl Vocabulary {
+    /// Add a token to the vocabulary.
+    ///
+    /// The token added must have `id` directly after the last token in the vocabulary.
+    ///
+    /// # Panics
+    /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
+    ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
+    pub(crate) fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
+        // These are loader invariants. If this is broken, then the loader is broken and this is a bug,
+        // not an issue with the model itself.
+        assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
+        if self.id_to_token.len() != id as usize || self.id_to_token_score.len() != id as usize {
+            let expected_id = self.id_to_token.len() as TokenId;
+            panic!("the id of token added should be {expected_id}; is {id}");
+        }
+
+        self.max_token_length = self.max_token_length.max(content.len());
+        self.id_to_token.push(content.clone());
+        self.id_to_token_score.push(score);
+        self.token_to_id.insert(content, id);
+    }
+
     pub(crate) fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
     }
