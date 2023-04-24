@@ -5,6 +5,9 @@ use cli_args::Args;
 use color_eyre::eyre::{Context, Result};
 use llama_rs::{convert::convert_pth_to_ggml, InferenceError};
 use rustyline::error::ReadlineError;
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
+use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
+use rustyline::{Completer, Helper, Highlighter, Hinter};
 
 mod cli_args;
 mod snapshot;
@@ -124,16 +127,19 @@ fn interactive(
     let inference_params = args.generate.inference_parameters(session_loaded);
 
     let mut rng = args.generate.rng();
-    let mut rl = rustyline::DefaultEditor::new()?;
+    let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
+    rl.set_helper(Some(LineContinuationValidator));
+
     loop {
         let readline = rl.readline(">> ");
         match readline {
-            Ok(line) => {
+            Ok(raw_line) => {
                 let session_backup = if chat_mode {
                     None
                 } else {
                     Some(session.clone())
                 };
+                let line = raw_line.replace("\\\n", "\n");
 
                 let prompt = prompt_file
                     .as_deref()
@@ -238,6 +244,19 @@ fn load_prompt_file_with_prompt(
     } else {
         log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
+    }
+}
+
+#[derive(Completer, Helper, Highlighter, Hinter, Debug, Clone, Copy)]
+struct LineContinuationValidator;
+
+impl Validator for LineContinuationValidator {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        if ctx.input().ends_with('\\') {
+            Ok(ValidationResult::Incomplete)
+        } else {
+            Ok(ValidationResult::Valid(None))
+        }
     }
 }
 

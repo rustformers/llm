@@ -17,6 +17,6 @@ env_logger = "0.10.0"
 log = "0.4"
 num_cpus = "1.15.0"
 once_cell = "1.17.1"
-rustyline = "11.0.0"
+rustyline = { version = "11.0.0", features = ["derive"] }
 spinners = "4.1.0"
 zstd = {version = "0.12", default-features = false}
