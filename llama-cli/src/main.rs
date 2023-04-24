@@ -129,6 +129,10 @@ fn interactive(
     let mut rng = args.generate.rng();
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
+    rl.bind_sequence(
+        Event::KeySeq(vec![KeyEvent(KeyCode::Enter, Modifiers::SHIFT)]),
+        EventHandler::Simple(Cmd::Newline),
+    );
 
     loop {
         let readline = rl.readline(">> ");
