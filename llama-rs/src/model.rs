@@ -117,6 +117,7 @@ impl Model {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_loader2(
         context: ggml::Context,
         hyperparameters: Hyperparameters,
