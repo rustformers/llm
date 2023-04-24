@@ -17,7 +17,7 @@ use ggml_loader::TensorInfo;
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
 pub struct Model {
-    pub(crate) hparams: Hyperparameters,
+    hyperparameters: Hyperparameters,
 
     vocabulary: Vocabulary,
 
@@ -105,7 +105,7 @@ impl Model {
         }
 
         Model {
-            hparams,
+            hyperparameters: hparams,
             vocabulary,
             tok_embeddings,
             norm,
@@ -249,7 +249,7 @@ impl Model {
         let tensors = tl.loaded_tensors;
 
         Ok(Model {
-            hparams: hyperparameters,
+            hyperparameters,
             vocabulary,
             tok_embeddings,
             norm,
@@ -291,10 +291,10 @@ impl Model {
     pub fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(
             params,
-            self.hparams.n_ctx,
-            self.hparams.n_layer,
-            self.hparams.n_embd,
-            self.hparams.n_vocab,
+            self.hyperparameters.n_ctx,
+            self.hyperparameters.n_layer,
+            self.hyperparameters.n_embd,
+            self.hyperparameters.n_vocab,
         )
     }
 
@@ -327,7 +327,7 @@ impl Model {
             n_layer,
             n_rot,
             file_type: _,
-        } = self.hparams;
+        } = self.hyperparameters;
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
@@ -598,6 +598,10 @@ impl Model {
 
     pub(crate) fn tensors_mut(&mut self) -> &mut HashMap<String, ggml::Tensor> {
         &mut self.tensors
+    }
+
+    pub(crate) fn n_ctx(&self) -> usize {
+        self.hyperparameters.n_ctx
     }
 }
 
