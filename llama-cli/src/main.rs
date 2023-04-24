@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         Args::DumpTokens(args) => dump_tokens(&args)?,
         Args::Repl(args) => interactive(&args, false)?,
         Args::ChatExperimental(args) => interactive(&args, true)?,
-        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
+        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.file_type.into()),
     }
 
     Ok(())

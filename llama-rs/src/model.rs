@@ -1,12 +1,18 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
+};
 
 use crate::{
-    loader, loader2, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
-    InferenceSession, InferenceSessionParameters, LoadError, LoadProgress, Vocabulary,
+    loader, loader2, loader_common::FileType, vocabulary::TokenId, EvaluateOutputRequest,
+    InferenceParameters, InferenceSession, InferenceSessionParameters, LoadError, LoadProgress,
+    Vocabulary,
 };
 use memmap2::Mmap;
 
-use ggml_loader::ContainerType;
+use ggml_loader::TensorInfo;
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
@@ -25,21 +31,18 @@ pub struct Model {
     tensors: HashMap<String, ggml::Tensor>,
 
     /// Needs to kept alive while the model is alive
-    pub(crate) mmap: Option<Mmap>,
-
-    _version: ContainerType,
+    _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
 }
 impl Model {
-    pub(crate) fn new(
+    pub(crate) fn new_loader1(
         context: ggml::Context,
         hparams: Hyperparameters,
         vocabulary: Vocabulary,
         n_ff: usize,
         wtype: ggml::Type,
-        container_type: ContainerType,
         mmap: Option<Mmap>,
     ) -> Model {
         let n_embd = hparams.n_embd;
@@ -110,9 +113,151 @@ impl Model {
             layers,
             tensors,
             _context: context,
-            mmap,
-            _version: container_type,
+            _mmap: mmap,
         }
+    }
+
+    pub(crate) fn new_loader2(
+        context: ggml::Context,
+        hyperparameters: Hyperparameters,
+        vocabulary: Vocabulary,
+        n_ff: usize,
+        path: PathBuf,
+        file: &mut File,
+        tensors: &HashMap<String, TensorInfo>,
+        mmap: Option<Mmap>,
+        progress_callback: impl FnMut(usize),
+    ) -> Result<Model, LoadError> {
+        let n_embd = hyperparameters.n_embd;
+        let n_layer = hyperparameters.n_layer;
+        let n_vocab = hyperparameters.n_vocab;
+
+        struct TensorLoader<'a, F: FnMut(usize)> {
+            // Input
+            path: PathBuf,
+            file: &'a mut File,
+            tensors: &'a HashMap<String, TensorInfo>,
+            context: &'a ggml::Context,
+            mmap_ptr: Option<*const u8>,
+            progress_callback: F,
+
+            // Output
+            loaded_tensors: HashMap<String, ggml::Tensor>,
+        }
+        impl<F: FnMut(usize)> TensorLoader<'_, F> {
+            fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
+                let info = self
+                    .tensors
+                    .get(name)
+                    .ok_or_else(|| LoadError::UnknownTensor {
+                        path: self.path.clone(),
+                        tensor_name: name.to_owned(),
+                    })?;
+
+                let ctx = self.context;
+                let mut tensor = match ne.len() {
+                    1 => ctx.new_tensor_1d(info.element_type, ne[0]),
+                    2 => ctx.new_tensor_2d(info.element_type, ne[0], ne[1]),
+                    3 => ctx.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
+                    _ => {
+                        return Err(LoadError::InvariantBroken {
+                            path: self.path.clone(),
+                            invariant: format!(
+                                "the tensor {name} had an unsupported dimension count: {ne:?}"
+                            ),
+                        })
+                    }
+                };
+
+                match self.mmap_ptr {
+                    Some(mmap) => unsafe {
+                        let ptr = mmap.offset(info.start_offset as isize);
+                        tensor.set_data(ptr as *mut std::ffi::c_void);
+                    },
+                    None => {
+                        let buf: &mut [u8] = unsafe {
+                            std::slice::from_raw_parts_mut(
+                                tensor.data() as *mut u8,
+                                tensor.nbytes(),
+                            )
+                        };
+                        self.file.seek(SeekFrom::Start(info.start_offset))?;
+                        self.file.read_exact(buf)?;
+                    }
+                }
+
+                self.loaded_tensors.insert(name.to_owned(), tensor.share());
+                (self.progress_callback)(self.loaded_tensors.len());
+
+                Ok(tensor)
+            }
+        }
+        let mut tl = TensorLoader {
+            path,
+            file,
+            tensors,
+            context: &context,
+            mmap_ptr: mmap.as_ref().map(|m| m.as_ptr()),
+            progress_callback,
+
+            loaded_tensors: Default::default(),
+        };
+
+        let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
+        let norm = tl.load("norm.weight", &[n_embd])?;
+        let output = tl.load("output.weight", &[n_embd, n_vocab])?;
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"), &[n_embd])?,
+                wq: tl.load(
+                    &format!("layers.{i}.attention.wq.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wk: tl.load(
+                    &format!("layers.{i}.attention.wk.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wv: tl.load(
+                    &format!("layers.{i}.attention.wv.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wo: tl.load(
+                    &format!("layers.{i}.attention.wo.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"), &[n_embd])?,
+                w1: tl.load(
+                    &format!("layers.{i}.feed_forward.w1.weight"),
+                    &[n_embd, n_ff],
+                )?,
+                w2: tl.load(
+                    &format!("layers.{i}.feed_forward.w2.weight"),
+                    &[n_ff, n_embd],
+                )?,
+                w3: tl.load(
+                    &format!("layers.{i}.feed_forward.w3.weight"),
+                    &[n_embd, n_ff],
+                )?,
+            };
+
+            layers.push(layer);
+        }
+
+        let tensors = tl.loaded_tensors;
+
+        Ok(Model {
+            hparams: hyperparameters,
+            vocabulary,
+            tok_embeddings,
+            norm,
+            output,
+            layers,
+            tensors,
+            _context: context,
+            _mmap: mmap,
+        })
     }
 
     /// Load the model from `path` with `n_context_tokens` context tokens.
@@ -180,7 +325,7 @@ impl Model {
             n_head,
             n_layer,
             n_rot,
-            element_type: _,
+            file_type: _,
         } = self.hparams;
 
         // For the first run, we need to guess a maximum buffer size so we can measure
@@ -472,8 +617,8 @@ pub struct Hyperparameters {
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
-    /// element_type
-    pub element_type: crate::ElementType,
+    /// file_type
+    pub file_type: FileType,
 }
 
 struct Layer {

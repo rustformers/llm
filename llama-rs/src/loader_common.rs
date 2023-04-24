@@ -1,8 +1,74 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::{Display, Formatter},
+    path::{Path, PathBuf},
+};
 
 use thiserror::Error;
 
 use crate::{util::FindAllModelFilesError, Hyperparameters};
+
+/// How the tensors are stored in the GGML LLaMA model.
+#[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
+pub enum FileType {
+    /// All tensors are stored as f32.
+    F32,
+    #[default]
+    /// All tensors are mostly stored as `f16`, except for the 1D tensors (32-bit).
+    MostlyF16,
+    /// All tensors are mostly stored as `Q4_0`, except for the 1D tensors (32-bit).
+    MostlyQ4_0,
+    /// All tensors are mostly stored as `Q4_1`, except for the 1D tensors (32-bit)
+    MostlyQ4_1,
+    /// All tensors are mostly stored as `Q4_1`, except for the 1D tensors (32-bit)
+    /// and the `tok_embeddings.weight` (f16) and `output.weight` tensors (f16).
+    MostlyQ4_1SomeF16,
+    /// All tensors are mostly stored as `Q4_2`, except for the 1D tensors (32-bit).
+    MostlyQ4_2,
+    /// All tensors are mostly stored as `Q4_3`, except for the 1D tensors (32-bit).
+    MostlyQ4_3,
+}
+impl From<FileType> for i32 {
+    fn from(value: FileType) -> Self {
+        match value {
+            FileType::F32 => 0,
+            FileType::MostlyF16 => 1,
+            FileType::MostlyQ4_0 => 2,
+            FileType::MostlyQ4_1 => 3,
+            FileType::MostlyQ4_1SomeF16 => 4,
+            FileType::MostlyQ4_2 => 5,
+            FileType::MostlyQ4_3 => 6,
+        }
+    }
+}
+impl TryFrom<i32> for FileType {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(FileType::F32),
+            1 => Ok(FileType::MostlyF16),
+            2 => Ok(FileType::MostlyQ4_0),
+            3 => Ok(FileType::MostlyQ4_1),
+            4 => Ok(FileType::MostlyQ4_1SomeF16),
+            5 => Ok(FileType::MostlyQ4_2),
+            6 => Ok(FileType::MostlyQ4_3),
+            _ => Err(()),
+        }
+    }
+}
+impl Display for FileType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileType::F32 => write!(f, "f32"),
+            FileType::MostlyF16 => write!(f, "f16"),
+            FileType::MostlyQ4_0 => write!(f, "q4_0"),
+            FileType::MostlyQ4_1 => write!(f, "q4_1"),
+            FileType::MostlyQ4_1SomeF16 => write!(f, "q4_1_with_f16"),
+            FileType::MostlyQ4_2 => write!(f, "q4_2"),
+            FileType::MostlyQ4_3 => write!(f, "q4_3"),
+        }
+    }
+}
 
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
@@ -79,8 +145,8 @@ pub enum LoadError {
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
     #[error("unsupported f16_: {0}")]
-    /// One of the integers encountered could not be converted to a more appropriate type.
-    UnsupportedElementType(i32),
+    /// The `f16_` hyperparameter had an invalid value.
+    UnsupportedFileType(i32),
     #[error("invalid magic number for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
     InvalidMagic {
