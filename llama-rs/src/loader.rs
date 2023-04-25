@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    loader_common::FileType,
     util::{self, mulf},
     LoadError, LoadProgress, Model, TokenId, Vocabulary,
 };
@@ -74,9 +75,9 @@ pub(crate) fn load(
         n_head: read_i32(&mut reader)?.try_into()?,
         n_layer: read_i32(&mut reader)?.try_into()?,
         n_rot: read_i32(&mut reader)?.try_into()?,
-        element_type: {
+        file_type: {
             let ftype = read_i32(&mut reader)?;
-            decode_element_type(ftype).ok_or_else(|| LoadError::UnsupportedElementType(ftype))
+            FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))
         }?,
     };
 
@@ -113,7 +114,13 @@ pub(crate) fn load(
     // for the big tensors, we have the option to store the data in 16-bit
     // floats or quantized in order to save memory and also to speed up the
     // computation
-    let wtype = hparams.element_type;
+    let wtype = match hparams.file_type {
+        FileType::F32 => ggml::Type::F32,
+        FileType::MostlyF16 => ggml::Type::F16,
+        FileType::MostlyQ4_0 => ggml::Type::Q4_0,
+        FileType::MostlyQ4_1 => ggml::Type::Q4_1,
+        _ => unimplemented!(),
+    };
 
     let n_embd = hparams.n_embd;
     let n_layer = hparams.n_layer;
@@ -164,7 +171,7 @@ pub(crate) fn load(
         (None, None)
     };
 
-    let mut model = Model::new(context, hparams, vocabulary, n_ff, wtype, model_type, mmap);
+    let mut model = Model::new_loader1(context, hparams, vocabulary, n_ff, wtype, mmap);
     match model_type {
         ContainerType::GGMF | ContainerType::GGML => {
             let file_offset = reader.stream_position()?;
@@ -426,7 +433,7 @@ fn load_tensor_header_ggmf<'a>(
 }
 
 fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
-    let ftype = decode_element_type(ftype)?;
+    let ftype = ggml::Type::try_from(ftype).ok()?;
     match ftype {
         ElementType::Q4_0 | ElementType::Q4_1 => {
             assert_eq!(ne[0] % 64, 0);

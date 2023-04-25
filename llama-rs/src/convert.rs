@@ -16,20 +16,19 @@ use std::{
     vec,
 };
 
-use crate::{util, Hyperparameters, Vocabulary};
-use ggml_loader::util::encode_element_type;
+use crate::{loader_common::FileType, util, Hyperparameters, Vocabulary};
 
 /// Converts a `pth` file to a `ggml` file.
-pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
+pub fn convert_pth_to_ggml(model_directory: &Path, file_type: FileType) {
     let tokenizer_path = model_directory.parent().unwrap().join("tokenizer.model");
     let vocab = load_vocabulary(tokenizer_path.as_path());
 
-    let hparams = load_hyperparameters(model_directory, element_type, &vocab);
+    let hparams = load_hyperparameters(model_directory, file_type, &vocab);
 
     let model_files = util::find_all_model_files(model_directory).unwrap();
 
     for (i, _file) in model_files.iter().enumerate() {
-        let fname_out = model_directory.join(format!("rust-model-{element_type}.bin"));
+        let fname_out = model_directory.join(format!("rust-model-{file_type}.bin"));
         let mut file = File::create(fname_out).expect("Unable to create file");
         write_header(file.borrow_mut(), &hparams).unwrap();
         write_tokens(file.borrow_mut(), &vocab).unwrap();
@@ -66,11 +65,7 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
     }
 }
 
-fn load_hyperparameters(
-    path: &Path,
-    element_type: ggml::Type,
-    vocab: &Vocabulary,
-) -> Hyperparameters {
+fn load_hyperparameters(path: &Path, file_type: FileType, vocab: &Vocabulary) -> Hyperparameters {
     #[derive(Deserialize)]
     struct HyperParametersJson {
         dim: usize,
@@ -83,7 +78,7 @@ fn load_hyperparameters(
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
     let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
-        element_type,
+        file_type,
         n_ctx: 0,
         n_embd: json.dim,
         n_head: json.n_heads,
@@ -107,7 +102,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
         i32::try_from(hparams.n_head).unwrap(),
         i32::try_from(hparams.n_layer).unwrap(),
         i32::try_from(hparams.n_embd / hparams.n_head).unwrap(),
-        encode_element_type(hparams.element_type).unwrap(),
+        hparams.file_type.into(),
     ];
     let mut packed_values: Vec<u8> = vec![];
 

@@ -1,13 +1,10 @@
 //! Implements quantization of weights.
 
-use crate::{loader::read_string, Hyperparameters, LoadError, Vocabulary};
+use crate::{loader::read_string, FileType, Hyperparameters, LoadError, Vocabulary};
 use ggml::{
     quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC_GGMF, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
 };
-use ggml_loader::{
-    util::{decode_element_type_res, read_i32},
-    ContainerType,
-};
+use ggml_loader::{util::read_i32, ContainerType};
 use half::f16;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -146,9 +143,9 @@ pub fn quantize(
         hparams.n_head = rw_i32(&mut finp, &mut fout)?.try_into()?;
         hparams.n_layer = rw_i32(&mut finp, &mut fout)?.try_into()?;
         hparams.n_rot = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        let ftype = read_i32(&mut finp)?;
-        hparams.element_type = decode_element_type_res(ftype)
-            .map_err(|err| LoadError::from_ggml_loader_error(err, file_in.to_owned()))?;
+        let ftype = rw_i32(&mut finp, &mut fout)?;
+        hparams.file_type =
+            FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?;
         fout.write_all(&ftype.to_le_bytes())?;
         fout.write_all(&itype.to_le_bytes())?;
     }
@@ -273,7 +270,7 @@ pub fn quantize(
             // Write data
             fout.write_all(&n_dims.to_le_bytes())?;
             fout.write_all(&(length as i32).to_le_bytes())?;
-            fout.write_all(&(ftype as i32).to_le_bytes())?;
+            fout.write_all(&ftype.to_le_bytes())?;
 
             for i in 0..n_dims {
                 fout.write_all(&ne[i as usize].to_le_bytes())?;

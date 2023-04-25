@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 ggml = { path = "../ggml" }
-thiserror = "*"
+thiserror = "1.0"

@@ -22,7 +22,7 @@ pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
     SnapshotError,
 };
-pub use loader_common::{LoadError, LoadProgress};
+pub use loader_common::{FileType, LoadError, LoadProgress};
 pub use model::{Hyperparameters, Model};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};

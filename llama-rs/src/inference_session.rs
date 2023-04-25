@@ -18,6 +18,13 @@ const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 /// An inference session represents the state of the text generation. This holds
 /// the full context window, as long as several additional parameters used
 /// during sampling.
+///
+/// # Safety
+/// This implements `Send` as it can be sent to another thread. However, it does
+/// not implement `Sync` - it *cannot* be used from multiple threads at the same time.
+///
+/// Consider spawning multiple inference sessions for the same model if you need
+/// to use it from multiple threads.
 pub struct InferenceSession {
     // Must be kept alive for the model
     pub(crate) _session_ctx: ggml::Context,
@@ -50,6 +57,7 @@ pub struct InferenceSession {
     /// There is no specific reason for this number, but one is insufficient.
     pub(crate) scratch: [ggml::Buffer; 2],
 }
+unsafe impl Send for InferenceSession {}
 impl InferenceSession {
     /// Feed a prompt to the model for this session.
     pub fn feed_prompt<E: std::error::Error + 'static>(
@@ -68,7 +76,7 @@ impl InferenceSession {
             .map(|(_, tok)| *tok)
             .collect();
 
-        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx {
+        if self.n_past + prompt_tokens.len() >= model.n_ctx() {
             return Err(InferenceError::ContextFull);
         }
 
@@ -96,7 +104,7 @@ impl InferenceSession {
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
-        if self.n_past + 1 >= model.hparams.n_ctx {
+        if self.n_past + 1 >= model.n_ctx() {
             return Err(InferenceError::ContextFull);
         }
 

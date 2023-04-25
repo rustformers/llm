@@ -376,8 +376,8 @@ pub struct Convert {
     pub directory: PathBuf,
 
     /// File type to convert to
-    #[arg(long, short = 't', value_enum, default_value_t = ElementType::Q4_0)]
-    pub element_type: ElementType,
+    #[arg(long, short = 't', value_enum, default_value_t = FileType::Q4_0)]
+    pub file_type: FileType,
 }
 
 #[derive(Parser, Debug)]
@@ -392,7 +392,7 @@ pub struct Quantize {
 }
 
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
-pub enum ElementType {
+pub enum FileType {
     /// Quantized 4-bit (type 0).
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
@@ -402,13 +402,13 @@ pub enum ElementType {
     /// Float 32-bit.
     F32,
 }
-impl From<ElementType> for llama_rs::ElementType {
-    fn from(t: ElementType) -> Self {
+impl From<FileType> for llama_rs::FileType {
+    fn from(t: FileType) -> Self {
         match t {
-            ElementType::Q4_0 => llama_rs::ElementType::Q4_0,
-            ElementType::Q4_1 => llama_rs::ElementType::Q4_1,
-            ElementType::F16 => llama_rs::ElementType::F16,
-            ElementType::F32 => llama_rs::ElementType::F32,
+            FileType::Q4_0 => llama_rs::FileType::MostlyQ4_0,
+            FileType::Q4_1 => llama_rs::FileType::MostlyQ4_1,
+            FileType::F16 => llama_rs::FileType::MostlyF16,
+            FileType::F32 => llama_rs::FileType::F32,
         }
     }
 }

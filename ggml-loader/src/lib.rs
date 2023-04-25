@@ -10,7 +10,7 @@ use util::*;
 
 pub type ElementType = ggml::Type;
 
-/// file type containing the model
+/// the format of the file containing the model
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum ContainerType {
@@ -21,7 +21,6 @@ pub enum ContainerType {
     /// mmap-able format
     GGJT,
 }
-
 impl ContainerType {
     pub fn support_mmap(&self) -> bool {
         match self {
@@ -64,9 +63,18 @@ pub struct TensorInfo {
     pub n_dims: usize,
     pub dims: [usize; 2],
     pub n_elements: usize,
-    pub ftype: ElementType,
+    pub element_type: ElementType,
     /// start of tensor - start of file
     pub start_offset: u64,
+}
+impl TensorInfo {
+    pub fn calc_size(&self) -> usize {
+        let mut size = ggml::type_size(self.element_type);
+        for &dim in &self.dims[0..self.n_dims] {
+            size *= dim;
+        }
+        size / ggml::blck_size(self.element_type)
+    }
 }
 
 /// Info in hyperparameter used for later loading tasks. Used in callback.
@@ -78,10 +86,7 @@ pub struct PartialHyperparameters {
 
 pub enum TensorDataTreatment<'a> {
     CopyInto(&'a mut [u8]),
-    SeekPast {
-        /// should be `tensor.nbytes`
-        n_bytes: usize,
-    },
+    Skip,
 }
 
 #[allow(unused_variables)]
@@ -173,7 +178,9 @@ pub fn load_weights<T, R: BufRead + Seek>(
         // load tensor header
         let n_dims: usize = read_i32(reader)?.try_into()?;
         let name_len = read_i32(reader)?;
-        let ftype = decode_element_type_res(read_i32(reader)?)?;
+        let ftype = read_i32(reader)?;
+        let ftype =
+            ggml::Type::try_from(ftype).map_err(|_| LoadError::UnsupportedElementType(ftype))?;
 
         let mut n_elements: usize = 1;
         let mut dims = [1usize, 1];
@@ -214,9 +221,10 @@ pub fn load_weights<T, R: BufRead + Seek>(
             dims,
             n_dims,
             n_elements,
-            ftype,
+            element_type: ftype,
             start_offset: offset_aligned,
         };
+        let n_bytes = tensor_info.calc_size();
 
         match controlflow_to_result(handler.tensor_buffer(tensor_info))? {
             TensorDataTreatment::CopyInto(buf) => {
@@ -225,7 +233,7 @@ pub fn load_weights<T, R: BufRead + Seek>(
                 }
                 reader.read_exact(buf)?;
             }
-            TensorDataTreatment::SeekPast { n_bytes } => {
+            TensorDataTreatment::Skip => {
                 // skip if no buffer is given
                 reader.seek(SeekFrom::Start(offset_aligned + n_bytes as u64))?;
             }
