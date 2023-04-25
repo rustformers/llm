@@ -6,7 +6,7 @@ use memmap2::Mmap;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -75,7 +75,7 @@ pub(crate) fn load(
     let mut loader = Loader::new(n_context_tokens, prefer_mmap, load_progress_callback);
     let use_mmap = loader.mmap_active();
 
-    ggml_format::load_model_from_reader(&mut reader, &mut loader)
+    ggml_format::load_model(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.clone()))?;
 
     let Loader {
@@ -222,7 +222,7 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
         self.prefer_mmap && self.container_type.support_mmap()
     }
 }
-impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File>> for Loader<F> {
+impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError> for Loader<F> {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {
         self.container_type = container_type;
         Ok(())
@@ -240,7 +240,7 @@ impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File
 
     fn read_hyperparameters(
         &mut self,
-        reader: &mut BufReader<&File>,
+        reader: &mut dyn BufRead,
     ) -> Result<PartialHyperparameters, LoadError> {
         // NOTE: Field order matters! Data is laid out in the file exactly in this order.
         let hyperparameters = Hyperparameters {

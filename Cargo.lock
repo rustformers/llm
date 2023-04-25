@@ -450,6 +450,7 @@ name = "ggml-format"
 version = "0.1.0"
 dependencies = [
  "ggml",
+ "rand",
  "thiserror",
 ]
 

@@ -66,12 +66,13 @@ impl TensorInfo {
 
     /// Calculate the size of the tensor's values in bytes.
     pub fn calc_size(&self) -> usize {
-        let mut size = ggml::type_size(self.element_type);
-        for &dim in self.dims() {
-            size *= dim;
-        }
-        size / ggml::blck_size(self.element_type)
+        data_size(self.element_type, self.dims().iter().product())
     }
+}
+
+/// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.
+pub fn data_size(element_type: ElementType, n_elements: usize) -> usize {
+    (ggml::type_size(element_type) * n_elements) / ggml::blck_size(element_type)
 }
 
 #[derive(Debug, Clone)]
@@ -82,22 +83,25 @@ pub struct PartialHyperparameters {
 }
 
 /// A handler for loading a model.
-pub trait LoadHandler<E: Error, R: BufRead + Seek> {
+pub trait LoadHandler<E: Error> {
     /// Called when the container type is read.
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), E>;
     /// Called when a vocabulary token is read.
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), E>;
     /// Called when the hyperparameters need to be read.
     /// You must read the hyperparameters for your model here.
-    fn read_hyperparameters(&mut self, reader: &mut R) -> Result<PartialHyperparameters, E>;
+    fn read_hyperparameters(
+        &mut self,
+        reader: &mut dyn BufRead,
+    ) -> Result<PartialHyperparameters, E>;
     /// Called when a new tensor is found.
     fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), E>;
 }
 
 /// Load a model from a `reader` with the `handler`, which will be called when certain events occur.
-pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
+pub fn load_model<E: Error, R: BufRead + Seek>(
     reader: &mut R,
-    handler: &mut impl LoadHandler<E, R>,
+    handler: &mut impl LoadHandler<E>,
 ) -> Result<(), LoadError<E>> {
     // Verify magic
     let container_type: ContainerType = match read_u32(reader)? {
@@ -156,7 +160,7 @@ pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
 /// align to 4 bytes before reading tensor weights
 fn load_weights<E: Error, R: BufRead + Seek>(
     reader: &mut R,
-    handler: &mut impl LoadHandler<E, R>,
+    handler: &mut impl LoadHandler<E>,
     align: bool,
 ) -> Result<(), LoadError<E>> {
     while has_data_left(reader)? {

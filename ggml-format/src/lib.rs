@@ -11,10 +11,14 @@
 pub mod util;
 
 mod loader;
+mod saver;
+#[cfg(test)]
+mod tests;
 
 pub use loader::{
-    load_model_from_reader, LoadError, LoadHandler, PartialHyperparameters, TensorInfo,
+    data_size, load_model, LoadError, LoadHandler, PartialHyperparameters, TensorInfo,
 };
+pub use saver::{save_model, SaveError, SaveHandler, TensorData};
 
 /// The type of a tensor element.
 pub type ElementType = ggml::Type;
