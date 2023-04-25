@@ -1,17 +1,16 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, error::Error, path::Path};
 
 use crate::{
-    loader, loader2, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
-    InferenceSession, InferenceSessionParameters, LoadError, LoadProgress, Vocabulary,
+    loader, loader2, loader_common::FileType, vocabulary::TokenId, EvaluateOutputRequest,
+    InferenceParameters, InferenceSession, InferenceSessionParameters, LoadError, LoadProgress,
+    Vocabulary,
 };
 use memmap2::Mmap;
-
-use ggml_loader::ContainerType;
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
 pub struct Model {
-    pub(crate) hparams: Hyperparameters,
+    hyperparameters: Hyperparameters,
 
     vocabulary: Vocabulary,
 
@@ -25,21 +24,18 @@ pub struct Model {
     tensors: HashMap<String, ggml::Tensor>,
 
     /// Needs to kept alive while the model is alive
-    pub(crate) mmap: Option<Mmap>,
-
-    _version: ContainerType,
+    _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
 }
 impl Model {
-    pub(crate) fn new(
+    pub(crate) fn new_loader1(
         context: ggml::Context,
         hparams: Hyperparameters,
         vocabulary: Vocabulary,
         n_ff: usize,
         wtype: ggml::Type,
-        container_type: ContainerType,
         mmap: Option<Mmap>,
     ) -> Model {
         let n_embd = hparams.n_embd;
@@ -102,7 +98,7 @@ impl Model {
         }
 
         Model {
-            hparams,
+            hyperparameters: hparams,
             vocabulary,
             tok_embeddings,
             norm,
@@ -110,9 +106,77 @@ impl Model {
             layers,
             tensors,
             _context: context,
-            mmap,
-            _version: container_type,
+            _mmap: mmap,
         }
+    }
+
+    pub(crate) fn new_loader2<E: Error>(
+        hyperparameters: Hyperparameters,
+        vocabulary: Vocabulary,
+        n_ff: usize,
+        tensor_loader: impl TensorLoader<E>,
+    ) -> Result<Model, E> {
+        let n_embd = hyperparameters.n_embd;
+        let n_layer = hyperparameters.n_layer;
+        let n_vocab = hyperparameters.n_vocab;
+
+        let mut tl = tensor_loader;
+
+        let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
+        let norm = tl.load("norm.weight", &[n_embd])?;
+        let output = tl.load("output.weight", &[n_embd, n_vocab])?;
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"), &[n_embd])?,
+                wq: tl.load(
+                    &format!("layers.{i}.attention.wq.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wk: tl.load(
+                    &format!("layers.{i}.attention.wk.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wv: tl.load(
+                    &format!("layers.{i}.attention.wv.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wo: tl.load(
+                    &format!("layers.{i}.attention.wo.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"), &[n_embd])?,
+                w1: tl.load(
+                    &format!("layers.{i}.feed_forward.w1.weight"),
+                    &[n_embd, n_ff],
+                )?,
+                w2: tl.load(
+                    &format!("layers.{i}.feed_forward.w2.weight"),
+                    &[n_ff, n_embd],
+                )?,
+                w3: tl.load(
+                    &format!("layers.{i}.feed_forward.w3.weight"),
+                    &[n_embd, n_ff],
+                )?,
+            };
+
+            layers.push(layer);
+        }
+
+        let (_context, tensors, _mmap) = tl.finish();
+
+        Ok(Model {
+            hyperparameters,
+            vocabulary,
+            tok_embeddings,
+            norm,
+            output,
+            layers,
+            tensors,
+            _context,
+            _mmap,
+        })
     }
 
     /// Load the model from `path` with `n_context_tokens` context tokens.
@@ -145,10 +209,10 @@ impl Model {
     pub fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(
             params,
-            self.hparams.n_ctx,
-            self.hparams.n_layer,
-            self.hparams.n_embd,
-            self.hparams.n_vocab,
+            self.hyperparameters.n_ctx,
+            self.hyperparameters.n_layer,
+            self.hyperparameters.n_embd,
+            self.hyperparameters.n_vocab,
         )
     }
 
@@ -180,8 +244,8 @@ impl Model {
             n_head,
             n_layer,
             n_rot,
-            element_type: _,
-        } = self.hparams;
+            file_type: _,
+        } = self.hyperparameters;
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
@@ -453,6 +517,10 @@ impl Model {
     pub(crate) fn tensors_mut(&mut self) -> &mut HashMap<String, ggml::Tensor> {
         &mut self.tensors
     }
+
+    pub(crate) fn n_ctx(&self) -> usize {
+        self.hyperparameters.n_ctx
+    }
 }
 
 /// The hyperparameters of the model.
@@ -472,8 +540,13 @@ pub struct Hyperparameters {
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
-    /// element_type
-    pub element_type: crate::ElementType,
+    /// file_type
+    pub file_type: FileType,
+}
+
+pub(crate) trait TensorLoader<E: Error> {
+    fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
+    fn finish(self) -> (ggml::Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
 }
 
 struct Layer {

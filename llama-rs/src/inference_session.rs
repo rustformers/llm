@@ -68,7 +68,7 @@ impl InferenceSession {
             .map(|(_, tok)| *tok)
             .collect();
 
-        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx {
+        if self.n_past + prompt_tokens.len() >= model.n_ctx() {
             return Err(InferenceError::ContextFull);
         }
 
@@ -96,7 +96,7 @@ impl InferenceSession {
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
-        if self.n_past + 1 >= model.hparams.n_ctx {
+        if self.n_past + 1 >= model.n_ctx() {
             return Err(InferenceError::ContextFull);
         }
 

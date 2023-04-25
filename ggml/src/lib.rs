@@ -24,6 +24,9 @@ pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;
 
+/// The size of a `ggml` object.
+pub const OBJECT_SIZE: usize = ggml_sys::GGML_OBJECT_SIZE;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
 pub enum Type {
@@ -32,6 +35,12 @@ pub enum Type {
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
     Q4_1,
+    /// Quantized 4-bit (type 2).
+    Q4_2,
+    /// Quantized 4-bit (type 3).
+    Q4_3,
+    /// Quantized 8-bit (type 0).
+    Q8_0,
     /// Integer 32-bit.
     I32,
     /// Float 16-bit.
@@ -44,6 +53,9 @@ impl From<Type> for ggml_sys::ggml_type {
         match t {
             Type::Q4_0 => ggml_sys::ggml_type_GGML_TYPE_Q4_0,
             Type::Q4_1 => ggml_sys::ggml_type_GGML_TYPE_Q4_1,
+            Type::Q4_2 => ggml_sys::ggml_type_GGML_TYPE_Q4_2,
+            Type::Q4_3 => ggml_sys::ggml_type_GGML_TYPE_Q4_3,
+            Type::Q8_0 => ggml_sys::ggml_type_GGML_TYPE_Q8_0,
             Type::I32 => ggml_sys::ggml_type_GGML_TYPE_I32,
             Type::F16 => ggml_sys::ggml_type_GGML_TYPE_F16,
             Type::F32 => ggml_sys::ggml_type_GGML_TYPE_F32,
@@ -56,6 +68,9 @@ impl TryFrom<ggml_sys::ggml_type> for Type {
         match t {
             ggml_sys::ggml_type_GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
             ggml_sys::ggml_type_GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
+            ggml_sys::ggml_type_GGML_TYPE_Q4_2 => Ok(Type::Q4_2),
+            ggml_sys::ggml_type_GGML_TYPE_Q4_3 => Ok(Type::Q4_3),
+            ggml_sys::ggml_type_GGML_TYPE_Q8_0 => Ok(Type::Q8_0),
             ggml_sys::ggml_type_GGML_TYPE_I32 => Ok(Type::I32),
             ggml_sys::ggml_type_GGML_TYPE_F16 => Ok(Type::F16),
             ggml_sys::ggml_type_GGML_TYPE_F32 => Ok(Type::F32),
@@ -68,6 +83,9 @@ impl std::fmt::Display for Type {
         match self {
             Type::Q4_0 => write!(f, "q4_0"),
             Type::Q4_1 => write!(f, "q4_1"),
+            Type::Q4_2 => write!(f, "q4_2"),
+            Type::Q4_3 => write!(f, "q4_3"),
+            Type::Q8_0 => write!(f, "q8_0"),
             Type::I32 => write!(f, "i32"),
             Type::F16 => write!(f, "f16"),
             Type::F32 => write!(f, "f32"),
@@ -510,6 +528,11 @@ pub struct Tensor {
 }
 
 impl Tensor {
+    /// Size of the `ggml_tensor` struct in bytes.
+    ///
+    /// Exposed for purposes of determining context size.
+    pub const C_TYPE_SIZE: usize = std::mem::size_of::<ggml_sys::ggml_tensor>();
+
     /// Creates a shared copy of this tensor pointer.
     pub fn share(&self) -> Self {
         Tensor {
