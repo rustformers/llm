@@ -9,6 +9,9 @@ use memmap2::Mmap;
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Model {
     hyperparameters: Hyperparameters,
 
@@ -29,6 +32,9 @@ pub struct Model {
     // Must be kept alive for the model
     _context: ggml::Context,
 }
+unsafe impl Send for Model {}
+unsafe impl Sync for Model {}
+
 impl Model {
     pub(crate) fn new_loader1(
         context: ggml::Context,
@@ -522,6 +528,29 @@ impl Model {
         self.hyperparameters.n_ctx
     }
 }
+#[cfg(test)]
+impl Model {
+    /// This does *not* construct a valid model. All of the tensors are entirely
+    /// empty. However, it can be used to determine if some code will compile.
+    fn new_empty() -> Self {
+        let context = ggml::Context::init(1 * 1024 * 1024, true);
+        let tok_embeddings = context.new_f32(0.0);
+        let norm = context.new_f32(0.0);
+        let output = context.new_f32(0.0);
+
+        Self {
+            hyperparameters: Default::default(),
+            vocabulary: Default::default(),
+            tok_embeddings,
+            norm,
+            output,
+            layers: Default::default(),
+            tensors: Default::default(),
+            _mmap: Default::default(),
+            _context: context,
+        }
+    }
+}
 
 /// The hyperparameters of the model.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -564,4 +593,27 @@ struct Layer {
     w1: ggml::Tensor,
     w2: ggml::Tensor,
     w3: ggml::Tensor,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn can_share_model_between_threads() {
+        let model = Arc::new(Model::new_empty());
+
+        for _ in 0..4 {
+            let model = model.clone();
+            std::thread::spawn(move || {
+                let _session = model.start_session(Default::default());
+            });
+        }
+
+        let session = model.start_session(Default::default());
+        std::thread::spawn(move || {
+            let _session = session;
+        });
+    }
 }
