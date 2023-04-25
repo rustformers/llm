@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, error::Error, path::Path};
 
 use crate::{
     loader, loader2, loader_common::FileType, vocabulary::TokenId, EvaluateOutputRequest,
@@ -11,8 +6,6 @@ use crate::{
     Vocabulary,
 };
 use memmap2::Mmap;
-
-use ggml_loader::TensorInfo;
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
@@ -117,92 +110,17 @@ impl Model {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_loader2(
-        context: ggml::Context,
+    pub(crate) fn new_loader2<E: Error>(
         hyperparameters: Hyperparameters,
         vocabulary: Vocabulary,
         n_ff: usize,
-        path: PathBuf,
-        file: &mut File,
-        tensors: &HashMap<String, TensorInfo>,
-        mmap: Option<Mmap>,
-        progress_callback: impl FnMut(usize),
-    ) -> Result<Model, LoadError> {
+        tensor_loader: impl TensorLoader<E>,
+    ) -> Result<Model, E> {
         let n_embd = hyperparameters.n_embd;
         let n_layer = hyperparameters.n_layer;
         let n_vocab = hyperparameters.n_vocab;
 
-        struct TensorLoader<'a, F: FnMut(usize)> {
-            // Input
-            path: PathBuf,
-            file: &'a mut File,
-            tensors: &'a HashMap<String, TensorInfo>,
-            context: &'a ggml::Context,
-            mmap_ptr: Option<*const u8>,
-            progress_callback: F,
-
-            // Output
-            loaded_tensors: HashMap<String, ggml::Tensor>,
-        }
-        impl<F: FnMut(usize)> TensorLoader<'_, F> {
-            fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
-                let info = self
-                    .tensors
-                    .get(name)
-                    .ok_or_else(|| LoadError::UnknownTensor {
-                        path: self.path.clone(),
-                        tensor_name: name.to_owned(),
-                    })?;
-
-                let ctx = self.context;
-                let mut tensor = match ne.len() {
-                    1 => ctx.new_tensor_1d(info.element_type, ne[0]),
-                    2 => ctx.new_tensor_2d(info.element_type, ne[0], ne[1]),
-                    3 => ctx.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
-                    _ => {
-                        return Err(LoadError::InvariantBroken {
-                            path: self.path.clone(),
-                            invariant: format!(
-                                "the tensor {name} had an unsupported dimension count: {ne:?}"
-                            ),
-                        })
-                    }
-                };
-
-                match self.mmap_ptr {
-                    Some(mmap) => unsafe {
-                        let ptr = mmap.offset(info.start_offset as isize);
-                        tensor.set_data(ptr as *mut std::ffi::c_void);
-                    },
-                    None => {
-                        let buf: &mut [u8] = unsafe {
-                            std::slice::from_raw_parts_mut(
-                                tensor.data() as *mut u8,
-                                tensor.nbytes(),
-                            )
-                        };
-                        self.file.seek(SeekFrom::Start(info.start_offset))?;
-                        self.file.read_exact(buf)?;
-                    }
-                }
-
-                self.loaded_tensors.insert(name.to_owned(), tensor.share());
-                (self.progress_callback)(self.loaded_tensors.len());
-
-                Ok(tensor)
-            }
-        }
-        let mut tl = TensorLoader {
-            path,
-            file,
-            tensors,
-            context: &context,
-            mmap_ptr: mmap.as_ref().map(|m| m.as_ptr()),
-            progress_callback,
-
-            loaded_tensors: Default::default(),
-        };
+        let mut tl = tensor_loader;
 
         let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
         let norm = tl.load("norm.weight", &[n_embd])?;
@@ -246,7 +164,7 @@ impl Model {
             layers.push(layer);
         }
 
-        let tensors = tl.loaded_tensors;
+        let (_context, tensors, _mmap) = tl.finish();
 
         Ok(Model {
             hyperparameters,
@@ -256,8 +174,8 @@ impl Model {
             output,
             layers,
             tensors,
-            _context: context,
-            _mmap: mmap,
+            _context,
+            _mmap,
         })
     }
 
@@ -624,6 +542,11 @@ pub struct Hyperparameters {
     pub n_rot: usize,
     /// file_type
     pub file_type: FileType,
+}
+
+pub(crate) trait TensorLoader<E: Error> {
+    fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
+    fn finish(self) -> (ggml::Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
 }
 
 struct Layer {

@@ -5,14 +5,14 @@ use memmap2::Mmap;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, Seek},
+    io::{BufRead, BufReader, Read, Seek},
     ops::ControlFlow,
     path::{Path, PathBuf},
 };
 
 use crate::{
-    loader_common::FileType, util, Hyperparameters, LoadError, LoadProgress, Model, TokenId,
-    Vocabulary,
+    loader_common::FileType, model::TensorLoader, util, Hyperparameters, LoadError, LoadProgress,
+    Model, TokenId, Vocabulary,
 };
 
 impl LoadError {
@@ -48,7 +48,7 @@ pub(crate) fn load(
         return Err(LoadError::MultipartNotSupported { paths });
     }
 
-    let mut file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
+    let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
         source: e,
         path: main_path.to_owned(),
     })?;
@@ -102,28 +102,86 @@ pub(crate) fn load(
         None
     };
 
-    let model = Model::new_loader2(
-        context,
-        hyperparameters,
-        vocabulary,
-        n_ff,
-        path.clone(),
-        &mut file,
-        &tensors,
-        mmap,
-        |tensor_index| {
-            (load_progress_callback)(LoadProgress::PartTensorLoaded {
-                file: &path,
-                current_tensor: tensor_index,
-                tensor_count: tensors.len(),
+    struct TensorLoader2<'a> {
+        path: PathBuf,
+        file: File,
+        tensors: HashMap<String, TensorInfo>,
+        context: ggml::Context,
+        mmap: Option<Mmap>,
+        load_progress_callback: &'a mut dyn FnMut(LoadProgress),
+        loaded_tensors: HashMap<String, ggml::Tensor>,
+    }
+    impl TensorLoader<LoadError> for TensorLoader2<'_> {
+        fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
+            let info = self
+                .tensors
+                .get(name)
+                .ok_or_else(|| LoadError::UnknownTensor {
+                    path: self.path.clone(),
+                    tensor_name: name.to_owned(),
+                })?;
+
+            let ctx = &self.context;
+            let mut tensor = match ne.len() {
+                1 => ctx.new_tensor_1d(info.element_type, ne[0]),
+                2 => ctx.new_tensor_2d(info.element_type, ne[0], ne[1]),
+                3 => ctx.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
+                _ => {
+                    return Err(LoadError::InvariantBroken {
+                        path: self.path.clone(),
+                        invariant: format!(
+                            "the tensor {name} had an unsupported dimension count: {ne:?}"
+                        ),
+                    })
+                }
+            };
+
+            match self.mmap.as_ref() {
+                Some(mmap) => unsafe {
+                    let ptr = mmap.as_ptr().offset(info.start_offset as isize);
+                    tensor.set_data(ptr as *mut std::ffi::c_void);
+                },
+                None => {
+                    let buf: &mut [u8] = unsafe {
+                        std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
+                    };
+                    self.file.seek(SeekFrom::Start(info.start_offset))?;
+                    self.file.read_exact(buf)?;
+                }
+            }
+
+            self.loaded_tensors.insert(name.to_owned(), tensor.share());
+            (self.load_progress_callback)(LoadProgress::PartTensorLoaded {
+                file: &self.path,
+                current_tensor: self.loaded_tensors.len(),
+                tensor_count: self.tensors.len(),
             });
-        },
-    )?;
+
+            Ok(tensor)
+        }
+
+        fn finish(self) -> (ggml::Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
+            (self.context, self.loaded_tensors, self.mmap)
+        }
+    }
+
+    let tensors_len = tensors.len();
+    let tl = TensorLoader2 {
+        path: path.clone(),
+        file,
+        tensors,
+        context,
+        mmap,
+        load_progress_callback: &mut load_progress_callback,
+        loaded_tensors: Default::default(),
+    };
+
+    let model = Model::new_loader2(hyperparameters, vocabulary, n_ff, tl)?;
 
     (load_progress_callback)(LoadProgress::PartLoaded {
         file: &path,
         byte_size: 0,
-        tensor_count: tensors.len(),
+        tensor_count: tensors_len,
     });
 
     Ok(model)
