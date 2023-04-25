@@ -36,20 +36,22 @@ pub(crate) fn load(
     let mut reader = BufReader::new(&file);
 
     // Verify magic
-    let model_type: ContainerType = match read_u32(&mut reader)? {
-        ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
-        ggml::FILE_MAGIC_GGJT => ContainerType::GGJT,
-        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
+    let magic = read_u32(&mut reader)?;
+    let model_type: ContainerType = match magic {
+        ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
+        ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
+        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
         _ => {
             return Err(LoadError::InvalidMagic {
                 path: main_path.to_owned(),
+                magic,
             })
         }
     };
 
     // Load format version
     match model_type {
-        ContainerType::GGMF | ContainerType::GGJT => {
+        ContainerType::Ggmf | ContainerType::Ggjt => {
             let _version: u32 = match read_u32(&mut reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                 version => {
@@ -60,7 +62,7 @@ pub(crate) fn load(
                 }
             };
         }
-        ContainerType::GGML => {}
+        ContainerType::Ggml => {}
     }
 
     // =================
@@ -100,8 +102,8 @@ pub(crate) fn load(
             let token = read_bytes_with_len(&mut reader, len.try_into()?)?;
 
             let score = match model_type {
-                ContainerType::GGMF | ContainerType::GGJT => read_f32(&mut reader)?,
-                ContainerType::GGML => {
+                ContainerType::Ggmf | ContainerType::Ggjt => read_f32(&mut reader)?,
+                ContainerType::Ggml => {
                     // Legacy model, set empty score
                     0.
                 }
@@ -175,7 +177,7 @@ pub(crate) fn load(
 
     let mut model = Model::new_loader1(context, hparams, vocabulary, n_ff, wtype, mmap);
     match model_type {
-        ContainerType::GGMF | ContainerType::GGML => {
+        ContainerType::Ggmf | ContainerType::Ggml => {
             let file_offset = reader.stream_position()?;
             drop(reader);
             load_weights_ggmf_or_unversioned(
@@ -185,7 +187,7 @@ pub(crate) fn load(
                 model.tensors_mut(),
             )?
         }
-        ContainerType::GGJT => {
+        ContainerType::Ggjt => {
             load_weights_ggjt(
                 &mut reader,
                 mmap_ptr,
@@ -424,7 +426,7 @@ fn load_tensor_header_ggmf<'a>(
     let bpe = match bpe {
         Some(x) => x,
         None => {
-            return Err(LoadError::InvalidFtype {
+            return Err(LoadError::UnsupportedElementType {
                 tensor_name,
                 ftype,
                 path: path.to_owned(),
@@ -503,7 +505,7 @@ fn load_weights_ggjt(
         match tensor_type_size(ftype, ne) {
             Some(_) => {}
             None => {
-                return Err(LoadError::InvalidFtype {
+                return Err(LoadError::UnsupportedElementType {
                     tensor_name,
                     ftype,
                     path: path.to_owned(),

@@ -1,24 +1,29 @@
 pub use std::fs::File;
 pub use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 
+/// Read a fixed-size array of bytes from a reader.
 pub fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], std::io::Error> {
     let mut bytes = [0u8; N];
     reader.read_exact(&mut bytes)?;
     Ok(bytes)
 }
 
+/// Read a `i32` from a reader.
 pub fn read_i32(reader: &mut impl BufRead) -> Result<i32, std::io::Error> {
     Ok(i32::from_le_bytes(read_bytes::<4>(reader)?))
 }
 
+/// Read a `u32` from a reader.
 pub fn read_u32(reader: &mut impl BufRead) -> Result<u32, std::io::Error> {
     Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
 }
 
+/// Read a `f32` from a reader.
 pub fn read_f32(reader: &mut impl BufRead) -> Result<f32, std::io::Error> {
     Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
 }
 
+/// Read a variable-length array of bytes from a reader.
 pub fn read_bytes_with_len(
     reader: &mut impl BufRead,
     len: usize,
@@ -28,18 +33,22 @@ pub fn read_bytes_with_len(
     Ok(bytes)
 }
 
+/// Read and write a `i32` from a reader to a writer.
 pub fn rw_i32(reader: &mut impl BufRead, writer: &mut impl Write) -> Result<i32, std::io::Error> {
     Ok(i32::from_le_bytes(rw::<4>(reader, writer)?))
 }
 
+/// Read and write a `u32` from a reader to a writer.
 pub fn rw_u32(reader: &mut impl BufRead, writer: &mut impl Write) -> Result<u32, std::io::Error> {
     Ok(u32::from_le_bytes(rw::<4>(reader, writer)?))
 }
 
+/// Read and write a `f32` from a reader to a writer.
 pub fn rw_f32(reader: &mut impl BufRead, writer: &mut impl Write) -> Result<f32, std::io::Error> {
     Ok(f32::from_le_bytes(rw::<4>(reader, writer)?))
 }
 
+/// Read and write a variable-length array of bytes from a reader to a writer.
 pub fn rw_bytes_with_len(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
@@ -51,6 +60,7 @@ pub fn rw_bytes_with_len(
     Ok(buf)
 }
 
+/// Read and write a fixed-size array of bytes from a reader to a writer.
 fn rw<const N: usize>(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
@@ -61,6 +71,7 @@ fn rw<const N: usize>(
 }
 
 // NOTE: Implementation from #![feature(buf_read_has_data_left)]
+/// Check if there is any data left in the reader.
 pub fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
     reader.fill_buf().map(|b| !b.is_empty())
 }

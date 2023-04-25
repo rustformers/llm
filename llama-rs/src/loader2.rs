@@ -18,7 +18,7 @@ use crate::{
 impl LoadError {
     pub(crate) fn from_format_error(value: FormatLoadError<LoadError>, path: PathBuf) -> Self {
         match value {
-            FormatLoadError::InvalidMagic(_magic) => LoadError::InvalidMagic { path },
+            FormatLoadError::InvalidMagic(magic) => LoadError::InvalidMagic { path, magic },
             FormatLoadError::InvalidFormatVersion(container_type, version) => {
                 LoadError::InvalidFormatVersion {
                     container_type,
@@ -26,10 +26,17 @@ impl LoadError {
                 }
             }
             FormatLoadError::Io(err) => LoadError::Io(err),
-            FormatLoadError::FailedCast(err) => LoadError::InvalidIntegerConversion(err),
+            FormatLoadError::InvalidUtf8(err) => LoadError::InvalidUtf8(err),
+            FormatLoadError::InvalidIntegerConversion(err) => {
+                LoadError::InvalidIntegerConversion(err)
+            }
             FormatLoadError::ImplementationError(err) => err,
-            FormatLoadError::UnsupportedElementType(ty) => {
-                LoadError::HyperparametersF16Invalid { ftype: ty }
+            FormatLoadError::UnsupportedElementType { tensor_name, ftype } => {
+                LoadError::UnsupportedElementType {
+                    path,
+                    tensor_name,
+                    ftype,
+                }
             }
             FormatLoadError::InvariantBroken(invariant) => {
                 LoadError::InvariantBroken { path, invariant }
@@ -204,7 +211,7 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
             prefer_mmap,
             load_progress_callback,
 
-            container_type: ContainerType::GGJT,
+            container_type: ContainerType::Ggjt,
             hyperparameters: Hyperparameters::default(),
             vocabulary: Vocabulary::default(),
             tensors: HashMap::default(),
@@ -259,12 +266,7 @@ impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File
     }
 
     fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), LoadError> {
-        let tensor_name = match String::from_utf8(info.name.clone()) {
-            Ok(n) => n,
-            Err(err) => return Err(LoadError::InvalidUtf8(err)),
-        };
-
-        self.tensors.insert(tensor_name, info);
+        self.tensors.insert(info.name.clone(), info);
         Ok(())
     }
 }

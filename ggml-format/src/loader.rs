@@ -9,57 +9,79 @@ use crate::{
 };
 
 #[derive(Debug, thiserror::Error)]
+/// Errors that can occur while loading a model.
 pub enum LoadError<E: Error> {
     #[error("invalid file magic number: {0}")]
+    /// The file magic number is invalid.
     InvalidMagic(u32),
-
     #[error("invalid ggml format: format={0:?} version={1}")]
+    /// An unsupported format version was found.
     InvalidFormatVersion(ContainerType, u32),
-
-    #[error("{0}")]
+    #[error("non-specific I/O error")]
+    /// A non-specific IO error.
     Io(#[from] std::io::Error),
-
-    #[error("{0}")]
-    FailedCast(#[from] std::num::TryFromIntError),
-
-    #[error("implementation returned error: {0}")]
-    ImplementationError(E),
-
-    #[error("unsupported tensor dtype/f16_: {0}")]
-    UnsupportedElementType(i32),
-
-    /// sanity check failed
+    #[error("could not convert bytes to a UTF-8 string")]
+    /// One of the strings encountered was not valid UTF-8.
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("invalid integer conversion")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+    #[error("implementation error")]
+    /// An error `E` was returned by the implementation of the loader.
+    ImplementationError(#[source] E),
+    #[error("unsupported tensor type {ftype} for tensor {tensor_name}")]
+    /// One of the tensors encountered had an unsupported data type.
+    UnsupportedElementType {
+        /// The name of the tensor.
+        tensor_name: String,
+        /// The format type that was encountered.
+        ftype: i32,
+    },
     #[error("invariant broken: {0}")]
+    /// An invariant was broken.
     InvariantBroken(String),
 }
 
 #[derive(Debug, Clone)]
+/// Information about a tensor that is read.
 pub struct TensorInfo {
-    pub name: Vec<u8>,
+    /// The name of the tensor.
+    pub name: String,
+    /// The number of dimensions in the tensor.
     pub n_dims: usize,
+    /// The dimensions of the tensor.
     pub dims: [usize; 2],
+    /// The number of elements in the tensor.
     pub n_elements: usize,
+    /// The type of the elements in the tensor.
     pub element_type: ElementType,
     /// start of tensor - start of file
     pub start_offset: u64,
 }
 impl TensorInfo {
+    /// Get the dimensions of the tensor.
+    pub fn dims(&self) -> &[usize] {
+        &self.dims[0..self.n_dims]
+    }
+
+    /// Calculate the size of the tensor's values in bytes.
     pub fn calc_size(&self) -> usize {
         let mut size = ggml::type_size(self.element_type);
-        for &dim in &self.dims[0..self.n_dims] {
+        for &dim in self.dims() {
             size *= dim;
         }
         size / ggml::blck_size(self.element_type)
     }
 }
 
-/// Info in hyperparameter used for later loading tasks. Used in callback.
-/// see [`LoadHandler::load_hyper_parameters`]
 #[derive(Debug, Clone)]
+/// Information present within the hyperparameters that is required to continue loading the model.
 pub struct PartialHyperparameters {
+    /// The number of vocabulary tokens.
     pub n_vocab: usize,
 }
 
+/// A handler for loading a model.
 pub trait LoadHandler<E: Error, R: BufRead + Seek> {
     /// Called when the container type is read.
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), E>;
@@ -72,21 +94,16 @@ pub trait LoadHandler<E: Error, R: BufRead + Seek> {
     fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), E>;
 }
 
-#[test]
-fn can_be_vtable() {
-    use std::mem::MaybeUninit;
-    let _a: MaybeUninit<Box<dyn LoadHandler<(), std::fs::File>>> = MaybeUninit::uninit();
-}
-
+/// Load a model from a `reader` with the `handler`, which will be called when certain events occur.
 pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<E, R>,
 ) -> Result<(), LoadError<E>> {
     // Verify magic
     let container_type: ContainerType = match read_u32(reader)? {
-        ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
-        ggml::FILE_MAGIC_GGJT => ContainerType::GGJT,
-        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
+        ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
+        ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
+        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
     handler
@@ -95,13 +112,13 @@ pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
 
     // Load format version
     match container_type {
-        ContainerType::GGMF | ContainerType::GGJT => {
+        ContainerType::Ggmf | ContainerType::Ggjt => {
             let _version: u32 = match read_u32(reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
             };
         }
-        ContainerType::GGML => {}
+        ContainerType::Ggml => {}
     }
 
     // Load hyper params
@@ -115,8 +132,8 @@ pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
         let len = read_u32(reader)?.try_into()?;
         let token = read_bytes_with_len(reader, len)?;
         let token_score = match container_type {
-            ContainerType::GGMF | ContainerType::GGJT => read_f32(reader)?,
-            ContainerType::GGML => {
+            ContainerType::Ggmf | ContainerType::Ggjt => read_f32(reader)?,
+            ContainerType::Ggml => {
                 // Legacy model, set empty score
                 0.
             }
@@ -128,8 +145,8 @@ pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
 
     // Load tensor data
     match container_type {
-        ContainerType::GGMF | ContainerType::GGML => load_weights(reader, handler, false),
-        ContainerType::GGJT => load_weights(reader, handler, true),
+        ContainerType::Ggmf | ContainerType::Ggml => load_weights(reader, handler, false),
+        ContainerType::Ggjt => load_weights(reader, handler, true),
     }
 }
 
@@ -147,13 +164,11 @@ fn load_weights<E: Error, R: BufRead + Seek>(
         let n_dims: usize = read_i32(reader)?.try_into()?;
         let name_len = read_i32(reader)?;
         let ftype = read_i32(reader)?;
-        let ftype =
-            ggml::Type::try_from(ftype).map_err(|_| LoadError::UnsupportedElementType(ftype))?;
 
         let mut n_elements: usize = 1;
         let mut dims = [1usize, 1];
         let ne_len = dims.len();
-        if !(n_dims <= ne_len) {
+        if n_dims > ne_len {
             return Err(LoadError::InvariantBroken(format!("{n_dims} <= {ne_len}")));
         }
 
@@ -165,12 +180,16 @@ fn load_weights<E: Error, R: BufRead + Seek>(
         }
 
         // load tensor name
-        let name = read_bytes_with_len(reader, name_len.try_into()?)?;
+        let name = String::from_utf8(read_bytes_with_len(reader, name_len.try_into()?)?)?;
+        let ftype = ggml::Type::try_from(ftype).map_err(|_| LoadError::UnsupportedElementType {
+            tensor_name: name.clone(),
+            ftype,
+        })?;
 
         // sanity check
         match ftype {
             ElementType::Q4_0 | ElementType::Q4_1 => {
-                if !(dims[0] % 64 == 0) {
+                if dims[0] % 64 != 0 {
                     return Err(LoadError::InvariantBroken(format!("{dims:?}[0] % 64 == 0")));
                 }
             }

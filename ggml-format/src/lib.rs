@@ -1,8 +1,13 @@
-//! standalone model loader
+#![deny(missing_docs)]
+//! A reader and writer for the `ggml` model format.
 //!
-//! Only the hyperparameter is llama-specific. Everything else can be reused for other LLM.
-#![allow(clippy::nonminimal_bool)]
+//! The reader supports the GGML, GGMF and GGJT container formats, but
+//! only single-part models.
+//!
+//! The writer isn't implemented yet. It will support the GGJT container
+//! format only.
 
+/// Utilities for reading and writing.
 pub mod util;
 
 mod loader;
@@ -11,25 +16,26 @@ pub use loader::{
     load_model_from_reader, LoadError, LoadHandler, PartialHyperparameters, TensorInfo,
 };
 
+/// The type of a tensor element.
 pub type ElementType = ggml::Type;
 
-/// the format of the file containing the model
 #[derive(Debug, PartialEq, Clone, Copy)]
-#[allow(clippy::upper_case_acronyms)]
+/// The format of the file containing the model.
 pub enum ContainerType {
-    /// legacy format, oldest ggml tensor file format
-    GGML,
-    /// also legacy format, newer than GGML, older than GGJT
-    GGMF,
-    /// mmap-able format
-    GGJT,
+    /// `GGML`: legacy format, oldest ggml tensor file format
+    Ggml,
+    /// `GGMF`: also legacy format. Introduces versioning. Newer than GGML, older than GGJT.
+    Ggmf,
+    /// `GGJT`: mmap-able format.
+    Ggjt,
 }
 impl ContainerType {
+    /// Does this container type support mmap?
     pub fn support_mmap(&self) -> bool {
         match self {
-            ContainerType::GGML => false,
-            ContainerType::GGMF => false,
-            ContainerType::GGJT => true,
+            ContainerType::Ggml => false,
+            ContainerType::Ggmf => false,
+            ContainerType::Ggjt => true,
         }
     }
 }

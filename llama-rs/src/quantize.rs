@@ -124,6 +124,7 @@ pub fn quantize(
         if magic != FILE_MAGIC_GGMF {
             return Err(LoadError::InvalidMagic {
                 path: file_in.to_owned(),
+                magic,
             }
             .into());
         }
@@ -131,7 +132,7 @@ pub fn quantize(
         let format_version = rw_u32(&mut finp, &mut fout)?;
         if format_version != FORMAT_VERSION {
             return Err(LoadError::InvalidFormatVersion {
-                container_type: ContainerType::GGMF,
+                container_type: ContainerType::Ggmf,
                 version: format_version,
             }
             .into());
@@ -231,7 +232,7 @@ pub fn quantize(
 
             if quantize {
                 if ftype != 0 && ftype != 1 {
-                    return Err(LoadError::InvalidFtype {
+                    return Err(LoadError::UnsupportedElementType {
                         ftype,
                         tensor_name: name,
                         path: file_in.to_owned(),

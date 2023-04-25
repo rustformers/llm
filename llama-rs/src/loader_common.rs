@@ -153,6 +153,8 @@ pub enum LoadError {
     InvalidMagic {
         /// The path that failed.
         path: PathBuf,
+        /// The magic number that was encountered.
+        magic: u32,
     },
     #[error("invalid file format version {version}")]
     /// The version of the format is not supported by this version of `llama-rs`.
@@ -187,7 +189,7 @@ pub enum LoadError {
     },
     /// The tensor `tensor_name` did not have the expected format type.
     #[error("invalid ftype {ftype} for tensor `{tensor_name}` in {path:?}")]
-    InvalidFtype {
+    UnsupportedElementType {
         /// The name of the tensor.
         tensor_name: String,
         /// The format type that was encountered.
