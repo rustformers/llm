@@ -2,12 +2,11 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
-use rand::SeedableRng;
-
-use llm_base::{
-    InferenceParameters, InferenceSessionParameters, LoadProgress, ModelKVMemoryType, TokenBias,
-    EOT_TOKEN_ID,
+use llm::{
+    llama, InferenceParameters, InferenceSessionParameters, LoadProgress, ModelKVMemoryType,
+    TokenBias, EOT_TOKEN_ID,
 };
+use rand::SeedableRng;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -389,13 +388,13 @@ pub enum FileType {
     /// Float 32-bit.
     F32,
 }
-impl From<FileType> for llm_base::FileType {
+impl From<FileType> for llm::FileType {
     fn from(t: FileType) -> Self {
         match t {
-            FileType::Q4_0 => llm_base::FileType::MostlyQ4_0,
-            FileType::Q4_1 => llm_base::FileType::MostlyQ4_1,
-            FileType::F16 => llm_base::FileType::MostlyF16,
-            FileType::F32 => llm_base::FileType::F32,
+            FileType::Q4_0 => llm::FileType::MostlyQ4_0,
+            FileType::Q4_1 => llm::FileType::MostlyQ4_1,
+            FileType::F16 => llm::FileType::MostlyF16,
+            FileType::F32 => llm::FileType::F32,
         }
     }
 }

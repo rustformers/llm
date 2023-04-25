@@ -3,10 +3,8 @@ use std::{convert::Infallible, io::Write};
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{Context, Result};
-use llama::convert::convert_pth_to_ggml;
+use llm::{llama::convert::convert_pth_to_ggml, snapshot, InferenceError, Model};
 use rustyline::error::ReadlineError;
-
-use llm_base::{snapshot, InferenceError, Model};
 
 mod cli_args;
 
@@ -188,7 +186,7 @@ fn interactive(
 }
 
 fn quantize(args: &cli_args::Quantize) -> Result<()> {
-    use llama::quantize::{quantize, QuantizeProgress::*};
+    use llm::llama::quantize::{quantize, QuantizeProgress::*};
     quantize(
         &args.source,
         &args.destination,

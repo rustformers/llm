@@ -141,23 +141,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bloom-cli"
-version = "0.1.0"
-dependencies = [
- "bloom",
- "clap",
- "env_logger",
- "ggml",
- "llm-base",
- "log",
- "num_cpus",
- "once_cell",
- "rand",
- "rustyline",
- "spinners",
-]
-
-[[package]]
 name = "bytemuck"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -657,23 +640,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "llama-cli"
+name = "llm"
 version = "0.1.0"
 dependencies = [
- "bincode",
- "clap",
- "color-eyre",
- "env_logger",
- "ggml",
+ "bloom",
  "llama",
  "llm-base",
- "log",
- "num_cpus",
- "once_cell",
- "rand",
- "rustyline",
- "spinners",
- "zstd",
 ]
 
 [[package]]
@@ -690,6 +662,24 @@ dependencies = [
  "serde",
  "serde_bytes",
  "thiserror",
+ "zstd",
+]
+
+[[package]]
+name = "llm-cli"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "color-eyre",
+ "env_logger",
+ "llm",
+ "log",
+ "num_cpus",
+ "once_cell",
+ "rand",
+ "rustyline",
+ "spinners",
  "zstd",
 ]
 

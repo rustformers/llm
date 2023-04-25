@@ -1,0 +1,14 @@
+[package]
+name = "llm"
+version = { workspace = true }
+edition = "2021"
+
+[dependencies]
+llm-base = { path = "../llm-base" }
+llama = { path = "../llama", features = ["convert", "quantize"], optional = true }
+bloom = { path = "../bloom", optional = true }
+
+[features]
+default = ["llama", "bloom"]
+llama = ["dep:llama"]
+bloom = ["dep:bloom"]
