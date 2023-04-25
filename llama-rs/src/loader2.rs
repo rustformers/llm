@@ -1,6 +1,4 @@
-use ggml_format::{
-    util::read_i32, ContainerType, PartialHyperparameters, TensorDataTreatment, TensorInfo,
-};
+use ggml_format::{util::read_i32, ContainerType, PartialHyperparameters, TensorInfo};
 use memmap2::Mmap;
 
 use std::{
@@ -255,14 +253,14 @@ impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File
         ControlFlow::Continue(())
     }
 
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, TensorDataTreatment> {
+    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, ()> {
         let tensor_name = match String::from_utf8(info.name.clone()) {
             Ok(n) => n,
             Err(err) => return ControlFlow::Break(LoadError::InvalidUtf8(err)),
         };
 
         self.tensors.insert(tensor_name, info);
-        ControlFlow::Continue(TensorDataTreatment::Skip)
+        ControlFlow::Continue(())
     }
 }
 

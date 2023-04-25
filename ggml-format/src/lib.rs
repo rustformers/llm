@@ -8,8 +8,7 @@ pub mod util;
 mod loader;
 
 pub use loader::{
-    load_model_from_reader, LoadError, LoadHandler, PartialHyperparameters, TensorDataTreatment,
-    TensorInfo,
+    load_model_from_reader, LoadError, LoadHandler, PartialHyperparameters, TensorInfo,
 };
 
 pub type ElementType = ggml::Type;

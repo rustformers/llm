@@ -63,11 +63,6 @@ pub struct PartialHyperparameters {
     pub n_vocab: usize,
 }
 
-pub enum TensorDataTreatment<'a> {
-    CopyInto(&'a mut [u8]),
-    Skip,
-}
-
 #[allow(unused_variables)]
 pub trait LoadHandler<T, R: BufRead + Seek> {
     fn got_container_type(&mut self, container_type: ContainerType) -> ControlFlow<T> {
@@ -80,13 +75,8 @@ pub trait LoadHandler<T, R: BufRead + Seek> {
 
     fn load_hyper_parameters(&mut self, reader: &mut R) -> ControlFlow<T, PartialHyperparameters>;
 
-    /// callback to get tensor buffer to populate
-    ///
-    /// # Returns
-    ///
-    /// `None` to skip copying
-    /// `Some(buf)` to provide a buffer for copying weights into
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, TensorDataTreatment>;
+    /// Called when a new tensor is found.
+    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, ()>;
 }
 
 #[test]
@@ -204,19 +194,8 @@ fn load_weights<T, R: BufRead + Seek>(
             start_offset: offset_aligned,
         };
         let n_bytes = tensor_info.calc_size();
-
-        match controlflow_to_result(handler.tensor_buffer(tensor_info))? {
-            TensorDataTreatment::CopyInto(buf) => {
-                if align {
-                    reader.seek(SeekFrom::Start(offset_aligned))?;
-                }
-                reader.read_exact(buf)?;
-            }
-            TensorDataTreatment::Skip => {
-                // skip if no buffer is given
-                reader.seek(SeekFrom::Start(offset_aligned + n_bytes as u64))?;
-            }
-        }
+        controlflow_to_result(handler.tensor_buffer(tensor_info))?;
+        reader.seek(SeekFrom::Start(offset_aligned + n_bytes as u64))?;
     }
 
     Ok(())
