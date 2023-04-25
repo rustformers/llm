@@ -1,17 +1,15 @@
 use std::{
+    error::Error,
     io::{BufRead, Seek, SeekFrom},
-    ops::ControlFlow,
 };
 
 use crate::{
-    util::{
-        controlflow_to_result, has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32,
-    },
+    util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
     ContainerType, ElementType,
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum LoadError<T> {
+pub enum LoadError<E: Error> {
     #[error("invalid file magic number: {0}")]
     InvalidMagic(u32),
 
@@ -24,9 +22,8 @@ pub enum LoadError<T> {
     #[error("{0}")]
     FailedCast(#[from] std::num::TryFromIntError),
 
-    /// return `ControlFlow::Break` from any of the `cb_*` function to trigger this error
-    #[error("user requested interrupt: {0}")]
-    UserInterrupted(T),
+    #[error("implementation returned error: {0}")]
+    ImplementationError(E),
 
     #[error("unsupported tensor dtype/f16_: {0}")]
     UnsupportedElementType(i32),
@@ -63,20 +60,16 @@ pub struct PartialHyperparameters {
     pub n_vocab: usize,
 }
 
-#[allow(unused_variables)]
-pub trait LoadHandler<T, R: BufRead + Seek> {
-    fn got_container_type(&mut self, container_type: ContainerType) -> ControlFlow<T> {
-        ControlFlow::Continue(())
-    }
-
-    fn got_vocab_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> ControlFlow<T> {
-        ControlFlow::Continue(())
-    }
-
-    fn load_hyper_parameters(&mut self, reader: &mut R) -> ControlFlow<T, PartialHyperparameters>;
-
+pub trait LoadHandler<E: Error, R: BufRead + Seek> {
+    /// Called when the container type is read.
+    fn container_type(&mut self, container_type: ContainerType) -> Result<(), E>;
+    /// Called when a vocabulary token is read.
+    fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), E>;
+    /// Called when the hyperparameters need to be read.
+    /// You must read the hyperparameters for your model here.
+    fn read_hyperparameters(&mut self, reader: &mut R) -> Result<PartialHyperparameters, E>;
     /// Called when a new tensor is found.
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<T, ()>;
+    fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), E>;
 }
 
 #[test]
@@ -85,10 +78,10 @@ fn can_be_vtable() {
     let _a: MaybeUninit<Box<dyn LoadHandler<(), std::fs::File>>> = MaybeUninit::uninit();
 }
 
-pub fn load_model_from_reader<T, R: BufRead + Seek>(
+pub fn load_model_from_reader<E: Error, R: BufRead + Seek>(
     reader: &mut R,
-    handler: &mut impl LoadHandler<T, R>,
-) -> Result<(), LoadError<T>> {
+    handler: &mut impl LoadHandler<E, R>,
+) -> Result<(), LoadError<E>> {
     // Verify magic
     let container_type: ContainerType = match read_u32(reader)? {
         ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
@@ -96,7 +89,9 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
         ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
-    controlflow_to_result(handler.got_container_type(container_type))?;
+    handler
+        .container_type(container_type)
+        .map_err(LoadError::ImplementationError)?;
 
     // Load format version
     match container_type {
@@ -110,7 +105,9 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
     }
 
     // Load hyper params
-    let hparams = controlflow_to_result(handler.load_hyper_parameters(reader))?;
+    let hparams = handler
+        .read_hyperparameters(reader)
+        .map_err(LoadError::ImplementationError)?;
     let n_vocab = hparams.n_vocab;
 
     // Load vocabulary
@@ -124,7 +121,9 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
                 0.
             }
         };
-        controlflow_to_result(handler.got_vocab_token(i, token, token_score))?;
+        handler
+            .vocabulary_token(i, token, token_score)
+            .map_err(LoadError::ImplementationError)?;
     }
 
     // Load tensor data
@@ -138,11 +137,11 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
 ///
 /// `align`
 /// align to 4 bytes before reading tensor weights
-fn load_weights<T, R: BufRead + Seek>(
+fn load_weights<E: Error, R: BufRead + Seek>(
     reader: &mut R,
-    handler: &mut impl LoadHandler<T, R>,
+    handler: &mut impl LoadHandler<E, R>,
     align: bool,
-) -> Result<(), LoadError<T>> {
+) -> Result<(), LoadError<E>> {
     while has_data_left(reader)? {
         // load tensor header
         let n_dims: usize = read_i32(reader)?.try_into()?;
@@ -157,6 +156,7 @@ fn load_weights<T, R: BufRead + Seek>(
         if !(n_dims <= ne_len) {
             return Err(LoadError::InvariantBroken(format!("{n_dims} <= {ne_len}")));
         }
+
         #[allow(clippy::needless_range_loop)]
         for i in 0..n_dims {
             let dim: usize = read_i32(reader)?.try_into()?;
@@ -194,7 +194,9 @@ fn load_weights<T, R: BufRead + Seek>(
             start_offset: offset_aligned,
         };
         let n_bytes = tensor_info.calc_size();
-        controlflow_to_result(handler.tensor_buffer(tensor_info))?;
+        handler
+            .tensor_buffer(tensor_info)
+            .map_err(LoadError::ImplementationError)?;
         reader.seek(SeekFrom::Start(offset_aligned + n_bytes as u64))?;
     }
 

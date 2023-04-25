@@ -1,11 +1,12 @@
-use ggml_format::{util::read_i32, ContainerType, PartialHyperparameters, TensorInfo};
+use ggml_format::{
+    util::read_i32, ContainerType, LoadError as FormatLoadError, PartialHyperparameters, TensorInfo,
+};
 use memmap2::Mmap;
 
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
-    ops::ControlFlow,
+    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -15,25 +16,22 @@ use crate::{
 };
 
 impl LoadError {
-    pub(crate) fn from_format_error(
-        value: ggml_format::LoadError<LoadError>,
-        path: PathBuf,
-    ) -> Self {
+    pub(crate) fn from_format_error(value: FormatLoadError<LoadError>, path: PathBuf) -> Self {
         match value {
-            ggml_format::LoadError::InvalidMagic(_magic) => LoadError::InvalidMagic { path },
-            ggml_format::LoadError::InvalidFormatVersion(container_type, version) => {
+            FormatLoadError::InvalidMagic(_magic) => LoadError::InvalidMagic { path },
+            FormatLoadError::InvalidFormatVersion(container_type, version) => {
                 LoadError::InvalidFormatVersion {
                     container_type,
                     version,
                 }
             }
-            ggml_format::LoadError::Io(err) => LoadError::Io(err),
-            ggml_format::LoadError::FailedCast(err) => LoadError::InvalidIntegerConversion(err),
-            ggml_format::LoadError::UserInterrupted(err) => err,
-            ggml_format::LoadError::UnsupportedElementType(ty) => {
+            FormatLoadError::Io(err) => LoadError::Io(err),
+            FormatLoadError::FailedCast(err) => LoadError::InvalidIntegerConversion(err),
+            FormatLoadError::ImplementationError(err) => err,
+            FormatLoadError::UnsupportedElementType(ty) => {
                 LoadError::HyperparametersF16Invalid { ftype: ty }
             }
-            ggml_format::LoadError::InvariantBroken(invariant) => {
+            FormatLoadError::InvariantBroken(invariant) => {
                 LoadError::InvariantBroken { path, invariant }
             }
         }
@@ -67,12 +65,7 @@ pub(crate) fn load(
         total_parts: 1,
     });
 
-    let mut loader = Loader::new(
-        path.clone(),
-        n_context_tokens,
-        prefer_mmap,
-        load_progress_callback,
-    );
+    let mut loader = Loader::new(n_context_tokens, prefer_mmap, load_progress_callback);
     let use_mmap = loader.mmap_active();
 
     ggml_format::load_model_from_reader(&mut reader, &mut loader)
@@ -194,7 +187,6 @@ pub(crate) fn load(
 
 struct Loader<F: FnMut(LoadProgress)> {
     // Input
-    path: PathBuf,
     n_ctx: usize,
     prefer_mmap: bool,
     load_progress_callback: F,
@@ -206,9 +198,8 @@ struct Loader<F: FnMut(LoadProgress)> {
     tensors: HashMap<String, TensorInfo>,
 }
 impl<F: FnMut(LoadProgress)> Loader<F> {
-    fn new(path: PathBuf, n_ctx: usize, prefer_mmap: bool, load_progress_callback: F) -> Self {
+    fn new(n_ctx: usize, prefer_mmap: bool, load_progress_callback: F) -> Self {
         Self {
-            path,
             n_ctx,
             prefer_mmap,
             load_progress_callback,
@@ -219,80 +210,61 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
             tensors: HashMap::default(),
         }
     }
-}
 
-impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File>> for Loader<F> {
-    fn load_hyper_parameters(
-        &mut self,
-        reader: &mut BufReader<&File>,
-    ) -> ControlFlow<LoadError, PartialHyperparameters> {
-        let (hyperparameters, partial) = match load_hyperparameters(reader, self.n_ctx) {
-            Ok(t) => t,
-            Err(err) => {
-                return ControlFlow::Break(LoadError::from_format_error(err, self.path.clone()))
-            }
-        };
-        self.hyperparameters = hyperparameters;
-        (self.load_progress_callback)(LoadProgress::HyperparametersLoaded(&self.hyperparameters));
-
-        ControlFlow::Continue(partial)
-    }
-
-    fn got_container_type(&mut self, t: ContainerType) -> ControlFlow<LoadError> {
-        self.container_type = t;
-        ControlFlow::Continue(())
-    }
-
-    fn got_vocab_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> ControlFlow<LoadError> {
-        let id = match TokenId::try_from(i) {
-            Ok(id) => id,
-            Err(err) => return ControlFlow::Break(LoadError::InvalidIntegerConversion(err)),
-        };
-        self.vocabulary.push_token(id, token, score);
-
-        ControlFlow::Continue(())
-    }
-
-    fn tensor_buffer(&mut self, info: TensorInfo) -> ControlFlow<LoadError, ()> {
-        let tensor_name = match String::from_utf8(info.name.clone()) {
-            Ok(n) => n,
-            Err(err) => return ControlFlow::Break(LoadError::InvalidUtf8(err)),
-        };
-
-        self.tensors.insert(tensor_name, info);
-        ControlFlow::Continue(())
-    }
-}
-
-impl<F: FnMut(LoadProgress)> Loader<F> {
     fn mmap_active(&mut self) -> bool {
         self.prefer_mmap && self.container_type.support_mmap()
     }
 }
+impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File>> for Loader<F> {
+    fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {
+        self.container_type = container_type;
+        Ok(())
+    }
 
-/// use this to load params for llama model inside [`LoadHandler::load_hyper_parameters`]
-fn load_hyperparameters<R: BufRead + Seek>(
-    reader: &mut R,
-    n_ctx: usize,
-) -> Result<(Hyperparameters, PartialHyperparameters), ggml_format::LoadError<LoadError>> {
-    // NOTE: Field order matters! Data is laid out in the file exactly in this order.
-    let hparams = Hyperparameters {
-        n_vocab: read_i32(reader)?.try_into()?,
-        n_embd: read_i32(reader)?.try_into()?,
-        n_mult: read_i32(reader)?.try_into()?,
-        n_head: read_i32(reader)?.try_into()?,
-        n_layer: read_i32(reader)?.try_into()?,
-        n_rot: read_i32(reader)?.try_into()?,
-        file_type: {
-            let ftype = read_i32(reader)?;
-            FileType::try_from(ftype).map_err(|_| {
-                ggml_format::LoadError::UserInterrupted(LoadError::UnsupportedFileType(ftype))
-            })?
-        },
-        n_ctx,
-    };
-    let partial = PartialHyperparameters {
-        n_vocab: hparams.n_vocab,
-    };
-    Ok((hparams, partial))
+    fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
+        let id = match TokenId::try_from(i) {
+            Ok(id) => id,
+            Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
+        };
+        self.vocabulary.push_token(id, token, score);
+
+        Ok(())
+    }
+
+    fn read_hyperparameters(
+        &mut self,
+        reader: &mut BufReader<&File>,
+    ) -> Result<PartialHyperparameters, LoadError> {
+        // NOTE: Field order matters! Data is laid out in the file exactly in this order.
+        let hyperparameters = Hyperparameters {
+            n_vocab: read_i32(reader)?.try_into()?,
+            n_embd: read_i32(reader)?.try_into()?,
+            n_mult: read_i32(reader)?.try_into()?,
+            n_head: read_i32(reader)?.try_into()?,
+            n_layer: read_i32(reader)?.try_into()?,
+            n_rot: read_i32(reader)?.try_into()?,
+            file_type: {
+                let ftype = read_i32(reader)?;
+                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
+            },
+            n_ctx: self.n_ctx,
+        };
+        let partial = PartialHyperparameters {
+            n_vocab: hyperparameters.n_vocab,
+        };
+        self.hyperparameters = hyperparameters;
+        (self.load_progress_callback)(LoadProgress::HyperparametersLoaded(&self.hyperparameters));
+
+        Ok(partial)
+    }
+
+    fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), LoadError> {
+        let tensor_name = match String::from_utf8(info.name.clone()) {
+            Ok(n) => n,
+            Err(err) => return Err(LoadError::InvalidUtf8(err)),
+        };
+
+        self.tensors.insert(tensor_name, info);
+        Ok(())
+    }
 }

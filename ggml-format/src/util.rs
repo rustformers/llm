@@ -1,8 +1,5 @@
 pub use std::fs::File;
 pub use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::ops::ControlFlow;
-
-use crate::LoadError;
 
 pub fn read_bytes<const N: usize>(reader: &mut impl BufRead) -> Result<[u8; N], std::io::Error> {
     let mut bytes = [0u8; N];
@@ -66,11 +63,4 @@ fn rw<const N: usize>(
 // NOTE: Implementation from #![feature(buf_read_has_data_left)]
 pub fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
     reader.fill_buf().map(|b| !b.is_empty())
-}
-
-pub(crate) fn controlflow_to_result<A, B>(x: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
-    match x {
-        ControlFlow::Continue(x) => Ok(x),
-        ControlFlow::Break(y) => Err(LoadError::UserInterrupted(y)),
-    }
 }
