@@ -9,7 +9,7 @@
 //! All [Tensor]s are nodes in this computational graph, and values cannot be retrieved until computation is completed.
 
 use std::{
-    ffi::c_void,
+    os::raw::{c_int, c_void},
     ptr::NonNull,
     sync::{Arc, Weak},
 };
@@ -272,7 +272,7 @@ impl Context {
     pub unsafe fn op_map_unary(
         &self,
         a: &Tensor,
-        fun: unsafe extern "C" fn(cnt: ::std::os::raw::c_int, dst: *mut f32, src: *const f32),
+        fun: unsafe extern "C" fn(cnt: c_int, dst: *mut f32, src: *const f32),
     ) -> Tensor {
         let tensor =
             unsafe { ggml_sys::ggml_map_unary_f32(self.ptr.as_ptr(), a.ptr.as_ptr(), Some(fun)) };
@@ -298,12 +298,7 @@ impl Context {
         &self,
         a: &Tensor,
         b: &Tensor,
-        fun: unsafe extern "C" fn(
-            cnt: ::std::os::raw::c_int,
-            dst: *mut f32,
-            src0: *const f32,
-            src1: *const f32,
-        ),
+        fun: unsafe extern "C" fn(cnt: c_int, dst: *mut f32, src0: *const f32, src1: *const f32),
     ) -> Tensor {
         let tensor = unsafe {
             ggml_sys::ggml_map_binary_f32(
@@ -690,48 +685,52 @@ fn i64_to_usize(val: i64) -> usize {
     usize::try_from(val).unwrap()
 }
 
+/// Contains the result of a quantization operation.
+pub struct QuantizationResult {
+    /// The quantized output.
+    pub output: Vec<u8>,
+    /// The quantization history.
+    pub history: Vec<i64>,
+}
+
 /// Quantizes `src` into `dst` using `q4_0` quantization.
 ///
-/// # Safety
-///
-/// You must ensure the arrays passed in are of the correct size.
-pub unsafe fn quantize_q4_0(
-    src: &[f32],
-    dst: &mut [u8],
-    n: usize,
-    k: usize,
-    hist: &mut [i64],
-) -> usize {
-    unsafe {
-        ggml_sys::ggml_quantize_q4_0(
-            src.as_ptr(),
-            dst.as_mut_ptr() as *mut c_void,
-            n.try_into().unwrap(),
-            k.try_into().unwrap(),
-            hist.as_mut_ptr(),
-        )
-    }
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q4_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, ggml_sys::ggml_quantize_q4_0)
 }
 
 /// Quantizes `src` into `dst` using `q4_1` quantization.
 ///
-/// # Safety
-///
-/// You must ensure the arrays passed in are of the correct size.
-pub unsafe fn quantize_q4_1(
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q4_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, ggml_sys::ggml_quantize_q4_1)
+}
+
+fn quantize_impl(
     src: &[f32],
-    dst: &mut [u8],
-    n: usize,
-    k: usize,
-    hist: &mut [i64],
-) -> usize {
-    unsafe {
-        ggml_sys::ggml_quantize_q4_1(
+    n_elements: usize,
+    n_elements_0: usize,
+    quantizer: unsafe extern "C" fn(*const f32, *mut c_void, c_int, c_int, *mut i64) -> usize,
+) -> QuantizationResult {
+    assert_eq!(src.len(), n_elements);
+    assert_eq!(n_elements % n_elements_0, 0);
+
+    // A conservative multiplier of 4 is used here.
+    let mut output = vec![0u8; n_elements * 4];
+    let mut history = vec![0i64; 16];
+    let output_size = unsafe {
+        quantizer(
             src.as_ptr(),
-            dst.as_mut_ptr() as *mut c_void,
-            n.try_into().unwrap(),
-            k.try_into().unwrap(),
-            hist.as_mut_ptr(),
+            output.as_mut_ptr() as *mut c_void,
+            n_elements.try_into().unwrap(),
+            n_elements_0.try_into().unwrap(),
+            history.as_mut_ptr(),
         )
-    }
+    };
+
+    output.resize(output_size, 0u8);
+    QuantizationResult { output, history }
 }

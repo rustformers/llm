@@ -291,39 +291,22 @@ impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F
                 _ => unreachable!(),
             };
 
-            let mut history_current = vec![0; 16];
-
-            // A conservative multiplier of 4 is used here.
-            let mut work = vec![0u8; tensor.n_elements * 4];
-            let curr_size = match self.quantization_type {
-                ggml::Type::Q4_0 => unsafe {
-                    ggml::quantize_q4_0(
-                        &data_f32,
-                        &mut work,
-                        tensor.n_elements,
-                        tensor.dims[0],
-                        &mut history_current,
-                    )
-                },
-                ggml::Type::Q4_1 => unsafe {
-                    ggml::quantize_q4_1(
-                        &data_f32,
-                        &mut work,
-                        tensor.n_elements,
-                        tensor.dims[0],
-                        &mut history_current,
-                    )
-                },
+            let result = match self.quantization_type {
+                ggml::Type::Q4_0 => {
+                    ggml::quantize_q4_0(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                ggml::Type::Q4_1 => {
+                    ggml::quantize_q4_1(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
                 _ => unreachable!(),
             };
+            let new_data = result.output;
 
             let mut history_new = vec![];
-            for (i, val) in history_current.iter().enumerate() {
+            for (i, val) in result.history.iter().enumerate() {
                 self.history_all[i] += val;
                 history_new.push(*val as f32 / tensor.n_elements as f32);
             }
-
-            let new_data = &work[0..curr_size];
 
             (self.progress_callback)(QuantizeProgress::TensorQuantized {
                 name: tensor_name,
@@ -334,7 +317,7 @@ impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F
 
             self.total_size_new += new_data.len();
 
-            (self.quantization_type, new_data.to_owned())
+            (self.quantization_type, new_data)
         } else {
             (self.progress_callback)(QuantizeProgress::TensorSkipped {
                 name: tensor_name,
