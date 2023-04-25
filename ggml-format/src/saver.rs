@@ -97,7 +97,7 @@ pub fn save_model<E: Error, W: Write + Seek>(
         // Write tensor header
         util::write_i32(writer, n_dims.try_into()?)?;
         util::write_i32(writer, name.len().try_into()?)?;
-        util::write_i32(writer, element_type.into())?;
+        util::write_u32(writer, element_type.into())?;
         for &dim in &dims[0..n_dims] {
             util::write_i32(writer, dim.try_into()?)?;
         }

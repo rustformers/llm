@@ -247,7 +247,7 @@ fn load_weights_ggmf_or_unversioned(
 
             let n_dims = usize::try_from(read_i32(&mut part_reader)?)?;
             let length = read_i32(&mut part_reader)?;
-            let ftype = read_i32(&mut part_reader)?;
+            let ftype = read_u32(&mut part_reader)?;
 
             let TensorHeaderGgmf {
                 nelements,
@@ -369,7 +369,7 @@ fn load_tensor_header_ggmf<'a>(
     tensors: &'a mut HashMap<String, ggml::Tensor>,
     path: &Path,
     n_parts: usize,
-    ftype: i32,
+    ftype: u32,
 ) -> Result<TensorHeaderGgmf<'a>, LoadError> {
     let mut nelements = 1;
     let mut ne = [1i64, 1i64];
@@ -453,7 +453,7 @@ fn load_tensor_header_ggmf<'a>(
     })
 }
 
-fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
+fn tensor_type_size(ftype: u32, ne: [i64; 2]) -> Option<usize> {
     let ftype = ggml::Type::try_from(ftype).ok()?;
     match ftype {
         ElementType::Q4_0 | ElementType::Q4_1 => {
@@ -488,7 +488,7 @@ fn load_weights_ggjt(
 
         let n_dims = read_i32(reader)? as usize;
         let length = read_i32(reader)?;
-        let ftype = read_i32(reader)?;
+        let ftype = read_u32(reader)?;
 
         let mut nelements: usize = 1;
         let mut ne = [1i64, 1];

@@ -192,7 +192,7 @@ pub enum LoadError {
         /// The name of the tensor.
         tensor_name: String,
         /// The format type that was encountered.
-        ftype: i32,
+        ftype: u32,
         /// The path that failed.
         path: PathBuf,
     },

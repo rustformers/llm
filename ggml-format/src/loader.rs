@@ -35,7 +35,7 @@ pub enum LoadError<E: Error> {
         /// The name of the tensor.
         tensor_name: String,
         /// The format type that was encountered.
-        ftype: i32,
+        ftype: u32,
     },
     #[error("invariant broken: {0}")]
     /// An invariant was broken.
@@ -180,7 +180,7 @@ fn load_weights<E: Error, R: BufRead + Seek>(
         // load tensor header
         let n_dims: usize = read_i32(reader)?.try_into()?;
         let name_len = read_i32(reader)?;
-        let ftype = read_i32(reader)?;
+        let ftype = read_u32(reader)?;
 
         let mut n_elements: usize = 1;
         let mut dims = [1usize, 1];
