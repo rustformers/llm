@@ -1,5 +1,5 @@
 [package]
-name = "ggml-loader"
+name = "ggml-format"
 version = "0.1.0"
 edition = "2021"
 

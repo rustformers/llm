@@ -446,7 +446,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ggml-loader"
+name = "ggml-format"
 version = "0.1.0"
 dependencies = [
  "ggml",
@@ -629,7 +629,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "ggml",
- "ggml-loader",
+ "ggml-format",
  "half",
  "memmap2",
  "partial_sort",

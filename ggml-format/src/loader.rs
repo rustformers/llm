@@ -1,35 +1,14 @@
-//! standalone model loader
-//!
-//! Only the hyperparameter is llama-specific. Everything else can be reused for other LLM.
-#![allow(clippy::nonminimal_bool)]
+use std::{
+    io::{BufRead, Seek, SeekFrom},
+    ops::ControlFlow,
+};
 
-pub mod util;
-
-use std::ops::ControlFlow;
-use util::*;
-
-pub type ElementType = ggml::Type;
-
-/// the format of the file containing the model
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[allow(clippy::upper_case_acronyms)]
-pub enum ContainerType {
-    /// legacy format, oldest ggml tensor file format
-    GGML,
-    /// also legacy format, newer than GGML, older than GGJT
-    GGMF,
-    /// mmap-able format
-    GGJT,
-}
-impl ContainerType {
-    pub fn support_mmap(&self) -> bool {
-        match self {
-            ContainerType::GGML => false,
-            ContainerType::GGMF => false,
-            ContainerType::GGJT => true,
-        }
-    }
-}
+use crate::{
+    util::{
+        controlflow_to_result, has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32,
+    },
+    ContainerType, ElementType,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError<T> {
@@ -169,7 +148,7 @@ pub fn load_model_from_reader<T, R: BufRead + Seek>(
 ///
 /// `align`
 /// align to 4 bytes before reading tensor weights
-pub fn load_weights<T, R: BufRead + Seek>(
+fn load_weights<T, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<T, R>,
     align: bool,

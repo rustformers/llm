@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ggml_loader::ContainerType;
+use ggml_format::ContainerType;
 use thiserror::Error;
 
 use crate::{util::FindAllModelFilesError, Hyperparameters};

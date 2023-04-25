@@ -4,9 +4,16 @@ use crate::{loader::read_string, FileType, Hyperparameters, LoadError, Vocabular
 use ggml::{
     quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC_GGMF, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
 };
-use ggml_loader::{util::read_i32, ContainerType};
+use ggml_format::{
+    util::{read_i32, rw_bytes_with_len, rw_f32, rw_i32, rw_u32},
+    ContainerType,
+};
 use half::f16;
-use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter, Read, Write},
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
@@ -87,8 +94,6 @@ pub fn quantize(
     ty: crate::ElementType,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
-    use crate::file::*;
-
     let itype: i32 = match ty {
         Type::Q4_0 => 2,
         Type::Q4_1 => 3,

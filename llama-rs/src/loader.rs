@@ -12,8 +12,10 @@ use crate::{
     LoadError, LoadProgress, Model, TokenId, Vocabulary,
 };
 use crate::{ElementType, Hyperparameters};
-use ggml_loader::util::*;
-use ggml_loader::ContainerType;
+use ggml_format::{
+    util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
+    ContainerType,
+};
 use memmap2::Mmap;
 
 pub(crate) fn load(

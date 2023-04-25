@@ -1,4 +1,5 @@
-pub use std::io::{BufRead, Seek, SeekFrom};
+pub use std::fs::File;
+pub use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::ops::ControlFlow;
 
 use crate::LoadError;
@@ -30,21 +31,46 @@ pub fn read_bytes_with_len(
     Ok(bytes)
 }
 
+pub fn rw_i32(reader: &mut impl BufRead, writer: &mut impl Write) -> Result<i32, std::io::Error> {
+    Ok(i32::from_le_bytes(rw::<4>(reader, writer)?))
+}
+
+pub fn rw_u32(reader: &mut impl BufRead, writer: &mut impl Write) -> Result<u32, std::io::Error> {
+    Ok(u32::from_le_bytes(rw::<4>(reader, writer)?))
+}
+
+pub fn rw_f32(reader: &mut impl BufRead, writer: &mut impl Write) -> Result<f32, std::io::Error> {
+    Ok(f32::from_le_bytes(rw::<4>(reader, writer)?))
+}
+
+pub fn rw_bytes_with_len(
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+    len: usize,
+) -> Result<Vec<u8>, std::io::Error> {
+    let mut buf = vec![0; len];
+    reader.read_exact(&mut buf)?;
+    writer.write_all(&buf)?;
+    Ok(buf)
+}
+
+fn rw<const N: usize>(
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+) -> Result<[u8; N], std::io::Error> {
+    let bytes: [u8; N] = read_bytes(reader)?;
+    writer.write_all(&bytes)?;
+    Ok(bytes)
+}
+
 // NOTE: Implementation from #![feature(buf_read_has_data_left)]
 pub fn has_data_left(reader: &mut impl BufRead) -> Result<bool, std::io::Error> {
     reader.fill_buf().map(|b| !b.is_empty())
 }
 
-pub fn controlflow_to_result<A, B>(x: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
+pub(crate) fn controlflow_to_result<A, B>(x: ControlFlow<A, B>) -> Result<B, LoadError<A>> {
     match x {
         ControlFlow::Continue(x) => Ok(x),
         ControlFlow::Break(y) => Err(LoadError::UserInterrupted(y)),
-    }
-}
-
-pub fn result_to_controlflow<A, B, C: Into<A>>(x: Result<B, C>) -> ControlFlow<A, B> {
-    match x {
-        Ok(x) => ControlFlow::Continue(x),
-        Err(y) => ControlFlow::Break(y.into()),
     }
 }

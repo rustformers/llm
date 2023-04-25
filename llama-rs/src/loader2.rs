@@ -1,11 +1,12 @@
-use ggml_loader::util::*;
-use ggml_loader::*;
+use ggml_format::{
+    util::read_i32, ContainerType, PartialHyperparameters, TensorDataTreatment, TensorInfo,
+};
 use memmap2::Mmap;
 
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, Read, Seek},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     ops::ControlFlow,
     path::{Path, PathBuf},
 };
@@ -16,25 +17,25 @@ use crate::{
 };
 
 impl LoadError {
-    pub(crate) fn from_ggml_loader_error(
-        value: ggml_loader::LoadError<LoadError>,
+    pub(crate) fn from_format_error(
+        value: ggml_format::LoadError<LoadError>,
         path: PathBuf,
     ) -> Self {
         match value {
-            ggml_loader::LoadError::InvalidMagic(_magic) => LoadError::InvalidMagic { path },
-            ggml_loader::LoadError::InvalidFormatVersion(container_type, version) => {
+            ggml_format::LoadError::InvalidMagic(_magic) => LoadError::InvalidMagic { path },
+            ggml_format::LoadError::InvalidFormatVersion(container_type, version) => {
                 LoadError::InvalidFormatVersion {
                     container_type,
                     version,
                 }
             }
-            ggml_loader::LoadError::Io(err) => LoadError::Io(err),
-            ggml_loader::LoadError::FailedCast(err) => LoadError::InvalidIntegerConversion(err),
-            ggml_loader::LoadError::UserInterrupted(err) => err,
-            ggml_loader::LoadError::UnsupportedElementType(ty) => {
+            ggml_format::LoadError::Io(err) => LoadError::Io(err),
+            ggml_format::LoadError::FailedCast(err) => LoadError::InvalidIntegerConversion(err),
+            ggml_format::LoadError::UserInterrupted(err) => err,
+            ggml_format::LoadError::UnsupportedElementType(ty) => {
                 LoadError::HyperparametersF16Invalid { ftype: ty }
             }
-            ggml_loader::LoadError::InvariantBroken(invariant) => {
+            ggml_format::LoadError::InvariantBroken(invariant) => {
                 LoadError::InvariantBroken { path, invariant }
             }
         }
@@ -76,8 +77,8 @@ pub(crate) fn load(
     );
     let use_mmap = loader.mmap_active();
 
-    ggml_loader::load_model_from_reader(&mut reader, &mut loader)
-        .map_err(|err| LoadError::from_ggml_loader_error(err, path.clone()))?;
+    ggml_format::load_model_from_reader(&mut reader, &mut loader)
+        .map_err(|err| LoadError::from_format_error(err, path.clone()))?;
 
     let Loader {
         hyperparameters,
@@ -222,7 +223,7 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
     }
 }
 
-impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File>> for Loader<F> {
+impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError, BufReader<&File>> for Loader<F> {
     fn load_hyper_parameters(
         &mut self,
         reader: &mut BufReader<&File>,
@@ -230,10 +231,7 @@ impl<F: FnMut(LoadProgress)> ggml_loader::LoadHandler<LoadError, BufReader<&File
         let (hyperparameters, partial) = match load_hyperparameters(reader, self.n_ctx) {
             Ok(t) => t,
             Err(err) => {
-                return ControlFlow::Break(LoadError::from_ggml_loader_error(
-                    err,
-                    self.path.clone(),
-                ))
+                return ControlFlow::Break(LoadError::from_format_error(err, self.path.clone()))
             }
         };
         self.hyperparameters = hyperparameters;
@@ -278,7 +276,7 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
 fn load_hyperparameters<R: BufRead + Seek>(
     reader: &mut R,
     n_ctx: usize,
-) -> Result<(Hyperparameters, PartialHyperparameters), ggml_loader::LoadError<LoadError>> {
+) -> Result<(Hyperparameters, PartialHyperparameters), ggml_format::LoadError<LoadError>> {
     // NOTE: Field order matters! Data is laid out in the file exactly in this order.
     let hparams = Hyperparameters {
         n_vocab: read_i32(reader)?.try_into()?,
@@ -290,7 +288,7 @@ fn load_hyperparameters<R: BufRead + Seek>(
         file_type: {
             let ftype = read_i32(reader)?;
             FileType::try_from(ftype).map_err(|_| {
-                ggml_loader::LoadError::UserInterrupted(LoadError::UnsupportedFileType(ftype))
+                ggml_format::LoadError::UserInterrupted(LoadError::UnsupportedFileType(ftype))
             })?
         },
         n_ctx,

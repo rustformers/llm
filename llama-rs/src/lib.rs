@@ -8,7 +8,6 @@ pub mod convert;
 #[cfg(feature = "quantize")]
 pub mod quantize;
 
-mod file;
 mod inference_session;
 mod loader;
 mod loader2;
