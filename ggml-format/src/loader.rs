@@ -68,6 +68,19 @@ impl TensorInfo {
     pub fn calc_size(&self) -> usize {
         data_size(self.element_type, self.dims().iter().product())
     }
+
+    /// Reads the tensor's data from the given reader in an owned fashion.
+    ///
+    /// The behaviour is undefined if the reader does not correspond to this info.
+    ///
+    /// Do not use this if loading with `mmap`.
+    pub fn read_data<R: BufRead + Seek>(&self, reader: &mut R) -> std::io::Result<Vec<u8>> {
+        let n_bytes = self.n_elements * ggml::type_size(self.element_type);
+        let mut data = vec![0; n_bytes];
+        reader.seek(SeekFrom::Start(self.start_offset))?;
+        reader.read_exact(&mut data)?;
+        Ok(data)
+    }
 }
 
 /// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.

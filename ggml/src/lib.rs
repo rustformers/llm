@@ -697,17 +697,17 @@ fn i64_to_usize(val: i64) -> usize {
 /// You must ensure the arrays passed in are of the correct size.
 pub unsafe fn quantize_q4_0(
     src: &[f32],
-    dst: &mut [f32],
-    n: i32,
-    k: i32,
+    dst: &mut [u8],
+    n: usize,
+    k: usize,
     hist: &mut [i64],
 ) -> usize {
     unsafe {
         ggml_sys::ggml_quantize_q4_0(
             src.as_ptr(),
             dst.as_mut_ptr() as *mut c_void,
-            n,
-            k,
+            n.try_into().unwrap(),
+            k.try_into().unwrap(),
             hist.as_mut_ptr(),
         )
     }
@@ -720,17 +720,17 @@ pub unsafe fn quantize_q4_0(
 /// You must ensure the arrays passed in are of the correct size.
 pub unsafe fn quantize_q4_1(
     src: &[f32],
-    dst: &mut [f32],
-    n: i32,
-    k: i32,
+    dst: &mut [u8],
+    n: usize,
+    k: usize,
     hist: &mut [i64],
 ) -> usize {
     unsafe {
         ggml_sys::ggml_quantize_q4_1(
             src.as_ptr(),
             dst.as_mut_ptr() as *mut c_void,
-            n,
-            k,
+            n.try_into().unwrap(),
+            k.try_into().unwrap(),
             hist.as_mut_ptr(),
         )
     }

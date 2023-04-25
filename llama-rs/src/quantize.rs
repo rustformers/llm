@@ -1,22 +1,16 @@
 //! Implements quantization of weights.
 
-use crate::{loader::read_string, FileType, Hyperparameters, LoadError, Vocabulary};
-use ggml::{
-    quantize_q4_0, quantize_q4_1, Type, FILE_MAGIC_GGMF, FILE_MAGIC_UNVERSIONED, FORMAT_VERSION,
-};
-use ggml_format::{
-    util::{read_i32, rw_bytes_with_len, rw_f32, rw_i32, rw_u32},
-    ContainerType,
-};
+use crate::{loader2::Loader, Hyperparameters, LoadError, LoadProgress};
+use ggml_format::{util::write_i32, SaveError, SaveHandler, TensorData, TensorInfo};
 use half::f16;
 use std::{
+    collections::HashMap,
     fs::File,
-    io::{BufReader, BufWriter, Read, Write},
+    io::{BufReader, BufWriter, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use thiserror::Error;
-
-const FTYPE_STR: [&str; 4] = ["f32", "f16", "q4_0", "q4_1"];
 
 #[derive(Clone, Debug)]
 
@@ -29,29 +23,36 @@ pub enum QuantizeProgress<'a> {
         /// Name of the tensor.
         name: &'a str,
         /// Size of the tensor.
-        size: [i32; 2],
+        dims: [usize; 2],
         /// Type of the tensor.
-        ftype: &'a str,
+        element_type: ggml::Type,
         /// Number of elements in the tensor.
-        elements: i32,
+        n_elements: usize,
     },
     /// A tensor is being quantized.
-    Quantizing,
+    TensorQuantizing {
+        /// Name of the tensor.
+        name: &'a str,
+    },
     /// A tensor has been quantized.
-    Quantized {
+    TensorQuantized {
+        /// Name of the tensor.
+        name: &'a str,
         /// The original size of the tensor.
-        original_size: f32,
+        original_size: usize,
         /// The reduced size of the tensor.
-        reduced_size: f32,
+        reduced_size: usize,
         /// The history of the quantization.
         history: Vec<f32>,
     },
     /// A tensor has been skipped.
-    Skipped {
-        /// The original size of the tensor.
-        size: f32,
+    TensorSkipped {
+        /// Name of the tensor.
+        name: &'a str,
+        /// The original size (in bytes) of the tensor data.
+        size: usize,
     },
-    /// A model is being quantized.
+    /// A model has been quantized.
     Finished {
         /// The original size of the model.
         original_size: f32,
@@ -70,7 +71,7 @@ pub enum QuantizeError {
     Load(#[from] LoadError),
     #[error("non-specific I/O error")]
     /// A non-specific IO error.
-    IO(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
     #[error("could not convert bytes to a UTF-8 string")]
     /// One of the strings encountered was not valid UTF-8.
     InvalidUtf8(#[from] std::string::FromUtf8Error),
@@ -85,255 +86,269 @@ pub enum QuantizeError {
         /// The path that failed.
         path: PathBuf,
     },
+    /// An invariant was broken.
+    ///
+    /// This error is not relevant unless `loader2` is being used.
+    #[error("invariant broken: {invariant} in {path:?}")]
+    InvariantBroken {
+        /// The path that failed.
+        path: PathBuf,
+        /// The invariant that was broken.
+        invariant: String,
+    },
+    /// Attempted to quantize to an invalid target.
+    #[error("invalid quantization target {element_type:?}")]
+    InvalidQuantizationTarget {
+        /// The quantization target.
+        element_type: ggml::Type,
+    },
+    /// The quantization process encountered an unsupported element type.
+    #[error("unsupported element type {element_type:?}")]
+    UnsupportedElementType {
+        /// The element type.
+        element_type: ggml::Type,
+    },
+}
+impl QuantizeError {
+    pub(crate) fn from_format_error(value: SaveError<QuantizeError>, path: PathBuf) -> Self {
+        match value {
+            SaveError::Io(io) => QuantizeError::Io(io),
+            SaveError::InvalidIntegerConversion(e) => QuantizeError::InvalidIntegerConversion(e),
+            SaveError::ImplementationError(e) => e,
+            SaveError::InvariantBroken(invariant) => {
+                QuantizeError::InvariantBroken { path, invariant }
+            }
+        }
+    }
 }
 
 /// Quantizes a model.
 pub fn quantize(
-    file_name_in: impl AsRef<Path>,
-    file_name_out: impl AsRef<Path>,
-    ty: crate::ElementType,
+    path_in: impl AsRef<Path>,
+    path_out: impl AsRef<Path>,
+    desired_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
-    let itype: i32 = match ty {
-        Type::Q4_0 => 2,
-        Type::Q4_1 => 3,
-        _ => todo!("Unsupported quantization format. This should be an error."),
-    };
+    // Sanity check
+    if !matches!(desired_type, ggml::Type::Q4_0 | ggml::Type::Q4_1) {
+        return Err(QuantizeError::InvalidQuantizationTarget {
+            element_type: desired_type,
+        });
+    }
 
-    let file_in = file_name_in.as_ref();
-    let mut finp = BufReader::new(File::open(file_in).map_err(|e| LoadError::OpenFileFailed {
+    // Load the model
+    let progress_callback = Arc::new(progress_callback);
+
+    let path_in = path_in.as_ref();
+    let mut file_in = File::open(path_in).map_err(|e| LoadError::OpenFileFailed {
         source: e,
-        path: file_in.to_owned(),
-    })?);
-
-    let file_out = file_name_out.as_ref();
-    let mut fout =
-        BufWriter::new(
-            File::create(file_out).map_err(|e| QuantizeError::CreateFileFailed {
-                source: e,
-                path: file_out.to_owned(),
-            })?,
-        );
-
-    // Verify magic
-    {
-        let magic = rw_u32(&mut finp, &mut fout)?;
-        if magic == FILE_MAGIC_UNVERSIONED {
-            todo!("Unversioned files are not supported yet")
+        path: path_in.to_owned(),
+    })?;
+    let mut reader = BufReader::new(&file_in);
+    let mut loader = Loader::new(0, {
+        let progress_callback = progress_callback.clone();
+        move |p| {
+            if let LoadProgress::HyperparametersLoaded(h) = p {
+                progress_callback(QuantizeProgress::HyperparametersLoaded(h))
+            }
         }
-        if magic != FILE_MAGIC_GGMF {
-            return Err(LoadError::InvalidMagic {
-                path: file_in.to_owned(),
-                magic,
-            }
-            .into());
-        }
+    });
+    ggml_format::load_model(&mut reader, &mut loader)
+        .map_err(|err| LoadError::from_format_error(err, path_in.to_owned()))?;
 
-        let format_version = rw_u32(&mut finp, &mut fout)?;
-        if format_version != FORMAT_VERSION {
-            return Err(LoadError::InvalidFormatVersion {
-                container_type: ContainerType::Ggmf,
-                version: format_version,
-            }
-            .into());
-        }
-    }
+    // Save the quantized model, quantizing as we go
+    let Loader {
+        hyperparameters,
+        vocabulary,
+        tensors,
+        ..
+    } = loader;
 
-    let mut hparams = Hyperparameters::default();
+    let vocabulary = vocabulary
+        .id_to_token
+        .iter()
+        .cloned()
+        .zip(vocabulary.id_to_token_score)
+        .collect::<Vec<_>>();
 
-    // Load parameters
-    {
-        hparams.n_vocab = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.n_embd = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.n_mult = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.n_head = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.n_layer = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        hparams.n_rot = rw_i32(&mut finp, &mut fout)?.try_into()?;
-        let ftype = rw_i32(&mut finp, &mut fout)?;
-        hparams.file_type =
-            FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?;
-        fout.write_all(&ftype.to_le_bytes())?;
-        fout.write_all(&itype.to_le_bytes())?;
-    }
+    let path_out = path_out.as_ref();
+    let mut writer = BufWriter::new(File::create(path_out)?);
+    let mut saver = QuantizeSaver::new(
+        desired_type,
+        &hyperparameters,
+        &tensors,
+        &mut file_in,
+        |p| progress_callback(p),
+    );
+    ggml_format::save_model(
+        &mut writer,
+        &mut saver,
+        &vocabulary,
+        &tensors.keys().cloned().collect::<Vec<_>>(),
+    )
+    .map_err(|err| QuantizeError::from_format_error(err, path_out.to_owned()))?;
 
-    progress_callback(QuantizeProgress::HyperparametersLoaded(&hparams));
-
-    // load vocab
-    let mut vocab = Vocabulary {
-        id_to_token: vec![],
-        id_to_token_score: vec![],
-        token_to_id: Default::default(),
-        max_token_length: 0,
-    };
-
-    for i in 0..hparams.n_vocab {
-        let len = rw_u32(&mut finp, &mut fout)?.try_into()?;
-        let word = rw_bytes_with_len(&mut finp, &mut fout, len)?;
-        let score = rw_f32(&mut finp, &mut fout)?;
-
-        vocab.token_to_id.insert(word.clone(), i.try_into()?);
-        vocab.id_to_token.push(word);
-        vocab.id_to_token_score.push(score);
-    }
-
-    // Load weights
-    {
-        let mut total_size_org: usize = 0;
-        let mut total_size_new: usize = 0;
-
-        let mut work: Vec<f32> = vec![];
-
-        let mut data_u8: Vec<u8> = vec![];
-        let mut data_f16: Vec<u16> = vec![];
-        let mut data_f32: Vec<f32> = vec![];
-
-        let mut hist_all: Vec<i64> = vec![0; 16];
-
-        loop {
-            let n_dims: i32;
-            if let Ok(r) = read_i32(&mut finp) {
-                n_dims = r;
-            } else {
-                break;
-            }
-
-            let length: usize;
-            if let Ok(r) = read_i32(&mut finp) {
-                length = r as usize;
-            } else {
-                break;
-            }
-
-            let mut ftype: i32;
-            if let Ok(r) = read_i32(&mut finp) {
-                ftype = r;
-            } else {
-                break;
-            }
-
-            let mut nelements = 1i32;
-            let mut ne = [1i32, 1i32];
-            for i in 0..n_dims {
-                ne[i as usize] = read_i32(&mut finp)?;
-                nelements *= ne[i as usize];
-            }
-
-            let name = read_string(&mut finp, length)?;
-
-            progress_callback(QuantizeProgress::TensorLoading {
-                name: &name,
-                size: ne,
-                elements: nelements,
-                ftype: FTYPE_STR[ftype as usize],
-            });
-
-            // Quantize only 2D tensors
-            let quantize = name.contains("weight") && n_dims == 2;
-
-            if quantize {
-                if ftype != 0 && ftype != 1 {
-                    return Err(LoadError::UnsupportedElementType {
-                        ftype,
-                        tensor_name: name,
-                        path: file_in.to_owned(),
-                    }
-                    .into());
-                }
-
-                data_f32.resize(nelements as usize, 0.0);
-                if ftype == 1 {
-                    data_f16.resize(nelements as usize, 0);
-
-                    let mut buffer = vec![0u8; (nelements * 2) as usize];
-                    finp.read_exact(&mut buffer)?;
-                    // Compute buffer
-                    for (index, chunk) in buffer.chunks(2).enumerate() {
-                        let i = u16::from_le_bytes([chunk[0], chunk[1]]);
-                        data_f16[index] = i;
-
-                        //data_f32[index] = ggml_fp16_to_fp32(i);
-                        data_f32[index] = f16::from_bits(i).to_f32();
-                    }
-                } else {
-                    let mut buffer = vec![0u8; (nelements * 4) as usize];
-                    finp.read_exact(&mut buffer)?;
-
-                    for (index, chunk) in buffer.chunks(4).enumerate() {
-                        data_f32[index] =
-                            f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                    }
-                }
-
-                ftype = itype;
-            } else {
-                // Determines the total bytes were dealing with
-                let bpe = (nelements * if ftype == 0 { 4 } else { 2 }) as usize;
-
-                data_u8.resize(bpe, 0);
-                finp.read_exact(&mut data_u8)?;
-            }
-
-            // Write data
-            fout.write_all(&n_dims.to_le_bytes())?;
-            fout.write_all(&(length as i32).to_le_bytes())?;
-            fout.write_all(&ftype.to_le_bytes())?;
-
-            for i in 0..n_dims {
-                fout.write_all(&ne[i as usize].to_le_bytes())?;
-            }
-            fout.write_all(name.as_bytes())?;
-
-            if quantize {
-                progress_callback(QuantizeProgress::Quantizing);
-                work.resize(nelements as usize, 0.0);
-
-                let mut hist_cur = vec![0; 16];
-
-                let curr_size = if matches!(ty, crate::ElementType::Q4_0) {
-                    unsafe { quantize_q4_0(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }
-                } else {
-                    unsafe { quantize_q4_1(&data_f32, &mut work, nelements, ne[0], &mut hist_cur) }
-                };
-
-                // We divide curr size by 4 since size refers to bytes
-                for i in work.iter().take(curr_size / 4) {
-                    fout.write_all(&i.to_le_bytes())?;
-                }
-
-                total_size_new += curr_size;
-
-                let mut new_hist = vec![];
-                for (i, val) in hist_cur.iter().enumerate() {
-                    hist_all[i] += val;
-                    new_hist.push(*val as f32 / nelements as f32);
-                }
-
-                progress_callback(QuantizeProgress::Quantized {
-                    original_size: nelements as f32 * 4.0 / 1024.0 / 1024.0,
-                    reduced_size: curr_size as f32 / 1024.0 / 1024.0,
-                    history: new_hist,
-                });
-            } else {
-                fout.write_all(&data_u8)?;
-                progress_callback(QuantizeProgress::Skipped {
-                    size: data_u8.len() as f32 / 1024.0 / 1024.0,
-                });
-                total_size_new += data_u8.len();
-            }
-
-            total_size_org += (nelements * 4) as usize;
-        }
-
-        let sum_all: i64 = hist_all.iter().sum();
-        progress_callback(QuantizeProgress::Finished {
-            original_size: total_size_org as f32 / 1024.0 / 1024.0,
-            reduced_size: total_size_new as f32 / 1024.0 / 1024.0,
-            history: hist_all
-                .iter()
-                .map(|hist| *hist as f32 / sum_all as f32)
-                .collect(),
-        })
-    }
+    // Final report
+    let sum_all: i64 = saver.history_all.iter().sum();
+    progress_callback(QuantizeProgress::Finished {
+        original_size: saver.total_size_original as f32 / 1024.0 / 1024.0,
+        reduced_size: saver.total_size_new as f32 / 1024.0 / 1024.0,
+        history: saver
+            .history_all
+            .iter()
+            .map(|hist| *hist as f32 / sum_all as f32)
+            .collect(),
+    });
 
     Ok(())
+}
+
+struct QuantizeSaver<'a, F: Fn(QuantizeProgress)> {
+    // Input
+    quantization_type: ggml::Type,
+    hyperparameters: &'a Hyperparameters,
+    tensors: &'a HashMap<String, TensorInfo>,
+    source_file: &'a mut File,
+    progress_callback: F,
+
+    // Output
+    total_size_original: usize,
+    total_size_new: usize,
+    history_all: Vec<i64>,
+}
+impl<'a, F: Fn(QuantizeProgress)> QuantizeSaver<'a, F> {
+    fn new(
+        quantization_type: ggml::Type,
+        hyperparameters: &'a Hyperparameters,
+        tensors: &'a HashMap<String, TensorInfo>,
+        source_file: &'a mut File,
+        progress_callback: F,
+    ) -> Self {
+        Self {
+            quantization_type,
+            hyperparameters,
+            tensors,
+            source_file,
+            progress_callback,
+
+            total_size_original: 0,
+            total_size_new: 0,
+            history_all: vec![0; 16],
+        }
+    }
+}
+impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F> {
+    fn write_hyperparameters(&mut self, writer: &mut dyn Write) -> Result<(), QuantizeError> {
+        let h = self.hyperparameters;
+        write_i32(writer, h.n_vocab.try_into()?)?;
+        write_i32(writer, h.n_embd.try_into()?)?;
+        write_i32(writer, h.n_mult.try_into()?)?;
+        write_i32(writer, h.n_head.try_into()?)?;
+        write_i32(writer, h.n_layer.try_into()?)?;
+        write_i32(writer, h.n_rot.try_into()?)?;
+        write_i32(writer, h.file_type.into())?;
+        Ok(())
+    }
+
+    fn tensor_data(&mut self, tensor_name: &str) -> Result<TensorData, QuantizeError> {
+        let tensor = self.tensors.get(tensor_name).expect(
+            "tensor not found; should be impossible due to handler being populated from loader",
+        );
+
+        (self.progress_callback)(QuantizeProgress::TensorLoading {
+            name: tensor_name,
+            dims: tensor.dims,
+            n_elements: tensor.n_elements,
+            element_type: tensor.element_type,
+        });
+
+        // Quantize only 2D tensors
+        let quantize = tensor_name.contains("weight") && tensor.n_dims == 2;
+        let raw_data = tensor.read_data(&mut BufReader::new(&mut self.source_file))?;
+
+        if quantize && !matches!(tensor.element_type, ggml::Type::F32 | ggml::Type::F16) {
+            return Err(QuantizeError::UnsupportedElementType {
+                element_type: tensor.element_type,
+            });
+        }
+
+        self.total_size_original += raw_data.len();
+
+        let (element_type, data) = if quantize {
+            (self.progress_callback)(QuantizeProgress::TensorQuantizing { name: tensor_name });
+
+            let data_f32: Vec<f32> = match tensor.element_type {
+                ggml::Type::F32 => raw_data
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+                    .collect(),
+                ggml::Type::F16 => raw_data
+                    .chunks_exact(2)
+                    .map(|chunk| {
+                        f16::from_bits(u16::from_le_bytes(chunk.try_into().unwrap())).to_f32()
+                    })
+                    .collect(),
+                _ => unreachable!(),
+            };
+
+            let mut history_current = vec![0; 16];
+
+            // A conservative multiplier of 4 is used here.
+            let mut work = vec![0u8; tensor.n_elements * 4];
+            let curr_size = match self.quantization_type {
+                ggml::Type::Q4_0 => unsafe {
+                    ggml::quantize_q4_0(
+                        &data_f32,
+                        &mut work,
+                        tensor.n_elements,
+                        tensor.dims[0],
+                        &mut history_current,
+                    )
+                },
+                ggml::Type::Q4_1 => unsafe {
+                    ggml::quantize_q4_1(
+                        &data_f32,
+                        &mut work,
+                        tensor.n_elements,
+                        tensor.dims[0],
+                        &mut history_current,
+                    )
+                },
+                _ => unreachable!(),
+            };
+
+            let mut history_new = vec![];
+            for (i, val) in history_current.iter().enumerate() {
+                self.history_all[i] += val;
+                history_new.push(*val as f32 / tensor.n_elements as f32);
+            }
+
+            let new_data = &work[0..curr_size];
+
+            (self.progress_callback)(QuantizeProgress::TensorQuantized {
+                name: tensor_name,
+                original_size: raw_data.len(),
+                reduced_size: new_data.len(),
+                history: history_new,
+            });
+
+            self.total_size_new += new_data.len();
+
+            (self.quantization_type, new_data.to_owned())
+        } else {
+            (self.progress_callback)(QuantizeProgress::TensorSkipped {
+                name: tensor_name,
+                size: raw_data.len(),
+            });
+            self.total_size_new += raw_data.len();
+            (tensor.element_type, raw_data)
+        };
+
+        Ok(TensorData {
+            n_dims: tensor.n_dims,
+            dims: tensor.dims,
+            element_type,
+            data,
+        })
+    }
 }

@@ -162,23 +162,15 @@ impl LoadHandler<DummyError> for MockLoadHandler<'_> {
     }
 
     fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), DummyError> {
-        self.loaded_model.tensors.insert(
-            info.name,
-            TensorData {
-                n_dims: info.n_dims,
-                dims: info.dims,
-                element_type: info.element_type,
-                data: {
-                    let n_bytes = info.n_elements * ggml::type_size(info.element_type);
-                    let mut data = vec![0; n_bytes];
-                    data.copy_from_slice(
-                        &self.data
-                            [info.start_offset as usize..info.start_offset as usize + n_bytes],
-                    );
-                    data
-                },
-            },
-        );
+        let data = TensorData {
+            n_dims: info.n_dims,
+            dims: info.dims,
+            element_type: info.element_type,
+            data: info
+                .read_data(&mut std::io::Cursor::new(self.data))
+                .unwrap(),
+        };
+        self.loaded_model.tensors.insert(info.name, data);
         Ok(())
     }
 }

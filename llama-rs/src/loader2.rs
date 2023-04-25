@@ -72,8 +72,7 @@ pub(crate) fn load(
         total_parts: 1,
     });
 
-    let mut loader = Loader::new(n_context_tokens, prefer_mmap, load_progress_callback);
-    let use_mmap = loader.mmap_active();
+    let mut loader = Loader::new(n_context_tokens, load_progress_callback);
 
     ggml_format::load_model(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.clone()))?;
@@ -83,11 +82,14 @@ pub(crate) fn load(
         vocabulary,
         tensors,
         mut load_progress_callback,
+        container_type,
         ..
     } = loader;
 
     let Hyperparameters { n_embd, n_mult, .. } = hyperparameters;
     let n_ff = ((2 * (4 * n_embd) / 3 + n_mult - 1) / n_mult) * n_mult;
+
+    let use_mmap = prefer_mmap && container_type.support_mmap();
 
     let ctx_size = tensors
         .values()
@@ -192,23 +194,21 @@ pub(crate) fn load(
     Ok(model)
 }
 
-struct Loader<F: FnMut(LoadProgress)> {
+pub(crate) struct Loader<F: FnMut(LoadProgress)> {
     // Input
     n_ctx: usize,
-    prefer_mmap: bool,
     load_progress_callback: F,
 
     // Output
-    container_type: ContainerType,
-    hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
-    tensors: HashMap<String, TensorInfo>,
+    pub(crate) container_type: ContainerType,
+    pub(crate) hyperparameters: Hyperparameters,
+    pub(crate) vocabulary: Vocabulary,
+    pub(crate) tensors: HashMap<String, TensorInfo>,
 }
 impl<F: FnMut(LoadProgress)> Loader<F> {
-    fn new(n_ctx: usize, prefer_mmap: bool, load_progress_callback: F) -> Self {
+    pub(crate) fn new(n_ctx: usize, load_progress_callback: F) -> Self {
         Self {
             n_ctx,
-            prefer_mmap,
             load_progress_callback,
 
             container_type: ContainerType::Ggjt,
@@ -216,10 +216,6 @@ impl<F: FnMut(LoadProgress)> Loader<F> {
             vocabulary: Vocabulary::default(),
             tensors: HashMap::default(),
         }
-    }
-
-    fn mmap_active(&mut self) -> bool {
-        self.prefer_mmap && self.container_type.support_mmap()
     }
 }
 impl<F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError> for Loader<F> {
