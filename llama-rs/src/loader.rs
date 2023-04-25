@@ -12,8 +12,10 @@ use crate::{
     LoadError, LoadProgress, Model, TokenId, Vocabulary,
 };
 use crate::{ElementType, Hyperparameters};
-use ggml_loader::util::*;
-use ggml_loader::ContainerType;
+use ggml_format::{
+    util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
+    ContainerType,
+};
 use memmap2::Mmap;
 
 pub(crate) fn load(
@@ -34,26 +36,33 @@ pub(crate) fn load(
     let mut reader = BufReader::new(&file);
 
     // Verify magic
-    let model_type: ContainerType = match read_u32(&mut reader)? {
-        ggml::FILE_MAGIC_GGMF => ContainerType::GGMF,
-        ggml::FILE_MAGIC_GGJT => ContainerType::GGJT,
-        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::GGML,
+    let magic = read_u32(&mut reader)?;
+    let model_type: ContainerType = match magic {
+        ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
+        ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
+        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
         _ => {
             return Err(LoadError::InvalidMagic {
                 path: main_path.to_owned(),
+                magic,
             })
         }
     };
 
     // Load format version
     match model_type {
-        ContainerType::GGMF | ContainerType::GGJT => {
+        ContainerType::Ggmf | ContainerType::Ggjt => {
             let _version: u32 = match read_u32(&mut reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
-                version => return Err(LoadError::InvalidFormatVersion { version }),
+                version => {
+                    return Err(LoadError::InvalidFormatVersion {
+                        container_type: model_type,
+                        version,
+                    })
+                }
             };
         }
-        ContainerType::GGML => {}
+        ContainerType::Ggml => {}
     }
 
     // =================
@@ -93,8 +102,8 @@ pub(crate) fn load(
             let token = read_bytes_with_len(&mut reader, len.try_into()?)?;
 
             let score = match model_type {
-                ContainerType::GGMF | ContainerType::GGJT => read_f32(&mut reader)?,
-                ContainerType::GGML => {
+                ContainerType::Ggmf | ContainerType::Ggjt => read_f32(&mut reader)?,
+                ContainerType::Ggml => {
                     // Legacy model, set empty score
                     0.
                 }
@@ -168,7 +177,7 @@ pub(crate) fn load(
 
     let mut model = Model::new_loader1(context, hparams, vocabulary, n_ff, wtype, mmap);
     match model_type {
-        ContainerType::GGMF | ContainerType::GGML => {
+        ContainerType::Ggmf | ContainerType::Ggml => {
             let file_offset = reader.stream_position()?;
             drop(reader);
             load_weights_ggmf_or_unversioned(
@@ -178,7 +187,7 @@ pub(crate) fn load(
                 model.tensors_mut(),
             )?
         }
-        ContainerType::GGJT => {
+        ContainerType::Ggjt => {
             load_weights_ggjt(
                 &mut reader,
                 mmap_ptr,
@@ -243,7 +252,14 @@ fn load_weights_ggmf_or_unversioned(
             let length = read_i32(&mut part_reader)?;
             let ftype = read_i32(&mut part_reader)?;
 
-            let (nelements, ne, tensor_name, tensor, split_type, bpe) = load_tensor_header_ggmf(
+            let TensorHeaderGgmf {
+                nelements,
+                ne,
+                tensor_name,
+                tensor,
+                split_type,
+                bpe,
+            } = load_tensor_header_ggmf(
                 n_dims,
                 &mut part_reader,
                 length,
@@ -341,7 +357,14 @@ fn load_weights_ggmf_or_unversioned(
     Ok(())
 }
 
-#[allow(clippy::type_complexity)]
+struct TensorHeaderGgmf<'a> {
+    nelements: usize,
+    ne: [i64; 2],
+    tensor_name: String,
+    tensor: &'a mut ggml::Tensor,
+    split_type: i32,
+    bpe: usize,
+}
 fn load_tensor_header_ggmf<'a>(
     n_dims: usize,
     reader: &mut impl BufRead,
@@ -350,7 +373,7 @@ fn load_tensor_header_ggmf<'a>(
     path: &Path,
     n_parts: usize,
     ftype: i32,
-) -> Result<(usize, [i64; 2], String, &'a mut ggml::Tensor, i32, usize), LoadError> {
+) -> Result<TensorHeaderGgmf<'a>, LoadError> {
     let mut nelements = 1;
     let mut ne = [1i64, 1i64];
     assert!(n_dims <= ne.len());
@@ -364,13 +387,12 @@ fn load_tensor_header_ggmf<'a>(
         else {
             return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
         };
-    #[allow(clippy::if_same_then_else)]
     let split_type = if tensor_name.contains("tok_embeddings") {
         0
     } else if tensor_name.contains("layers") {
-        if tensor_name.contains("attention.wo.weight") {
-            0
-        } else if tensor_name.contains("feed_forward.w2.weight") {
+        if tensor_name.contains("attention.wo.weight")
+            || tensor_name.contains("feed_forward.w2.weight")
+        {
             0
         } else {
             1
@@ -417,14 +439,21 @@ fn load_tensor_header_ggmf<'a>(
     let bpe = match bpe {
         Some(x) => x,
         None => {
-            return Err(LoadError::InvalidFtype {
+            return Err(LoadError::UnsupportedElementType {
                 tensor_name,
                 ftype,
                 path: path.to_owned(),
             });
         }
     };
-    Ok((nelements, ne, tensor_name, tensor, split_type, bpe))
+    Ok(TensorHeaderGgmf {
+        nelements,
+        ne,
+        tensor_name,
+        tensor,
+        split_type,
+        bpe,
+    })
 }
 
 fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
@@ -496,7 +525,7 @@ fn load_weights_ggjt(
         match tensor_type_size(ftype, ne) {
             Some(_) => {}
             None => {
-                return Err(LoadError::InvalidFtype {
+                return Err(LoadError::UnsupportedElementType {
                     tensor_name,
                     ftype,
                     path: path.to_owned(),

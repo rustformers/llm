@@ -340,8 +340,7 @@ impl Model {
 
                     let v = ctx0.op_view_2d(
                         &session.memory_v,
-                        n,
-                        n_embd,
+                        (n, n_embd),
                         n_ctx * memv_elsize,
                         (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
                     );
@@ -388,11 +387,8 @@ impl Model {
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(
                     &session.memory_v,
-                    n_past + n,
-                    n_embd / n_head,
-                    n_head,
-                    n_ctx * memv_elsize,
-                    n_ctx * memv_elsize * n_embd / n_head,
+                    (n_past + n, n_embd / n_head, n_head),
+                    (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
                     il * n_ctx * memv_elsize * n_embd,
                 );
 

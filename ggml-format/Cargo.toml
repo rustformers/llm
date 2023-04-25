@@ -1,5 +1,5 @@
 [package]
-name = "ggml-loader"
+name = "ggml-format"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 ggml = { path = "../ggml" }
 thiserror = "1.0"
+
+[dev-dependencies]
+rand = "0.8"

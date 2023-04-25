@@ -5,6 +5,8 @@ use thiserror::Error;
 
 #[cfg(feature = "convert")]
 pub mod convert;
+#[cfg(feature = "quantize")]
+pub mod quantize;
 
 mod inference_session;
 mod loader;

@@ -40,6 +40,9 @@ pub enum Args {
     ///
     /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
     Convert(Box<Convert>),
+
+    /// Quantize a GGML model to 4-bit.
+    Quantize(Box<Quantize>),
 }
 
 #[derive(Parser, Debug)]
@@ -244,7 +247,7 @@ fn parse_bias(s: &str) -> Result<TokenBias, String> {
 pub struct ModelLoad {
     /// Where to load the model path from
     #[arg(long, short = 'm')]
-    pub model_path: String,
+    pub model_path: PathBuf,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -376,7 +379,6 @@ pub struct Convert {
     #[arg(long, short = 't', value_enum, default_value_t = FileType::Q4_0)]
     pub file_type: FileType,
 }
-
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
 pub enum FileType {
     /// Quantized 4-bit (type 0).
@@ -395,6 +397,37 @@ impl From<FileType> for llama_rs::FileType {
             FileType::Q4_1 => llama_rs::FileType::MostlyQ4_1,
             FileType::F16 => llama_rs::FileType::MostlyF16,
             FileType::F32 => llama_rs::FileType::F32,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct Quantize {
+    /// The path to the model to quantize
+    #[arg()]
+    pub source: PathBuf,
+
+    /// The path to save the quantized model to
+    #[arg()]
+    pub destination: PathBuf,
+
+    /// The format to convert to
+    pub target: QuantizationTarget,
+}
+
+#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+#[clap(rename_all = "snake_case")]
+pub enum QuantizationTarget {
+    /// Quantized 4-bit (type 0).
+    Q4_0,
+    /// Quantized 4-bit (type 1).
+    Q4_1,
+}
+impl From<QuantizationTarget> for llama_rs::ElementType {
+    fn from(t: QuantizationTarget) -> Self {
+        match t {
+            QuantizationTarget::Q4_0 => llama_rs::ElementType::Q4_0,
+            QuantizationTarget::Q4_1 => llama_rs::ElementType::Q4_1,
         }
     }
 }
