@@ -325,14 +325,8 @@ impl Context {
     }
 
     /// Creates a 2D view over `a`.
-    pub fn op_view_2d(
-        &self,
-        a: &Tensor,
-        ne0: usize,
-        ne1: usize,
-        nb1: usize,
-        offset: usize,
-    ) -> Tensor {
+    pub fn op_view_2d(&self, a: &Tensor, ne: (usize, usize), nb1: usize, offset: usize) -> Tensor {
+        let (ne0, ne1) = ne;
         let tensor = unsafe {
             ggml_sys::ggml_view_2d(
                 self.ptr.as_ptr(),
@@ -347,17 +341,15 @@ impl Context {
     }
 
     /// Creates a 3d view over `a`.
-    #[allow(clippy::too_many_arguments)]
     pub fn op_view_3d(
         &self,
         a: &Tensor,
-        ne0: usize,
-        ne1: usize,
-        ne2: usize,
-        nb1: usize,
-        nb2: usize,
+        ne: (usize, usize, usize),
+        nb: (usize, usize),
         offset: usize,
     ) -> Tensor {
+        let (ne0, ne1, ne2) = ne;
+        let (nb1, nb2) = nb;
         let tensor = unsafe {
             ggml_sys::ggml_view_3d(
                 self.ptr.as_ptr(),

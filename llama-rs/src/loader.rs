@@ -252,7 +252,14 @@ fn load_weights_ggmf_or_unversioned(
             let length = read_i32(&mut part_reader)?;
             let ftype = read_i32(&mut part_reader)?;
 
-            let (nelements, ne, tensor_name, tensor, split_type, bpe) = load_tensor_header_ggmf(
+            let TensorHeaderGgmf {
+                nelements,
+                ne,
+                tensor_name,
+                tensor,
+                split_type,
+                bpe,
+            } = load_tensor_header_ggmf(
                 n_dims,
                 &mut part_reader,
                 length,
@@ -350,7 +357,14 @@ fn load_weights_ggmf_or_unversioned(
     Ok(())
 }
 
-#[allow(clippy::type_complexity)]
+struct TensorHeaderGgmf<'a> {
+    nelements: usize,
+    ne: [i64; 2],
+    tensor_name: String,
+    tensor: &'a mut ggml::Tensor,
+    split_type: i32,
+    bpe: usize,
+}
 fn load_tensor_header_ggmf<'a>(
     n_dims: usize,
     reader: &mut impl BufRead,
@@ -359,7 +373,7 @@ fn load_tensor_header_ggmf<'a>(
     path: &Path,
     n_parts: usize,
     ftype: i32,
-) -> Result<(usize, [i64; 2], String, &'a mut ggml::Tensor, i32, usize), LoadError> {
+) -> Result<TensorHeaderGgmf<'a>, LoadError> {
     let mut nelements = 1;
     let mut ne = [1i64, 1i64];
     assert!(n_dims <= ne.len());
@@ -373,13 +387,12 @@ fn load_tensor_header_ggmf<'a>(
         else {
             return Err(LoadError::UnknownTensor { tensor_name, path: path.to_owned() });
         };
-    #[allow(clippy::if_same_then_else)]
     let split_type = if tensor_name.contains("tok_embeddings") {
         0
     } else if tensor_name.contains("layers") {
-        if tensor_name.contains("attention.wo.weight") {
-            0
-        } else if tensor_name.contains("feed_forward.w2.weight") {
+        if tensor_name.contains("attention.wo.weight")
+            || tensor_name.contains("feed_forward.w2.weight")
+        {
             0
         } else {
             1
@@ -433,7 +446,14 @@ fn load_tensor_header_ggmf<'a>(
             });
         }
     };
-    Ok((nelements, ne, tensor_name, tensor, split_type, bpe))
+    Ok(TensorHeaderGgmf {
+        nelements,
+        ne,
+        tensor_name,
+        tensor,
+        split_type,
+        bpe,
+    })
 }
 
 fn tensor_type_size(ftype: i32, ne: [i64; 2]) -> Option<usize> {
