@@ -11,6 +11,7 @@ pub mod snapshot;
 pub mod util;
 
 mod inference_session;
+mod loader_common;
 mod vocabulary;
 
 pub use ggml::Type as ElementType;
@@ -18,6 +19,7 @@ pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
     SnapshotError,
 };
+pub use loader_common::{FileType, LoadError, LoadProgress};
 pub use model::Model;
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};

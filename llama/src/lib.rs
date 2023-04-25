@@ -1,22 +1,31 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error, path::Path};
 
-use serde::Deserialize;
-
-use ggml::loader::{LoadError, LoadProgress};
 use llm_base::{
-    EvaluateOutputRequest, InferenceParameters, InferenceSession, InferenceSessionParameters,
-    Model, TokenId, Vocabulary,
+    EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
+    InferenceSessionParameters, LoadError, LoadProgress, Model,
 };
+use memmap2::Mmap;
 
 #[cfg(feature = "convert")]
 pub mod convert;
 
-mod ggml_loader;
+#[cfg(feature = "quantize")]
+pub mod quantize;
 
-pub use ggml_loader::load;
+mod loader;
+mod loader2;
 
+pub use ggml::Type as ElementType;
+pub use llm_base::util::TokenUtf8Buffer;
+pub use llm_base::{TokenBias, TokenId, Vocabulary};
+
+/// The weights for the LLaMA model. All the mutable state is split into a
+/// separate struct `InferenceSession`.
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Llama {
-    pub(crate) hparams: Hyperparameters,
+    pub(crate) hyperparameters: Hyperparameters,
 
     vocabulary: Vocabulary,
 
@@ -29,20 +38,206 @@ pub struct Llama {
 
     tensors: HashMap<String, ggml::Tensor>,
 
+    /// Needs to kept alive while the model is alive
+    _mmap: Option<Mmap>,
+
     // Must be kept alive for the model
     _context: ggml::Context,
 }
+unsafe impl Send for Llama {}
+unsafe impl Sync for Llama {}
 
+impl Llama {
+    pub(crate) fn new_loader1(
+        context: ggml::Context,
+        hparams: Hyperparameters,
+        vocabulary: Vocabulary,
+        n_ff: usize,
+        wtype: ggml::Type,
+        mmap: Option<Mmap>,
+    ) -> Self {
+        let n_embd = hparams.n_embd;
+        let n_layer = hparams.n_layer;
+        let n_vocab = hparams.n_vocab;
+
+        let mut tensors = HashMap::new();
+
+        let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
+        let norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
+        let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
+
+        tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
+        tensors.insert("norm.weight".to_owned(), norm.share());
+        tensors.insert("output.weight".to_owned(), output.share());
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                attention_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
+                wq: context.new_tensor_2d(wtype, n_embd, n_embd),
+                wk: context.new_tensor_2d(wtype, n_embd, n_embd),
+                wv: context.new_tensor_2d(wtype, n_embd, n_embd),
+                wo: context.new_tensor_2d(wtype, n_embd, n_embd),
+                ffn_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
+                w1: context.new_tensor_2d(wtype, n_embd, n_ff),
+                w2: context.new_tensor_2d(wtype, n_ff, n_embd),
+                w3: context.new_tensor_2d(wtype, n_embd, n_ff),
+            };
+
+            tensors.insert(
+                format!("layers.{i}.attention_norm.weight"),
+                layer.attention_norm.share(),
+            );
+
+            tensors.insert(format!("layers.{i}.attention.wq.weight"), layer.wq.share());
+            tensors.insert(format!("layers.{i}.attention.wk.weight"), layer.wk.share());
+            tensors.insert(format!("layers.{i}.attention.wv.weight"), layer.wv.share());
+            tensors.insert(format!("layers.{i}.attention.wo.weight"), layer.wo.share());
+
+            tensors.insert(
+                format!("layers.{i}.ffn_norm.weight"),
+                layer.ffn_norm.share(),
+            );
+
+            tensors.insert(
+                format!("layers.{i}.feed_forward.w1.weight"),
+                layer.w1.share(),
+            );
+            tensors.insert(
+                format!("layers.{i}.feed_forward.w2.weight"),
+                layer.w2.share(),
+            );
+            tensors.insert(
+                format!("layers.{i}.feed_forward.w3.weight"),
+                layer.w3.share(),
+            );
+
+            layers.push(layer);
+        }
+
+        Llama {
+            hyperparameters: hparams,
+            vocabulary,
+            tok_embeddings,
+            norm,
+            output,
+            layers,
+            tensors,
+            _context: context,
+            _mmap: mmap,
+        }
+    }
+
+    pub(crate) fn new_loader2<E: Error>(
+        hyperparameters: Hyperparameters,
+        vocabulary: Vocabulary,
+        n_ff: usize,
+        tensor_loader: impl TensorLoader<E>,
+    ) -> Result<Llama, E> {
+        let n_embd = hyperparameters.n_embd;
+        let n_layer = hyperparameters.n_layer;
+        let n_vocab = hyperparameters.n_vocab;
+
+        let mut tl = tensor_loader;
+
+        let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
+        let norm = tl.load("norm.weight", &[n_embd])?;
+        let output = tl.load("output.weight", &[n_embd, n_vocab])?;
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"), &[n_embd])?,
+                wq: tl.load(
+                    &format!("layers.{i}.attention.wq.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wk: tl.load(
+                    &format!("layers.{i}.attention.wk.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wv: tl.load(
+                    &format!("layers.{i}.attention.wv.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wo: tl.load(
+                    &format!("layers.{i}.attention.wo.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"), &[n_embd])?,
+                w1: tl.load(
+                    &format!("layers.{i}.feed_forward.w1.weight"),
+                    &[n_embd, n_ff],
+                )?,
+                w2: tl.load(
+                    &format!("layers.{i}.feed_forward.w2.weight"),
+                    &[n_ff, n_embd],
+                )?,
+                w3: tl.load(
+                    &format!("layers.{i}.feed_forward.w3.weight"),
+                    &[n_embd, n_ff],
+                )?,
+            };
+
+            layers.push(layer);
+        }
+
+        let (_context, tensors, _mmap) = tl.finish();
+
+        Ok(Self {
+            hyperparameters,
+            vocabulary,
+            tok_embeddings,
+            norm,
+            output,
+            layers,
+            tensors,
+            _context,
+            _mmap,
+        })
+    }
+
+    /// Load the model from `path` with `n_context_tokens` context tokens.
+    ///
+    /// The status of the loading process will be reported through `load_progress_callback`.
+    pub fn load(
+        path: impl AsRef<Path>,
+        prefer_mmap: bool,
+        n_context_tokens: usize,
+        load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
+    ) -> Result<Llama, LoadError> {
+        // Loader2 is the default. It can support GGML, GGMF and GGJT, but does not support multipart models.
+        //
+        // Loader1 is the old loader. It can support multipart models, but will be deprecated.
+        let use_loader_2: bool = match std::env::var("GGML_LOADER").as_deref() {
+            Ok("2") => true,
+            Ok("1") => false,
+            Ok(_) => panic!("Please use GGML_LOADER=1 or GGML_LOADER=2"),
+            Err(_) => true,
+        };
+
+        if use_loader_2 {
+            loader2::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        } else {
+            loader::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        }
+    }
+
+    pub(crate) fn tensors_mut(&mut self) -> &mut HashMap<String, ggml::Tensor> {
+        &mut self.tensors
+    }
+}
 impl Model for Llama {
     type Hyperparameters = Hyperparameters;
 
+    /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(
             params,
-            self.hparams.n_ctx,
-            self.hparams.n_layer,
-            self.hparams.n_embd,
-            self.hparams.n_vocab,
+            self.hyperparameters.n_ctx,
+            self.hyperparameters.n_layer,
+            self.hyperparameters.n_embd,
+            self.hyperparameters.n_vocab,
         )
     }
 
@@ -68,8 +263,8 @@ impl Model for Llama {
             n_head,
             n_layer,
             n_rot,
-            f16_: _,
-        } = self.hparams;
+            file_type: _,
+        } = self.hyperparameters;
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
@@ -89,11 +284,11 @@ impl Model for Llama {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::Context::init(buf_size);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -158,8 +353,7 @@ impl Model for Llama {
 
                     let v = ctx0.op_view_2d(
                         &session.memory_v,
-                        n,
-                        n_embd,
+                        (n, n_embd),
                         n_ctx * memv_elsize,
                         (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
                     );
@@ -206,11 +400,8 @@ impl Model for Llama {
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(
                     &session.memory_v,
-                    n_past + n,
-                    n_embd / n_head,
-                    n_head,
-                    n_ctx * memv_elsize,
-                    n_ctx * memv_elsize * n_embd / n_head,
+                    (n_past + n, n_embd / n_head, n_head),
+                    (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
                     il * n_ctx * memv_elsize * n_embd,
                 );
 
@@ -339,107 +530,35 @@ impl Model for Llama {
     }
 
     fn n_ctx(&self) -> usize {
-        self.hparams.n_ctx
+        self.hyperparameters.n_ctx
     }
 }
-
+#[cfg(test)]
 impl Llama {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
-    pub fn load(
-        path: impl AsRef<std::path::Path>,
-        n_context_tokens: usize,
-        load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
-    ) -> Result<Self, LoadError> {
-        load(path, n_context_tokens, load_progress_callback)
-    }
+    /// This does *not* construct a valid model. All of the tensors are entirely
+    /// empty. However, it can be used to determine if some code will compile.
+    fn new_empty() -> Self {
+        let context = ggml::Context::init(1 * 1024 * 1024, true);
+        let tok_embeddings = context.new_f32(0.0);
+        let norm = context.new_f32(0.0);
+        let output = context.new_f32(0.0);
 
-    pub(crate) fn new(
-        context: ggml::Context,
-        hparams: Hyperparameters,
-        vocabulary: Vocabulary,
-        n_ff: usize,
-        wtype: ggml::Type,
-    ) -> Llama {
-        let n_embd = hparams.n_embd;
-        let n_layer = hparams.n_layer;
-        let n_vocab = hparams.n_vocab;
-
-        let mut tensors = HashMap::new();
-
-        let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
-        let norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
-        let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
-
-        tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
-        tensors.insert("norm.weight".to_owned(), norm.share());
-        tensors.insert("output.weight".to_owned(), output.share());
-
-        let mut layers = Vec::new();
-        for i in 0..n_layer {
-            let layer = Layer {
-                attention_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
-                wq: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wk: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wv: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                ffn_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
-                w1: context.new_tensor_2d(wtype, n_embd, n_ff),
-                w2: context.new_tensor_2d(wtype, n_ff, n_embd),
-                w3: context.new_tensor_2d(wtype, n_embd, n_ff),
-            };
-
-            tensors.insert(
-                format!("layers.{i}.attention_norm.weight"),
-                layer.attention_norm.share(),
-            );
-
-            tensors.insert(format!("layers.{i}.attention.wq.weight"), layer.wq.share());
-            tensors.insert(format!("layers.{i}.attention.wk.weight"), layer.wk.share());
-            tensors.insert(format!("layers.{i}.attention.wv.weight"), layer.wv.share());
-            tensors.insert(format!("layers.{i}.attention.wo.weight"), layer.wo.share());
-
-            tensors.insert(
-                format!("layers.{i}.ffn_norm.weight"),
-                layer.ffn_norm.share(),
-            );
-
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w1.weight"),
-                layer.w1.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w2.weight"),
-                layer.w2.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w3.weight"),
-                layer.w3.share(),
-            );
-
-            layers.push(layer);
-        }
-
-        Llama {
-            hparams,
-            vocabulary,
+        Self {
+            hyperparameters: Default::default(),
+            vocabulary: Default::default(),
             tok_embeddings,
             norm,
             output,
-            layers,
-            tensors,
+            layers: Default::default(),
+            tensors: Default::default(),
+            _mmap: Default::default(),
             _context: context,
         }
-    }
-
-    pub(crate) fn tensors(&self) -> &HashMap<String, ggml::Tensor> {
-        &self.tensors
     }
 }
 
 /// The hyperparameters of the model.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
     /// n_vocab
     pub n_vocab: usize,
@@ -455,8 +574,13 @@ pub struct Hyperparameters {
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
-    /// f16_
-    pub f16_: u32,
+    /// file_type
+    pub file_type: FileType,
+}
+
+pub(crate) trait TensorLoader<E: Error> {
+    fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
+    fn finish(self) -> (ggml::Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
 }
 
 struct Layer {
@@ -474,4 +598,27 @@ struct Layer {
     w1: ggml::Tensor,
     w2: ggml::Tensor,
     w3: ggml::Tensor,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn can_share_model_between_threads() {
+        let model = Arc::new(Llama::new_empty());
+
+        for _ in 0..4 {
+            let model = model.clone();
+            std::thread::spawn(move || {
+                let _session = model.start_session(Default::default());
+            });
+        }
+
+        let session = model.start_session(Default::default());
+        std::thread::spawn(move || {
+            let _session = session;
+        });
+    }
 }

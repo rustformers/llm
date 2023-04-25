@@ -1,13 +1,12 @@
 use std::{convert::Infallible, env::args, io::Write};
 
-use ggml::loader::{load_progress, LoadError};
-use llm_base::snapshot;
+use llm_base::{snapshot, LoadError};
 
 extern crate llama;
 
 fn main() -> Result<(), LoadError> {
     let args: Vec<String> = args().collect();
-    let bloom = llama::Llama::load(&args[1], 32, load_progress)?;
+    let bloom = llama::Llama::load(&args[1], true, 32, |_| {})?;
     let (mut session, _) = snapshot::read_or_create_session(
         &bloom,
         Default::default(),

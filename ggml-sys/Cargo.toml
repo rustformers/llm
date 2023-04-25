@@ -6,6 +6,5 @@ version = "^1.0"
 [package]
 description = "Low level bindings for ggml"
 edition = "2021"
-license = "MIT"
 name = "ggml-sys"
-version = { workspace = true }
+version = {workspace = true}

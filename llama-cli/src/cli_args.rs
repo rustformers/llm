@@ -4,10 +4,9 @@ use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use rand::SeedableRng;
 
-use ggml::loader::load_progress;
-
 use llm_base::{
-    InferenceParameters, InferenceSessionParameters, ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
+    InferenceParameters, InferenceSessionParameters, LoadProgress, ModelKVMemoryType, TokenBias,
+    EOT_TOKEN_ID,
 };
 
 #[derive(Parser, Debug)]
@@ -43,6 +42,9 @@ pub enum Args {
     ///
     /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
     Convert(Box<Convert>),
+
+    /// Quantize a GGML model to 4-bit.
+    Quantize(Box<Quantize>),
 }
 
 #[derive(Parser, Debug)]
@@ -247,7 +249,7 @@ fn parse_bias(s: &str) -> Result<TokenBias, String> {
 pub struct ModelLoad {
     /// Where to load the model path from
     #[arg(long, short = 'm')]
-    pub model_path: String,
+    pub model_path: PathBuf,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -262,13 +264,70 @@ pub struct ModelLoad {
     /// will likely not perform as well as a model with a larger context size.
     #[arg(long, default_value_t = 2048)]
     pub num_ctx_tokens: usize,
+
+    /// Don't use mmap to load the model.
+    #[arg(long)]
+    pub no_mmap: bool,
 }
 impl ModelLoad {
     pub fn load(&self) -> Result<llama::Llama> {
-        let model = llama::Llama::load(&self.model_path, self.num_ctx_tokens, load_progress)
-            .wrap_err("Could not load model")?;
+        let now = std::time::Instant::now();
+        let model = llama::Llama::load(
+            &self.model_path,
+            !self.no_mmap,
+            self.num_ctx_tokens,
+            |progress| match progress {
+                LoadProgress::HyperparametersLoaded(hparams) => {
+                    log::debug!("Loaded hyperparameters {hparams:#?}")
+                }
+                LoadProgress::ContextSize { bytes } => log::info!(
+                    "ggml ctx size = {:.2} MB\n",
+                    bytes as f64 / (1024.0 * 1024.0)
+                ),
+                LoadProgress::PartLoading {
+                    file,
+                    current_part,
+                    total_parts,
+                } => {
+                    let current_part = current_part + 1;
+                    log::info!(
+                        "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
+                        current_part,
+                        total_parts,
+                        file.to_string_lossy(),
+                        !self.no_mmap
+                    )
+                }
+                LoadProgress::PartTensorLoaded {
+                    current_tensor,
+                    tensor_count,
+                    ..
+                } => {
+                    let current_tensor = current_tensor + 1;
+                    if current_tensor % 8 == 0 {
+                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                    }
+                }
+                LoadProgress::PartLoaded {
+                    file,
+                    byte_size,
+                    tensor_count,
+                } => {
+                    log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    log::info!(
+                        "Model size = {:.2} MB / num tensors = {}",
+                        byte_size as f64 / 1024.0 / 1024.0,
+                        tensor_count
+                    );
+                }
+            },
+        )
+        .wrap_err("Could not load model")?;
 
-        log::info!("Model fully loaded!");
+        log::info!(
+            "Model fully loaded! Elapsed: {}ms",
+            now.elapsed().as_millis()
+        );
 
         Ok(model)
     }
@@ -316,12 +375,11 @@ pub struct Convert {
     pub directory: PathBuf,
 
     /// File type to convert to
-    #[arg(long, short = 't', value_enum, default_value_t = ElementType::Q4_0)]
-    pub element_type: ElementType,
+    #[arg(long, short = 't', value_enum, default_value_t = FileType::Q4_0)]
+    pub file_type: FileType,
 }
-
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
-pub enum ElementType {
+pub enum FileType {
     /// Quantized 4-bit (type 0).
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
@@ -331,13 +389,44 @@ pub enum ElementType {
     /// Float 32-bit.
     F32,
 }
-impl From<ElementType> for llm_base::ElementType {
-    fn from(model_type: ElementType) -> Self {
-        match model_type {
-            ElementType::Q4_0 => llm_base::ElementType::Q4_0,
-            ElementType::Q4_1 => llm_base::ElementType::Q4_1,
-            ElementType::F16 => llm_base::ElementType::F16,
-            ElementType::F32 => llm_base::ElementType::F32,
+impl From<FileType> for llm_base::FileType {
+    fn from(t: FileType) -> Self {
+        match t {
+            FileType::Q4_0 => llm_base::FileType::MostlyQ4_0,
+            FileType::Q4_1 => llm_base::FileType::MostlyQ4_1,
+            FileType::F16 => llm_base::FileType::MostlyF16,
+            FileType::F32 => llm_base::FileType::F32,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct Quantize {
+    /// The path to the model to quantize
+    #[arg()]
+    pub source: PathBuf,
+
+    /// The path to save the quantized model to
+    #[arg()]
+    pub destination: PathBuf,
+
+    /// The format to convert to
+    pub target: QuantizationTarget,
+}
+
+#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+#[clap(rename_all = "snake_case")]
+pub enum QuantizationTarget {
+    /// Quantized 4-bit (type 0).
+    Q4_0,
+    /// Quantized 4-bit (type 1).
+    Q4_1,
+}
+impl From<QuantizationTarget> for llama::ElementType {
+    fn from(t: QuantizationTarget) -> Self {
+        match t {
+            QuantizationTarget::Q4_0 => llama::ElementType::Q4_0,
+            QuantizationTarget::Q4_1 => llama::ElementType::Q4_1,
         }
     }
 }

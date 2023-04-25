@@ -9,29 +9,38 @@
 //! All [Tensor]s are nodes in this computational graph, and values cannot be retrieved until computation is completed.
 
 use std::{
-    ffi::c_void,
+    os::raw::{c_int, c_void},
     ptr::NonNull,
     sync::{Arc, Weak},
 };
 
-/// GGML loading utilities
-pub mod loader;
-
-/// Magic constant for `ggml` files (versioned).
-pub const FILE_MAGIC: u32 = 0x67676d66;
+/// Magic constant for `ggml` files (versioned, ggmf).
+pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
+/// Magic constant for `ggml` files (versioned, ggjt).
+pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
 /// Magic constant for `ggml` files (unversioned).
 pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// The size of a `ggml` object.
+pub const OBJECT_SIZE: usize = ggml_sys::GGML_OBJECT_SIZE;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
 pub enum Type {
     /// Quantized 4-bit (type 0).
+    #[default]
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
     Q4_1,
+    /// Quantized 4-bit (type 2).
+    Q4_2,
+    /// Quantized 4-bit (type 3).
+    Q4_3,
+    /// Quantized 8-bit (type 0).
+    Q8_0,
     /// Integer 32-bit.
     I32,
     /// Float 16-bit.
@@ -44,6 +53,9 @@ impl From<Type> for ggml_sys::ggml_type {
         match t {
             Type::Q4_0 => ggml_sys::ggml_type_GGML_TYPE_Q4_0,
             Type::Q4_1 => ggml_sys::ggml_type_GGML_TYPE_Q4_1,
+            Type::Q4_2 => ggml_sys::ggml_type_GGML_TYPE_Q4_2,
+            Type::Q4_3 => ggml_sys::ggml_type_GGML_TYPE_Q4_3,
+            Type::Q8_0 => ggml_sys::ggml_type_GGML_TYPE_Q8_0,
             Type::I32 => ggml_sys::ggml_type_GGML_TYPE_I32,
             Type::F16 => ggml_sys::ggml_type_GGML_TYPE_F16,
             Type::F32 => ggml_sys::ggml_type_GGML_TYPE_F32,
@@ -56,6 +68,9 @@ impl TryFrom<ggml_sys::ggml_type> for Type {
         match t {
             ggml_sys::ggml_type_GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
             ggml_sys::ggml_type_GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
+            ggml_sys::ggml_type_GGML_TYPE_Q4_2 => Ok(Type::Q4_2),
+            ggml_sys::ggml_type_GGML_TYPE_Q4_3 => Ok(Type::Q4_3),
+            ggml_sys::ggml_type_GGML_TYPE_Q8_0 => Ok(Type::Q8_0),
             ggml_sys::ggml_type_GGML_TYPE_I32 => Ok(Type::I32),
             ggml_sys::ggml_type_GGML_TYPE_F16 => Ok(Type::F16),
             ggml_sys::ggml_type_GGML_TYPE_F32 => Ok(Type::F32),
@@ -68,6 +83,9 @@ impl std::fmt::Display for Type {
         match self {
             Type::Q4_0 => write!(f, "q4_0"),
             Type::Q4_1 => write!(f, "q4_1"),
+            Type::Q4_2 => write!(f, "q4_2"),
+            Type::Q4_3 => write!(f, "q4_3"),
+            Type::Q8_0 => write!(f, "q8_0"),
             Type::I32 => write!(f, "i32"),
             Type::F16 => write!(f, "f16"),
             Type::F32 => write!(f, "f32"),
@@ -86,14 +104,14 @@ pub struct Context {
 }
 impl Context {
     /// Creates a new [Context] with the specified `mem_size` as a working area.
-    pub fn init(mem_size: usize) -> Self {
+    pub fn init(mem_size: usize, alloc: bool) -> Self {
         let raw = unsafe {
             ggml_sys::ggml_init(ggml_sys::ggml_init_params {
                 mem_size,
                 // Null here means we want ggml to own this memory. We don't
                 // support passing an owned buffer from the Rust side.
                 mem_buffer: std::ptr::null_mut(),
-                no_alloc: false,
+                no_alloc: !alloc,
             })
         };
         Self {
@@ -254,7 +272,7 @@ impl Context {
     pub unsafe fn op_map_unary(
         &self,
         a: &Tensor,
-        fun: unsafe extern "C" fn(cnt: ::std::os::raw::c_int, dst: *mut f32, src: *const f32),
+        fun: unsafe extern "C" fn(cnt: c_int, dst: *mut f32, src: *const f32),
     ) -> Tensor {
         let tensor =
             unsafe { ggml_sys::ggml_map_unary_f32(self.ptr.as_ptr(), a.ptr.as_ptr(), Some(fun)) };
@@ -280,12 +298,7 @@ impl Context {
         &self,
         a: &Tensor,
         b: &Tensor,
-        fun: unsafe extern "C" fn(
-            cnt: ::std::os::raw::c_int,
-            dst: *mut f32,
-            src0: *const f32,
-            src1: *const f32,
-        ),
+        fun: unsafe extern "C" fn(cnt: c_int, dst: *mut f32, src0: *const f32, src1: *const f32),
     ) -> Tensor {
         let tensor = unsafe {
             ggml_sys::ggml_map_binary_f32(
@@ -307,14 +320,8 @@ impl Context {
     }
 
     /// Creates a 2D view over `a`.
-    pub fn op_view_2d(
-        &self,
-        a: &Tensor,
-        ne0: usize,
-        ne1: usize,
-        nb1: usize,
-        offset: usize,
-    ) -> Tensor {
+    pub fn op_view_2d(&self, a: &Tensor, ne: (usize, usize), nb1: usize, offset: usize) -> Tensor {
+        let (ne0, ne1) = ne;
         let tensor = unsafe {
             ggml_sys::ggml_view_2d(
                 self.ptr.as_ptr(),
@@ -329,17 +336,15 @@ impl Context {
     }
 
     /// Creates a 3d view over `a`.
-    #[allow(clippy::too_many_arguments)]
     pub fn op_view_3d(
         &self,
         a: &Tensor,
-        ne0: usize,
-        ne1: usize,
-        ne2: usize,
-        nb1: usize,
-        nb2: usize,
+        ne: (usize, usize, usize),
+        nb: (usize, usize),
         offset: usize,
     ) -> Tensor {
+        let (ne0, ne1, ne2) = ne;
+        let (nb1, nb2) = nb;
         let tensor = unsafe {
             ggml_sys::ggml_view_3d(
                 self.ptr.as_ptr(),
@@ -530,6 +535,11 @@ pub struct Tensor {
 }
 
 impl Tensor {
+    /// Size of the `ggml_tensor` struct in bytes.
+    ///
+    /// Exposed for purposes of determining context size.
+    pub const C_TYPE_SIZE: usize = std::mem::size_of::<ggml_sys::ggml_tensor>();
+
     /// Creates a shared copy of this tensor pointer.
     pub fn share(&self) -> Self {
         Tensor {
@@ -539,6 +549,14 @@ impl Tensor {
     }
 
     fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
+        if let Some(_ctx) = self.ctx.upgrade() {
+            f()
+        } else {
+            panic!("Using a tensor after the context was dropped")
+        }
+    }
+
+    fn with_alive_ctx_mut<U>(&self, mut f: impl FnMut() -> U) -> U {
         if let Some(_ctx) = self.ctx.upgrade() {
             f()
         } else {
@@ -558,11 +576,24 @@ impl Tensor {
     ///
     /// # Safety
     ///
-    /// The data must not be mutated while being read from.
-    pub unsafe fn data(&self) -> *mut c_void {
+    /// Only `std::slice::from_raw_parts_mut(tensor.data(), tensor.nbytes())` is safe to mutate.
+    pub unsafe fn data(&mut self) -> *mut c_void {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
             unsafe { *self.ptr.as_ptr() }.data
+        })
+    }
+
+    /// Set the tensor's data pointer (useful for mmap-ed data)
+    ///
+    /// # Safety
+    ///
+    /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
+    pub unsafe fn set_data(&mut self, data_ptr: *mut c_void) {
+        let tensor = self.ptr.as_mut();
+        self.with_alive_ctx_mut(|| {
+            // SAFETY: The with_alive_call guarantees the context is alive
+            tensor.data = data_ptr;
         })
     }
 
@@ -599,12 +630,12 @@ impl Tensor {
     /// # Safety
     ///
     /// This tensor must not be written to or read by from any other code.
-    pub unsafe fn write_data(&self, src: &[u8]) {
+    pub unsafe fn write_data(&mut self, src: &[u8]) {
         std::ptr::copy_nonoverlapping(src.as_ptr(), self.data() as *mut u8, src.len())
     }
 
     /// Zeroes out this tensor.
-    pub fn zero_data(&self) {
+    pub fn zero_data(&mut self) {
         unsafe { std::ptr::write_bytes(self.data() as *mut u8, 0, self.nbytes()) }
     }
 
@@ -672,4 +703,54 @@ fn i32_to_usize(val: i32) -> usize {
 
 fn i64_to_usize(val: i64) -> usize {
     usize::try_from(val).unwrap()
+}
+
+/// Contains the result of a quantization operation.
+pub struct QuantizationResult {
+    /// The quantized output.
+    pub output: Vec<u8>,
+    /// The quantization history.
+    pub history: Vec<i64>,
+}
+
+/// Quantizes `src` into `dst` using `q4_0` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q4_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, ggml_sys::ggml_quantize_q4_0)
+}
+
+/// Quantizes `src` into `dst` using `q4_1` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q4_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, ggml_sys::ggml_quantize_q4_1)
+}
+
+fn quantize_impl(
+    src: &[f32],
+    n_elements: usize,
+    n_elements_0: usize,
+    quantizer: unsafe extern "C" fn(*const f32, *mut c_void, c_int, c_int, *mut i64) -> usize,
+) -> QuantizationResult {
+    assert_eq!(src.len(), n_elements);
+    assert_eq!(n_elements % n_elements_0, 0);
+
+    // A conservative multiplier of 4 is used here.
+    let mut output = vec![0u8; n_elements * 4];
+    let mut history = vec![0i64; 16];
+    let output_size = unsafe {
+        quantizer(
+            src.as_ptr(),
+            output.as_mut_ptr() as *mut c_void,
+            n_elements.try_into().unwrap(),
+            n_elements_0.try_into().unwrap(),
+            history.as_mut_ptr(),
+        )
+    };
+
+    output.resize(output_size, 0u8);
+    QuantizationResult { output, history }
 }

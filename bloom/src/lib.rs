@@ -1,14 +1,10 @@
 use std::collections::HashMap;
 
-use ggml::loader::{LoadError, LoadProgress};
+// use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
     EvaluateOutputRequest, InferenceParameters, InferenceSession, InferenceSessionParameters,
     Model, TokenId, Vocabulary,
 };
-
-mod ggml_loader;
-
-pub use ggml_loader::load;
 
 /// The weights for the BLOOM model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
@@ -22,7 +18,7 @@ pub struct Bloom {
     output_norm_b: ggml::Tensor,
     output: ggml::Tensor,
     layers: Vec<Layer>,
-    tensors: HashMap<String, ggml::Tensor>,
+    _tensors: HashMap<String, ggml::Tensor>,
     // Must be kept alive for the model
     _context: ggml::Context,
 }
@@ -68,12 +64,12 @@ impl Model for Bloom {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::Context::init(buf_size);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         // TODO: REMAKE THIS AFTER CHECKING GGML GRAPH
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -117,16 +113,21 @@ impl Model for Bloom {
             {
                 let nb = current.get_nb()[1];
                 let q_current = ctx0.op_view_2d(
-                    &current, n_embd, n, nb,
+                    &current,
+                    (n_embd, n),
+                    nb,
                     //0 * std::mem::size_of::<f32>() * n_embd as usize,
                     0,
                 );
-                let k_current =
-                    ctx0.op_view_2d(&current, n_embd, n, nb, std::mem::size_of::<f32>() * n_embd);
+                let k_current = ctx0.op_view_2d(
+                    &current,
+                    (n_embd, n),
+                    nb,
+                    std::mem::size_of::<f32>() * n_embd,
+                );
                 let v_current = ctx0.op_view_2d(
                     &current,
-                    n_embd,
-                    n,
+                    (n_embd, n),
                     nb,
                     2 * std::mem::size_of::<f32>() * n_embd,
                 );
@@ -204,11 +205,8 @@ impl Model for Bloom {
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(
                     &session.memory_v,
-                    n_past + n,
-                    n_embd / n_head,
-                    n_head,
-                    n_ctx * memv_elsize,
-                    n_ctx * memv_elsize * n_embd / n_head,
+                    (n_past + n, n_embd / n_head, n_head),
+                    (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
                     il * n_ctx * memv_elsize * n_embd,
                 );
 
@@ -353,17 +351,7 @@ impl Model for Bloom {
 }
 
 impl Bloom {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
-    pub fn load(
-        path: impl AsRef<std::path::Path>,
-        n_context_tokens: usize,
-        load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
-    ) -> Result<Self, LoadError> {
-        load(path, n_context_tokens, load_progress_callback)
-    }
-
+    #[allow(dead_code)]
     pub(crate) fn new(
         context: ggml::Context,
         hparams: Hyperparameters,
@@ -479,7 +467,7 @@ impl Bloom {
             output_norm_b,
             output,
             layers,
-            tensors,
+            _tensors: tensors,
             _context: context,
         }
     }

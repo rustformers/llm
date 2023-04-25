@@ -2,10 +2,10 @@ use std::{convert::Infallible, io::Write};
 
 use clap::Parser;
 use cli_args::Args;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Context, Result};
+use llama::convert::convert_pth_to_ggml;
 use rustyline::error::ReadlineError;
 
-use llama::convert::convert_pth_to_ggml;
 use llm_base::{snapshot, InferenceError, Model};
 
 mod cli_args;
@@ -23,7 +23,8 @@ fn main() -> Result<()> {
         Args::DumpTokens(args) => dump_tokens(&args)?,
         Args::Repl(args) => interactive(&args, false)?,
         Args::ChatExperimental(args) => interactive(&args, true)?,
-        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.element_type.into()),
+        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.file_type.into()),
+        Args::Quantize(args) => quantize(&args)?,
     }
 
     Ok(())
@@ -184,6 +185,44 @@ fn interactive(
     }
 
     Ok(())
+}
+
+fn quantize(args: &cli_args::Quantize) -> Result<()> {
+    use llama::quantize::{quantize, QuantizeProgress::*};
+    quantize(
+        &args.source,
+        &args.destination,
+        args.target.into(),
+        |progress| match progress {
+            HyperparametersLoaded(_) => log::info!("Loaded hyperparameters"),
+            TensorLoading {
+                name,
+                dims,
+                element_type,
+                n_elements,
+            } => log::info!(
+                "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
+            ),
+            TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
+            TensorQuantized {
+                name,
+                original_size,
+                reduced_size,
+                history,
+            } => log::info!(
+            "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
+        ),
+            TensorSkipped { name, size } => log::info!("Skipped tensor `{name}` ({size} bytes)"),
+            Finished {
+                original_size,
+                reduced_size,
+                history,
+            } => log::info!(
+                "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
+            ),
+        },
+    )
+    .wrap_err("failed to quantize model")
 }
 
 fn load_prompt_file_with_prompt(

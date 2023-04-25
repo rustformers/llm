@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use rand::SeedableRng;
 
-use ggml::loader::load_progress;
-
 use llm_base::{
     InferenceParameters, InferenceSessionParameters, ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
@@ -255,12 +253,12 @@ pub struct ModelLoad {
 }
 impl ModelLoad {
     pub fn load(&self) -> bloom::Bloom {
-        let model = bloom::Bloom::load(&self.model_path, self.num_ctx_tokens, load_progress)
-            .expect("Could not load model");
+        // let model = bloom::Bloom::load(&self.model_path, self.num_ctx_tokens, |_| {})
+        //     .expect("Could not load model");
 
         log::info!("Model fully loaded!");
 
-        model
+        todo!()
     }
 }
 

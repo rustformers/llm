@@ -5,6 +5,7 @@ members = [
     "ggml-sys",
     "ggml",
     "llama",
+    "ggml-format",
     "llama-cli",
     "llm-base",
     "generate-ggml-bindings"

@@ -3,6 +3,7 @@
 //! This is *incomplete* and does not convert the weights. It only converts the
 //! vocabulary and hyperparameters. It is included as a preliminary step to
 //! full conversion.
+use llm_base::FileType;
 ///
 /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
@@ -16,26 +17,24 @@ use std::{
     vec,
 };
 
-use ggml::loader::find_all_model_files;
-
 use crate::{Hyperparameters, Vocabulary};
 
 /// Converts a `pth` file to a `ggml` file.
-pub fn convert_pth_to_ggml(model_directory: &Path, element_type: ggml::Type) {
+pub fn convert_pth_to_ggml(model_directory: &Path, file_type: FileType) {
     let tokenizer_path = model_directory.parent().unwrap().join("tokenizer.model");
     let vocab = load_vocabulary(tokenizer_path.as_path());
 
-    let hparams = load_hyperparameters(model_directory, element_type, &vocab);
+    let hparams = load_hyperparameters(model_directory, file_type, &vocab);
 
-    let model_files = find_all_model_files(model_directory).unwrap();
+    let model_files = llm_base::util::find_all_model_files(model_directory).unwrap();
 
     for (i, _file) in model_files.iter().enumerate() {
-        let fname_out = model_directory.join(format!("rust-model-{}.bin", element_type));
+        let fname_out = model_directory.join(format!("rust-model-{file_type}.bin"));
         let mut file = File::create(fname_out).expect("Unable to create file");
         write_header(file.borrow_mut(), &hparams).unwrap();
         write_tokens(file.borrow_mut(), &vocab).unwrap();
 
-        let _fname_model = model_directory.join(format!("consolidated.0{}.pth", i));
+        let _fname_model = model_directory.join(format!("consolidated.0{i}.pth"));
         // Todo process and write variables
     }
 }
@@ -67,11 +66,7 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
     }
 }
 
-fn load_hyperparameters(
-    path: &Path,
-    element_type: ggml::Type,
-    vocab: &Vocabulary,
-) -> Hyperparameters {
+fn load_hyperparameters(path: &Path, file_type: FileType, vocab: &Vocabulary) -> Hyperparameters {
     #[derive(Deserialize)]
     struct HyperParametersJson {
         dim: usize,
@@ -84,13 +79,7 @@ fn load_hyperparameters(
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
     let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
-        f16_: match element_type {
-            ggml::Type::F32 => 0,
-            ggml::Type::F16 => 1,
-            ggml::Type::Q4_0 => 2,
-            ggml::Type::Q4_1 => 3,
-            _ => panic!("unsupported element type"),
-        },
+        file_type,
         n_ctx: 0,
         n_embd: json.dim,
         n_head: json.n_heads,
@@ -114,7 +103,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
         i32::try_from(hparams.n_head).unwrap(),
         i32::try_from(hparams.n_layer).unwrap(),
         i32::try_from(hparams.n_embd / hparams.n_head).unwrap(),
-        i32::try_from(hparams.f16_).unwrap(),
+        hparams.file_type.into(),
     ];
     let mut packed_values: Vec<u8> = vec![];
 
