@@ -20,3 +20,4 @@ partial_sort = "0.2.0"
 thiserror = "1.0"
 serde_bytes = "0.11"
 zstd = { version = "0.12", default-features = false }
+memmap2 = "0.5.10"

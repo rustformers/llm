@@ -1,8 +1,9 @@
 //! Implements quantization of weights.
 
-use crate::{loader2::Loader, Hyperparameters, LoadError, LoadProgress};
-use ggml_format::{util::write_i32, SaveError, SaveHandler, TensorData, TensorInfo};
+use crate::{Hyperparameters, LoadError, LoadProgress};
+use ggml_format::{SaveError, SaveHandler, TensorData, TensorInfo};
 use half::f16;
+use llm_base::{ggml, util, Loader};
 use std::{
     collections::HashMap,
     fs::File,
@@ -17,7 +18,7 @@ use thiserror::Error;
 /// Progress of quantization.
 pub enum QuantizeProgress<'a> {
     /// Hyperparameters have been loaded.
-    HyperparametersLoaded(&'a Hyperparameters),
+    HyperparametersLoaded,
     /// A tensor is being loaded.
     TensorLoading {
         /// Name of the tensor.
@@ -145,11 +146,11 @@ pub fn quantize(
         path: path_in.to_owned(),
     })?;
     let mut reader = BufReader::new(&file_in);
-    let mut loader = Loader::new(0, {
+    let mut loader = Loader::new({
         let progress_callback = progress_callback.clone();
         move |p| {
-            if let LoadProgress::HyperparametersLoaded(h) = p {
-                progress_callback(QuantizeProgress::HyperparametersLoaded(h))
+            if let LoadProgress::HyperparametersLoaded = p {
+                progress_callback(QuantizeProgress::HyperparametersLoaded)
             }
         }
     });
@@ -240,13 +241,13 @@ impl<'a, F: Fn(QuantizeProgress)> QuantizeSaver<'a, F> {
 impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F> {
     fn write_hyperparameters(&mut self, writer: &mut dyn Write) -> Result<(), QuantizeError> {
         let h = self.hyperparameters;
-        write_i32(writer, h.n_vocab.try_into()?)?;
-        write_i32(writer, h.n_embd.try_into()?)?;
-        write_i32(writer, h.n_mult.try_into()?)?;
-        write_i32(writer, h.n_head.try_into()?)?;
-        write_i32(writer, h.n_layer.try_into()?)?;
-        write_i32(writer, h.n_rot.try_into()?)?;
-        write_i32(writer, h.file_type.into())?;
+        util::write_i32(writer, h.n_vocab.try_into()?)?;
+        util::write_i32(writer, h.n_embd.try_into()?)?;
+        util::write_i32(writer, h.n_mult.try_into()?)?;
+        util::write_i32(writer, h.n_head.try_into()?)?;
+        util::write_i32(writer, h.n_layer.try_into()?)?;
+        util::write_i32(writer, h.n_rot.try_into()?)?;
+        util::write_i32(writer, h.file_type.into())?;
         Ok(())
     }
 

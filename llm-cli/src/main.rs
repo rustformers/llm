@@ -3,7 +3,7 @@ use std::{convert::Infallible, io::Write};
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{Context, Result};
-use llm::{llama::convert::convert_pth_to_ggml, snapshot, InferenceError, Model};
+use llm::{llama::convert::convert_pth_to_ggml, snapshot, InferenceError};
 use rustyline::error::ReadlineError;
 
 mod cli_args;
@@ -33,7 +33,7 @@ fn infer(args: &cli_args::Infer) -> Result<()> {
     let inference_session_params = args.generate.inference_session_parameters();
     let model = args.model_load.load()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
-        &model,
+        model.as_ref(),
         args.persist_session.as_deref(),
         args.generate.load_session.as_deref(),
         inference_session_params,
@@ -42,7 +42,7 @@ fn infer(args: &cli_args::Infer) -> Result<()> {
 
     let mut rng = args.generate.rng();
     let res = session.inference_with_prompt::<Infallible>(
-        &model,
+        model.as_ref(),
         &inference_params,
         &prompt,
         args.generate.num_predict,
@@ -116,7 +116,7 @@ fn interactive(
     let inference_session_params = args.generate.inference_session_parameters();
     let model = args.model_load.load()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
-        &model,
+        model.as_ref(),
         None,
         args.generate.load_session.as_deref(),
         inference_session_params,
@@ -142,7 +142,7 @@ fn interactive(
 
                 let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
                 if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
-                    &model,
+                    model.as_ref(),
                     &inference_params,
                     &prompt,
                     |_| Ok(()),
@@ -152,7 +152,7 @@ fn interactive(
                 sp.stop();
 
                 let res = session.inference_with_prompt::<Infallible>(
-                    &model,
+                    model.as_ref(),
                     &inference_params,
                     "",
                     args.generate.num_predict,
@@ -192,7 +192,7 @@ fn quantize(args: &cli_args::Quantize) -> Result<()> {
         &args.destination,
         args.target.into(),
         |progress| match progress {
-            HyperparametersLoaded(_) => log::info!("Loaded hyperparameters"),
+            HyperparametersLoaded => log::info!("Loaded hyperparameters"),
             TensorLoading {
                 name,
                 dims,

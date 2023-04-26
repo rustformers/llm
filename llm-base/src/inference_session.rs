@@ -5,7 +5,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    mulf, EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId,
+    mulf, ErasedModel, EvaluateOutputRequest, InferenceError, InferenceParameters, TokenId,
     TokenUtf8Buffer, EOT_TOKEN_ID,
 };
 
@@ -65,7 +65,7 @@ impl InferenceSession {
     /// Feed a prompt to the model for this session.
     pub fn feed_prompt<E: std::error::Error + 'static>(
         &mut self,
-        model: &impl Model,
+        model: &dyn ErasedModel,
         params: &InferenceParameters,
         prompt: &str,
         mut callback: impl FnMut(&[u8]) -> Result<(), E>,
@@ -103,7 +103,7 @@ impl InferenceSession {
     /// Infer the next token for this session.
     pub fn infer_next_token<'v>(
         &mut self,
-        model: &'v impl Model,
+        model: &'v dyn ErasedModel,
         params: &InferenceParameters,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
@@ -140,7 +140,7 @@ impl InferenceSession {
     /// If `params.play_back_previous_tokens` is specified, this will "play back" all existing tokens in the session.
     pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
-        model: &impl Model,
+        model: &dyn ErasedModel,
         params: &InferenceParameters,
         prompt: &str,
         maximum_token_count: Option<usize>,
@@ -322,7 +322,7 @@ impl InferenceSession {
     /// Creates an [InferenceSession] from a snapshot.
     pub fn from_snapshot(
         snapshot: InferenceSnapshot,
-        model: &impl Model,
+        model: &dyn ErasedModel,
     ) -> Result<Self, SnapshotError> {
         let mut session = model.start_session(snapshot.session_params);
 

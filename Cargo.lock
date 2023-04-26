@@ -624,11 +624,9 @@ name = "llama"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "ggml",
  "ggml-format",
  "half",
  "llm-base",
- "memmap2",
  "partial_sort",
  "protobuf",
  "rand",
@@ -657,6 +655,7 @@ dependencies = [
  "ggml",
  "ggml-format",
  "log",
+ "memmap2",
  "partial_sort",
  "rand",
  "serde",

@@ -1,15 +1,15 @@
-use std::collections::HashMap;
-
 // use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
-    EvaluateOutputRequest, InferenceParameters, InferenceSession, InferenceSessionParameters,
-    Model, TokenId, Vocabulary,
+    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
+    InferenceSessionParameters, LoadError, Mmap, Model, TokenId, Vocabulary,
 };
 
 /// The weights for the BLOOM model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
 pub struct Bloom {
-    hparams: Hyperparameters,
+    hyperparameters: Hyperparameters,
+    n_context_tokens: usize,
+
     vocabulary: Vocabulary,
     tok_embeddings: ggml::Tensor,
     norm: ggml::Tensor,
@@ -18,21 +18,103 @@ pub struct Bloom {
     output_norm_b: ggml::Tensor,
     output: ggml::Tensor,
     layers: Vec<Layer>,
-    _tensors: HashMap<String, ggml::Tensor>,
+
     // Must be kept alive for the model
     _context: ggml::Context,
+    _mmap: Option<Mmap>,
 }
 
 impl Model for Bloom {
     type Hyperparameters = Hyperparameters;
 
+    fn new<E: std::error::Error>(
+        hyperparameters: Self::Hyperparameters,
+        n_context_tokens: usize,
+        vocabulary: Vocabulary,
+        tensor_loader: impl llm_base::TensorLoader<E>,
+    ) -> Result<Self, E> {
+        let n_embd = hyperparameters.n_embd;
+        let n_layer = hyperparameters.n_layer;
+        let n_vocab = hyperparameters.n_vocab;
+        let n_mult = hyperparameters.n_mult;
+        let n_ff = ((4 * n_embd + n_mult - 1) / n_mult) * n_mult;
+
+        let mut tl = tensor_loader;
+
+        let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
+
+        let norm = tl.load("norm.weight", &[n_embd])?;
+        let norm_b = tl.load("norm.bias", &[n_embd])?;
+
+        let output_norm = tl.load("output_norm.weight", &[n_embd])?;
+        let output_norm_b = tl.load("output_norm.bias", &[n_embd])?;
+
+        let output = tl.load("output.weight", &[n_embd, n_vocab])?;
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"), &[n_embd])?,
+                attention_norm_b: tl.load(&format!("layers.{i}.attention_norm.bias"), &[n_embd])?,
+
+                query_key_value: tl.load(
+                    &format!("layers.{i}.attention.query_key_value.weight"),
+                    &[n_embd, 3 * n_embd],
+                )?,
+                query_key_value_b: tl.load(
+                    &format!("layers.{i}.attention.query_key_value.bias"),
+                    &[3 * n_embd],
+                )?,
+
+                wo: tl.load(
+                    &format!("layers.{i}.attention.wo.weight"),
+                    &[n_embd, n_embd],
+                )?,
+                wo_b: tl.load(&format!("layers.{i}.attention.wo.bias"), &[n_embd])?,
+
+                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"), &[n_embd])?,
+                ffn_norm_b: tl.load(&format!("layers.{i}.ffn_norm.bias"), &[n_embd])?,
+
+                w1: tl.load(
+                    &format!("layers.{i}.feed_forward.w1.weight"),
+                    &[n_embd, n_ff],
+                )?,
+                w1_b: tl.load(&format!("layers.{i}.feed_forward.w1.bias"), &[n_ff])?,
+                w2: tl.load(
+                    &format!("layers.{i}.feed_forward.w2.weight"),
+                    &[n_ff, n_embd],
+                )?,
+                w2_b: tl.load(&format!("layers.{i}.feed_forward.w2.bias"), &[n_embd])?,
+            };
+
+            layers.push(layer);
+        }
+
+        let (_context, _, _mmap) = tl.finish();
+
+        Ok(Bloom {
+            hyperparameters,
+            n_context_tokens,
+            vocabulary,
+            tok_embeddings,
+            norm,
+            norm_b,
+            output_norm,
+            output_norm_b,
+            output,
+            layers,
+            _context,
+            _mmap,
+        })
+    }
+
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
         InferenceSession::new(
             params,
-            self.hparams.n_ctx,
-            self.hparams.n_layer,
-            self.hparams.n_embd,
-            self.hparams.n_vocab,
+            self.n_context_tokens,
+            self.hyperparameters.n_layer,
+            self.hyperparameters.n_embd,
+            self.hyperparameters.n_vocab,
         )
     }
 
@@ -49,13 +131,13 @@ impl Model for Bloom {
 
         let Hyperparameters {
             n_vocab,
-            n_ctx,
             n_embd,
             n_mult: _,
             n_head,
             n_layer,
-            f16_: _,
-        } = self.hparams;
+            file_type: _,
+        } = self.hyperparameters;
+        let n_ctx = self.n_context_tokens;
 
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
@@ -346,144 +428,39 @@ impl Model for Bloom {
     }
 
     fn n_ctx(&self) -> usize {
-        self.hparams.n_ctx
-    }
-}
-
-impl Bloom {
-    #[allow(dead_code)]
-    pub(crate) fn new(
-        context: ggml::Context,
-        hparams: Hyperparameters,
-        vocabulary: Vocabulary,
-        n_ff: usize,
-        wtype: ggml::Type,
-    ) -> Bloom {
-        let n_embd = hparams.n_embd;
-        let n_layer = hparams.n_layer;
-        let n_vocab = hparams.n_vocab;
-
-        let mut tensors = HashMap::new();
-
-        let tok_embeddings = context.new_tensor_2d(wtype, n_embd, n_vocab);
-
-        let norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
-        let norm_b = context.new_tensor_1d(ggml::Type::F32, n_embd);
-
-        let output_norm = context.new_tensor_1d(ggml::Type::F32, n_embd);
-        let output_norm_b = context.new_tensor_1d(ggml::Type::F32, n_embd);
-
-        let output = context.new_tensor_2d(wtype, n_embd, n_vocab);
-
-        tensors.insert("tok_embeddings.weight".to_owned(), tok_embeddings.share());
-
-        tensors.insert("norm.weight".to_owned(), norm.share());
-        tensors.insert("norm.bias".to_owned(), norm_b.share());
-
-        tensors.insert("output_norm.weight".to_owned(), output_norm.share());
-        tensors.insert("output_norm.bias".to_owned(), output_norm_b.share());
-
-        tensors.insert("output.weight".to_owned(), output.share());
-
-        let mut layers = Vec::new();
-        for i in 0..n_layer {
-            let layer = Layer {
-                attention_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
-                attention_norm_b: context.new_tensor_1d(ggml::Type::F32, n_embd),
-
-                query_key_value: context.new_tensor_2d(wtype, n_embd, 3 * n_embd),
-                query_key_value_b: context.new_tensor_1d(ggml::Type::F32, 3 * n_embd),
-
-                wo: context.new_tensor_2d(wtype, n_embd, n_embd),
-                wo_b: context.new_tensor_1d(ggml::Type::F32, n_embd),
-
-                ffn_norm: context.new_tensor_1d(ggml::Type::F32, n_embd),
-                ffn_norm_b: context.new_tensor_1d(ggml::Type::F32, n_embd),
-
-                w1: context.new_tensor_2d(wtype, n_embd, n_ff),
-                w1_b: context.new_tensor_1d(ggml::Type::F32, n_ff),
-                w2: context.new_tensor_2d(wtype, n_ff, n_embd),
-                w2_b: context.new_tensor_1d(ggml::Type::F32, n_embd),
-            };
-
-            tensors.insert(
-                format!("layers.{i}.attention_norm.weight"),
-                layer.attention_norm.share(),
-            );
-
-            tensors.insert(
-                format!("layers.{i}.attention_norm.bias"),
-                layer.attention_norm_b.share(),
-            );
-
-            tensors.insert(
-                format!("layers.{i}.attention.query_key_value.weight"),
-                layer.query_key_value.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.attention.query_key_value.bias"),
-                layer.query_key_value_b.share(),
-            );
-
-            tensors.insert(format!("layers.{i}.attention.wo.weight"), layer.wo.share());
-            tensors.insert(format!("layers.{i}.attention.wo.bias"), layer.wo_b.share());
-
-            tensors.insert(
-                format!("layers.{i}.ffn_norm.weight"),
-                layer.ffn_norm.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.ffn_norm.bias"),
-                layer.ffn_norm_b.share(),
-            );
-
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w1.weight"),
-                layer.w1.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w1.bias"),
-                layer.w1_b.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w2.weight"),
-                layer.w2.share(),
-            );
-            tensors.insert(
-                format!("layers.{i}.feed_forward.w2.bias"),
-                layer.w2_b.share(),
-            );
-
-            layers.push(layer);
-        }
-
-        Bloom {
-            hparams,
-            vocabulary,
-            tok_embeddings,
-            norm,
-            norm_b,
-            output_norm,
-            output_norm_b,
-            output,
-            layers,
-            _tensors: tensors,
-            _context: context,
-        }
+        self.n_context_tokens
     }
 }
 
 // NOTE: Field order matters! Data is laid out in the file exactly
 // in this order.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
     pub n_vocab: usize,
-    pub n_ctx: usize,
     pub n_embd: usize,
     pub n_mult: usize,
     pub n_head: usize,
     pub n_layer: usize,
-    pub f16_: u32,
+    pub file_type: FileType,
+}
+impl llm_base::Hyperparameters for Hyperparameters {
+    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, llm_base::LoadError> {
+        Ok(Hyperparameters {
+            n_vocab: util::read_i32(reader)?.try_into()?,
+            n_embd: util::read_i32(reader)?.try_into()?,
+            n_mult: util::read_i32(reader)?.try_into()?,
+            n_head: util::read_i32(reader)?.try_into()?,
+            n_layer: util::read_i32(reader)?.try_into()?,
+            file_type: {
+                let ftype = util::read_i32(reader)?;
+                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
+            },
+        })
+    }
+
+    fn n_vocabulary(&self) -> usize {
+        self.n_vocab
+    }
 }
 
 struct Layer {

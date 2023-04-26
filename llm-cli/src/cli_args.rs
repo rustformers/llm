@@ -1,10 +1,13 @@
-use std::path::PathBuf;
+use std::{
+    fmt::Debug,
+    path::{Path, PathBuf},
+};
 
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    llama, InferenceParameters, InferenceSessionParameters, LoadProgress, ModelKVMemoryType,
-    TokenBias, EOT_TOKEN_ID,
+    ElementType, ErasedModel, InferenceParameters, InferenceSessionParameters, LoadProgress,
+    ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
 use rand::SeedableRng;
 
@@ -250,6 +253,10 @@ pub struct ModelLoad {
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
+    /// The model architecture to use.
+    #[arg(long, short = 'a', default_value_t, value_enum)]
+    pub model_architecture: ModelArchitecture,
+
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
     ///
@@ -268,60 +275,71 @@ pub struct ModelLoad {
     #[arg(long)]
     pub no_mmap: bool,
 }
+#[derive(Parser, Debug, ValueEnum, Clone, Copy, Default)]
+pub enum ModelArchitecture {
+    /// Meta's LLaMA model and derivatives (Vicuna, etc).
+    #[default]
+    Llama,
+    /// The BigScience Large Open-science Open-access Multilingual Language Model (BLOOM).
+    Bloom,
+}
 impl ModelLoad {
-    pub fn load(&self) -> Result<llama::Llama> {
+    pub fn load(&self) -> Result<Box<dyn ErasedModel>> {
         let now = std::time::Instant::now();
-        let model = llama::Llama::load(
-            &self.model_path,
-            !self.no_mmap,
-            self.num_ctx_tokens,
-            |progress| match progress {
-                LoadProgress::HyperparametersLoaded(hparams) => {
-                    log::debug!("Loaded hyperparameters {hparams:#?}")
-                }
-                LoadProgress::ContextSize { bytes } => log::info!(
-                    "ggml ctx size = {:.2} MB\n",
-                    bytes as f64 / (1024.0 * 1024.0)
-                ),
-                LoadProgress::PartLoading {
-                    file,
-                    current_part,
-                    total_parts,
-                } => {
-                    let current_part = current_part + 1;
-                    log::info!(
-                        "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
+
+        let prefer_mmap = !self.no_mmap;
+        let model = self
+            .load_indirect(
+                &self.model_path,
+                !self.no_mmap,
+                self.num_ctx_tokens,
+                |progress| match progress {
+                    LoadProgress::HyperparametersLoaded => {
+                        log::debug!("Loaded hyperparameters")
+                    }
+                    LoadProgress::ContextSize { bytes } => log::info!(
+                        "ggml ctx size = {:.2} MB\n",
+                        bytes as f64 / (1024.0 * 1024.0)
+                    ),
+                    LoadProgress::PartLoading {
+                        file,
                         current_part,
                         total_parts,
-                        file.to_string_lossy(),
-                        !self.no_mmap
-                    )
-                }
-                LoadProgress::PartTensorLoaded {
-                    current_tensor,
-                    tensor_count,
-                    ..
-                } => {
-                    let current_tensor = current_tensor + 1;
-                    if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                    } => {
+                        let current_part = current_part + 1;
+                        log::info!(
+                            "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
+                            current_part,
+                            total_parts,
+                            file.to_string_lossy(),
+                            prefer_mmap
+                        )
                     }
-                }
-                LoadProgress::PartLoaded {
-                    file,
-                    byte_size,
-                    tensor_count,
-                } => {
-                    log::info!("Loading of '{}' complete", file.to_string_lossy());
-                    log::info!(
-                        "Model size = {:.2} MB / num tensors = {}",
-                        byte_size as f64 / 1024.0 / 1024.0,
-                        tensor_count
-                    );
-                }
-            },
-        )
-        .wrap_err("Could not load model")?;
+                    LoadProgress::PartTensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        let current_tensor = current_tensor + 1;
+                        if current_tensor % 8 == 0 {
+                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+                        }
+                    }
+                    LoadProgress::PartLoaded {
+                        file,
+                        byte_size,
+                        tensor_count,
+                    } => {
+                        log::info!("Loading of '{}' complete", file.to_string_lossy());
+                        log::info!(
+                            "Model size = {:.2} MB / num tensors = {}",
+                            byte_size as f64 / 1024.0 / 1024.0,
+                            tensor_count
+                        );
+                    }
+                },
+            )
+            .wrap_err("Could not load model")?;
 
         log::info!(
             "Model fully loaded! Elapsed: {}ms",
@@ -329,6 +347,29 @@ impl ModelLoad {
         );
 
         Ok(model)
+    }
+
+    fn load_indirect(
+        &self,
+        path: &Path,
+        prefer_mmap: bool,
+        n_context_tokens: usize,
+        load_progress_callback: impl FnMut(LoadProgress<'_>),
+    ) -> Result<Box<dyn ErasedModel>> {
+        Ok(match self.model_architecture {
+            ModelArchitecture::Llama => Box::new(llm::load::<llm::Llama>(
+                path,
+                prefer_mmap,
+                n_context_tokens,
+                load_progress_callback,
+            )?),
+            ModelArchitecture::Bloom => Box::new(llm::load::<llm::Bloom>(
+                path,
+                prefer_mmap,
+                n_context_tokens,
+                load_progress_callback,
+            )?),
+        })
     }
 }
 
@@ -421,11 +462,11 @@ pub enum QuantizationTarget {
     /// Quantized 4-bit (type 1).
     Q4_1,
 }
-impl From<QuantizationTarget> for llama::ElementType {
+impl From<QuantizationTarget> for ElementType {
     fn from(t: QuantizationTarget) -> Self {
         match t {
-            QuantizationTarget::Q4_0 => llama::ElementType::Q4_0,
-            QuantizationTarget::Q4_1 => llama::ElementType::Q4_1,
+            QuantizationTarget::Q4_0 => ElementType::Q4_0,
+            QuantizationTarget::Q4_1 => ElementType::Q4_1,
         }
     }
 }

@@ -1,4 +1,9 @@
 #![allow(dead_code)]
+//! Old loader. Can load multipart models, but is difficult to maintain.
+//! Plan is to use this to create a tool that can convert multipart models
+//! to single-part models for use with the new loader.
+//!
+//! <https://github.com/rustformers/llama-rs/issues/150>
 
 use std::{
     collections::HashMap,
@@ -6,20 +11,15 @@ use std::{
     path::Path,
 };
 
-use crate::{ElementType, Hyperparameters};
+use crate::Hyperparameters;
 use crate::{Llama, LoadError, LoadProgress, TokenId, Vocabulary};
-use ggml_format::{
-    util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
-    ContainerType,
-};
-use llm_base::{mulf, util, FileType};
-use memmap2::Mmap;
+use llm_base::{ggml, mulf, util, ContainerType, FileType, Mmap};
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
     prefer_mmap: bool,
     n_context_tokens: usize,
-    mut load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
+    mut load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Llama, LoadError> {
     use std::fs::File;
     use std::io::BufReader;
@@ -33,7 +33,7 @@ pub(crate) fn load(
     let mut reader = BufReader::new(&file);
 
     // Verify magic
-    let magic = read_u32(&mut reader)?;
+    let magic = util::read_u32(&mut reader)?;
     let model_type: ContainerType = match magic {
         ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
         ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
@@ -49,7 +49,7 @@ pub(crate) fn load(
     // Load format version
     match model_type {
         ContainerType::Ggmf | ContainerType::Ggjt => {
-            let _version: u32 = match read_u32(&mut reader)? {
+            let _version: u32 = match util::read_u32(&mut reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                 version => {
                     return Err(LoadError::InvalidFormatVersion {
@@ -69,15 +69,14 @@ pub(crate) fn load(
     // NOTE: Field order matters! Data is laid out in the file exactly
     // in this order.
     let hparams = Hyperparameters {
-        n_vocab: read_i32(&mut reader)?.try_into()?,
-        n_ctx: n_context_tokens,
-        n_embd: read_i32(&mut reader)?.try_into()?,
-        n_mult: read_i32(&mut reader)?.try_into()?,
-        n_head: read_i32(&mut reader)?.try_into()?,
-        n_layer: read_i32(&mut reader)?.try_into()?,
-        n_rot: read_i32(&mut reader)?.try_into()?,
+        n_vocab: util::read_i32(&mut reader)?.try_into()?,
+        n_embd: util::read_i32(&mut reader)?.try_into()?,
+        n_mult: util::read_i32(&mut reader)?.try_into()?,
+        n_head: util::read_i32(&mut reader)?.try_into()?,
+        n_layer: util::read_i32(&mut reader)?.try_into()?,
+        n_rot: util::read_i32(&mut reader)?.try_into()?,
         file_type: {
-            let ftype = read_i32(&mut reader)?;
+            let ftype = util::read_i32(&mut reader)?;
             FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))
         }?,
     };
@@ -85,7 +84,7 @@ pub(crate) fn load(
     let n_ff =
         ((2 * (4 * hparams.n_embd) / 3 + hparams.n_mult - 1) / hparams.n_mult) * hparams.n_mult;
 
-    load_progress_callback(LoadProgress::HyperparametersLoaded(&hparams));
+    load_progress_callback(LoadProgress::HyperparametersLoaded);
 
     // ===============
     // Load vocabulary
@@ -94,12 +93,12 @@ pub(crate) fn load(
         let mut vocab = Vocabulary::default();
 
         for i in 0..hparams.n_vocab {
-            let len = read_i32(&mut reader)?;
+            let len = util::read_i32(&mut reader)?;
             let id = i as TokenId;
-            let token = read_bytes_with_len(&mut reader, len.try_into()?)?;
+            let token = util::read_bytes_with_len(&mut reader, len.try_into()?)?;
 
             let score = match model_type {
-                ContainerType::Ggmf | ContainerType::Ggjt => read_f32(&mut reader)?,
+                ContainerType::Ggmf | ContainerType::Ggjt => util::read_f32(&mut reader)?,
                 ContainerType::Ggml => {
                     // Legacy model, set empty score
                     0.
@@ -172,30 +171,33 @@ pub(crate) fn load(
         (None, None)
     };
 
-    let mut model = Llama::new_loader1(context, hparams, vocabulary, n_ff, wtype, mmap);
-    match model_type {
-        ContainerType::Ggmf | ContainerType::Ggml => {
-            let file_offset = reader.stream_position()?;
-            drop(reader);
-            load_weights_ggmf_or_unversioned(
-                file_offset,
-                main_path,
-                load_progress_callback,
-                model.tensors_mut(),
-            )?
-        }
-        ContainerType::Ggjt => {
-            load_weights_ggjt(
-                &mut reader,
-                mmap_ptr,
-                main_path,
-                load_progress_callback,
-                model.tensors_mut(),
-            )?;
-        }
-    }
+    let _ = (context, vocabulary, mmap, mmap_ptr, n_context_tokens);
 
-    Ok(model)
+    // let mut model = Llama::new_loader1(context, hparams, vocabulary, n_ff, wtype, mmap);
+    // match model_type {
+    //     ContainerType::Ggmf | ContainerType::Ggml => {
+    //         let file_offset = reader.stream_position()?;
+    //         drop(reader);
+    //         load_weights_ggmf_or_unversioned(
+    //             file_offset,
+    //             main_path,
+    //             load_progress_callback,
+    //             model.tensors_mut(),
+    //         )?
+    //     }
+    //     ContainerType::Ggjt => {
+    //         load_weights_ggjt(
+    //             &mut reader,
+    //             mmap_ptr,
+    //             main_path,
+    //             load_progress_callback,
+    //             model.tensors_mut(),
+    //         )?;
+    //     }
+    // }
+
+    // Ok(model)
+    todo!()
 }
 
 /// Helper function. Reads a string from the buffer and returns it.
@@ -214,7 +216,7 @@ pub(crate) fn read_string(reader: &mut impl BufRead, len: usize) -> Result<Strin
 fn load_weights_ggmf_or_unversioned(
     file_offset: u64,
     main_path: &Path,
-    mut load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
+    mut load_progress_callback: impl FnMut(LoadProgress),
     tensors: &mut HashMap<String, ggml::Tensor>,
 ) -> Result<(), LoadError> {
     use std::{fs::File, io::BufReader};
@@ -241,13 +243,13 @@ fn load_weights_ggmf_or_unversioned(
 
         // Load weights
         loop {
-            if !has_data_left(&mut part_reader)? {
+            if !util::has_data_left(&mut part_reader)? {
                 break;
             }
 
-            let n_dims = usize::try_from(read_i32(&mut part_reader)?)?;
-            let length = read_i32(&mut part_reader)?;
-            let ftype = read_u32(&mut part_reader)?;
+            let n_dims = usize::try_from(util::read_i32(&mut part_reader)?)?;
+            let length = util::read_i32(&mut part_reader)?;
+            let ftype = util::read_u32(&mut part_reader)?;
 
             let TensorHeaderGgmf {
                 nelements,
@@ -376,7 +378,7 @@ fn load_tensor_header_ggmf<'a>(
     assert!(n_dims <= ne.len());
     #[allow(clippy::needless_range_loop)]
     for i in 0..n_dims {
-        ne[i] = read_i32(reader)? as i64;
+        ne[i] = util::read_i32(reader)? as i64;
         nelements *= usize::try_from(ne[i])?;
     }
     let tensor_name = read_string(reader, length as usize)?;
@@ -456,7 +458,7 @@ fn load_tensor_header_ggmf<'a>(
 fn tensor_type_size(ftype: u32, ne: [i64; 2]) -> Option<usize> {
     let ftype = ggml::Type::try_from(ftype).ok()?;
     match ftype {
-        ElementType::Q4_0 | ElementType::Q4_1 => {
+        ggml::Type::Q4_0 | ggml::Type::Q4_1 => {
             assert_eq!(ne[0] % 64, 0);
         }
         _ => {}
@@ -468,7 +470,7 @@ fn load_weights_ggjt(
     reader: &mut (impl BufRead + Seek),
     mmap_base: Option<*const u8>,
     path: &Path,
-    mut load_progress_callback: impl FnMut(LoadProgress<Hyperparameters>),
+    mut load_progress_callback: impl FnMut(LoadProgress),
     tensors: &mut HashMap<String, ggml::Tensor>,
 ) -> Result<(), LoadError>
 // where R: std::io::Read
@@ -482,20 +484,20 @@ fn load_weights_ggjt(
     });
 
     loop {
-        if !has_data_left(reader)? {
+        if !util::has_data_left(reader)? {
             break;
         }
 
-        let n_dims = read_i32(reader)? as usize;
-        let length = read_i32(reader)?;
-        let ftype = read_u32(reader)?;
+        let n_dims = util::read_i32(reader)? as usize;
+        let length = util::read_i32(reader)?;
+        let ftype = util::read_u32(reader)?;
 
         let mut nelements: usize = 1;
         let mut ne = [1i64, 1];
         assert!(n_dims <= ne.len());
         #[allow(clippy::needless_range_loop)]
         for i in 0..n_dims {
-            let dim = read_i32(reader)? as usize;
+            let dim = util::read_i32(reader)? as usize;
             ne[i] = dim as i64;
             nelements *= dim;
         }

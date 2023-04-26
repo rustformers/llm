@@ -80,7 +80,6 @@ fn load_hyperparameters(path: &Path, file_type: FileType, vocab: &Vocabulary) ->
     let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
         file_type,
-        n_ctx: 0,
         n_embd: json.dim,
         n_head: json.n_heads,
         n_layer: json.n_layers,

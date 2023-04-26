@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use crate::{InferenceSession, InferenceSessionParameters, Model};
+use crate::{ErasedModel, InferenceSession, InferenceSessionParameters};
 
 use zstd::{
     stream::{read::Decoder, write::Encoder},
@@ -16,12 +16,12 @@ const SNAPSHOT_COMPRESSION_LEVEL: CompressionLevel = 1;
 
 /// Read or create a session
 pub fn read_or_create_session(
-    model: &impl Model,
+    model: &dyn ErasedModel,
     persist_session: Option<&Path>,
     load_session: Option<&Path>,
     inference_session_params: InferenceSessionParameters,
 ) -> (InferenceSession, bool) {
-    fn load(model: &impl Model, path: &Path) -> InferenceSession {
+    fn load(model: &dyn ErasedModel, path: &Path) -> InferenceSession {
         let file = unwrap_or_exit(File::open(path), || format!("Could not open file {path:?}"));
         let decoder = unwrap_or_exit(Decoder::new(BufReader::new(file)), || {
             format!("Could not create decoder for {path:?}")
