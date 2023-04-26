@@ -213,7 +213,7 @@ pub enum LoadError {
     #[error("invariant broken: {invariant} in {path:?}")]
     InvariantBroken {
         /// The path that failed.
-        path: PathBuf,
+        path: Option<PathBuf>,
         /// The invariant that was broken.
         invariant: String,
     },
@@ -269,9 +269,10 @@ impl LoadError {
                     ftype,
                 }
             }
-            FormatLoadError::InvariantBroken(invariant) => {
-                LoadError::InvariantBroken { path, invariant }
-            }
+            FormatLoadError::InvariantBroken(invariant) => LoadError::InvariantBroken {
+                path: Some(path),
+                invariant,
+            },
         }
     }
 }
@@ -368,7 +369,7 @@ pub fn load<M: KnownModel>(
             let dims = ne.len();
             if dims != info.n_dims {
                 return Err(LoadError::InvariantBroken {
-                    path: self.path.clone(),
+                    path: Some(self.path.clone()),
                     invariant: format!(
                         "the tensor {name} should have {} dimensions, not {dims}",
                         info.n_dims
@@ -383,7 +384,7 @@ pub fn load<M: KnownModel>(
                 3 => ctx.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
                 _ => {
                     return Err(LoadError::InvariantBroken {
-                        path: self.path.clone(),
+                        path: Some(self.path.clone()),
                         invariant: format!(
                             "the tensor {name} had an unsupported dimension count: {ne:?}"
                         ),

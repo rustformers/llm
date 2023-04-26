@@ -3,6 +3,7 @@ members = [
     # Crates
     "ggml-rs",
     "llm-base",
+    "gpt2",
     "llama",
     "bloom",
     "llm",
