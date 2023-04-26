@@ -6,16 +6,16 @@ extern crate llama;
 
 fn main() -> Result<(), LoadError> {
     let args: Vec<String> = args().collect();
-    let bloom = llama::Llama::load(&args[1], true, 32, |_| {})?;
+    let llama = llama::Llama::load(&args[1], true, 32, |_| {})?;
     let (mut session, _) = snapshot::read_or_create_session(
-        &bloom,
+        &llama,
         Default::default(),
         Default::default(),
         Default::default(),
     );
 
     let _ = session.inference_with_prompt::<Infallible>(
-        &bloom,
+        &llama,
         &Default::default(),
         "The best kind of wine is ",
         Some(32),
