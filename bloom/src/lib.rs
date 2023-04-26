@@ -1,7 +1,9 @@
+use std::path::Path;
+
 // use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, Mmap, Model, TokenId, Vocabulary,
+    InferenceSessionParameters, LoadError, Mmap, Model, TokenId, Vocabulary, LoadProgress,
 };
 
 /// The weights for the BLOOM model. All the mutable state is split into a
@@ -22,6 +24,20 @@ pub struct Bloom {
     // Must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
+}
+
+impl Bloom {
+    /// Load the model from `path` with `n_context_tokens` context tokens.
+    ///
+    /// The status of the loading process will be reported through `load_progress_callback`.
+    pub fn load(
+        path: impl AsRef<Path>,
+        prefer_mmap: bool,
+        n_context_tokens: usize,
+        load_progress_callback: impl FnMut(LoadProgress),
+    ) -> Result<Bloom, LoadError> {
+        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+    }
 }
 
 impl Model for Bloom {
