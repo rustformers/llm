@@ -3,7 +3,7 @@ use std::path::Path;
 // use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, Mmap, Model, TokenId, Vocabulary, LoadProgress,
+    InferenceSessionParameters, LoadError, LoadProgress, Mmap, Model, TokenId, Vocabulary,
 };
 
 /// The weights for the BLOOM model. All the mutable state is split into a
