@@ -53,16 +53,19 @@ pub(crate) fn load(
 ) -> Result<Model, LoadError> {
     let main_path = path.as_ref();
 
-    let paths = util::find_all_model_files(main_path)?;
-    if paths.len() != 1 {
-        return Err(LoadError::MultipartNotSupported { paths });
-    }
-
     let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
         source: e,
         path: main_path.to_owned(),
     })?;
     let mut reader = BufReader::new(&file);
+
+    // We've found the main file - verify that this isn't a multipart model.
+    // NOTE: We do this after reading the main file, since otherwise we'll get a nonsensical error
+    // message.
+    let paths = util::find_all_model_files(main_path)?;
+    if paths.len() != 1 {
+        return Err(LoadError::MultipartNotSupported { paths });
+    }
 
     let path = path.as_ref().to_owned();
 
