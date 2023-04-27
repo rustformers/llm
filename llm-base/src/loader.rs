@@ -155,7 +155,7 @@ pub enum LoadError {
     #[error("unsupported f16_: {0}")]
     /// The `f16_` hyperparameter had an invalid value.
     UnsupportedFileType(i32),
-    #[error("invalid magic number for {path:?}")]
+    #[error("invalid magic number {magic:#x} for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
     InvalidMagic {
         /// The path that failed.
