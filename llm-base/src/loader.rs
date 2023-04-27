@@ -362,8 +362,19 @@ pub fn load<M: Model>(
                     tensor_name: name.to_owned(),
                 })?;
 
+            let dims = ne.len();
+            if dims != info.n_dims {
+                return Err(LoadError::InvariantBroken {
+                    path: self.path.clone(),
+                    invariant: format!(
+                        "the tensor {name} should have {} dimensions, not {dims}",
+                        info.n_dims
+                    ),
+                });
+            }
+
             let ctx = &self.context;
-            let mut tensor = match ne.len() {
+            let mut tensor = match dims {
                 1 => ctx.new_tensor_1d(info.element_type, ne[0]),
                 2 => ctx.new_tensor_2d(info.element_type, ne[0], ne[1]),
                 3 => ctx.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
