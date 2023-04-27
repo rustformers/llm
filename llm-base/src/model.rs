@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// A large language model.
-pub trait Model {
+pub trait KnownModel {
     /// Hyperparameters for the model
     type Hyperparameters: Hyperparameters;
 
@@ -46,7 +46,7 @@ pub trait Model {
 
 /// A type-erased model to allow for interacting with a model without knowing
 /// its hyperparameters.
-pub trait ErasedModel {
+pub trait Model {
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
 
@@ -70,9 +70,9 @@ pub trait ErasedModel {
     /// Model context size
     fn n_ctx(&self) -> usize;
 }
-impl<H: Hyperparameters, M: Model<Hyperparameters = H>> ErasedModel for M {
+impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
-        Model::start_session(self, params)
+        KnownModel::start_session(self, params)
     }
 
     fn evaluate(
@@ -82,15 +82,15 @@ impl<H: Hyperparameters, M: Model<Hyperparameters = H>> ErasedModel for M {
         input_tokens: &[TokenId],
         output_request: &mut EvaluateOutputRequest,
     ) {
-        Model::evaluate(self, session, params, input_tokens, output_request)
+        KnownModel::evaluate(self, session, params, input_tokens, output_request)
     }
 
     fn vocabulary(&self) -> &Vocabulary {
-        Model::vocabulary(self)
+        KnownModel::vocabulary(self)
     }
 
     fn n_ctx(&self) -> usize {
-        Model::n_ctx(self)
+        KnownModel::n_ctx(self)
     }
 }
 

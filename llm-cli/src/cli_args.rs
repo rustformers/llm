@@ -6,7 +6,7 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    ElementType, ErasedModel, InferenceParameters, InferenceSessionParameters, LoadProgress,
+    ElementType, Model, InferenceParameters, InferenceSessionParameters, LoadProgress,
     ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
 use rand::SeedableRng;
@@ -284,7 +284,7 @@ pub enum ModelArchitecture {
     Bloom,
 }
 impl ModelLoad {
-    pub fn load(&self) -> Result<Box<dyn ErasedModel>> {
+    pub fn load(&self) -> Result<Box<dyn Model>> {
         let now = std::time::Instant::now();
 
         let prefer_mmap = !self.no_mmap;
@@ -355,7 +355,7 @@ impl ModelLoad {
         prefer_mmap: bool,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress<'_>),
-    ) -> Result<Box<dyn ErasedModel>> {
+    ) -> Result<Box<dyn Model>> {
         Ok(match self.model_architecture {
             ModelArchitecture::Llama => Box::new(llm::load::<llm::Llama>(
                 path,

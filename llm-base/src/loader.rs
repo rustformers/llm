@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     util::{self, FindAllModelFilesError},
-    Hyperparameters, Model, TokenId, Vocabulary,
+    Hyperparameters, KnownModel, TokenId, Vocabulary,
 };
 pub use ggml_format::ContainerType;
 use ggml_format::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo};
@@ -282,7 +282,7 @@ pub trait TensorLoader<E: std::error::Error> {
 }
 
 /// Load an arbitrary GGML model.
-pub fn load<M: Model>(
+pub fn load<M: KnownModel>(
     path: impl AsRef<Path>,
     prefer_mmap: bool,
     n_context_tokens: usize,
@@ -428,7 +428,7 @@ pub fn load<M: Model>(
         loaded_tensors: Default::default(),
     };
 
-    let model = Model::new(hyperparameters, n_context_tokens, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, n_context_tokens, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::PartLoaded {
         file: &path,

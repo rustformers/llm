@@ -22,7 +22,7 @@ pub use inference_session::{
 };
 pub use loader::{load, ContainerType, FileType, LoadError, LoadProgress, Loader, TensorLoader};
 pub use memmap2::Mmap;
-pub use model::{ErasedModel, Hyperparameters, Model};
+pub use model::{Model, Hyperparameters, KnownModel};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 

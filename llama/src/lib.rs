@@ -2,7 +2,7 @@ use std::{error::Error, path::Path};
 
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Mmap, Model, TensorLoader,
+    InferenceSessionParameters, LoadError, LoadProgress, Mmap, KnownModel, TensorLoader,
 };
 #[cfg(feature = "convert")]
 pub mod convert;
@@ -54,7 +54,7 @@ impl Llama {
         llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
     }
 }
-impl Model for Llama {
+impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;
 
     fn new<E: Error>(

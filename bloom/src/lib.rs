@@ -3,7 +3,7 @@ use std::path::Path;
 // use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Mmap, Model, TokenId, Vocabulary,
+    InferenceSessionParameters, LoadError, LoadProgress, Mmap, KnownModel, TokenId, Vocabulary,
 };
 
 /// The weights for the BLOOM model. All the mutable state is split into a
@@ -40,7 +40,7 @@ impl Bloom {
     }
 }
 
-impl Model for Bloom {
+impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
 
     fn new<E: std::error::Error>(
@@ -172,7 +172,7 @@ impl Model for Bloom {
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
-        //TODO: word embeddings norm,
+        // word embeddings norm,
         {
             input_layer = ctx0.op_norm(&input_layer);
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
@@ -289,7 +289,6 @@ impl Model for Bloom {
 
                 //alibi
                 // KQ_scaled_alibi = KQ_scaled + alibi_bias
-                // TODO: op_alibi function
                 let k_q_scaled_alibi = ctx0.op_alibi(&k_q_scaled, n_past, n_head);
 
                 // KQ_masked = mask_past(KQ_scaled)
@@ -299,6 +298,26 @@ impl Model for Bloom {
                 let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
 
                 let memv_elsize = session.memory_v.element_size();
+
+                // let v_trans = ctx0.op_permute(
+                //     &ctx0.op_reshape_3d(
+                //         &ctx0.op_view_1d(
+                //             &session.memory_v,
+                //             (n_past + n) * n_embd,
+                //             il * n_ctx * memv_elsize * n_embd,
+                //         ),
+                //         n_embd / n_head,
+                //         n_head,
+                //         n_past + n,
+                //     ),
+                //     1,
+                //     2,
+                //     0,
+                //     3,
+                // );
+
+                // // GGML_ASSERT: ggml/ggml.c:4899: !ggml_is_transposed(a)
+                // let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
 
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(

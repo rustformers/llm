@@ -1,7 +1,7 @@
 pub use llm_base::{
-    load, snapshot, ElementType, ErasedModel, FileType, InferenceError, InferenceParameters,
+    load, snapshot, ElementType, Model, FileType, InferenceError, InferenceParameters,
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, LoadError, LoadProgress,
-    Model, ModelKVMemoryType, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    KnownModel, ModelKVMemoryType, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
     EOT_TOKEN_ID,
 };
 
