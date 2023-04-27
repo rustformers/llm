@@ -13,6 +13,7 @@ macro_rules! mulf {
     };
 }
 
+use memmap2::{Mmap, MmapAsRawDesc, MmapOptions};
 pub(crate) use mulf;
 use thiserror::Error;
 
@@ -173,4 +174,8 @@ mod tests {
         assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
         assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
     }
+}
+
+pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> {
+    unsafe { MmapOptions::new().populate().map(file) }
 }
