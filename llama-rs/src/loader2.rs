@@ -59,7 +59,7 @@ pub(crate) fn load(
     })?;
     let mut reader = BufReader::new(&file);
 
-    // We've found the main file - verifiy that this isn't a multipart model.
+    // We've found the main file - verify that this isn't a multipart model.
     // NOTE: We do this after reading the main file, since otherwise we'll get a nonsensical error
     // message.
     let paths = util::find_all_model_files(main_path)?;
