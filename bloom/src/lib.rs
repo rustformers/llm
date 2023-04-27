@@ -3,7 +3,7 @@ use std::path::Path;
 // use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Mmap, KnownModel, TokenId, Vocabulary,
+    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
 };
 
 /// The weights for the BLOOM model. All the mutable state is split into a
@@ -13,16 +13,16 @@ pub struct Bloom {
     n_context_tokens: usize,
 
     vocabulary: Vocabulary,
-    tok_embeddings: ggml::Tensor,
-    norm: ggml::Tensor,
-    norm_b: ggml::Tensor,
-    output_norm: ggml::Tensor,
-    output_norm_b: ggml::Tensor,
-    output: ggml::Tensor,
+    tok_embeddings: ggml_rs::Tensor,
+    norm: ggml_rs::Tensor,
+    norm_b: ggml_rs::Tensor,
+    output_norm: ggml_rs::Tensor,
+    output_norm_b: ggml_rs::Tensor,
+    output: ggml_rs::Tensor,
     layers: Vec<Layer>,
 
     // Must be kept alive for the model
-    _context: ggml::Context,
+    _context: ggml_rs::context::Context,
     _mmap: Option<Mmap>,
 }
 
@@ -162,12 +162,12 @@ impl KnownModel for Bloom {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::Context::init(buf_size, true);
+        let ctx0 = ggml_rs::context::Context::init(buf_size, true);
 
         // TODO: REMAKE THIS AFTER CHECKING GGML GRAPH
-        let mut gf = ggml::ComputationGraph::new(n_threads);
+        let mut gf = ggml_rs::ComputationGraph::new(n_threads);
 
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml_rs::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
@@ -181,7 +181,7 @@ impl KnownModel for Bloom {
 
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
-            let mut current: ggml::Tensor;
+            let mut current: ggml_rs::Tensor;
 
             // norm
             {
@@ -252,7 +252,7 @@ impl KnownModel for Bloom {
                 let q = ctx0.op_permute(
                     &ctx0.op_cpy(
                         &q_current,
-                        &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
+                        &ctx0.new_tensor_3d(ggml_rs::Type::F32, n_embd / n_head, n_head, n),
                     ),
                     0,
                     2,
@@ -336,7 +336,7 @@ impl KnownModel for Bloom {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n),
+                    &ctx0.new_tensor_2d(ggml_rs::Type::F32, n_embd, n),
                 );
 
                 // projection
@@ -499,18 +499,18 @@ impl llm_base::Hyperparameters for Hyperparameters {
 }
 
 struct Layer {
-    pub attention_norm: ggml::Tensor,
-    pub attention_norm_b: ggml::Tensor,
-    pub wo: ggml::Tensor,
-    pub wo_b: ggml::Tensor,
-    pub query_key_value: ggml::Tensor,
-    pub query_key_value_b: ggml::Tensor,
+    pub attention_norm: ggml_rs::Tensor,
+    pub attention_norm_b: ggml_rs::Tensor,
+    pub wo: ggml_rs::Tensor,
+    pub wo_b: ggml_rs::Tensor,
+    pub query_key_value: ggml_rs::Tensor,
+    pub query_key_value_b: ggml_rs::Tensor,
     // normalization
-    pub ffn_norm: ggml::Tensor,
-    pub ffn_norm_b: ggml::Tensor,
+    pub ffn_norm: ggml_rs::Tensor,
+    pub ffn_norm_b: ggml_rs::Tensor,
     // ff
-    pub w1: ggml::Tensor,
-    pub w1_b: ggml::Tensor,
-    pub w2: ggml::Tensor,
-    pub w2_b: ggml::Tensor,
+    pub w1: ggml_rs::Tensor,
+    pub w1_b: ggml_rs::Tensor,
+    pub w2: ggml_rs::Tensor,
+    pub w2_b: ggml_rs::Tensor,
 }

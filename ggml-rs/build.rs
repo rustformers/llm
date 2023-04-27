@@ -1,17 +1,18 @@
-use std::env;
+use std::{env, path::PathBuf};
 
+// By default, this crate will attempt to compile ggml with the features of your host system if
+// the host and target are the same. If they are not, it will turn off auto-feature-detection,
+// and you will need to manually specify target features through target-features.
 fn main() {
-    // By default, this crate will attempt to compile ggml with the features of your host system if
-    // the host and target are the same. If they are not, it will turn off auto-feature-detection,
-    // and you will need to manually specify target features through target-features.
-
     println!("cargo:rerun-if-changed=ggml");
 
-    let ggml_src = ["ggml/ggml.c"];
+    let ggml_src = ["ggml/src/ggml.c"];
 
     let mut builder = cc::Build::new();
 
-    let build = builder.files(ggml_src.iter()).include("include");
+    let build = builder
+        .files(ggml_src.iter())
+        .include("./ggml/include/ggml");
 
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
@@ -88,6 +89,16 @@ fn main() {
     }
     build.warnings(false);
     build.compile("ggml");
+
+    let header_path = "./ggml/include/ggml/ggml.h";
+    bindgen::Builder::default()
+        .header(String::from(header_path))
+        .allowlist_file(header_path)
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .generate()
+        .expect("Unable to generate bindings.")
+        .write_to_file(PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs"))
+        .expect("Unable to write generated bindings to file.");
 }
 
 fn get_supported_target_features() -> std::collections::HashSet<String> {

@@ -1,17 +1,12 @@
 [workspace]
 members = [
     # Crates
-    "ggml-sys",
-    "ggml-format",
-    "ggml",
+    "ggml-rs",
     "llm-base",
     "llama",
     "bloom",
     "llm",
     "llm-cli",
-
-    # Tools
-    "generate-ggml-bindings"
 ]
 resolver = "2"
 

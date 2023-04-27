@@ -7,8 +7,7 @@ rust-version = "1.65"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ggml = { path = "../ggml" }
-ggml-format = { path = "../ggml-format" }
+ggml-rs = { path = "../ggml-rs" }
 
 bytemuck = { workspace = true }
 rand = { workspace = true }

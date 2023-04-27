@@ -35,9 +35,9 @@ pub(crate) fn load(
     // Verify magic
     let magic = util::read_u32(&mut reader)?;
     let model_type: ContainerType = match magic {
-        ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
-        ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
-        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
+        ggml_rs::FILE_MAGIC_GGMF => ContainerType::Ggmf,
+        ggml_rs::FILE_MAGIC_GGJT => ContainerType::Ggjt,
+        ggml_rs::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
         _ => {
             return Err(LoadError::InvalidMagic {
                 path: main_path.to_owned(),
@@ -50,7 +50,7 @@ pub(crate) fn load(
     match model_type {
         ContainerType::Ggmf | ContainerType::Ggjt => {
             let _version: u32 = match util::read_u32(&mut reader)? {
-                ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
+                ggml_rs::FORMAT_VERSION => ggml_rs::FORMAT_VERSION,
                 version => {
                     return Err(LoadError::InvalidFormatVersion {
                         container_type: model_type,
@@ -115,10 +115,10 @@ pub(crate) fn load(
     // floats or quantized in order to save memory and also to speed up the
     // computation
     let wtype = match hparams.file_type {
-        FileType::F32 => ggml::Type::F32,
-        FileType::MostlyF16 => ggml::Type::F16,
-        FileType::MostlyQ4_0 => ggml::Type::Q4_0,
-        FileType::MostlyQ4_1 => ggml::Type::Q4_1,
+        FileType::F32 => ggml_rs::Type::F32,
+        FileType::MostlyF16 => ggml_rs::Type::F16,
+        FileType::MostlyQ4_0 => ggml_rs::Type::Q4_0,
+        FileType::MostlyQ4_1 => ggml_rs::Type::Q4_1,
         _ => unimplemented!(),
     };
 
@@ -135,22 +135,22 @@ pub(crate) fn load(
         if alloc {
             let mut model_size: usize = 0;
 
-            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // tok_embeddings
-            ctx_size += mulf!(n_embd, ggml::type_sizef(ggml::Type::F32)); // norm
-            ctx_size += mulf!(n_embd, n_vocab, ggml::type_sizef(wtype)); // output
+            ctx_size += mulf!(n_embd, n_vocab, ggml_rs::type_sizef(wtype)); // tok_embeddings
+            ctx_size += mulf!(n_embd, ggml_rs::type_sizef(ggml_rs::Type::F32)); // norm
+            ctx_size += mulf!(n_embd, n_vocab, ggml_rs::type_sizef(wtype)); // output
 
-            model_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // attention_norm
+            model_size += mulf!(n_layer, n_embd, ggml_rs::type_sizef(ggml_rs::Type::F32)); // attention_norm
 
-            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wq
-            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wk
-            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wv
-            model_size += mulf!(n_layer, n_embd, n_embd, ggml::type_sizef(wtype)); // wo
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml_rs::type_sizef(wtype)); // wq
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml_rs::type_sizef(wtype)); // wk
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml_rs::type_sizef(wtype)); // wv
+            model_size += mulf!(n_layer, n_embd, n_embd, ggml_rs::type_sizef(wtype)); // wo
 
-            model_size += mulf!(n_layer, n_embd, ggml::type_sizef(ggml::Type::F32)); // ffn_norm
+            model_size += mulf!(n_layer, n_embd, ggml_rs::type_sizef(ggml_rs::Type::F32)); // ffn_norm
 
-            model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w1
-            model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w2
-            model_size += mulf!(n_layer, n_ff, n_embd, ggml::type_sizef(wtype)); // w3
+            model_size += mulf!(n_layer, n_ff, n_embd, ggml_rs::type_sizef(wtype)); // w1
+            model_size += mulf!(n_layer, n_ff, n_embd, ggml_rs::type_sizef(wtype)); // w2
+            model_size += mulf!(n_layer, n_ff, n_embd, ggml_rs::type_sizef(wtype)); // w3
 
             ctx_size += model_size;
         }
@@ -161,7 +161,7 @@ pub(crate) fn load(
     };
 
     // Initialize the context
-    let context = ggml::Context::init(ctx_size, alloc);
+    let context = ggml_rs::context::Context::init(ctx_size, alloc);
 
     let (mmap, mmap_ptr) = if prefer_mmap && model_type.support_mmap() {
         let mmap = util::mmap_populate(&file)?;
@@ -217,7 +217,7 @@ fn load_weights_ggmf_or_unversioned(
     file_offset: u64,
     main_path: &Path,
     mut load_progress_callback: impl FnMut(LoadProgress),
-    tensors: &mut HashMap<String, ggml::Tensor>,
+    tensors: &mut HashMap<String, ggml_rs::Tensor>,
 ) -> Result<(), LoadError> {
     use std::{fs::File, io::BufReader};
 
@@ -269,7 +269,7 @@ fn load_weights_ggmf_or_unversioned(
             )?;
 
             if n_dims == 1 || n_parts == 1 {
-                if (nelements * bpe) / ggml::blck_size(tensor.get_type()) != tensor.nbytes() {
+                if (nelements * bpe) / ggml_rs::blck_size(tensor.get_type()) != tensor.nbytes() {
                     return Err(LoadError::TensorWrongSize {
                         tensor_name,
                         path: part_path,
@@ -289,7 +289,7 @@ fn load_weights_ggmf_or_unversioned(
 
                 total_size += tensor.nbytes();
             } else {
-                if (nelements * bpe) / ggml::blck_size(tensor.get_type())
+                if (nelements * bpe) / ggml_rs::blck_size(tensor.get_type())
                     != tensor.nbytes() / n_parts
                 {
                     return Err(LoadError::TensorWrongSize {
@@ -301,16 +301,16 @@ fn load_weights_ggmf_or_unversioned(
                 if split_type == 0 {
                     let np0 = ne[0];
                     let row_size = (usize::try_from(tensor.get_ne()[0])?
-                        / ggml::blck_size(tensor.get_type()))
-                        * ggml::type_size(tensor.get_type());
+                        / ggml_rs::blck_size(tensor.get_type()))
+                        * ggml_rs::type_size(tensor.get_type());
 
                     assert_eq!(row_size, tensor.get_nb()[1]);
 
                     for i1 in 0..ne[1] {
                         let offset_row = i1 as usize * row_size;
                         let offset = offset_row
-                            + ((part_id * np0 as usize) / ggml::blck_size(tensor.get_type()))
-                                * ggml::type_size(tensor.get_type());
+                            + ((part_id * np0 as usize) / ggml_rs::blck_size(tensor.get_type()))
+                                * ggml_rs::type_size(tensor.get_type());
                         // SAFETY: yolo, same as original code
                         unsafe {
                             let ptr = tensor.data().add(offset);
@@ -322,8 +322,8 @@ fn load_weights_ggmf_or_unversioned(
                 } else {
                     let np1 = ne[1];
                     let row_size = (usize::try_from(tensor.get_ne()[0])?
-                        / ggml::blck_size(tensor.get_type()))
-                        * ggml::type_size(tensor.get_type());
+                        / ggml_rs::blck_size(tensor.get_type()))
+                        * ggml_rs::type_size(tensor.get_type());
 
                     for i1 in 0..ne[1] {
                         let offset_row = (i1 as usize + part_id * np1 as usize) * row_size;
@@ -360,7 +360,7 @@ struct TensorHeaderGgmf<'a> {
     nelements: usize,
     ne: [i64; 2],
     tensor_name: String,
-    tensor: &'a mut ggml::Tensor,
+    tensor: &'a mut ggml_rs::Tensor,
     split_type: i32,
     bpe: usize,
 }
@@ -368,7 +368,7 @@ fn load_tensor_header_ggmf<'a>(
     n_dims: usize,
     reader: &mut impl BufRead,
     length: i32,
-    tensors: &'a mut HashMap<String, ggml::Tensor>,
+    tensors: &'a mut HashMap<String, ggml_rs::Tensor>,
     path: &Path,
     n_parts: usize,
     ftype: u32,
@@ -456,14 +456,14 @@ fn load_tensor_header_ggmf<'a>(
 }
 
 fn tensor_type_size(ftype: u32, ne: [i64; 2]) -> Option<usize> {
-    let ftype = ggml::Type::try_from(ftype).ok()?;
+    let ftype = ggml_rs::Type::try_from(ftype).ok()?;
     match ftype {
-        ggml::Type::Q4_0 | ggml::Type::Q4_1 => {
+        ggml_rs::Type::Q4_0 | ggml_rs::Type::Q4_1 => {
             assert_eq!(ne[0] % 64, 0);
         }
         _ => {}
     }
-    Some(ggml::type_size(ftype))
+    Some(ggml_rs::type_size(ftype))
 }
 
 fn load_weights_ggjt(
@@ -471,7 +471,7 @@ fn load_weights_ggjt(
     mmap_base: Option<*const u8>,
     path: &Path,
     mut load_progress_callback: impl FnMut(LoadProgress),
-    tensors: &mut HashMap<String, ggml::Tensor>,
+    tensors: &mut HashMap<String, ggml_rs::Tensor>,
 ) -> Result<(), LoadError>
 // where R: std::io::Read
 {
@@ -561,7 +561,7 @@ fn load_weights_ggjt(
 fn load_tensor_ggjt_mmap(
     reader: &mut (impl BufRead + Seek),
     mmap_base: *const u8,
-    tensor: &mut ggml::Tensor,
+    tensor: &mut ggml_rs::Tensor,
 ) -> Result<(), LoadError> {
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;
@@ -575,7 +575,7 @@ fn load_tensor_ggjt_mmap(
 
 fn load_tensor_ggjt_copy<'a>(
     reader: &mut (impl BufRead + Seek),
-    tensor: &'a mut ggml::Tensor,
+    tensor: &'a mut ggml_rs::Tensor,
 ) -> Result<(), LoadError> {
     let offset_curr = reader.stream_position()?;
     let offset_aligned: u64 = (offset_curr + 31) & !31;

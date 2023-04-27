@@ -135,7 +135,7 @@ name = "bloom"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "ggml",
+ "ggml-rs",
  "llm-base",
  "rand",
 ]
@@ -431,13 +431,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate-ggml-bindings"
-version = "0.1.0"
-dependencies = [
- "bindgen",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -449,29 +442,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "ggml"
+name = "ggml-rs"
 version = "0.1.0"
 dependencies = [
- "ggml-sys",
- "llm-base",
- "log",
- "thiserror",
-]
-
-[[package]]
-name = "ggml-format"
-version = "0.1.0"
-dependencies = [
- "ggml",
+ "bindgen",
+ "cc",
  "rand",
  "thiserror",
-]
-
-[[package]]
-name = "ggml-sys"
-version = "0.1.0"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -624,7 +601,7 @@ name = "llama"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "ggml-format",
+ "ggml-rs",
  "half",
  "llm-base",
  "partial_sort",
@@ -652,8 +629,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytemuck",
- "ggml",
- "ggml-format",
+ "ggml-rs",
  "log",
  "memmap2",
  "partial_sort",

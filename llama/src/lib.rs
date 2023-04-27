@@ -2,7 +2,7 @@ use std::{error::Error, path::Path};
 
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Mmap, KnownModel, TensorLoader,
+    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader,
 };
 #[cfg(feature = "convert")]
 pub mod convert;
@@ -12,7 +12,7 @@ pub mod quantize;
 
 mod old_loader;
 
-pub use llm_base::{ggml, util::TokenUtf8Buffer, TokenBias, TokenId, Vocabulary};
+pub use llm_base::{ggml_rs, util::TokenUtf8Buffer, TokenBias, TokenId, Vocabulary};
 
 /// The weights for the LLaMA model. All the mutable state is split into a
 /// separate struct `InferenceSession`.
@@ -25,10 +25,10 @@ pub struct Llama {
 
     vocabulary: Vocabulary,
 
-    tok_embeddings: ggml::Tensor,
+    tok_embeddings: ggml_rs::Tensor,
 
-    norm: ggml::Tensor,
-    output: ggml::Tensor,
+    norm: ggml_rs::Tensor,
+    output: ggml_rs::Tensor,
 
     layers: Vec<Layer>,
 
@@ -36,7 +36,7 @@ pub struct Llama {
     _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
-    _context: ggml::Context,
+    _context: ggml_rs::context::Context,
 }
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
@@ -183,18 +183,18 @@ impl KnownModel for Llama {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::Context::init(buf_size, true);
+        let ctx0 = ggml_rs::context::Context::init(buf_size, true);
 
-        let mut gf = ggml::ComputationGraph::new(n_threads);
+        let mut gf = ggml_rs::ComputationGraph::new(n_threads);
 
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml_rs::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
-            let mut current: ggml::Tensor;
+            let mut current: ggml_rs::Tensor;
 
             ctx0.use_scratch(Some(&mut session.scratch[0]));
 
@@ -312,7 +312,7 @@ impl KnownModel for Llama {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n),
+                    &ctx0.new_tensor_2d(ggml_rs::Type::F32, n_embd, n),
                 );
 
                 // projection (no bias)
@@ -437,7 +437,7 @@ impl Llama {
     /// This does *not* construct a valid model. All of the tensors are entirely
     /// empty. However, it can be used to determine if some code will compile.
     fn new_empty() -> Self {
-        let context = ggml::Context::init(1 * 1024 * 1024, true);
+        let context = ggml_rs::context::Context::init(1024 * 1024, true);
         let tok_embeddings = context.new_f32(0.0);
         let norm = context.new_f32(0.0);
         let output = context.new_f32(0.0);
@@ -496,20 +496,20 @@ impl llm_base::Hyperparameters for Hyperparameters {
 }
 
 struct Layer {
-    attention_norm: ggml::Tensor,
+    attention_norm: ggml_rs::Tensor,
 
-    wq: ggml::Tensor,
-    wk: ggml::Tensor,
-    wv: ggml::Tensor,
-    wo: ggml::Tensor,
+    wq: ggml_rs::Tensor,
+    wk: ggml_rs::Tensor,
+    wv: ggml_rs::Tensor,
+    wo: ggml_rs::Tensor,
 
     // normalization
-    ffn_norm: ggml::Tensor,
+    ffn_norm: ggml_rs::Tensor,
 
     // ff
-    w1: ggml::Tensor,
-    w2: ggml::Tensor,
-    w3: ggml::Tensor,
+    w1: ggml_rs::Tensor,
+    w2: ggml_rs::Tensor,
+    w3: ggml_rs::Tensor,
 }
 
 #[cfg(test)]

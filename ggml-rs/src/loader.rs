@@ -75,7 +75,7 @@ impl TensorInfo {
     ///
     /// Do not use this if loading with `mmap`.
     pub fn read_data<R: BufRead + Seek>(&self, reader: &mut R) -> std::io::Result<Vec<u8>> {
-        let n_bytes = self.n_elements * ggml::type_size(self.element_type);
+        let n_bytes = self.n_elements * crate::type_size(self.element_type);
         let mut data = vec![0; n_bytes];
         reader.seek(SeekFrom::Start(self.start_offset))?;
         reader.read_exact(&mut data)?;
@@ -85,7 +85,7 @@ impl TensorInfo {
 
 /// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.
 pub fn data_size(element_type: ElementType, n_elements: usize) -> usize {
-    (ggml::type_size(element_type) * n_elements) / ggml::blck_size(element_type)
+    (crate::type_size(element_type) * n_elements) / crate::blck_size(element_type)
 }
 
 #[derive(Debug, Clone)]
@@ -118,9 +118,9 @@ pub fn load_model<E: Error, R: BufRead + Seek>(
 ) -> Result<(), LoadError<E>> {
     // Verify magic
     let container_type: ContainerType = match read_u32(reader)? {
-        ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
-        ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
-        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
+        crate::FILE_MAGIC_GGMF => ContainerType::Ggmf,
+        crate::FILE_MAGIC_GGJT => ContainerType::Ggjt,
+        crate::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
     handler
@@ -131,7 +131,7 @@ pub fn load_model<E: Error, R: BufRead + Seek>(
     match container_type {
         ContainerType::Ggmf | ContainerType::Ggjt => {
             let _version: u32 = match read_u32(reader)? {
-                ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
+                crate::FORMAT_VERSION => crate::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
             };
         }
@@ -198,10 +198,11 @@ fn load_weights<E: Error, R: BufRead + Seek>(
 
         // load tensor name
         let name = String::from_utf8(read_bytes_with_len(reader, name_len.try_into()?)?)?;
-        let ftype = ggml::Type::try_from(ftype).map_err(|_| LoadError::UnsupportedElementType {
-            tensor_name: name.clone(),
-            ftype,
-        })?;
+        let ftype =
+            crate::Type::try_from(ftype).map_err(|_| LoadError::UnsupportedElementType {
+                tensor_name: name.clone(),
+                ftype,
+            })?;
 
         // sanity check
         match ftype {

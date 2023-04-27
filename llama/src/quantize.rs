@@ -1,9 +1,12 @@
 //! Implements quantization of weights.
 
 use crate::{Hyperparameters, LoadError, LoadProgress};
-use ggml_format::{SaveError, SaveHandler, TensorData, TensorInfo};
+use ggml_rs::{
+    loader::TensorInfo,
+    saver::{SaveError, SaveHandler, TensorData},
+};
 use half::f16;
-use llm_base::{ggml, util, Loader};
+use llm_base::{ggml_rs, util, Loader};
 use std::{
     collections::HashMap,
     fs::File,
@@ -26,7 +29,7 @@ pub enum QuantizeProgress<'a> {
         /// Size of the tensor.
         dims: [usize; 2],
         /// Type of the tensor.
-        element_type: ggml::Type,
+        element_type: ggml_rs::Type,
         /// Number of elements in the tensor.
         n_elements: usize,
     },
@@ -101,13 +104,13 @@ pub enum QuantizeError {
     #[error("invalid quantization target {element_type:?}")]
     InvalidQuantizationTarget {
         /// The quantization target.
-        element_type: ggml::Type,
+        element_type: ggml_rs::Type,
     },
     /// The quantization process encountered an unsupported element type.
     #[error("unsupported element type {element_type:?}")]
     UnsupportedElementType {
         /// The element type.
-        element_type: ggml::Type,
+        element_type: ggml_rs::Type,
     },
 }
 impl QuantizeError {
@@ -127,11 +130,11 @@ impl QuantizeError {
 pub fn quantize(
     path_in: impl AsRef<Path>,
     path_out: impl AsRef<Path>,
-    desired_type: ggml::Type,
+    desired_type: ggml_rs::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
     // Sanity check
-    if !matches!(desired_type, ggml::Type::Q4_0 | ggml::Type::Q4_1) {
+    if !matches!(desired_type, ggml_rs::Type::Q4_0 | ggml_rs::Type::Q4_1) {
         return Err(QuantizeError::InvalidQuantizationTarget {
             element_type: desired_type,
         });
@@ -154,7 +157,7 @@ pub fn quantize(
             }
         }
     });
-    ggml_format::load_model(&mut reader, &mut loader)
+    ggml_rs::loader::load_model(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path_in.to_owned()))?;
 
     // Save the quantized model, quantizing as we go
@@ -181,7 +184,7 @@ pub fn quantize(
         &mut file_in,
         |p| progress_callback(p),
     );
-    ggml_format::save_model(
+    ggml_rs::saver::save_model(
         &mut writer,
         &mut saver,
         &vocabulary,
@@ -206,7 +209,7 @@ pub fn quantize(
 
 struct QuantizeSaver<'a, F: Fn(QuantizeProgress)> {
     // Input
-    quantization_type: ggml::Type,
+    quantization_type: ggml_rs::Type,
     hyperparameters: &'a Hyperparameters,
     tensors: &'a HashMap<String, TensorInfo>,
     source_file: &'a mut File,
@@ -219,7 +222,7 @@ struct QuantizeSaver<'a, F: Fn(QuantizeProgress)> {
 }
 impl<'a, F: Fn(QuantizeProgress)> QuantizeSaver<'a, F> {
     fn new(
-        quantization_type: ggml::Type,
+        quantization_type: ggml_rs::Type,
         hyperparameters: &'a Hyperparameters,
         tensors: &'a HashMap<String, TensorInfo>,
         source_file: &'a mut File,
@@ -267,7 +270,7 @@ impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F
         let quantize = tensor_name.contains("weight") && tensor.n_dims == 2;
         let raw_data = tensor.read_data(&mut BufReader::new(&mut self.source_file))?;
 
-        if quantize && !matches!(tensor.element_type, ggml::Type::F32 | ggml::Type::F16) {
+        if quantize && !matches!(tensor.element_type, ggml_rs::Type::F32 | ggml_rs::Type::F16) {
             return Err(QuantizeError::UnsupportedElementType {
                 element_type: tensor.element_type,
             });
@@ -279,11 +282,11 @@ impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F
             (self.progress_callback)(QuantizeProgress::TensorQuantizing { name: tensor_name });
 
             let data_f32: Vec<f32> = match tensor.element_type {
-                ggml::Type::F32 => raw_data
+                ggml_rs::Type::F32 => raw_data
                     .chunks_exact(4)
                     .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
                     .collect(),
-                ggml::Type::F16 => raw_data
+                ggml_rs::Type::F16 => raw_data
                     .chunks_exact(2)
                     .map(|chunk| {
                         f16::from_bits(u16::from_le_bytes(chunk.try_into().unwrap())).to_f32()
@@ -293,11 +296,11 @@ impl<F: Fn(QuantizeProgress)> SaveHandler<QuantizeError> for QuantizeSaver<'_, F
             };
 
             let result = match self.quantization_type {
-                ggml::Type::Q4_0 => {
-                    ggml::quantize_q4_0(&data_f32, tensor.n_elements, tensor.dims[0])
+                ggml_rs::Type::Q4_0 => {
+                    ggml_rs::quantize_q4_0(&data_f32, tensor.n_elements, tensor.dims[0])
                 }
-                ggml::Type::Q4_1 => {
-                    ggml::quantize_q4_1(&data_f32, tensor.n_elements, tensor.dims[0])
+                ggml_rs::Type::Q4_1 => {
+                    ggml_rs::quantize_q4_1(&data_f32, tensor.n_elements, tensor.dims[0])
                 }
                 _ => unreachable!(),
             };

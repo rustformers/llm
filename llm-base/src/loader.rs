@@ -10,8 +10,11 @@ use crate::{
     util::{self, FindAllModelFilesError},
     Hyperparameters, KnownModel, TokenId, Vocabulary,
 };
-pub use ggml_format::ContainerType;
-use ggml_format::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo};
+pub use ggml_rs::ContainerType;
+use ggml_rs::{
+    context::Context,
+    loader::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo},
+};
 use memmap2::Mmap;
 use thiserror::Error;
 
@@ -276,9 +279,9 @@ impl LoadError {
 /// Used by models to fetch tensors from a loader.
 pub trait TensorLoader<E: std::error::Error> {
     /// Loads a tensor from the loader.
-    fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
+    fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml_rs::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
-    fn finish(self) -> (ggml::Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
+    fn finish(self) -> (Context, HashMap<String, ggml_rs::Tensor>, Option<Mmap>);
 }
 
 /// Load an arbitrary GGML model.
@@ -311,7 +314,7 @@ pub fn load<M: KnownModel>(
 
     let mut loader = Loader::new(load_progress_callback);
 
-    ggml_format::load_model(&mut reader, &mut loader)
+    ggml_rs::loader::load_model(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.clone()))?;
 
     let Loader {
@@ -328,13 +331,13 @@ pub fn load<M: KnownModel>(
     let ctx_size = tensors
         .values()
         .map(|ti| {
-            ggml::Tensor::C_TYPE_SIZE
-                + ggml::OBJECT_SIZE
+            ggml_rs::Tensor::C_TYPE_SIZE
+                + ggml_rs::OBJECT_SIZE
                 + if use_mmap { 0 } else { ti.calc_size() }
         })
         .sum::<usize>();
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
-    let context = ggml::Context::init(ctx_size, !use_mmap);
+    let context = Context::init(ctx_size, !use_mmap);
 
     let mmap = if use_mmap {
         let file = File::open(&path)?;
@@ -347,13 +350,13 @@ pub fn load<M: KnownModel>(
         path: PathBuf,
         file: File,
         tensors: HashMap<String, TensorInfo>,
-        context: ggml::Context,
+        context: Context,
         mmap: Option<Mmap>,
         load_progress_callback: &'a mut dyn FnMut(LoadProgress),
-        loaded_tensors: HashMap<String, ggml::Tensor>,
+        loaded_tensors: HashMap<String, ggml_rs::Tensor>,
     }
     impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
-        fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
+        fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml_rs::Tensor, LoadError> {
             let info = self
                 .tensors
                 .get(name)
@@ -412,7 +415,7 @@ pub fn load<M: KnownModel>(
             Ok(tensor)
         }
 
-        fn finish(self) -> (ggml::Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
+        fn finish(self) -> (Context, HashMap<String, ggml_rs::Tensor>, Option<Mmap>) {
             (self.context, self.loaded_tensors, self.mmap)
         }
     }
@@ -467,7 +470,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
         }
     }
 }
-impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml_format::LoadHandler<LoadError>
+impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml_rs::loader::LoadHandler<LoadError>
     for Loader<Hp, F>
 {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {

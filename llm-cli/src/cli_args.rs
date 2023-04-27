@@ -6,7 +6,7 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    ElementType, Model, InferenceParameters, InferenceSessionParameters, LoadProgress,
+    ElementType, InferenceParameters, InferenceSessionParameters, LoadProgress, Model,
     ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
 };
 use rand::SeedableRng;

@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use crate::{Model, InferenceSession, InferenceSessionParameters};
+use crate::{InferenceSession, InferenceSessionParameters, Model};
 
 use zstd::{
     stream::{read::Decoder, write::Encoder},

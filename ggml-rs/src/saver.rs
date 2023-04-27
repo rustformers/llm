@@ -61,8 +61,8 @@ pub fn save_model<E: Error, W: Write + Seek>(
     tensor_names: &[String],
 ) -> Result<(), SaveError<E>> {
     // Write header and hyperparameters
-    util::write_u32(writer, ggml::FILE_MAGIC_GGJT)?;
-    util::write_u32(writer, ggml::FORMAT_VERSION)?;
+    util::write_u32(writer, crate::FILE_MAGIC_GGJT)?;
+    util::write_u32(writer, crate::FORMAT_VERSION)?;
     handler
         .write_hyperparameters(writer)
         .map_err(SaveError::ImplementationError)?;
