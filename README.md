@@ -72,7 +72,16 @@ This is useful for development.
 ### Getting the weights
 
 In order to run the inference code in `llama-rs`, a copy of the model's weights
-are required. Currently, the only legal source to get the weights is [this
+are required.
+
+#### From Hugging Face
+
+Compatible weights - not necessarily the original LLaMA weights - can be found
+on [Hugging Face by searching for GGML](https://huggingface.co/models?search=ggml). At present, LLaMA-architecture models are supported.
+
+#### LLaMA original weights
+
+Currently, the only legal source to get the original weights is [this
 repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama).
 Note that the choice of words also may or may not hint at the existence of other
 kinds of sources.
@@ -89,28 +98,20 @@ is compatible with ggml. To achieve this, follow the steps outlined below:
 # Convert the model to f16 ggml format
 python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 
-# Quantize the model
-**Note** To quantize the model, for now using llama.cpp is necessary. This will be fixed once #84 is merged.
+# Quantize the model to 4-bit ggml format
+cargo run -p llama-cli quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
 ```
 
 > **Note**
 >
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
-> additional information on how to obtain and run specific models. With some
-> caveats:
->
-> Currently, `llama-rs` supports both the old (unversioned) and the new
-> (versioned) ggml formats, but not the mmap-ready version that was [recently
-> merged](https://github.com/ggerganov/llama.cpp/pull/613).
+> additional information on how to obtain and run specific models.
 
 _Support for other open source models is currently planned. For models where
 weights can be legally distributed, this section will be updated with scripts to
 make the install process as user-friendly as possible. Due to the model's legal
 requirements, this is currently not possible with LLaMA itself and a more
 lengthy setup is required._
-
-- https://github.com/rustformers/llama-rs/pull/85
-- https://github.com/rustformers/llama-rs/issues/75
 
 ### Running
 
