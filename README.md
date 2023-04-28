@@ -1,30 +1,21 @@
 # LLaMA-rs
 
-<!-- markdownlint-disable-file MD026 -->
+This project is a Rust port of
+[llama.cpp](https://github.com/ggerganov/llama.cpp) 🦙🦀🚀
 
-> Do the LLaMA thing, but now in Rust 🦀🚀🦙
-
-![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
-
-> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F8DNO5D)
+Just like its C++ counterpart, it is powered by the
+[`ggml`](https://github.com/ggerganov/ggml) tensor library, which allows running
+inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
+model on a CPU with good performance using full precision, f16 or 4-bit
+quantized versions of the model.
 
 [![Latest version](https://img.shields.io/crates/v/llama-rs.svg)](https://crates.io/crates/llama_rs)
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
-![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
+![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
 
-**LLaMA-rs** is a Rust port of the
-[llama.cpp](https://github.com/ggerganov/llama.cpp) project. This allows running
-inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
-model on a CPU with good performance using full precision, f16 or 4-bit
-quantized versions of the model.
-
-Just like its C++ counterpart, it is powered by the
-[`ggml`](https://github.com/ggerganov/ggml) tensor library, achieving the same
-performance as the original code.
+> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
 
 ## Getting started
 
@@ -51,6 +42,8 @@ to install `bloom-cli` and `llama-cli` to your Cargo `bin` directory, which
 `rustup` is likely to have added to your `PATH`.
 
 The CLI applications can then be run through `bloom-cli` and `llama-cli`, respectively.
+
+![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
 ### Building from repository
 
@@ -79,7 +72,8 @@ are required.
 #### From Hugging Face
 
 Compatible weights - not necessarily the original LLaMA weights - can be found
-on [Hugging Face by searching for GGML](https://huggingface.co/models?search=ggml). At present, LLaMA-architecture models are supported.
+on [Hugging Face by searching for GGML](https://huggingface.co/models?search=ggml).
+At present, LLaMA-architecture models are supported.
 
 #### LLaMA original weights
 
@@ -143,9 +137,9 @@ Some additional things to try:
 
   ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
 
-- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file. To automatically load
-  and save the same session, use `--persist-session`. This can be used to cache prompts to reduce load
-  time, too:
+- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file.
+  To automatically load and save the same session, use `--persist-session`.
+  This can be used to cache prompts to reduce load time, too:
 
   ![Gif showcasing prompt caching](./doc/resources/prompt_caching_screencap.gif)
 
