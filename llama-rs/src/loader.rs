@@ -16,7 +16,6 @@ use ggml_format::{
     util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
     ContainerType,
 };
-use memmap2::Mmap;
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
@@ -168,7 +167,7 @@ pub(crate) fn load(
     let context = ggml::Context::init(ctx_size, alloc);
 
     let (mmap, mmap_ptr) = if prefer_mmap && model_type.support_mmap() {
-        let mmap = unsafe { Mmap::map(&file)? };
+        let mmap = util::mmap_populate(&file)?;
         let ptr = mmap.as_ptr();
         (Some(mmap), Some(ptr))
     } else {

@@ -107,7 +107,7 @@ pub(crate) fn load(
 
     let mmap = if use_mmap {
         let file = File::open(&path)?;
-        Some(unsafe { Mmap::map(&file)? })
+        Some(util::mmap_populate(&file)?)
     } else {
         None
     };
