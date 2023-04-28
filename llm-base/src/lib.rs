@@ -20,7 +20,10 @@ pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
     SnapshotError,
 };
-pub use loader::{load, ContainerType, FileType, LoadError, LoadProgress, Loader, TensorLoader};
+pub use loader::{
+    load, load_progress_callback, ContainerType, FileType, LoadError, LoadProgress, Loader,
+    TensorLoader,
+};
 pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model};
 pub use util::TokenUtf8Buffer;

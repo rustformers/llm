@@ -1,24 +1,31 @@
 use std::{convert::Infallible, env::args, io::Write};
 
-use llm_base::{snapshot, LoadError};
+use llm_base::{load_progress_callback, model::KnownModel};
 
 extern crate bloom;
 
-fn main() -> Result<(), LoadError> {
+fn main() {
     let args: Vec<String> = args().collect();
-    let bloom = bloom::Bloom::load(&args[1], true, 32, |_| {})?;
-    let (mut session, _) = snapshot::read_or_create_session(
-        &bloom,
-        Default::default(),
-        Default::default(),
-        Default::default(),
-    );
+    let loc = &args[1];
+    let prompt = match &args.len() {
+        3 => &args[2],
+        _ => "Rust is a cool programming language because ",
+    };
 
-    let _ = session.inference_with_prompt::<Infallible>(
+    println!(" >>> Loading model from {loc}...");
+    let now = std::time::Instant::now();
+
+    let bloom = bloom::Bloom::load(loc, true, 512, load_progress_callback)
+        .unwrap_or_else(|e| panic!("Error loading model from {loc}: {e}"));
+
+    println!(" >>> Model loaded in {} ms.", now.elapsed().as_millis());
+
+    let mut session = bloom.start_session(Default::default());
+    let res = session.inference_with_prompt::<Infallible>(
         &bloom,
         &Default::default(),
-        "The best kind of wine is ",
-        Some(32),
+        prompt,
+        None,
         &mut rand::thread_rng(),
         |t| {
             print!("{t}");
@@ -28,6 +35,8 @@ fn main() -> Result<(), LoadError> {
         },
     );
 
-    println!();
-    Ok(())
+    match res {
+        Ok(result) => println!("\n\nInference stats:\n{result}"),
+        Err(err) => println!("\n{err}"),
+    }
 }
