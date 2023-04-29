@@ -13,7 +13,7 @@ use std::{
 
 use crate::Hyperparameters;
 use crate::{Llama, LoadError, LoadProgress, TokenId, Vocabulary};
-use llm_base::{ggml, mulf, util, ContainerType, FileType};
+use llm_base::{ggml_rs, mulf, util, ContainerType, FileType};
 
 pub(crate) fn load(
     path: impl AsRef<Path>,

@@ -47,9 +47,10 @@ The CLI applications can then be run through `bloom-cli` and `llama-cli`, respec
 
 ### Building from repository
 
-Clone the repository, and then build it through
+Clone the repository and then build it with
 
 ```shell
+git clone --recurse-submodules git@github.com:rustformers/llama-rs.git
 cargo build --release
 ```
 
