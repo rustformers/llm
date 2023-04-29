@@ -15,6 +15,7 @@ macro_rules! mulf {
     };
 }
 
+use memmap2::{Mmap, MmapAsRawDesc, MmapOptions};
 use thiserror::Error;
 
 /// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
@@ -173,4 +174,9 @@ mod tests {
         assert_eq!(buffer.push(&[0xE2, 0x82]).as_deref(), None);
         assert_eq!(buffer.push(&[0xAC]).as_deref(), Some("€"));
     }
+}
+
+/// mmap with MAP_POPULATE
+pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> {
+    unsafe { MmapOptions::new().populate().map(file) }
 }

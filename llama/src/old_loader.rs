@@ -13,7 +13,7 @@ use std::{
 
 use crate::Hyperparameters;
 use crate::{Llama, LoadError, LoadProgress, TokenId, Vocabulary};
-use llm_base::{ggml, mulf, util, ContainerType, FileType, Mmap};
+use llm_base::{ggml, mulf, util, ContainerType, FileType};
 
 pub(crate) fn load(
     path: impl AsRef<Path>,
@@ -164,7 +164,7 @@ pub(crate) fn load(
     let context = ggml::Context::init(ctx_size, alloc);
 
     let (mmap, mmap_ptr) = if prefer_mmap && model_type.support_mmap() {
-        let mmap = unsafe { Mmap::map(&file)? };
+        let mmap = util::mmap_populate(&file)?;
         let ptr = mmap.as_ptr();
         (Some(mmap), Some(ptr))
     } else {
