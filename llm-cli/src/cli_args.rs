@@ -280,8 +280,8 @@ pub enum ModelArchitecture {
     /// Meta's LLaMA model and derivatives (Vicuna, etc).
     #[default]
     Llama,
-    /// The BigScience Large Open-science Open-access Multilingual Language Model (BLOOM).
-    Bloom,
+    /// OpenAI's GPT2 architecture and derivatives (Cerebras, etc).
+    Gpt2,
 }
 impl ModelLoad {
     pub fn load(&self) -> Result<Box<dyn Model>> {
@@ -363,7 +363,7 @@ impl ModelLoad {
                 n_context_tokens,
                 load_progress_callback,
             )?),
-            ModelArchitecture::Bloom => Box::new(llm::load::<llm::Bloom>(
+            ModelArchitecture::Gpt2 => Box::new(llm::load::<llm::Gpt2>(
                 path,
                 prefer_mmap,
                 n_context_tokens,

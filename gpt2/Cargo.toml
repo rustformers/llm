@@ -4,7 +4,7 @@ version = { workspace = true }
 edition = "2021"
 
 [dependencies]
-ggml = { path = "../ggml" }
+ggml-rs = { path = "../ggml-rs" }
 llm-base = { path = "../llm-base" }
 
 bytemuck = { workspace = true }

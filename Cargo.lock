@@ -131,16 +131,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
-name = "bloom"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "ggml-rs",
- "llm-base",
- "rand",
-]
-
-[[package]]
 name = "bytemuck"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -468,7 +458,7 @@ name = "gpt2"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "ggml",
+ "ggml-rs",
  "llm-base",
  "rand",
 ]
@@ -628,7 +618,7 @@ dependencies = [
 name = "llm"
 version = "0.1.0"
 dependencies = [
- "bloom",
+ "gpt2",
  "llama",
  "llm-base",
 ]

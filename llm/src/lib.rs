@@ -5,7 +5,7 @@ pub use llm_base::{
     EOT_TOKEN_ID,
 };
 
-#[cfg(feature = "bloom")]
-pub use bloom::{self, Bloom};
+#[cfg(feature = "gpt2")]
+pub use gpt2::{self, Gpt2};
 #[cfg(feature = "llama")]
 pub use llama::{self, Llama};

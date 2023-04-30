@@ -21,11 +21,11 @@ quantized versions of the model.
 
 Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
-`llm-base`, `bloom`, and `llama` are Rust libraries, while `bloom-cli` and
-`llama-cli` are a CLI applications that wrap `bloom` and `llama`, respectively,
-and offer basic inference capabilities.
+`llm-base`, `gpt2`, and `llama` are Rust libraries, while `llm-cli` is a CLI
+applications that wraps `gpt2` and `llama` and offer basic inference
+capabilities.
 
-The following instructions explain how to build the CLI applications.
+The following instructions explain how to build CLI applications.
 
 **NOTE**: For best results, make sure to build and run in release mode.
 Debug builds are going to be very slow.
@@ -35,13 +35,13 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llama-rs bloom-cli llama-cli
+cargo install --git https://github.com/rustformers/llama-rs llm-cli
 ```
 
-to install `bloom-cli` and `llama-cli` to your Cargo `bin` directory, which
-`rustup` is likely to have added to your `PATH`.
+to install `llm-cli` to your Cargo `bin` directory, which `rustup` is likely to
+have added to your `PATH`.
 
-The CLI applications can then be run through `bloom-cli` and `llama-cli`, respectively.
+The CLI application can then be run through `llm-cli`.
 
 ![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
@@ -54,13 +54,12 @@ git clone --recurse-submodules git@github.com:rustformers/llama-rs.git
 cargo build --release
 ```
 
-The resulting binaries will be at `target/release/bloom-cli[.exe]` and
-`target/release/llama-cli[.exe]`, respectively.
+The resulting binary will be at `target/release/llm-cli[.exe]`.
 
-They can also be run directly through Cargo, using
+It can also be run directly through Cargo, using
 
 ```shell
-cargo run --release --bin {bloom,llama}-cli -- <ARGS>
+cargo run --release --bin llm-cli -- <ARGS>
 ```
 
 This is useful for development.
@@ -104,13 +103,12 @@ cargo run -p llama-cli quantize /path/to/your/models/7B/ggml-model-f16.bin /path
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models.
 
-### BLOOM
+### GPT2
 
-The open-source [BLOOM](https://bigscience.huggingface.co/blog/bloom) model is
-also supported.
-[More information](https://huggingface.co/docs/transformers/model_doc/bloom)
-about BLOOM is available on HuggingFace, as are some
-[quantized models](https://huggingface.co/models?search=bloom%20ggml).
+OpenAI's [GPT-2](https://jalammar.github.io/illustrated-gpt2/) architecture is
+also supported. The open-source family of
+[Cerebras](https://www.cerebras.net/blog/cerebras-gpt-a-family-of-open-compute-efficient-large-language-models/)
+models is built on this architecture.
 
 _Support for other open source models is currently planned. For models where
 weights can be legally distributed, this section will be updated with scripts to
