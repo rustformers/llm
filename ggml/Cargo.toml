@@ -3,12 +3,9 @@ name = "ggml"
 version = { workspace = true }
 edition = "2021"
 
-[build-dependencies]
-bindgen = "0.64.0"
-cc = "^1.0"
-
 [dependencies]
 thiserror = "1.0"
+ggml-sys = { path = "sys" }
 
 [dev-dependencies]
 rand = "0.8"

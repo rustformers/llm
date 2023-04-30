@@ -3,11 +3,13 @@ members = [
     # Crates
     "bloom",
     "ggml",
+    "ggml/sys",
     "gpt2",
     "llama",
     "llm",
     "llm-base",
     "llm-cli",
+    "tools/*"
 ]
 resolver = "2"
 

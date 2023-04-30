@@ -1,23 +1,19 @@
-use std::{
-    os::raw::{c_int, c_void},
-    ptr::NonNull,
-    sync::{Arc, Weak},
-};
+use std::{os::raw::c_void, ptr::NonNull, sync::Weak};
 
-use crate::{i64_to_usize, Type};
+use crate::{i64_to_usize, sys, Type};
 
 /// Tensors are owned by the context. A tensor is alive as long as the
 /// underlying context it was created with is alive.
 pub struct Tensor {
-    pub(crate) ptr: NonNull<crate::ggml_tensor>,
-    pub(crate) ctx: Weak<NonNull<crate::ggml_context>>,
+    pub(crate) ptr: NonNull<sys::ggml_tensor>,
+    pub(crate) ctx: Weak<NonNull<sys::ggml_context>>,
 }
 
 impl Tensor {
     /// Size of the `ggml_tensor` struct in bytes.
     ///
     /// Exposed for purposes of determining context size.
-    pub const C_TYPE_SIZE: usize = std::mem::size_of::<crate::ggml_tensor>();
+    pub const C_TYPE_SIZE: usize = std::mem::size_of::<sys::ggml_tensor>();
 
     /// Creates a shared copy of this tensor pointer.
     pub fn share(&self) -> Self {
@@ -47,7 +43,7 @@ impl Tensor {
     pub fn nbytes(&self) -> usize {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
-            unsafe { crate::ggml_nbytes(self.ptr.as_ptr()) }
+            unsafe { sys::ggml_nbytes(self.ptr.as_ptr()) }
         })
     }
 
@@ -80,7 +76,7 @@ impl Tensor {
     pub fn nelements(&self) -> usize {
         self.with_alive_ctx(|| {
             // SAFETY: The with_alive_call guarantees the context is alive
-            i64_to_usize(unsafe { crate::ggml_nelements(self.ptr.as_ptr()) })
+            i64_to_usize(unsafe { sys::ggml_nelements(self.ptr.as_ptr()) })
         })
     }
 
@@ -101,7 +97,7 @@ impl Tensor {
 
     /// The size of the element type in bytes.
     pub fn element_size(&self) -> usize {
-        self.with_alive_ctx(|| unsafe { crate::ggml_element_size(self.ptr.as_ptr()) })
+        self.with_alive_ctx(|| unsafe { sys::ggml_element_size(self.ptr.as_ptr()) })
     }
 
     /// Writes `src` to this tensor.
@@ -124,7 +120,7 @@ impl Tensor {
     ///
     /// This tensor must not be written to or read by from any other code.
     pub unsafe fn read_data(&self, offset: usize, dst: &mut [u8]) {
-        let data = unsafe { crate::ggml_get_data(self.ptr.as_ptr()).add(offset) };
+        let data = unsafe { sys::ggml_get_data(self.ptr.as_ptr()).add(offset) };
         std::ptr::copy_nonoverlapping(data, dst as *mut _ as _, dst.len())
     }
 }
