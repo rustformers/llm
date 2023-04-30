@@ -8,17 +8,16 @@
 
 use std::os::raw::{c_int, c_void};
 
-pub use tensor::Tensor;
+mod context;
+mod tensor;
 
+pub mod loader;
+pub mod saver;
 /// Utilities for reading and writing.
 pub mod util;
 
-pub mod loader;
-
-pub mod saver;
-
-pub mod context;
-mod tensor;
+pub use context::Context;
+pub use tensor::Tensor;
 
 pub(crate) use ggml_sys as sys;
 

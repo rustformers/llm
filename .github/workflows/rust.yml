@@ -29,7 +29,7 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
   fmt:
-    name: Clippy and formatting
+    name: Clippy, formatting and docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -41,4 +41,8 @@ jobs:
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy -- -Dclippy::all # -Dclippy::pedantic
+        run: cargo clippy -- -Dclippy::all
+      - name: Documentation
+        env:
+          RUSTDOCFLAGS: -Dwarnings
+        run: cargo doc --workspace --exclude llm-cli

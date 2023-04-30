@@ -25,7 +25,7 @@ pub struct Bloom {
     layers: Vec<Layer>,
 
     // Must be kept alive for the model
-    _context: ggml::context::Context,
+    _context: ggml::Context,
     _mmap: Option<Mmap>,
 }
 
@@ -165,7 +165,7 @@ impl KnownModel for Bloom {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::context::Context::init(buf_size, true);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         // TODO: REMAKE THIS AFTER CHECKING GGML GRAPH
         let mut gf = ggml::ComputationGraph::new(n_threads);

@@ -27,7 +27,7 @@ const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 /// to use it from multiple threads.
 pub struct InferenceSession {
     // Must be kept alive for the model
-    pub(crate) _session_ctx: ggml::context::Context,
+    pub(crate) _session_ctx: ggml::Context,
 
     // Original size of the memory used to create this context.
     pub(crate) memory_size: usize,
@@ -377,7 +377,7 @@ impl InferenceSession {
             ctx_size
         };
 
-        let session_ctx = ggml::context::Context::init(ctx_size, true);
+        let session_ctx = ggml::Context::init(ctx_size, true);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -409,7 +409,7 @@ impl InferenceSession {
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let context = ggml::context::Context::init(self.memory_size, true);
+        let context = ggml::Context::init(self.memory_size, true);
         let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 

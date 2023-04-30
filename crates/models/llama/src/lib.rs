@@ -36,7 +36,7 @@ pub struct Llama {
     _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
-    _context: ggml::context::Context,
+    _context: ggml::Context,
 }
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
@@ -183,7 +183,7 @@ impl KnownModel for Llama {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::context::Context::init(buf_size, true);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
@@ -437,7 +437,7 @@ impl Llama {
     /// This does *not* construct a valid model. All of the tensors are entirely
     /// empty. However, it can be used to determine if some code will compile.
     fn new_empty() -> Self {
-        let context = ggml::context::Context::init(1024 * 1024, true);
+        let context = ggml::Context::init(1024 * 1024, true);
         let tok_embeddings = context.new_f32(0.0);
         let norm = context.new_f32(0.0);
         let output = context.new_f32(0.0);

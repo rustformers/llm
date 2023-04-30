@@ -16,7 +16,7 @@ pub struct Gpt2 {
     wpe: Tensor,
     lm_head: Tensor,
     layers: Vec<Layer>,
-    _context: ggml::context::Context,
+    _context: ggml::Context,
 }
 
 impl KnownModel for Gpt2 {
@@ -126,7 +126,7 @@ impl KnownModel for Gpt2 {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml::context::Context::init(buf_size, true);
+        let ctx0 = ggml::Context::init(buf_size, true);
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
 

@@ -12,8 +12,8 @@ use crate::{
 };
 pub use ggml::ContainerType;
 use ggml::{
-    context::Context,
     loader::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo},
+    Context,
 };
 use memmap2::Mmap;
 use thiserror::Error;

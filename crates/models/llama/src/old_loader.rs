@@ -161,7 +161,7 @@ pub(crate) fn load(
     };
 
     // Initialize the context
-    let context = ggml::context::Context::init(ctx_size, alloc);
+    let context = ggml::Context::init(ctx_size, alloc);
 
     let (mmap, mmap_ptr) = if prefer_mmap && model_type.support_mmap() {
         let mmap = util::mmap_populate(&file)?;
