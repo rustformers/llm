@@ -21,9 +21,9 @@ quantized versions of the model.
 
 Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
-`llm-base`, `gpt2`, and `llama` are Rust libraries, while `llm-cli` is a CLI
-applications that wraps `gpt2` and `llama` and offer basic inference
-capabilities.
+`llm-base`, and the model crates (e.g. `bloom`, `gpt2` `llama`) are Rust
+libraries, while `llm-cli` is a CLI applications that wraps the models and offer
+basic inference capabilities.
 
 The following instructions explain how to build CLI applications.
 
@@ -102,6 +102,14 @@ cargo run -p llama-cli quantize /path/to/your/models/7B/ggml-model-f16.bin /path
 >
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models.
+
+### BLOOM
+
+The open-source [BLOOM](https://bigscience.huggingface.co/blog/bloom) model is
+also supported.
+[More information](https://huggingface.co/docs/transformers/model_doc/bloom)
+about BLOOM is available on HuggingFace, as are some
+[quantized models](https://huggingface.co/models?search=bloom%20ggml).
 
 ### GPT2
 

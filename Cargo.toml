@@ -1,11 +1,12 @@
 [workspace]
 members = [
     # Crates
+    "bloom",
     "ggml",
-    "llm-base",
     "gpt2",
     "llama",
     "llm",
+    "llm-base",
     "llm-cli",
 ]
 resolver = "2"
