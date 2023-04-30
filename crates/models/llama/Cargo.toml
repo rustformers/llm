@@ -1,5 +1,5 @@
 [package]
-name = "llama"
+name = "llm-llama"
 version = { workspace = true }
 edition = "2021"
 

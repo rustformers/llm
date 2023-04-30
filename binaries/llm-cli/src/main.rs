@@ -3,7 +3,7 @@ use std::{convert::Infallible, io::Write};
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{Context, Result};
-use llm::{llama::convert::convert_pth_to_ggml, InferenceError};
+use llm::InferenceError;
 use rustyline::error::ReadlineError;
 
 mod cli_args;
@@ -22,7 +22,9 @@ fn main() -> Result<()> {
         Args::DumpTokens(args) => dump_tokens(&args)?,
         Args::Repl(args) => interactive(&args, false)?,
         Args::ChatExperimental(args) => interactive(&args, true)?,
-        Args::Convert(args) => convert_pth_to_ggml(&args.directory, args.file_type.into()),
+        Args::Convert(args) => {
+            llm::models::llama::convert::convert_pth_to_ggml(&args.directory, args.file_type.into())
+        }
         Args::Quantize(args) => quantize(&args)?,
     }
 
@@ -187,8 +189,10 @@ fn interactive(
 }
 
 fn quantize(args: &cli_args::Quantize) -> Result<()> {
-    use llm::llama::quantize::{quantize, QuantizeProgress::*};
-    quantize(
+    use llama::quantize::QuantizeProgress::*;
+    use llm::models::llama;
+
+    llama::quantize::quantize(
         &args.source,
         &args.destination,
         args.target.into(),

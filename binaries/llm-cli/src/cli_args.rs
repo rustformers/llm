@@ -359,19 +359,19 @@ impl ModelLoad {
         load_progress_callback: impl FnMut(LoadProgress<'_>),
     ) -> Result<Box<dyn Model>> {
         Ok(match self.model_architecture {
-            ModelArchitecture::Llama => Box::new(llm::load::<llm::Llama>(
+            ModelArchitecture::Llama => Box::new(llm::load::<llm::models::Llama>(
                 path,
                 prefer_mmap,
                 n_context_tokens,
                 load_progress_callback,
             )?),
-            ModelArchitecture::Gpt2 => Box::new(llm::load::<llm::Gpt2>(
+            ModelArchitecture::Gpt2 => Box::new(llm::load::<llm::models::Gpt2>(
                 path,
                 prefer_mmap,
                 n_context_tokens,
                 load_progress_callback,
             )?),
-            ModelArchitecture::Bloom => Box::new(llm::load::<llm::Bloom>(
+            ModelArchitecture::Bloom => Box::new(llm::load::<llm::models::Bloom>(
                 path,
                 prefer_mmap,
                 n_context_tokens,

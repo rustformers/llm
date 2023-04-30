@@ -1,5 +1,5 @@
 [package]
-name = "bloom"
+name = "llm-bloom"
 version = { workspace = true }
 edition = "2021"
 

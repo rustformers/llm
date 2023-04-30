@@ -1,5 +1,5 @@
 [package]
-name = "gpt2"
+name = "llm-gpt2"
 version = { workspace = true }
 edition = "2021"
 

@@ -132,16 +132,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
-name = "bloom"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "ggml",
- "llm-base",
- "rand",
-]
-
-[[package]]
 name = "bytemuck"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -478,16 +468,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
-name = "gpt2"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "ggml",
- "llm-base",
- "rand",
-]
-
-[[package]]
 name = "half"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -621,31 +601,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 
 [[package]]
-name = "llama"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "ggml",
- "half",
- "llm-base",
- "partial_sort",
- "protobuf",
- "rand",
- "rust_tokenizers",
- "serde",
- "serde_bytes",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "llm"
 version = "0.1.0"
 dependencies = [
- "bloom",
- "gpt2",
- "llama",
  "llm-base",
+ "llm-bloom",
+ "llm-gpt2",
+ "llm-llama",
 ]
 
 [[package]]
@@ -666,6 +628,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "llm-bloom"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+ "rand",
+]
+
+[[package]]
 name = "llm-cli"
 version = "0.1.0"
 dependencies = [
@@ -681,6 +653,34 @@ dependencies = [
  "rustyline",
  "spinners",
  "zstd",
+]
+
+[[package]]
+name = "llm-gpt2"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+ "rand",
+]
+
+[[package]]
+name = "llm-llama"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "half",
+ "llm-base",
+ "partial_sort",
+ "protobuf",
+ "rand",
+ "rust_tokenizers",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
