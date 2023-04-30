@@ -1,3 +1,6 @@
+//! An implementation of GPT-2 for the `llm` ecosystem.
+#![deny(missing_docs)]
+
 use std::path::Path;
 
 use ggml::Tensor;
@@ -6,6 +9,10 @@ use llm_base::{
     InferenceSessionParameters, KnownModel, LoadError, LoadProgress, TokenId, Vocabulary,
 };
 
+/// The GPT-2 model.
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Gpt2 {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
@@ -18,7 +25,8 @@ pub struct Gpt2 {
     layers: Vec<Layer>,
     _context: ggml::Context,
 }
-
+unsafe impl Send for Gpt2 {}
+unsafe impl Sync for Gpt2 {}
 impl KnownModel for Gpt2 {
     type Hyperparameters = Hyperparameters;
 
@@ -353,7 +361,7 @@ impl KnownModel for Gpt2 {
         &self.vocabulary
     }
 
-    fn n_ctx(&self) -> usize {
+    fn n_context_tokens(&self) -> usize {
         self.hyperparameters.n_ctx
     }
 }

@@ -1,6 +1,6 @@
 use std::{convert::Infallible, env::args, io::Write};
 
-use llm_base::{load_progress_callback, model::KnownModel};
+use llm_base::{load_progress_callback_stdout, KnownModel};
 
 fn main() {
     let args: Vec<String> = args().collect();
@@ -13,7 +13,7 @@ fn main() {
     println!(" >>> Loading model from {loc}...");
     let now = std::time::Instant::now();
 
-    let llama = llm_llama::Llama::load(loc, true, 512, load_progress_callback)
+    let llama = llm_llama::Llama::load(loc, true, 512, load_progress_callback_stdout)
         .unwrap_or_else(|e| panic!("Error loading model from {loc}: {e}"));
 
     println!(" >>> Model loaded in {} ms.", now.elapsed().as_millis());

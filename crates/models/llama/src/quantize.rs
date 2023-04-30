@@ -1,10 +1,7 @@
 //! Implements quantization of weights.
 
 use crate::{Hyperparameters, LoadError, LoadProgress};
-use ggml::{
-    loader::TensorInfo,
-    saver::{SaveError, SaveHandler, TensorData},
-};
+use ggml::format::{SaveError, SaveHandler, TensorData, TensorInfo};
 use half::f16;
 use llm_base::{ggml, util, Loader};
 use std::{
@@ -157,7 +154,7 @@ pub fn quantize(
             }
         }
     });
-    ggml::loader::load_model(&mut reader, &mut loader)
+    ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path_in.to_owned()))?;
 
     // Save the quantized model, quantizing as we go
@@ -184,7 +181,7 @@ pub fn quantize(
         &mut file_in,
         |p| progress_callback(p),
     );
-    ggml::saver::save_model(
+    ggml::format::save(
         &mut writer,
         &mut saver,
         &vocabulary,

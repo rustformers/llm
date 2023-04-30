@@ -1,5 +1,6 @@
-pub use std::fs::File;
-pub use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+//! Utilities for reading and writing.
+
+use std::io::{BufRead, Write};
 
 /// Read a fixed-size array of bytes from a reader.
 pub fn read_bytes<const N: usize>(reader: &mut dyn BufRead) -> Result<[u8; N], std::io::Error> {

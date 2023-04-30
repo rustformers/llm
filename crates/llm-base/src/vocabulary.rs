@@ -10,17 +10,17 @@ pub(crate) type TokenScore = f32;
 /// The vocabulary used by a model.
 #[derive(Debug, Clone, Default)]
 pub struct Vocabulary {
-    /// Maps every integer (index) token id to its corresponding token
+    /// Maps every integer (index) token ID to its corresponding token.
     pub id_to_token: Vec<Token>,
 
-    /// Maps every integer (index) token id to corresponding score
+    /// Maps every integer (index) token ID to corresponding score.
     pub id_to_token_score: Vec<TokenScore>,
 
     // todo: use a radix tree
-    /// Maps a token to a token id
+    /// Maps a token to a token ID.
     pub token_to_id: HashMap<Token, TokenId>,
 
-    /// The longest token in this vocabulary
+    /// The longest token in this vocabulary.
     pub max_token_length: usize,
 }
 

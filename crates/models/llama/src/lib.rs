@@ -1,21 +1,22 @@
+//! An implementation of LLaMA (Large Language Model Meta AI) for the `llm` ecosystem.
+#![deny(missing_docs)]
+
 use std::{error::Error, path::Path};
 
 use llm_base::{
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader,
+    ggml, util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
+    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader, TokenId,
+    Vocabulary,
 };
+
 #[cfg(feature = "convert")]
 pub mod convert;
-
 #[cfg(feature = "quantize")]
 pub mod quantize;
 
 mod old_loader;
 
-pub use llm_base::{ggml, util::TokenUtf8Buffer, TokenBias, TokenId, Vocabulary};
-
-/// The weights for the LLaMA model. All the mutable state is split into a
-/// separate struct `InferenceSession`.
+/// The LLaMA model.
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
@@ -428,7 +429,7 @@ impl KnownModel for Llama {
         &self.vocabulary
     }
 
-    fn n_ctx(&self) -> usize {
+    fn n_context_tokens(&self) -> usize {
         self.n_context_tokens
     }
 }

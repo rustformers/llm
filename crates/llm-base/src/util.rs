@@ -1,3 +1,4 @@
+//! Utilities for interacting with LLMs and loading them.
 pub use ggml::util::*;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 /// rust ends up being slightly lower, but no "out of memory" errors are
 /// reported by ggml.
 #[macro_export]
+#[doc(hidden)]
 macro_rules! mulf {
     ($term:expr, $($terms:expr),*) => {
         usize::try_from((($term as f64) $(* ($terms as f64))*) as u64).unwrap()

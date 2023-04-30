@@ -43,13 +43,13 @@ fn can_roundtrip_loader_and_saver() {
                     .collect::<Vec<_>>();
 
                 let n_elements = dims.iter().product::<usize>();
-                let data = (0..loader::data_size(element_type, n_elements))
+                let data = (0..format::data_size(element_type, n_elements))
                     .map(|_| random())
                     .collect::<Vec<_>>();
 
                 (
                     format!("tensor_{}", i),
-                    saver::TensorData {
+                    format::TensorData {
                         n_dims,
                         dims: dims.try_into().unwrap(),
                         element_type,
@@ -64,7 +64,7 @@ fn can_roundtrip_loader_and_saver() {
     let mut buffer = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut buffer);
     let mut save_handler = MockSaveHandler { model: &model };
-    saver::save_model(
+    format::save(
         &mut cursor,
         &mut save_handler,
         &model.vocabulary,
@@ -78,7 +78,7 @@ fn can_roundtrip_loader_and_saver() {
         data: &buffer,
         loaded_model: Model::default(),
     };
-    loader::load_model(&mut cursor, &mut load_handler).unwrap();
+    format::load(&mut cursor, &mut load_handler).unwrap();
     assert_eq!(load_handler.loaded_model, model);
 }
 
@@ -109,19 +109,19 @@ impl Hyperparameters {
 struct Model {
     hyperparameters: Hyperparameters,
     vocabulary: Vec<(Vec<u8>, f32)>,
-    tensors: BTreeMap<String, saver::TensorData>,
+    tensors: BTreeMap<String, format::TensorData>,
 }
 
 struct MockSaveHandler<'a> {
     model: &'a Model,
 }
-impl saver::SaveHandler<DummyError> for MockSaveHandler<'_> {
+impl format::SaveHandler<DummyError> for MockSaveHandler<'_> {
     fn write_hyperparameters(&mut self, writer: &mut dyn Write) -> Result<(), DummyError> {
         self.model.hyperparameters.write(writer).unwrap();
         Ok(())
     }
 
-    fn tensor_data(&mut self, tensor_name: &str) -> Result<saver::TensorData, DummyError> {
+    fn tensor_data(&mut self, tensor_name: &str) -> Result<format::TensorData, DummyError> {
         self.model
             .tensors
             .get(tensor_name)
@@ -134,7 +134,7 @@ struct MockLoadHandler<'a> {
     data: &'a [u8],
     loaded_model: Model,
 }
-impl loader::LoadHandler<DummyError> for MockLoadHandler<'_> {
+impl format::LoadHandler<DummyError> for MockLoadHandler<'_> {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), DummyError> {
         assert_eq!(container_type, ContainerType::Ggjt);
         Ok(())
@@ -149,9 +149,9 @@ impl loader::LoadHandler<DummyError> for MockLoadHandler<'_> {
     fn read_hyperparameters(
         &mut self,
         reader: &mut dyn BufRead,
-    ) -> Result<loader::PartialHyperparameters, DummyError> {
+    ) -> Result<format::PartialHyperparameters, DummyError> {
         self.loaded_model.hyperparameters = Hyperparameters::read(reader).unwrap();
-        Ok(loader::PartialHyperparameters {
+        Ok(format::PartialHyperparameters {
             n_vocab: self
                 .loaded_model
                 .hyperparameters
@@ -161,8 +161,8 @@ impl loader::LoadHandler<DummyError> for MockLoadHandler<'_> {
         })
     }
 
-    fn tensor_buffer(&mut self, info: loader::TensorInfo) -> Result<(), DummyError> {
-        let data = saver::TensorData {
+    fn tensor_buffer(&mut self, info: format::TensorInfo) -> Result<(), DummyError> {
+        let data = format::TensorData {
             n_dims: info.n_dims,
             dims: info.dims,
             element_type: info.element_type,

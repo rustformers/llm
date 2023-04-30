@@ -12,13 +12,13 @@ use crate::{
 };
 pub use ggml::ContainerType;
 use ggml::{
-    loader::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo},
+    format::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo},
     Context,
 };
 use memmap2::Mmap;
 use thiserror::Error;
 
-/// How the tensors are stored in the GGML LLaMA model.
+/// How the tensors are stored in GGML LLM models.
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
 pub enum FileType {
     /// All tensors are stored as f32.
@@ -286,6 +286,18 @@ pub trait TensorLoader<E: std::error::Error> {
 }
 
 /// Load an arbitrary GGML model.
+///
+/// Note that the model must be a single-part model, and the model in `path`
+/// *must* match the architecture of `M`.
+///
+/// # Panics
+///
+/// - If the model does not match the architecture of `M`. This is not checked
+///   before execution, so this function will panic if the model does not match
+///   the architecture.
+///
+///   This is a limitation of the GGML format, which does not
+///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: impl AsRef<Path>,
     prefer_mmap: bool,
@@ -315,7 +327,7 @@ pub fn load<M: KnownModel>(
 
     let mut loader = Loader::new(load_progress_callback);
 
-    ggml::loader::load_model(&mut reader, &mut loader)
+    ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.clone()))?;
 
     let Loader {
@@ -471,7 +483,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
         }
     }
 }
-impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::loader::LoadHandler<LoadError>
+impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<LoadError>
     for Loader<Hp, F>
 {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {
@@ -510,8 +522,8 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::loader::LoadHandler<Load
     }
 }
 
-/// Default load progress callbacks (prints progress to stdout)
-pub fn load_progress_callback(progress: LoadProgress) {
+/// A implementation for `load_progress_callback` that outputs to `stdout`.
+pub fn load_progress_callback_stdout(progress: LoadProgress) {
     match progress {
         LoadProgress::HyperparametersLoaded => println!("Loaded hyperparameters"),
         LoadProgress::ContextSize { bytes } => println!(

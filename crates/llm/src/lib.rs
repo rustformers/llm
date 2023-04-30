@@ -1,3 +1,10 @@
+//! The `llm` crate provides a unified interface for loading and using
+//! Large Language Models (LLMs) such as LLaMA.
+//!
+//! At present, the only supported backend is GGML, but this is expected to
+//! change in the future.
+#![deny(missing_docs)]
+
 pub use llm_base::{
     load, ElementType, FileType, InferenceError, InferenceParameters, InferenceSession,
     InferenceSessionParameters, InferenceSnapshot, KnownModel, LoadError, LoadProgress, Model,
@@ -5,6 +12,7 @@ pub use llm_base::{
     EOT_TOKEN_ID,
 };
 
+/// All available models.
 pub mod models {
     #[cfg(feature = "bloom")]
     pub use llm_bloom::{self as bloom, Bloom};

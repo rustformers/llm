@@ -5,15 +5,14 @@
 //!
 //! `ggml` operates on a computational graph; no values will be computed until [Context::graph_compute] is executed.
 //! All [Tensor]s are nodes in this computational graph, and values cannot be retrieved until computation is completed.
+#![deny(missing_docs)]
 
 use std::os::raw::{c_int, c_void};
 
 mod context;
 mod tensor;
 
-pub mod loader;
-pub mod saver;
-/// Utilities for reading and writing.
+pub mod format;
 pub mod util;
 
 pub use context::Context;

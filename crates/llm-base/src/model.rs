@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// A large language model.
-pub trait KnownModel {
+pub trait KnownModel: Send + Sync {
     /// Hyperparameters for the model
     type Hyperparameters: Hyperparameters;
 
@@ -37,11 +37,11 @@ pub trait KnownModel {
         output_request: &mut EvaluateOutputRequest,
     );
 
-    /// Model vocabulary
+    /// Get the vocabulary for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
-    /// Model context size
-    fn n_ctx(&self) -> usize;
+    /// Get the context size for this model.
+    fn n_context_tokens(&self) -> usize;
 }
 
 /// A type-erased model to allow for interacting with a model without knowing
@@ -64,11 +64,11 @@ pub trait Model {
         output_request: &mut EvaluateOutputRequest,
     );
 
-    /// Model vocabulary
+    /// Get the vocabulary for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
-    /// Model context size
-    fn n_ctx(&self) -> usize;
+    /// Get the context size for this model.
+    fn n_context_tokens(&self) -> usize;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
@@ -89,8 +89,8 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         KnownModel::vocabulary(self)
     }
 
-    fn n_ctx(&self) -> usize {
-        KnownModel::n_ctx(self)
+    fn n_context_tokens(&self) -> usize {
+        KnownModel::n_context_tokens(self)
     }
 }
 

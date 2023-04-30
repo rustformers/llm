@@ -1,3 +1,9 @@
+//! The loader module contains the code for loading a model from disk.
+//!
+//! To handle a specific model, implement [LoadHandler] for your model
+//! and call [load] with an instance of your handler. It is up to you
+//! to process the data from the handler and construct your model.
+
 use std::{
     error::Error,
     io::{BufRead, Seek, SeekFrom},
@@ -84,7 +90,7 @@ impl TensorInfo {
 }
 
 /// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.
-pub fn data_size(element_type: ElementType, n_elements: usize) -> usize {
+pub(crate) fn data_size(element_type: ElementType, n_elements: usize) -> usize {
     (crate::type_size(element_type) * n_elements) / crate::blck_size(element_type)
 }
 
@@ -112,7 +118,7 @@ pub trait LoadHandler<E: Error> {
 }
 
 /// Load a model from a `reader` with the `handler`, which will be called when certain events occur.
-pub fn load_model<E: Error, R: BufRead + Seek>(
+pub fn load<E: Error, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<E>,
 ) -> Result<(), LoadError<E>> {

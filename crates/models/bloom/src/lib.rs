@@ -1,6 +1,8 @@
-//! An implementation of BLOOM (BigScience Large Open-science Open-access Multilingual Language Model).
+//! An implementation of BLOOM (BigScience Large Open-science Open-access Multilingual Language Model)
+//! for the `llm` ecosystem.
 //!
 //! This implementation of BLOOM may not be fully correct. More work may be required.
+#![deny(missing_docs)]
 
 use std::path::Path;
 
@@ -9,8 +11,10 @@ use llm_base::{
     InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
 };
 
-/// The weights for the BLOOM model. All the mutable state is split into a
-/// separate struct `InferenceSession`.
+/// The BLOOM model.
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Bloom {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
@@ -28,7 +32,8 @@ pub struct Bloom {
     _context: ggml::Context,
     _mmap: Option<Mmap>,
 }
-
+unsafe impl Send for Bloom {}
+unsafe impl Sync for Bloom {}
 impl Bloom {
     /// Load the model from `path` with `n_context_tokens` context tokens.
     ///
@@ -42,7 +47,6 @@ impl Bloom {
         llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
     }
 }
-
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
 
@@ -465,24 +469,31 @@ impl KnownModel for Bloom {
         &self.vocabulary
     }
 
-    fn n_ctx(&self) -> usize {
+    fn n_context_tokens(&self) -> usize {
         self.n_context_tokens
     }
 }
 
-// NOTE: Field order matters! Data is laid out in the file exactly
-// in this order.
+/// The hyperparameters of the model.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
+    /// n_vocab
     pub n_vocab: usize,
+    /// n_embd
     pub n_embd: usize,
+    /// n_mult
     pub n_mult: usize,
+    /// n_head
     pub n_head: usize,
+    /// n_layer
     pub n_layer: usize,
+    /// file_type
     pub file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, llm_base::LoadError> {
+        // NOTE: Field order matters! Data is laid out in the file exactly
+        // in this order.
         Ok(Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_embd: util::read_i32(reader)?.try_into()?,

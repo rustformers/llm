@@ -1,16 +1,14 @@
-#![deny(missing_docs)]
 //! LLaMA-rs is a Rust port of the llama.cpp project. This allows running inference for Facebook's LLaMA model on a CPU with good performance using full precision, f16 or 4-bit quantized versions of the model.
+#![deny(missing_docs)]
 
 use thiserror::Error;
 
-/// Large language model
-pub mod model;
-/// Utilities
-pub mod util;
-
 mod inference_session;
 mod loader;
+mod model;
 mod vocabulary;
+
+pub mod util;
 
 pub use ggml;
 pub use ggml::Type as ElementType;
@@ -19,7 +17,7 @@ pub use inference_session::{
     SnapshotError,
 };
 pub use loader::{
-    load, load_progress_callback, ContainerType, FileType, LoadError, LoadProgress, Loader,
+    load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
     TensorLoader,
 };
 pub use memmap2::Mmap;
@@ -69,7 +67,7 @@ impl Default for InferenceParameters {
 }
 
 #[derive(Error, Debug)]
-/// Errors encountered during the inferencep rocess.
+/// Errors encountered during the inference process.
 pub enum InferenceError {
     #[error("an invalid token was encountered during tokenization")]
     /// During tokenization, one of the produced tokens was invalid / zero.

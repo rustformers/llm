@@ -1,3 +1,9 @@
+//! The saver module implements a way to save a model to disk in the GGJT format.
+//!
+//! To implement a saver for your model, implement [SaveHandler] for your model
+//! and provide data as appropriate, then call [save] with an instance of
+//! your handler.
+
 use std::{
     error::Error,
     io::{Seek, Write},
@@ -54,7 +60,7 @@ pub struct TensorData {
 /// Saves a model to the given writer.
 ///
 /// Only GGJT is supported.
-pub fn save_model<E: Error, W: Write + Seek>(
+pub fn save<E: Error, W: Write + Seek>(
     writer: &mut W,
     handler: &mut dyn SaveHandler<E>,
     vocabulary: &[(Vec<u8>, f32)],
