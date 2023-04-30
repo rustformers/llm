@@ -614,17 +614,14 @@ dependencies = [
 name = "llm-base"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "bytemuck",
  "ggml",
- "log",
  "memmap2",
  "partial_sort",
  "rand",
  "serde",
  "serde_bytes",
  "thiserror",
- "zstd",
 ]
 
 [[package]]
@@ -648,7 +645,6 @@ dependencies = [
  "llm",
  "log",
  "num_cpus",
- "once_cell",
  "rand",
  "rustyline",
  "spinners",
@@ -673,12 +669,10 @@ dependencies = [
  "ggml",
  "half",
  "llm-base",
- "partial_sort",
  "protobuf",
  "rand",
  "rust_tokenizers",
  "serde",
- "serde_bytes",
  "serde_json",
  "thiserror",
 ]

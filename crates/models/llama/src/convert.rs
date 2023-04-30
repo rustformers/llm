@@ -68,7 +68,7 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
 
 fn load_hyperparameters(path: &Path, file_type: FileType, vocab: &Vocabulary) -> Hyperparameters {
     #[derive(Deserialize)]
-    struct HyperParametersJson {
+    struct HyperparametersJson {
         dim: usize,
         multiple_of: usize,
         n_heads: usize,
@@ -77,7 +77,7 @@ fn load_hyperparameters(path: &Path, file_type: FileType, vocab: &Vocabulary) ->
     }
 
     let json = read_to_string(path.join("params.json")).expect("Unable to read file");
-    let json: HyperParametersJson = serde_json::from_str(&json).expect("Unable to parse json");
+    let json: HyperparametersJson = serde_json::from_str(&json).expect("Unable to parse json");
     Hyperparameters {
         file_type,
         n_embd: json.dim,

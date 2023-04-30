@@ -114,7 +114,8 @@ impl Tensor {
         unsafe { std::ptr::write_bytes(self.data() as *mut u8, 0, self.nbytes()) }
     }
 
-    /// Reads this tensor into `dst`, starting from `offset`.
+    /// Reads this tensor into `dst`, starting from `offset`. The size of `dst`
+    /// will be used to determine how many bytes to read.
     ///
     /// # Safety
     ///
