@@ -35,13 +35,13 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llama-rs llm-cli
+cargo install --git https://github.com/rustformers/llama-rs llm
 ```
 
-to install `llm-cli` to your Cargo `bin` directory, which `rustup` is likely to
+to install `llm` to your Cargo `bin` directory, which `rustup` is likely to
 have added to your `PATH`.
 
-The CLI application can then be run through `llm-cli`.
+The CLI application can then be run through `llm`.
 
 ![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
@@ -54,12 +54,12 @@ git clone --recurse-submodules git@github.com:rustformers/llama-rs.git
 cargo build --release
 ```
 
-The resulting binary will be at `target/release/llm-cli[.exe]`.
+The resulting binary will be at `target/release/llm[.exe]`.
 
 It can also be run directly through Cargo, using
 
 ```shell
-cargo run --release --bin llm-cli -- <ARGS>
+cargo run --release --bin llm -- <ARGS>
 ```
 
 This is useful for development.
