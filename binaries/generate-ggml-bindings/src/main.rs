@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 fn main() {
-    const HEADER_PATH: &str = "ggml/sys/ggml/include/ggml/ggml.h";
+    const HEADER_PATH: &str = "crates/ggml/sys/ggml/include/ggml/ggml.h";
 
     let bindings = bindgen::Builder::default()
         .header(HEADER_PATH)
@@ -19,7 +19,11 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings");
 
-    let out_path = PathBuf::from("ggml").join("sys").join("src").join("lib.rs");
+    let out_path = PathBuf::from("crates")
+        .join("ggml")
+        .join("sys")
+        .join("src")
+        .join("lib.rs");
     bindings
         .write_to_file(out_path)
         .expect("Couldn't write bindings");

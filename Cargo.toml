@@ -1,15 +1,12 @@
 [workspace]
 members = [
     # Crates
-    "bloom",
-    "ggml",
-    "ggml/sys",
-    "gpt2",
-    "llama",
-    "llm",
-    "llm-base",
-    "llm-cli",
-    "tools/*"
+    "crates/ggml",
+    "crates/ggml/sys",
+    "crates/llm",
+    "crates/llm-base",
+    "crates/models/*",
+    "binaries/*"
 ]
 resolver = "2"
 

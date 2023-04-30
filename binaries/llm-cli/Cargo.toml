@@ -8,7 +8,7 @@ name = "llm"
 path = "src/main.rs"
 
 [dependencies]
-llm = { path = "../llm" }
+llm = { path = "../../crates/llm" }
 
 log = { workspace = true }
 rand = {workspace = true}

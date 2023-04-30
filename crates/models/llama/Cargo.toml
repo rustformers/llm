@@ -6,7 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llm-base = { path = "../llm-base" }
+llm-base = { path = "../../llm-base" }
+ggml = { path = "../../ggml" }
 
 bytemuck = { workspace = true }
 serde = { workspace = true }
@@ -23,11 +24,10 @@ rust_tokenizers = { version = "3.1.2", optional = true }
 
 # Used for the `quantize` feature
 half = { version = "2.2.1", optional = true }
-ggml = { path = "../ggml", optional = true }
 
 [features]
 convert = ["dep:serde_json", "dep:protobuf", "dep:rust_tokenizers"]
-quantize = ["dep:half", "dep:ggml"]
+quantize = ["dep:half"]
 
 [dev-dependencies]
 rand = { workspace = true }
