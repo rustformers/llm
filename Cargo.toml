@@ -1,11 +1,15 @@
 [workspace]
 members = [
-    "ggml-sys",
+    # Crates
+    "bloom",
     "ggml",
-    "ggml-format",
-    "llama-rs",
-    "llama-cli",
-    "generate-ggml-bindings"
+    "ggml/sys",
+    "gpt2",
+    "llama",
+    "llm",
+    "llm-base",
+    "llm-cli",
+    "tools/*"
 ]
 resolver = "2"
 
@@ -13,4 +17,7 @@ resolver = "2"
 version = "0.1.0"
 
 [workspace.dependencies]
+bytemuck = "1.13.1"
+log = "0.4"
 rand = "0.8.5"
+serde = { version = "1.0", features = ["derive"] }

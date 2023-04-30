@@ -1,0 +1,13 @@
+[package]
+name = "gpt2"
+version = { workspace = true }
+edition = "2021"
+
+[dependencies]
+ggml = { path = "../ggml" }
+llm-base = { path = "../llm-base" }
+
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

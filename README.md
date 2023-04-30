@@ -1,39 +1,31 @@
 # LLaMA-rs
 
-<!-- markdownlint-disable-file MD026 -->
+This project is a Rust port of
+[llama.cpp](https://github.com/ggerganov/llama.cpp) 🦙🦀🚀
 
-> Do the LLaMA thing, but now in Rust 🦀🚀🦙
-
-![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
-
-> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F8DNO5D)
+Just like its C++ counterpart, it is powered by the
+[`ggml`](https://github.com/ggerganov/ggml) tensor library, which allows running
+inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
+model on a CPU with good performance using full precision, f16 or 4-bit
+quantized versions of the model.
 
 [![Latest version](https://img.shields.io/crates/v/llama-rs.svg)](https://crates.io/crates/llama_rs)
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
-![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
+![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
 
-**LLaMA-rs** is a Rust port of the
-[llama.cpp](https://github.com/ggerganov/llama.cpp) project. This allows running
-inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
-model on a CPU with good performance using full precision, f16 or 4-bit
-quantized versions of the model.
-
-Just like its C++ counterpart, it is powered by the
-[`ggml`](https://github.com/ggerganov/ggml) tensor library, achieving the same
-performance as the original code.
+> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
 
 ## Getting started
 
 Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
-`llama-rs` is a Rust library, while `llama-cli` is a CLI application that wraps
-`llama-rs` and offers basic inference capabilities.
+`llm-base`, and the model crates (e.g. `bloom`, `gpt2` `llama`) are Rust
+libraries, while `llm-cli` is a CLI applications that wraps the models and offer
+basic inference capabilities.
 
-The following instructions explain how to build `llama-cli`.
+The following instructions explain how to build CLI applications.
 
 **NOTE**: For best results, make sure to build and run in release mode.
 Debug builds are going to be very slow.
@@ -43,33 +35,36 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llama-rs llama-cli
+cargo install --git https://github.com/rustformers/llama-rs llm
 ```
 
-to install `llama-cli` to your Cargo `bin` directory, which `rustup` is likely to
+to install `llm` to your Cargo `bin` directory, which `rustup` is likely to
 have added to your `PATH`.
 
-It can then be run through `llama-cli`.
+The CLI application can then be run through `llm`.
+
+![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
 
 ### Building from repository
 
-Clone the repository, and then build it through
+Clone the repository and then build it with
 
 ```shell
-cargo build --release --bin llama-cli
+git clone --recurse-submodules git@github.com:rustformers/llama-rs.git
+cargo build --release
 ```
 
-The resulting binary will be at `target/release/llama-cli[.exe]`.
+The resulting binary will be at `target/release/llm[.exe]`.
 
 It can also be run directly through Cargo, using
 
 ```shell
-cargo run --release --bin llama-cli -- <ARGS>
+cargo run --release --bin llm -- <ARGS>
 ```
 
 This is useful for development.
 
-### Getting the weights
+### Getting LLaMA weights
 
 In order to run the inference code in `llama-rs`, a copy of the model's weights
 are required.
@@ -77,7 +72,8 @@ are required.
 #### From Hugging Face
 
 Compatible weights - not necessarily the original LLaMA weights - can be found
-on [Hugging Face by searching for GGML](https://huggingface.co/models?search=ggml). At present, LLaMA-architecture models are supported.
+on [Hugging Face by searching for GGML](https://huggingface.co/models?search=ggml).
+At present, LLaMA-architecture models are supported.
 
 #### LLaMA original weights
 
@@ -107,6 +103,21 @@ cargo run -p llama-cli quantize /path/to/your/models/7B/ggml-model-f16.bin /path
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models.
 
+### BLOOM
+
+The open-source [BLOOM](https://bigscience.huggingface.co/blog/bloom) model is
+also supported.
+[More information](https://huggingface.co/docs/transformers/model_doc/bloom)
+about BLOOM is available on HuggingFace, as are some
+[quantized models](https://huggingface.co/models?search=bloom%20ggml).
+
+### GPT2
+
+OpenAI's [GPT-2](https://jalammar.github.io/illustrated-gpt2/) architecture is
+also supported. The open-source family of
+[Cerebras](https://www.cerebras.net/blog/cerebras-gpt-a-family-of-open-compute-efficient-large-language-models/)
+models is built on this architecture.
+
 _Support for other open source models is currently planned. For models where
 weights can be legally distributed, this section will be updated with scripts to
 make the install process as user-friendly as possible. Due to the model's legal
@@ -133,9 +144,9 @@ Some additional things to try:
 
   ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
 
-- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file. To automatically load
-  and save the same session, use `--persist-session`. This can be used to cache prompts to reduce load
-  time, too:
+- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file.
+  To automatically load and save the same session, use `--persist-session`.
+  This can be used to cache prompts to reduce load time, too:
 
   ![Gif showcasing prompt caching](./doc/resources/prompt_caching_screencap.gif)
 

@@ -4,4 +4,8 @@ version = { workspace = true }
 edition = "2021"
 
 [dependencies]
-ggml-sys = { path = "../ggml-sys" }
+thiserror = "1.0"
+ggml-sys = { path = "sys" }
+
+[dev-dependencies]
+rand = "0.8"

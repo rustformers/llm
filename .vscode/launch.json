@@ -1,0 +1,62 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug example 'bloom_inference'",
+      "cargo": {
+        "args": [
+          "build",
+          "--example=bloom_inference",
+          "--package=bloom"
+        ],
+        "filter": {
+          "name": "bloom_inference",
+          "kind": "example"
+        }
+      },
+      "args": ["${env:HOME}/.ggml-models/bloom-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug example 'gpt2_inference'",
+      "cargo": {
+        "args": [
+          "build",
+          "--example=gpt2_inference",
+          "--package=gpt2"
+        ],
+        "filter": {
+          "name": "gpt2_inference",
+          "kind": "example"
+        }
+      },
+      "args": ["${env:HOME}/.ggml-models/cerebras-gpt-13b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug example 'llama_inference'",
+      "cargo": {
+        "args": [
+          "build",
+          "--example=llama_inference",
+          "--package=llama"
+        ],
+        "filter": {
+          "name": "llama_inference",
+          "kind": "example"
+        }
+      },
+      "args": ["${env:HOME}/.ggml-models/gpt4all-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

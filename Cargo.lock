@@ -104,9 +104,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.64.0"
+version = "0.65.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4243e6031260db77ede97ad86c27e501d646a27ab57b59a574f725d98ab1fb4"
+checksum = "cfdf7b466f9a4903edc73f95d6d2bcd5baf8ae620638762244d3f60143643cc5"
 dependencies = [
  "bitflags",
  "cexpr",
@@ -115,12 +115,13 @@ dependencies = [
  "lazycell",
  "log",
  "peeking_take_while",
+ "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
  "rustc-hash",
  "shlex",
- "syn 1.0.109",
+ "syn 2.0.13",
  "which",
 ]
 
@@ -129,6 +130,16 @@ name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
+
+[[package]]
+name = "bloom"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+ "rand",
+]
 
 [[package]]
 name = "bytemuck"
@@ -443,13 +454,6 @@ name = "ggml"
 version = "0.1.0"
 dependencies = [
  "ggml-sys",
-]
-
-[[package]]
-name = "ggml-format"
-version = "0.1.0"
-dependencies = [
- "ggml",
  "rand",
  "thiserror",
 ]
@@ -472,6 +476,16 @@ name = "glob"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
+
+[[package]]
+name = "gpt2"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+ "rand",
+]
 
 [[package]]
 name = "half"
@@ -607,32 +621,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 
 [[package]]
-name = "llama-cli"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "clap",
- "color-eyre",
- "env_logger",
- "llama-rs",
- "log",
- "num_cpus",
- "once_cell",
- "rand",
- "rustyline",
- "spinners",
- "zstd",
-]
-
-[[package]]
-name = "llama-rs"
+name = "llama"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
  "ggml",
- "ggml-format",
  "half",
- "memmap2",
+ "llm-base",
  "partial_sort",
  "protobuf",
  "rand",
@@ -641,6 +636,51 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "llm"
+version = "0.1.0"
+dependencies = [
+ "bloom",
+ "gpt2",
+ "llama",
+ "llm-base",
+]
+
+[[package]]
+name = "llm-base"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "ggml",
+ "log",
+ "memmap2",
+ "partial_sort",
+ "rand",
+ "serde",
+ "serde_bytes",
+ "thiserror",
+ "zstd",
+]
+
+[[package]]
+name = "llm-cli"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "color-eyre",
+ "env_logger",
+ "llm",
+ "log",
+ "num_cpus",
+ "once_cell",
+ "rand",
+ "rustyline",
+ "spinners",
+ "zstd",
 ]
 
 [[package]]
@@ -782,6 +822,16 @@ name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
+
+[[package]]
+name = "prettyplease"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ceca8aaf45b5c46ec7ed39fff75f57290368c1846d33d24a122ca81416ab058"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.13",
+]
 
 [[package]]
 name = "proc-macro2"
