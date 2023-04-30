@@ -7,9 +7,9 @@
 
 pub use llm_base::{
     load, ElementType, FileType, InferenceError, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceSnapshot, KnownModel, LoadError, LoadProgress, Model,
-    ModelKVMemoryType, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
-    EOT_TOKEN_ID,
+    InferenceSessionParameters, InferenceSnapshot, InferenceWithPromptParameters, KnownModel,
+    LoadError, LoadProgress, Model, ModelKVMemoryType, SnapshotError, TokenBias, TokenId,
+    TokenUtf8Buffer, Vocabulary, EOT_TOKEN_ID,
 };
 
 /// All available models.

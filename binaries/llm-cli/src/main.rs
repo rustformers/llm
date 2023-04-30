@@ -41,14 +41,17 @@ fn infer(args: &cli_args::Infer) -> Result<()> {
         args.generate.load_session.as_deref(),
         inference_session_params,
     );
-    let inference_params = args.generate.inference_parameters(session_loaded);
+    let inference_params = args.generate.inference_parameters();
 
     let mut rng = args.generate.rng();
     let res = session.inference_with_prompt::<Infallible>(
         model.as_ref(),
         &inference_params,
+        &llm::InferenceWithPromptParameters {
+            play_back_previous_tokens: session_loaded,
+            maximum_token_count: args.generate.num_predict,
+        },
         &prompt,
-        args.generate.num_predict,
         &mut rng,
         |t| {
             print!("{t}");
@@ -124,7 +127,7 @@ fn interactive(
         args.generate.load_session.as_deref(),
         inference_session_params,
     );
-    let inference_params = args.generate.inference_parameters(session_loaded);
+    let inference_params = args.generate.inference_parameters();
 
     let mut rng = args.generate.rng();
     let mut rl = rustyline::DefaultEditor::new()?;
@@ -157,8 +160,11 @@ fn interactive(
                 let res = session.inference_with_prompt::<Infallible>(
                     model.as_ref(),
                     &inference_params,
+                    &llm::InferenceWithPromptParameters {
+                        play_back_previous_tokens: session_loaded,
+                        maximum_token_count: args.generate.num_predict,
+                    },
                     "",
-                    args.generate.num_predict,
                     &mut rng,
                     |tk| {
                         print!("{tk}");

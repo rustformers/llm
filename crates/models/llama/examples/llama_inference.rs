@@ -22,8 +22,8 @@ fn main() {
     let res = session.inference_with_prompt::<Infallible>(
         &llama,
         &Default::default(),
+        &Default::default(),
         prompt,
-        None,
         &mut rand::thread_rng(),
         |t| {
             print!("{t}");

@@ -13,8 +13,8 @@ pub mod util;
 pub use ggml;
 pub use ggml::Type as ElementType;
 pub use inference_session::{
-    InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
-    SnapshotError,
+    InferenceSession, InferenceSessionParameters, InferenceSnapshot, InferenceWithPromptParameters,
+    ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
@@ -36,7 +36,7 @@ pub struct InferenceParameters {
     /// [InferenceSession::feed_prompt] processes the prompt in batches of tokens.
     /// This controls how large an individual batch is.
     pub n_batch: usize,
-    ///  Top-K: The top K words by score are kept during sampling.
+    /// Top-K: The top K words by score are kept during sampling.
     pub top_k: usize,
     /// Top-p: The cumulative probability after which no more words are kept for sampling.
     pub top_p: f32,
@@ -48,8 +48,6 @@ pub struct InferenceParameters {
     pub temperature: f32,
     /// A list of tokens to bias against in the process of generation.
     pub bias_tokens: TokenBias,
-    /// Whether or not previous tokens should be played back in [InferenceSession::inference_with_prompt].
-    pub play_back_previous_tokens: bool,
 }
 impl Default for InferenceParameters {
     fn default() -> Self {
@@ -61,7 +59,6 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temperature: 0.80,
             bias_tokens: TokenBias::default(),
-            play_back_previous_tokens: false,
         }
     }
 }

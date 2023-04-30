@@ -224,7 +224,7 @@ impl Generate {
         }
     }
 
-    pub fn inference_parameters(&self, session_loaded: bool) -> InferenceParameters {
+    pub fn inference_parameters(&self) -> InferenceParameters {
         InferenceParameters {
             n_threads: self.num_threads(),
             n_batch: self.batch_size,
@@ -239,7 +239,6 @@ impl Generate {
                     TokenBias::default()
                 }
             }),
-            play_back_previous_tokens: session_loaded,
         }
     }
 }

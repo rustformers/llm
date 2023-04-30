@@ -141,19 +141,17 @@ impl InferenceSession {
 
     /// Helper function to run inference with this session and the given model and vocabulary.
     /// The `callback` is called with each new token until inference is complete.
-    ///
-    /// If `params.play_back_previous_tokens` is specified, this will "play back" all existing tokens in the session.
     pub fn inference_with_prompt<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
         params: &InferenceParameters,
+        prompt_params: &InferenceWithPromptParameters,
         prompt: &str,
-        maximum_token_count: Option<usize>,
         rng: &mut impl rand::Rng,
         mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
-        let maximum_token_count = maximum_token_count.unwrap_or(usize::MAX);
-        if params.play_back_previous_tokens {
+        let maximum_token_count = prompt_params.maximum_token_count.unwrap_or(usize::MAX);
+        if prompt_params.play_back_previous_tokens {
             // "Play back" the existing tokens, so that loading from an inference snapshot works
             // as expected.
             let mut token_utf8_buf = TokenUtf8Buffer::new();
@@ -528,6 +526,19 @@ impl Default for InferenceSessionParameters {
             memory_v_type: ModelKVMemoryType::Float32,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, serde::Serialize, serde::Deserialize)]
+/// Settings specific to [InferenceSession::inference_with_prompt].
+pub struct InferenceWithPromptParameters {
+    /// Whether or not to call the callback with the previous tokens
+    /// that were encountered in this session.
+    ///
+    /// You likely want to turn this on if you're using a session
+    /// that has been rehydrated from a snapshot.
+    pub play_back_previous_tokens: bool,
+    /// The maximum number of tokens to generate.
+    pub maximum_token_count: Option<usize>,
 }
 
 /// Statistics about the inference process.
