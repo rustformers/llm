@@ -3,12 +3,12 @@
 #![allow(non_snake_case)]
 #![allow(unused)]
 
-//! `ggml-rs` is a semi-idiomatic wrapper for the `ggml` C library.
+//! `ggml` is a semi-idiomatic wrapper for the `ggml` C library.
 //!
 //! It exposes a subset of operations (currently used to implement the [llama-rs](https://crates.io/crates/llama-rs) library).
 //! Note that it does not expose a fully-idiomatic safe Rust interface; operations that could be potentially unsafe are marked as such.
 //!
-//! `ggml-rs` operates on a computational graph; no values will be computed until [Context::graph_compute] is executed.
+//! `ggml` operates on a computational graph; no values will be computed until [Context::graph_compute] is executed.
 //! All [Tensor]s are nodes in this computational graph, and values cannot be retrieved until computation is completed.
 
 use std::{

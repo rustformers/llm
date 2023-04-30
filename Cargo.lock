@@ -432,7 +432,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ggml-rs"
+name = "ggml"
 version = "0.1.0"
 dependencies = [
  "bindgen",
@@ -458,7 +458,7 @@ name = "gpt2"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "ggml-rs",
+ "ggml",
  "llm-base",
  "rand",
 ]
@@ -601,7 +601,7 @@ name = "llama"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "ggml-rs",
+ "ggml",
  "half",
  "llm-base",
  "partial_sort",
@@ -629,7 +629,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytemuck",
- "ggml-rs",
+ "ggml",
  "log",
  "memmap2",
  "partial_sort",

@@ -27,7 +27,7 @@ const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 /// to use it from multiple threads.
 pub struct InferenceSession {
     // Must be kept alive for the model
-    pub(crate) _session_ctx: ggml_rs::context::Context,
+    pub(crate) _session_ctx: ggml::context::Context,
 
     // Original size of the memory used to create this context.
     pub(crate) memory_size: usize,
@@ -36,10 +36,10 @@ pub struct InferenceSession {
     pub(crate) params: InferenceSessionParameters,
 
     /// Memory K
-    pub memory_k: ggml_rs::Tensor,
+    pub memory_k: ggml::Tensor,
 
     /// Memory M
-    pub memory_v: ggml_rs::Tensor,
+    pub memory_v: ggml::Tensor,
 
     /// How many tokens have been fed into the model's working memory so far.
     pub n_past: usize,
@@ -58,7 +58,7 @@ pub struct InferenceSession {
     ///
     /// The number of scratch buffers was copied from `llama.cpp`.
     /// There is no specific reason for this number, but one is insufficient.
-    pub scratch: [ggml_rs::Buffer; 2],
+    pub scratch: [ggml::Buffer; 2],
 }
 unsafe impl Send for InferenceSession {}
 impl InferenceSession {
@@ -365,19 +365,19 @@ impl InferenceSession {
                 n_ctx,
                 n_layer,
                 n_embd,
-                ggml_rs::type_sizef(params.memory_k_type.into())
+                ggml::type_sizef(params.memory_k_type.into())
             ); // memory_k
             ctx_size += mulf!(
                 n_ctx,
                 n_layer,
                 n_embd,
-                ggml_rs::type_sizef(params.memory_v_type.into())
+                ggml::type_sizef(params.memory_v_type.into())
             ); // memory_v
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
             ctx_size
         };
 
-        let session_ctx = ggml_rs::context::Context::init(ctx_size, true);
+        let session_ctx = ggml::context::Context::init(ctx_size, true);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -409,7 +409,7 @@ impl InferenceSession {
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let context = ggml_rs::context::Context::init(self.memory_size, true);
+        let context = ggml::context::Context::init(self.memory_size, true);
         let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 
@@ -569,18 +569,18 @@ pub enum ModelKVMemoryType {
     /// 32-bit float.
     Float32,
 }
-impl From<ModelKVMemoryType> for ggml_rs::Type {
+impl From<ModelKVMemoryType> for ggml::Type {
     fn from(value: ModelKVMemoryType) -> Self {
         match value {
-            ModelKVMemoryType::Float16 => ggml_rs::Type::F16,
-            ModelKVMemoryType::Float32 => ggml_rs::Type::F32,
+            ModelKVMemoryType::Float16 => ggml::Type::F16,
+            ModelKVMemoryType::Float32 => ggml::Type::F32,
         }
     }
 }
 
-fn scratch_buffers() -> [ggml_rs::Buffer; 2] {
+fn scratch_buffers() -> [ggml::Buffer; 2] {
     [
-        ggml_rs::Buffer::new(SCRATCH_SIZE),
-        ggml_rs::Buffer::new(SCRATCH_SIZE),
+        ggml::Buffer::new(SCRATCH_SIZE),
+        ggml::Buffer::new(SCRATCH_SIZE),
     ]
 }

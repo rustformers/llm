@@ -1,7 +1,7 @@
 [workspace]
 members = [
     # Crates
-    "ggml-rs",
+    "ggml",
     "llm-base",
     "gpt2",
     "llama",

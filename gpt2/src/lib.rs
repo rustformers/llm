@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ggml_rs::Tensor;
+use ggml::Tensor;
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
     InferenceSessionParameters, KnownModel, LoadError, LoadProgress, TokenId, Vocabulary,
@@ -16,7 +16,7 @@ pub struct Gpt2 {
     wpe: Tensor,
     lm_head: Tensor,
     layers: Vec<Layer>,
-    _context: ggml_rs::context::Context,
+    _context: ggml::context::Context,
 }
 
 impl KnownModel for Gpt2 {
@@ -126,11 +126,11 @@ impl KnownModel for Gpt2 {
             // add 10% to account for ggml object overhead
             buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
         };
-        let ctx0 = ggml_rs::context::Context::init(buf_size, true);
+        let ctx0 = ggml::context::Context::init(buf_size, true);
 
-        let mut gf = ggml_rs::ComputationGraph::new(n_threads);
+        let mut gf = ggml::ComputationGraph::new(n_threads);
 
-        let mut embd = ctx0.new_tensor_1d(ggml_rs::Type::I32, n);
+        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
 
         let n_past = session.n_past;
@@ -140,7 +140,7 @@ impl KnownModel for Gpt2 {
             position_buf.push(n_past + position_idx);
         }
 
-        let mut position = ctx0.new_tensor_1d(ggml_rs::Type::I32, n);
+        let mut position = ctx0.new_tensor_1d(ggml::Type::I32, n);
         unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
 
         let mut input_layer = ctx0.op_add(
@@ -195,7 +195,7 @@ impl KnownModel for Gpt2 {
             let q = ctx0.op_permute(
                 &ctx0.op_cpy(
                     &qcur,
-                    &ctx0.new_tensor_3d(ggml_rs::Type::F32, n_embd / n_head, n_head, n),
+                    &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
                 ),
                 0,
                 2,
@@ -252,10 +252,7 @@ impl KnownModel for Gpt2 {
             let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
             let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
 
-            current = ctx0.op_cpy(
-                &kqv_merged,
-                &ctx0.new_tensor_2d(ggml_rs::Type::F32, n_embd, n),
-            );
+            current = ctx0.op_cpy(&kqv_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
 
             // projection
             current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);

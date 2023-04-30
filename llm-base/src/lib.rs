@@ -14,8 +14,8 @@ mod inference_session;
 mod loader;
 mod vocabulary;
 
-pub use ggml_rs;
-pub use ggml_rs::Type as ElementType;
+pub use ggml;
+pub use ggml::Type as ElementType;
 pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, ModelKVMemoryType,
     SnapshotError,

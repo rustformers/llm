@@ -1,4 +1,4 @@
-pub use ggml_rs::util::*;
+pub use ggml::util::*;
 use std::path::{Path, PathBuf};
 
 /// NOTE: The original code relies in promotion rules and automatic cast between

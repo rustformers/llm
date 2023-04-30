@@ -23,11 +23,11 @@ rust_tokenizers = { version = "3.1.2", optional = true }
 
 # Used for the `quantize` feature
 half = { version = "2.2.1", optional = true }
-ggml-rs = { path = "../ggml-rs", optional = true }
+ggml = { path = "../ggml", optional = true }
 
 [features]
 convert = ["dep:serde_json", "dep:protobuf", "dep:rust_tokenizers"]
-quantize = ["dep:half", "dep:ggml-rs"]
+quantize = ["dep:half", "dep:ggml"]
 
 [dev-dependencies]
 rand = { workspace = true }
