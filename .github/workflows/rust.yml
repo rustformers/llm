@@ -19,6 +19,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
     - uses: dtolnay/rust-toolchain@stable
     - name: Check
       run: cargo check --verbose
