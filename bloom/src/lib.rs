@@ -1,9 +1,12 @@
+//! An implementation of BLOOM (BigScience Large Open-science Open-access Multilingual Language Model).
+//!
+//! This implementation of BLOOM may not be fully correct. More work may be required.
+
 use std::path::Path;
 
-// use ggml_loader::{LoadError, LoadProgress};
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, LoadError, LoadProgress, Mmap, KnownModel, TokenId, Vocabulary,
+    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
 };
 
 /// The weights for the BLOOM model. All the mutable state is split into a

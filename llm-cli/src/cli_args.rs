@@ -282,6 +282,8 @@ pub enum ModelArchitecture {
     Llama,
     /// OpenAI's GPT2 architecture and derivatives (Cerebras, etc).
     Gpt2,
+    /// The BLOOM model. This is currently disabled as it does not work.
+    Bloom,
 }
 impl ModelLoad {
     pub fn load(&self) -> Result<Box<dyn Model>> {
@@ -364,6 +366,12 @@ impl ModelLoad {
                 load_progress_callback,
             )?),
             ModelArchitecture::Gpt2 => Box::new(llm::load::<llm::Gpt2>(
+                path,
+                prefer_mmap,
+                n_context_tokens,
+                load_progress_callback,
+            )?),
+            ModelArchitecture::Bloom => Box::new(llm::load::<llm::Bloom>(
                 path,
                 prefer_mmap,
                 n_context_tokens,

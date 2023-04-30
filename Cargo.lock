@@ -628,6 +628,7 @@ dependencies = [
 name = "llm"
 version = "0.1.0"
 dependencies = [
+ "bloom",
  "gpt2",
  "llama",
  "llm-base",
