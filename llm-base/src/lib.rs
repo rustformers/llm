@@ -5,8 +5,6 @@ use thiserror::Error;
 
 /// Large language model
 pub mod model;
-/// Snapshots
-pub mod snapshot;
 /// Utilities
 pub mod util;
 

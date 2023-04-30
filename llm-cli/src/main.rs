@@ -3,10 +3,11 @@ use std::{convert::Infallible, io::Write};
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{Context, Result};
-use llm::{llama::convert::convert_pth_to_ggml, snapshot, InferenceError};
+use llm::{llama::convert::convert_pth_to_ggml, InferenceError};
 use rustyline::error::ReadlineError;
 
 mod cli_args;
+mod snapshot;
 
 fn main() -> Result<()> {
     env_logger::builder()
