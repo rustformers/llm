@@ -105,7 +105,7 @@ pub enum LoadProgress<'a> {
         /// The path to the model part.
         file: &'a Path,
         /// The number of bytes in the part.
-        byte_size: usize,
+        byte_size: u64,
         /// The number of tensors in the part.
         tensor_count: usize,
     },

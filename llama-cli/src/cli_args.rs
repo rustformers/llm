@@ -270,6 +270,10 @@ pub struct ModelLoad {
 impl ModelLoad {
     pub fn load(&self) -> Result<llama_rs::Model> {
         let now = std::time::Instant::now();
+
+        // We create a new spinner for each part that's loaded
+        let mut sp = None;
+
         let model = llama_rs::Model::load(
             &self.model_path,
             !self.no_mmap,
@@ -280,9 +284,9 @@ impl ModelLoad {
                     LoadProgress::HyperparametersLoaded(hparams) => {
                         log::debug!("Loaded hyperparameters {hparams:#?}")
                     }
-                    LoadProgress::ContextSize { bytes } => log::info!(
-                        "ggml ctx size = {:.2} MB\n",
-                        bytes as f64 / (1024.0 * 1024.0)
+                    LoadProgress::ContextSize { bytes } => log::debug!(
+                        "ggml ctx size = {}",
+                        bytesize::to_string(bytes as u64, false)
                     ),
                     LoadProgress::PartLoading {
                         file,
@@ -290,45 +294,44 @@ impl ModelLoad {
                         total_parts,
                     } => {
                         let current_part = current_part + 1;
-                        log::info!(
-                            "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
-                            current_part,
-                            total_parts,
-                            file.to_string_lossy(),
-                            !self.no_mmap
-                        )
+
+                        sp = Some(spinoff::Spinner::new(
+                            spinoff::spinners::Dots2,
+                            format!(
+                                "Loading model part {current_part}/{total_parts} from '{}' (mmap preferred: {})",
+                                file.to_string_lossy(),
+                                !self.no_mmap
+                            ),
+                            None,
+                        ));
                     }
                     LoadProgress::PartTensorLoaded {
                         current_tensor,
                         tensor_count,
-                        ..
+                        file,
                     } => {
-                        let current_tensor = current_tensor + 1;
-                        if current_tensor % 8 == 0 {
-                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                        }
+                        sp.as_mut()
+                            .expect("Spinner for this part hasn't been stopped yet")
+                            .update_text(format!("Loaded tensor {current_tensor}/{tensor_count} from '{}'", file.to_string_lossy()));
                     }
                     LoadProgress::PartLoaded {
                         file,
                         byte_size,
                         tensor_count,
                     } => {
-                        log::info!("Loading of '{}' complete", file.to_string_lossy());
-                        log::info!(
-                            "Model size = {:.2} MB / num tensors = {}",
-                            byte_size as f64 / 1024.0 / 1024.0,
-                            tensor_count
-                        );
+                        sp.take()
+                            .expect("This is only called once per part")
+                            .success(&format!(
+                                "Loaded {tensor_count} tensors from '{}' ({}) after {}ms",
+                                file.to_string_lossy(),
+                                bytesize::to_string(byte_size, false),
+                                now.elapsed().as_millis()
+                            ));
                     }
                 }
             },
         )
         .wrap_err("Could not load model")?;
-
-        log::info!(
-            "Model fully loaded! Elapsed: {}ms",
-            now.elapsed().as_millis()
-        );
 
         Ok(model)
     }

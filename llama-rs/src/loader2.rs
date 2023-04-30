@@ -105,11 +105,17 @@ pub(crate) fn load(
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
     let context = ggml::Context::init(ctx_size, !use_mmap);
 
-    let mmap = if use_mmap {
+    // mmap the file if requested.  While we have it open, figure out how large of a file it is.
+    let (mmap, filesize) = {
         let file = File::open(&path)?;
-        Some(util::mmap_populate(&file)?)
-    } else {
-        None
+
+        let mmap = if use_mmap {
+            Some(util::mmap_populate(&file)?)
+        } else {
+            None
+        };
+
+        (mmap, file.metadata().map_or(0, |f| f.len()))
     };
 
     struct TensorLoader2<'a> {
@@ -190,7 +196,7 @@ pub(crate) fn load(
 
     (load_progress_callback)(LoadProgress::PartLoaded {
         file: &path,
-        byte_size: 0,
+        byte_size: filesize,
         tensor_count: tensors_len,
     });
 

@@ -238,7 +238,7 @@ fn load_weights_ggmf_or_unversioned(
         // Skip metadata
         part_reader.seek(SeekFrom::Start(file_offset))?;
 
-        let mut total_size = 0;
+        let mut total_size = 0u64;
         let mut n_tensors = 0;
 
         // Load weights
@@ -287,7 +287,7 @@ fn load_weights_ggmf_or_unversioned(
                     part_reader.seek(SeekFrom::Current(tensor.nbytes() as i64))?;
                 }
 
-                total_size += tensor.nbytes();
+                total_size += tensor.nbytes() as u64;
             } else {
                 if (nelements * bpe) / ggml::blck_size(tensor.get_type())
                     != tensor.nbytes() / n_parts
@@ -336,7 +336,7 @@ fn load_weights_ggmf_or_unversioned(
                     }
                 }
 
-                total_size += tensor.nbytes() / n_parts;
+                total_size += (tensor.nbytes() / n_parts) as u64;
             }
 
             n_tensors += 1;
@@ -551,7 +551,7 @@ fn load_weights_ggjt(
 
     load_progress_callback(LoadProgress::PartLoaded {
         file: path,
-        byte_size: total_loaded_bytes as usize,
+        byte_size: total_loaded_bytes,
         tensor_count: loop_i,
     });
 

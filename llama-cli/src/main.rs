@@ -140,7 +140,7 @@ fn interactive(
                     .map(|pf| process_prompt(pf, &line))
                     .unwrap_or(line);
 
-                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
+                let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
                 if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
                     &model,
                     &inference_params,
@@ -149,7 +149,7 @@ fn interactive(
                 ) {
                     log::error!("Prompt exceeds context window length.")
                 };
-                sp.stop();
+                sp.clear();
 
                 let res = session.inference_with_prompt::<Infallible>(
                     &model,
