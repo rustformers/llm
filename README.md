@@ -1,15 +1,13 @@
-# LLaMA-rs
+# llm
 
-This project is a Rust port of
-[llama.cpp](https://github.com/ggerganov/llama.cpp) 🦙🦀🚀
+`llm` is a Rust ecosystem of libraries and CLI application for running inference on large language models, inspired by [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
-Just like its C++ counterpart, it is powered by the
-[`ggml`](https://github.com/ggerganov/ggml) tensor library, which allows running
-inference for Facebook's [LLaMA](https://github.com/facebookresearch/llama)
-model on a CPU with good performance using full precision, f16 or 4-bit
-quantized versions of the model.
+The primary crate is the `llm` crate, which wraps `llm-base` and supported model crates.
 
-[![Latest version](https://img.shields.io/crates/v/llama-rs.svg)](https://crates.io/crates/llama_rs)
+It is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library, and aims to bring
+the robustness and ease of use of Rust to the world of large language models.
+
+[![Latest version](https://img.shields.io/crates/v/llm.svg)](https://crates.io/crates/llm)
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
@@ -21,11 +19,9 @@ quantized versions of the model.
 
 Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 
-`llm-base`, and the model crates (e.g. `bloom`, `gpt2` `llama`) are Rust
-libraries, while `llm-cli` is a CLI applications that wraps the models and offer
-basic inference capabilities.
+`llm` is a Rust library that re-exports `llm-base` and the model crates (e.g. `bloom`, `gpt2` `llama`).
 
-The following instructions explain how to build CLI applications.
+`llm-cli` (binary name `llm`) is a basic application that provides a CLI interface to the library.
 
 **NOTE**: For best results, make sure to build and run in release mode.
 Debug builds are going to be very slow.
@@ -35,7 +31,7 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llama-rs llm
+cargo install --git https://github.com/rustformers/llm llm
 ```
 
 to install `llm` to your Cargo `bin` directory, which `rustup` is likely to
@@ -43,14 +39,14 @@ have added to your `PATH`.
 
 The CLI application can then be run through `llm`.
 
-![Gif showcasing language generation using llama-rs](./doc/resources/llama_gif.gif)
+![Gif showcasing language generation using llm](./doc/resources/llama_gif.gif)
 
 ### Building from repository
 
 Clone the repository and then build it with
 
 ```shell
-git clone --recurse-submodules git@github.com:rustformers/llama-rs.git
+git clone --recurse-submodules git@github.com:rustformers/llm.git
 cargo build --release
 ```
 
@@ -64,23 +60,22 @@ cargo run --release --bin llm -- <ARGS>
 
 This is useful for development.
 
-### Getting LLaMA weights
+### Getting model weights
 
-In order to run the inference code in `llama-rs`, a copy of the model's weights
-are required.
+In order to run inference, a model's weights are required. Currently, the
+following models are supported:
+
+- LLaMA
+- GPT-2
+- BLOOM (partial support, results inconsistent)
 
 #### From Hugging Face
 
-Compatible weights - not necessarily the original LLaMA weights - can be found
-on [Hugging Face by searching for GGML](https://huggingface.co/models?search=ggml).
-At present, LLaMA-architecture models are supported.
+Compatible weights can be found on [Hugging Face by searching for GGML models](https://huggingface.co/models?search=ggml).
 
 #### LLaMA original weights
 
-Currently, the only legal source to get the original weights is [this
-repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama).
-Note that the choice of words also may or may not hint at the existence of other
-kinds of sources.
+Currently, the only legal source to get the original weights is [this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama).
 
 After acquiring the weights, it is necessary to convert them into a format that
 is compatible with ggml. To achieve this, follow the steps outlined below:
@@ -95,7 +90,7 @@ is compatible with ggml. To achieve this, follow the steps outlined below:
 python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 
 # Quantize the model to 4-bit ggml format
-cargo run -p llama-cli quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
+cargo run --bin llm llama quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
 ```
 
 > **Note**
@@ -103,33 +98,28 @@ cargo run -p llama-cli quantize /path/to/your/models/7B/ggml-model-f16.bin /path
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models.
 
-### BLOOM
+#### BLOOM
 
 The open-source [BLOOM](https://bigscience.huggingface.co/blog/bloom) model is
 also supported.
+
 [More information](https://huggingface.co/docs/transformers/model_doc/bloom)
 about BLOOM is available on HuggingFace, as are some
 [quantized models](https://huggingface.co/models?search=bloom%20ggml).
 
-### GPT2
+#### GPT-2
 
 OpenAI's [GPT-2](https://jalammar.github.io/illustrated-gpt2/) architecture is
 also supported. The open-source family of
 [Cerebras](https://www.cerebras.net/blog/cerebras-gpt-a-family-of-open-compute-efficient-large-language-models/)
 models is built on this architecture.
 
-_Support for other open source models is currently planned. For models where
-weights can be legally distributed, this section will be updated with scripts to
-make the install process as user-friendly as possible. Due to the model's legal
-requirements, this is currently not possible with LLaMA itself and a more
-lengthy setup is required._
-
 ### Running
 
 For example, try the following prompt:
 
 ```shell
-llama-cli infer -m <path>/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
+llm llama infer -m <path>/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
 ```
 
 Some additional things to try:
@@ -139,7 +129,7 @@ Some additional things to try:
   try `repl` mode!
 
   ```shell
-  llama-cli repl -m <path>/ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
+  llm llama repl -m <path>/ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
   ```
 
   ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
@@ -160,13 +150,13 @@ Some additional things to try:
 
 ```shell
 # To build (This will take some time, go grab some coffee):
-docker build -t llama-rs .
+docker build -t llm .
 
 # To run with prompt:
-docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs infer -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
+docker run --rm --name llm -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llm llama infer -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
 
 # To run with prompt file and repl (will wait for user input):
-docker run --rm --name llama-rs -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llama-rs repl -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt
+docker run --rm --name llm -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llm llama repl -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt
 ```
 
 ## Q&A
@@ -212,7 +202,7 @@ outside of `ggml`. This was done for a variety of reasons:
   authors. Additionally, we can benefit from the larger Rust ecosystem with
   ease.
 - We would like to make `ggml` an optional backend
-  (see [this issue](https://github.com/rustformers/llama-rs/issues/31)).
+  (see [this issue](https://github.com/rustformers/llm/issues/31)).
 
 In general, we hope to build a solution for model inferencing that is as easy
 to use and deploy as any other Rust crate.

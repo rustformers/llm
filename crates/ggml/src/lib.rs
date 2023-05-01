@@ -1,6 +1,6 @@
 //! `ggml` is a semi-idiomatic wrapper for the `ggml` C library.
 //!
-//! It exposes a subset of operations (currently used to implement the [llama-rs](https://crates.io/crates/llama-rs) library).
+//! It exposes a subset of operations (currently used to implement the [llm](https://crates.io/crates/llm) library).
 //! Note that it does not expose a fully-idiomatic safe Rust interface; operations that could be potentially unsafe are marked as such.
 //!
 //! `ggml` operates on a computational graph; no values will be computed until [Context::graph_compute] is executed.

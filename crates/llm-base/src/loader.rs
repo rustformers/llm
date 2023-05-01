@@ -167,7 +167,7 @@ pub enum LoadError {
         magic: u32,
     },
     #[error("invalid file format version {version}")]
-    /// The version of the format is not supported by this version of `llama-rs`.
+    /// The version of the format is not supported by this version of `llm`.
     InvalidFormatVersion {
         /// The format that was encountered.
         container_type: ContainerType,

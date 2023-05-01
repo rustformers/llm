@@ -267,7 +267,7 @@ pub struct ModelLoad {
     /// or use a model that was trained with a larger context size.
     ///
     /// Alternate methods to extend the context, including
-    /// [context clearing](https://github.com/rustformers/llama-rs/issues/77) are
+    /// [context clearing](https://github.com/rustformers/llm/issues/77) are
     /// being investigated, but are not yet implemented. Additionally, these
     /// will likely not perform as well as a model with a larger context size.
     #[arg(long, default_value_t = 2048)]

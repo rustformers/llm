@@ -5,7 +5,7 @@
 //! full conversion.
 use llm_base::FileType;
 ///
-/// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
+/// For reference, see [the PR](https://github.com/rustformers/llm/pull/83).
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
 use serde::Deserialize;
 use std::{

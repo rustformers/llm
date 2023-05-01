@@ -3,7 +3,7 @@
 //! Plan is to use this to create a tool that can convert multipart models
 //! to single-part models for use with the new loader.
 //!
-//! <https://github.com/rustformers/llama-rs/issues/150>
+//! <https://github.com/rustformers/llm/issues/150>
 
 use std::{
     collections::HashMap,
