@@ -100,7 +100,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 /// Implemented by model hyperparameters for loading and saving to a GGML model read/writer.
 pub trait Hyperparameters: Sized + Default {
     /// The error type returned during a failure of [Self::write].
-    type WriteError: Error + 'static;
+    type WriteError: Error + Send + Sync + 'static;
 
     /// Read the parameters from a reader.
     fn read(reader: &mut dyn BufRead) -> Result<Self, LoadError>;

@@ -1,9 +1,6 @@
-use std::{
-    fmt::Debug,
-    path::{Path, PathBuf},
-};
+use std::{fmt::Debug, path::PathBuf};
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
     ElementType, InferenceParameters, InferenceSessionParameters, LoadProgress, Model,
@@ -14,6 +11,25 @@ use rand::SeedableRng;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub enum Args {
+    /// Use a LLaMA model
+    Llama {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
+    /// Use a BLOOM model
+    Bloom {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
+    /// Use a GPT-2 model
+    Gpt2 {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BaseArgs {
     #[command()]
     /// Use a model to infer the next tokens in a sequence, and exit
     Infer(Box<Infer>),
@@ -35,15 +51,6 @@ pub enum Args {
     /// and do not support a long enough context window to be able to
     /// have an extended conversation.
     ChatExperimental(Box<Repl>),
-
-    #[command(hide = true)]
-    /// Convert a PyTorch model to a GGML model
-    ///
-    /// This is *not* fully implemented. This is a starting point for developers
-    /// to continue at a later stage.
-    ///
-    /// For reference, see [the PR](https://github.com/rustformers/llama-rs/pull/83).
-    Convert(Box<Convert>),
 
     /// Quantize a GGML model to 4-bit.
     Quantize(Box<Quantize>),
@@ -252,10 +259,6 @@ pub struct ModelLoad {
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
-    /// The model architecture to use.
-    #[arg(long, short = 'a', default_value_t, value_enum)]
-    pub model_architecture: ModelArchitecture,
-
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
     ///
@@ -274,109 +277,69 @@ pub struct ModelLoad {
     #[arg(long)]
     pub no_mmap: bool,
 }
-#[derive(Parser, Debug, ValueEnum, Clone, Copy, Default)]
-pub enum ModelArchitecture {
-    /// Meta's LLaMA model and derivatives (Vicuna, etc).
-    #[default]
-    Llama,
-    /// OpenAI's GPT2 architecture and derivatives (Cerebras, etc).
-    Gpt2,
-    /// The BLOOM model. This is currently disabled as it does not work.
-    Bloom,
-}
 impl ModelLoad {
-    pub fn load(&self) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
         let now = std::time::Instant::now();
 
         let prefer_mmap = !self.no_mmap;
-        let model = self
-            .load_indirect(
-                &self.model_path,
-                !self.no_mmap,
-                self.num_ctx_tokens,
-                |progress| match progress {
-                    LoadProgress::HyperparametersLoaded => {
-                        log::debug!("Loaded hyperparameters")
-                    }
-                    LoadProgress::ContextSize { bytes } => log::info!(
-                        "ggml ctx size = {:.2} MB\n",
-                        bytes as f64 / (1024.0 * 1024.0)
-                    ),
-                    LoadProgress::PartLoading {
-                        file,
+        let model = llm::load::<M>(
+            &self.model_path,
+            !self.no_mmap,
+            self.num_ctx_tokens,
+            |progress| match progress {
+                LoadProgress::HyperparametersLoaded => {
+                    log::debug!("Loaded hyperparameters")
+                }
+                LoadProgress::ContextSize { bytes } => log::info!(
+                    "ggml ctx size = {:.2} MB\n",
+                    bytes as f64 / (1024.0 * 1024.0)
+                ),
+                LoadProgress::PartLoading {
+                    file,
+                    current_part,
+                    total_parts,
+                } => {
+                    let current_part = current_part + 1;
+                    log::info!(
+                        "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
                         current_part,
                         total_parts,
-                    } => {
-                        let current_part = current_part + 1;
-                        log::info!(
-                            "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
-                            current_part,
-                            total_parts,
-                            file.to_string_lossy(),
-                            prefer_mmap
-                        )
+                        file.to_string_lossy(),
+                        prefer_mmap
+                    )
+                }
+                LoadProgress::PartTensorLoaded {
+                    current_tensor,
+                    tensor_count,
+                    ..
+                } => {
+                    let current_tensor = current_tensor + 1;
+                    if current_tensor % 8 == 0 {
+                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
                     }
-                    LoadProgress::PartTensorLoaded {
-                        current_tensor,
-                        tensor_count,
-                        ..
-                    } => {
-                        let current_tensor = current_tensor + 1;
-                        if current_tensor % 8 == 0 {
-                            log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                        }
-                    }
-                    LoadProgress::PartLoaded {
-                        file,
-                        byte_size,
-                        tensor_count,
-                    } => {
-                        log::info!("Loading of '{}' complete", file.to_string_lossy());
-                        log::info!(
-                            "Model size = {:.2} MB / num tensors = {}",
-                            byte_size as f64 / 1024.0 / 1024.0,
-                            tensor_count
-                        );
-                    }
-                },
-            )
-            .wrap_err("Could not load model")?;
+                }
+                LoadProgress::PartLoaded {
+                    file,
+                    byte_size,
+                    tensor_count,
+                } => {
+                    log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    log::info!(
+                        "Model size = {:.2} MB / num tensors = {}",
+                        byte_size as f64 / 1024.0 / 1024.0,
+                        tensor_count
+                    );
+                }
+            },
+        )
+        .wrap_err("Could not load model")?;
 
         log::info!(
             "Model fully loaded! Elapsed: {}ms",
             now.elapsed().as_millis()
         );
 
-        Ok(model)
-    }
-
-    fn load_indirect(
-        &self,
-        path: &Path,
-        prefer_mmap: bool,
-        n_context_tokens: usize,
-        load_progress_callback: impl FnMut(LoadProgress<'_>),
-    ) -> Result<Box<dyn Model>> {
-        Ok(match self.model_architecture {
-            ModelArchitecture::Llama => Box::new(llm::load::<llm::models::Llama>(
-                path,
-                prefer_mmap,
-                n_context_tokens,
-                load_progress_callback,
-            )?),
-            ModelArchitecture::Gpt2 => Box::new(llm::load::<llm::models::Gpt2>(
-                path,
-                prefer_mmap,
-                n_context_tokens,
-                load_progress_callback,
-            )?),
-            ModelArchitecture::Bloom => Box::new(llm::load::<llm::models::Bloom>(
-                path,
-                prefer_mmap,
-                n_context_tokens,
-                load_progress_callback,
-            )?),
-        })
+        Ok(Box::new(model))
     }
 }
 

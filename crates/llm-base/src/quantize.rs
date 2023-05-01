@@ -65,7 +65,7 @@ pub enum QuantizeProgress<'a> {
 
 #[derive(Error, Debug)]
 /// Errors encountered during the quantization process.
-pub enum QuantizeError<E: std::error::Error> {
+pub enum QuantizeError<E: std::error::Error + Send + Sync> {
     #[error("could not load model")]
     /// There was an error while attempting to load the model.
     Load(#[from] LoadError),
@@ -112,7 +112,7 @@ pub enum QuantizeError<E: std::error::Error> {
     #[error("an error was encountered while writing model-specific data")]
     WriteError(#[source] E),
 }
-impl<E: std::error::Error + 'static> QuantizeError<E> {
+impl<E: std::error::Error + Send + Sync + 'static> QuantizeError<E> {
     pub(crate) fn from_format_error(value: SaveError<QuantizeError<E>>, path: PathBuf) -> Self {
         match value {
             SaveError::Io(io) => QuantizeError::Io(io),

@@ -1,7 +1,7 @@
 use std::{convert::Infallible, io::Write};
 
 use clap::Parser;
-use cli_args::Args;
+use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
 use llm::InferenceError;
 use rustyline::error::ReadlineError;
@@ -17,24 +17,27 @@ fn main() -> Result<()> {
     color_eyre::install()?;
 
     let cli_args = Args::parse();
-    match cli_args {
-        Args::Infer(args) => infer(&args)?,
-        Args::DumpTokens(args) => dump_tokens(&args)?,
-        Args::Repl(args) => interactive(&args, false)?,
-        Args::ChatExperimental(args) => interactive(&args, true)?,
-        Args::Convert(args) => {
-            llm::models::llama::convert::convert_pth_to_ggml(&args.directory, args.file_type.into())
-        }
-        Args::Quantize(args) => quantize(&args)?,
+    match &cli_args {
+        Args::Llama { args } => handle_args::<llm::models::Llama>(args),
+        Args::Bloom { args } => handle_args::<llm::models::Bloom>(args),
+        Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
     }
-
-    Ok(())
 }
 
-fn infer(args: &cli_args::Infer) -> Result<()> {
+fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Result<()> {
+    match args {
+        BaseArgs::Infer(args) => infer::<M>(args),
+        BaseArgs::DumpTokens(args) => dump_tokens::<M>(args),
+        BaseArgs::Repl(args) => interactive::<M>(args, false),
+        BaseArgs::ChatExperimental(args) => interactive::<M>(args, true),
+        BaseArgs::Quantize(args) => quantize::<M>(args),
+    }
+}
+
+fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_params = args.generate.inference_session_parameters();
-    let model = args.model_load.load()?;
+    let model = args.model_load.load::<M>()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),
@@ -83,9 +86,9 @@ fn infer(args: &cli_args::Infer) -> Result<()> {
     Ok(())
 }
 
-fn dump_tokens(args: &cli_args::DumpTokens) -> Result<()> {
+fn dump_tokens<M: llm::KnownModel + 'static>(args: &cli_args::DumpTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let model = args.model_load.load()?;
+    let model = args.model_load.load::<M>()?;
     let toks = match model.vocabulary().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
@@ -112,7 +115,7 @@ fn dump_tokens(args: &cli_args::DumpTokens) -> Result<()> {
     Ok(())
 }
 
-fn interactive(
+fn interactive<M: llm::KnownModel + 'static>(
     args: &cli_args::Repl,
     // If set to false, the session will be cloned after each inference
     // to ensure that previous state is not carried over.
@@ -120,7 +123,7 @@ fn interactive(
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
     let inference_session_params = args.generate.inference_session_parameters();
-    let model = args.model_load.load()?;
+    let model = args.model_load.load::<M>()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
@@ -194,10 +197,10 @@ fn interactive(
     Ok(())
 }
 
-fn quantize(args: &cli_args::Quantize) -> Result<()> {
+fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<()> {
     use llm::quantize::QuantizeProgress::*;
 
-    llm::quantize::quantize::<llm::models::Llama>(
+    llm::quantize::quantize::<M>(
         &args.source,
         &args.destination,
         args.target.into(),
