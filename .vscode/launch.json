@@ -35,6 +35,24 @@
     {
       "type": "lldb",
       "request": "launch",
+      "name": "Debug GPT-J Inference",
+      "cargo": {
+        "args": [
+          "build",
+          "--example=gptj-inference",
+          "--package=llm-gptj"
+        ],
+        "filter": {
+          "name": "gptj-inference",
+          "kind": "example"
+        }
+      },
+      "args": ["${env:HOME}/.ggml-models/gpt-j-6b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
       "name": "Debug LLaMA Inference",
       "cargo": {
         "args": ["build", "--example=llama-inference", "--package=llm-llama"],
@@ -57,7 +75,7 @@
           "kind": "example"
         }
       },
-      "args": ["${env:HOME}/.ggml-models/stablelm-base-alpha-3b-f16.bin"],
+      "args": ["${env:HOME}/.ggml-models/stablelm-base-alpha-3b.bin"],
       "cwd": "${workspaceFolder}"
     }
   ]

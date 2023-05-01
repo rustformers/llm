@@ -1,0 +1,15 @@
+[package]
+name = "llm-gptj"
+version = { workspace = true }
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+llm-base = { path = "../../llm-base" }
+ggml = { path = "../../ggml" }
+
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

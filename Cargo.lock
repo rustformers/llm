@@ -607,6 +607,7 @@ dependencies = [
  "llm-base",
  "llm-bloom",
  "llm-gpt2",
+ "llm-gptj",
  "llm-llama",
  "llm-neox",
 ]
@@ -655,6 +656,16 @@ dependencies = [
 
 [[package]]
 name = "llm-gpt2"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+ "rand",
+]
+
+[[package]]
+name = "llm-gptj"
 version = "0.1.0"
 dependencies = [
  "bytemuck",

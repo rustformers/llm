@@ -13,14 +13,14 @@ fn main() {
     println!(" >>> Loading model from {loc}...");
     let now = std::time::Instant::now();
 
-    let neox = llm_neox::NeoX::load(Path::new(loc), true, 512, load_progress_callback_stdout)
+    let gptj = llm_gptj::GptJ::load(Path::new(loc), true, 512, load_progress_callback_stdout)
         .unwrap_or_else(|e| panic!("Error loading model from {loc}: {e}"));
 
     println!(" >>> Model loaded in {} ms.", now.elapsed().as_millis());
 
-    let mut session = neox.start_session(Default::default());
+    let mut session = gptj.start_session(Default::default());
     let res = session.inference_with_prompt::<Infallible>(
-        &neox,
+        &gptj,
         &Default::default(),
         &Default::default(),
         prompt,

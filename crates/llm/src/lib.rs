@@ -20,6 +20,8 @@ pub mod models {
     pub use llm_bloom::{self as bloom, Bloom};
     #[cfg(feature = "gpt2")]
     pub use llm_gpt2::{self as gpt2, Gpt2};
+    #[cfg(feature = "gptj")]
+    pub use llm_gptj::{self as gptj, GptJ};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
     #[cfg(feature = "neox")]
