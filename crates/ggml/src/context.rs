@@ -326,6 +326,12 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// ggml_cont
+    pub fn op_cont(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_cont(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
     /// In-place; applies ROtary Positional Encoding.
     pub fn op_rope(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
         let tensor = unsafe {
