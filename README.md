@@ -31,7 +31,7 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llm llm
+cargo install --git https://github.com/rustformers/llama-rs llm
 ```
 
 to install `llm` to your Cargo `bin` directory, which `rustup` is likely to
@@ -46,7 +46,7 @@ The CLI application can then be run through `llm`.
 Clone the repository and then build it with
 
 ```shell
-git clone --recurse-submodules git@github.com:rustformers/llm.git
+git clone --recurse-submodules git@github.com:rustformers/llama-rs.git
 cargo build --release
 ```
 
