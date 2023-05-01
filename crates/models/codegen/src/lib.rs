@@ -4,8 +4,9 @@
 //! This implementation of BLOOM may not be fully correct. More work may be required.
 #![deny(missing_docs)]
 
-use std::path::Path;
+use std::{path::Path, fmt::format};
 
+use ggml::{Tensor, Context};
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
     InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
@@ -61,23 +62,19 @@ pub struct Hyperparameters {
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct CodeGen {
     hyperparameters: Hyperparameters,
-    n_context_tokens: usize,
 
-    vocabulary: Vocabulary,
-    tok_embeddings: ggml::Tensor,
+    ln_f_g: Tensor,
+    ln_f_b: Tensor,
 
-    norm: ggml::Tensor,
-    norm_b: ggml::Tensor,
+    wte: Tensor, // position embedding
 
-    output_norm: ggml::Tensor,
-    output_norm_b: ggml::Tensor,
+    lmh_g: Tensor, // language model head
+    lmh_b: Tensor, // language model bias
 
-    output: ggml::Tensor,
     layers: Vec<Layer>,
 
-    // Must be kept alive for the model
-    _context: ggml::Context,
-    _mmap: Option<Mmap>,
+    context: Context,
+    tensors: HashMap<String, Tensor>
 }
 
 
@@ -94,7 +91,66 @@ impl KnownModel for CodeGen {
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
-        todo!()
+        let n_embd = hyperparameters.n_embd;
+        let n_layer = hyperparameters.n_layer;
+        let n_vocab = hyperparameters.n_vocab;
+        let n_ctx = hyperparameters.n_ctx;
+
+        let mut tl = tensor_loader;
+
+        let ln_f_g = tl.load("transformer.ln_f.weight", &[n_embd])?;
+        let ln_f_b = tl.load("transformer.lm_f.bias", &[n_embd])?;
+
+        let wte = tl.load("transformer.wte.weight", &[n_embd, n_vocab])?;
+
+
+        let lmh_g = tl.load("lm_head.weight", &[n_embd. n_vocab])?;
+        let lmh_b = tl.load("lm_head.bias", &[n_embd])?;
+
+
+        let mut layers = Vec::new();
+        for i in 0..n_layer {
+            let layer = Layer {
+                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"), &[n_embd])?,
+                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"), &[n_embd])?,
+
+                c_attn_q_proj_w: tl
+                    .load(&format!("transformer.h.{i}.attn.q_proj.weight"), &[n_embd, n_embd * 3])?,
+
+                c_attn_k_proj_w: tl
+                    .load(&format!("transformer.h.{i}.attn.k_proj.weight"), &[n_embd, n_embd * 3])?,
+
+                c_attn_v_proj_w: tl
+                    .load(&format!("transformer.h.{i}.attn.v_proj.weight"), &[n_embd, n_embd * 3])?,
+
+                c_attn_proj_w: tl.load(&format!("transformer.h.{i}.attn.out_proj.weight"), &[n_embd, n_embd])?,
+                c_attn_proj_b: tl.load(&format!("transformer.h.{i}.attn.out_proj.bias"), &[n_embd])?,
+
+                c_mlp_fc_w: tl.load(&format!("transformer.h.{i}.mlp.fc_in.weight"), &[n_embd, n_embd * 4])?,
+                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"), &[n_embd * 4])?,
+
+                c_mlp_proj_w: tl
+                    .load(&format!("transformer.h.{i}.mlp.fc_out.weight"), &[n_embd * 4, n_embd])?,
+                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"), &[n_embd])?,
+            };
+
+            layers.push(layer);
+        }
+
+        let (context, tensors, _) = tl.finish();
+
+        Ok(CodeGen {
+            hyperparameters,
+            ln_f_g,
+            ln_f_b,
+            wte,
+            lmh_g,
+            lmh_b,
+            layers,
+            context,
+            tensors,
+        })
+
     }
 
 
@@ -106,6 +162,17 @@ impl KnownModel for CodeGen {
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
         )
+    }
+
+
+    fn evaluate(
+        &self,
+        session: &mut InferenceSession,
+        params: &InferenceParameters,
+        input_tokens: &[TokenId],
+        output_request: &mut EvaluateOutputRequest,
+    ) {
+        todo!()
     }
 
     fn vocabulary(&self) -> &Vocabulary {
