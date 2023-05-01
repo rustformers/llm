@@ -678,7 +678,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "llm-stablelm"
+name = "llm-neox"
 version = "0.1.0"
 dependencies = [
  "bytemuck",

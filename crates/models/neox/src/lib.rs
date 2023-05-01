@@ -9,7 +9,7 @@ use llm_base::{
     Vocabulary,
 };
 
-pub struct StableLm {
+pub struct NeoX {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
 
@@ -34,10 +34,10 @@ pub struct StableLm {
     _context: ggml::Context,
 }
 
-unsafe impl Send for StableLm {}
-unsafe impl Sync for StableLm {}
+unsafe impl Send for NeoX {}
+unsafe impl Sync for NeoX {}
 
-impl StableLm {
+impl NeoX {
     /// Load the model from `path` with `n_context_tokens` context tokens.
     ///
     /// The status of the loading process will be reported through `load_progress_callback`.
@@ -46,12 +46,12 @@ impl StableLm {
         prefer_mmap: bool,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<StableLm, LoadError> {
+    ) -> Result<NeoX, LoadError> {
         llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
     }
 }
 
-impl KnownModel for StableLm {
+impl KnownModel for NeoX {
     type Hyperparameters = Hyperparameters;
 
     fn new<E: Error>(
@@ -138,7 +138,7 @@ impl KnownModel for StableLm {
 
         let (_context, _, _mmap) = tl.finish();
 
-        Ok(StableLm {
+        Ok(NeoX {
             hyperparameters,
             n_context_tokens,
             vocabulary,
@@ -494,7 +494,7 @@ struct Layer {
 }
 
 #[cfg(test)]
-impl StableLm {
+impl NeoX {
     /// This does *not* construct a valid model. All of the tensors are entirely
     /// empty. However, it can be used to determine if some code will compile.
     fn new_empty() -> Self {
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn can_share_model_between_threads() {
-        let model = Arc::new(StableLm::new_empty());
+        let model = Arc::new(NeoX::new_empty());
 
         for _ in 0..4 {
             let model = model.clone();

@@ -9,11 +9,7 @@
       "request": "launch",
       "name": "Debug BLOOM Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=bloom-inference",
-          "--package=llm-bloom"
-        ],
+        "args": ["build", "--example=bloom-inference", "--package=llm-bloom"],
         "filter": {
           "name": "bloom-inference",
           "kind": "example"
@@ -27,11 +23,7 @@
       "request": "launch",
       "name": "Debug GPT-2 Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=gpt2-inference",
-          "--package=llm-gpt2"
-        ],
+        "args": ["build", "--example=gpt2-inference", "--package=llm-gpt2"],
         "filter": {
           "name": "gpt2-inference",
           "kind": "example"
@@ -45,11 +37,7 @@
       "request": "launch",
       "name": "Debug LLaMA Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=llama-inference",
-          "--package=llm-llama"
-        ],
+        "args": ["build", "--example=llama-inference", "--package=llm-llama"],
         "filter": {
           "name": "llama-inference",
           "kind": "example"
@@ -61,15 +49,11 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug StableLM Inference",
+      "name": "Debug NeoX Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=stablelm-inference",
-          "--package=llm-stablelm"
-        ],
+        "args": ["build", "--example=neox-inference", "--package=llm-neox"],
         "filter": {
-          "name": "stablelm-inference",
+          "name": "neox-inference",
           "kind": "example"
         }
       },

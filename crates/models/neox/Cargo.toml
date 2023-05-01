@@ -1,5 +1,5 @@
 [package]
-name = "llm-stablelm"
+name = "llm-neox"
 version = { workspace = true }
 edition = "2021"
 
