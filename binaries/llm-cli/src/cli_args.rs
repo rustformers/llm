@@ -37,8 +37,12 @@ pub enum Args {
 #[derive(Subcommand, Debug)]
 pub enum BaseArgs {
     #[command()]
-    /// Use a model to infer the next tokens in a sequence, and exit
+    /// Use a model to infer the next tokens in a sequence, and exit.
     Infer(Box<Infer>),
+
+    #[command()]
+    /// Get information about a GGML model.
+    Info(Box<Info>),
 
     #[command()]
     /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
@@ -47,11 +51,11 @@ pub enum BaseArgs {
 
     #[command()]
     /// Use a model to interactively prompt it multiple times, while
-    /// resetting the context between invocations
+    /// resetting the context between invocations.
     Repl(Box<Repl>),
 
     #[command()]
-    /// Use a model to interactively generate tokens, and chat with it
+    /// Use a model to interactively generate tokens, and chat with it.
     ///
     /// Note that most, if not all, existing models are not trained for this
     /// and do not support a long enough context window to be able to
@@ -94,6 +98,17 @@ pub struct Infer {
     /// but will not error if the path does not exist
     #[arg(long, default_value = None)]
     pub persist_session: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug)]
+pub struct Info {
+    /// The model to inspect
+    #[arg(long, short = 'm')]
+    pub model_path: PathBuf,
+
+    /// Whether or not to dump the entire vocabulary
+    #[arg(long, short = 'v')]
+    pub dump_vocabulary: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -261,7 +276,7 @@ fn parse_bias(s: &str) -> Result<TokenBias, String> {
 
 #[derive(Parser, Debug)]
 pub struct ModelLoad {
-    /// Where to load the model path from
+    /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
@@ -291,36 +306,7 @@ impl ModelLoad {
             &self.model_path,
             !self.no_mmap,
             self.num_ctx_tokens,
-            |progress| match progress {
-                LoadProgress::HyperparametersLoaded => {
-                    log::debug!("Loaded hyperparameters")
-                }
-                LoadProgress::ContextSize { bytes } => log::info!(
-                    "ggml ctx size = {:.2} MB\n",
-                    bytes as f64 / (1024.0 * 1024.0)
-                ),
-                LoadProgress::TensorLoaded {
-                    current_tensor,
-                    tensor_count,
-                    ..
-                } => {
-                    let current_tensor = current_tensor + 1;
-                    if current_tensor % 8 == 0 {
-                        log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-                    }
-                }
-                LoadProgress::Loaded {
-                    byte_size,
-                    tensor_count,
-                } => {
-                    log::info!("Loading of model complete");
-                    log::info!(
-                        "Model size = {:.2} MB / num tensors = {}",
-                        byte_size as f64 / 1024.0 / 1024.0,
-                        tensor_count
-                    );
-                }
-            },
+            load_progress_handler_log,
         )
         .wrap_err("Could not load model")?;
 
@@ -330,6 +316,39 @@ impl ModelLoad {
         );
 
         Ok(Box::new(model))
+    }
+}
+
+pub(crate) fn load_progress_handler_log(progress: LoadProgress) {
+    match progress {
+        LoadProgress::HyperparametersLoaded => {
+            log::debug!("Loaded hyperparameters")
+        }
+        LoadProgress::ContextSize { bytes } => log::info!(
+            "ggml ctx size = {:.2} MB\n",
+            bytes as f64 / (1024.0 * 1024.0)
+        ),
+        LoadProgress::TensorLoaded {
+            current_tensor,
+            tensor_count,
+            ..
+        } => {
+            let current_tensor = current_tensor + 1;
+            if current_tensor % 8 == 0 {
+                log::info!("Loaded tensor {current_tensor}/{tensor_count}");
+            }
+        }
+        LoadProgress::Loaded {
+            byte_size,
+            tensor_count,
+        } => {
+            log::info!("Loading of model complete");
+            log::info!(
+                "Model size = {:.2} MB / num tensors = {}",
+                byte_size as f64 / 1024.0 / 1024.0,
+                tensor_count
+            );
+        }
     }
 }
 

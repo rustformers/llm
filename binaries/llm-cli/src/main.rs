@@ -1,4 +1,8 @@
-use std::{convert::Infallible, io::Write};
+use std::{
+    convert::Infallible,
+    fs::File,
+    io::{BufReader, Write},
+};
 
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
@@ -28,6 +32,7 @@ fn main() -> Result<()> {
 fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Result<()> {
     match args {
         BaseArgs::Infer(args) => infer::<M>(args),
+        BaseArgs::Info(args) => info::<M>(args),
         BaseArgs::DumpTokens(args) => dump_tokens::<M>(args),
         BaseArgs::Repl(args) => interactive::<M>(args, false),
         BaseArgs::ChatExperimental(args) => interactive::<M>(args, true),
@@ -82,6 +87,42 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
         // Write the memory to the cache file
         snapshot::write_session(session, session_path);
+    }
+
+    Ok(())
+}
+
+fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
+    let file = File::open(&args.model_path)?;
+    let mut reader = BufReader::new(&file);
+    let mut loader: llm::Loader<M::Hyperparameters, _> =
+        llm::Loader::new(cli_args::load_progress_handler_log);
+
+    llm::ggml_format::load(&mut reader, &mut loader)?;
+
+    log::info!("Container type: {:?}", loader.container_type);
+    log::info!("Hyperparameters: {:?}", loader.hyperparameters);
+    log::info!(
+        "Tensors: {:?}",
+        loader
+            .tensors
+            .iter()
+            .map(|(name, tensor)| format!("{} ({:?})", name, tensor.element_type))
+            .collect::<Vec<_>>()
+    );
+    log::info!("Vocabulary size: {}", loader.vocabulary.id_to_token.len());
+
+    if args.dump_vocabulary {
+        log::info!("Dumping vocabulary:");
+        for (tid, token) in loader.vocabulary.id_to_token.iter().enumerate() {
+            log::info!(
+                "{}: {}",
+                tid,
+                std::str::from_utf8(token)
+                    .map(|s| s.to_owned())
+                    .unwrap_or(format!("{:?}", token))
+            );
+        }
     }
 
     Ok(())

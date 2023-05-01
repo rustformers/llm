@@ -5,11 +5,14 @@
 //! change in the future.
 #![deny(missing_docs)]
 
+// Try not to expose too many GGML details here.
+// This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
-    load, quantize, ElementType, FileType, InferenceError, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceSnapshot, InferenceWithPromptParameters, KnownModel,
-    LoadError, LoadProgress, Model, ModelKVMemoryType, SnapshotError, TokenBias, TokenId,
-    TokenUtf8Buffer, Vocabulary, EOT_TOKEN_ID,
+    ggml::format as ggml_format, load, quantize, ElementType, FileType, InferenceError,
+    InferenceParameters, InferenceSession, InferenceSessionParameters, InferenceSnapshot,
+    InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Loader, Model,
+    ModelKVMemoryType, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    EOT_TOKEN_ID,
 };
 
 /// All available models.
