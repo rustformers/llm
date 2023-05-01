@@ -608,6 +608,7 @@ dependencies = [
  "llm-bloom",
  "llm-gpt2",
  "llm-llama",
+ "llm-neox",
 ]
 
 [[package]]

@@ -20,4 +20,6 @@ pub mod models {
     pub use llm_gpt2::{self as gpt2, Gpt2};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
+    #[cfg(feature = "neox")]
+    pub use llm_neox::{self as neox, NeoX};
 }
