@@ -27,9 +27,6 @@ pub use model::{Hyperparameters, KnownModel, Model};
 pub use util::{BasicWriteError, TokenUtf8Buffer};
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
-/// The end of text token.
-pub const EOT_TOKEN_ID: TokenId = 2; // Hardcoded (for now?)
-
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters that drive text generation.
 pub struct InferenceParameters {

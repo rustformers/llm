@@ -1,4 +1,8 @@
-use std::{convert::Infallible, io::Write};
+use std::{
+    convert::Infallible,
+    fs::File,
+    io::{BufReader, Write},
+};
 
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
@@ -21,12 +25,14 @@ fn main() -> Result<()> {
         Args::Llama { args } => handle_args::<llm::models::Llama>(args),
         Args::Bloom { args } => handle_args::<llm::models::Bloom>(args),
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
+        Args::NeoX { args } => handle_args::<llm::models::NeoX>(args),
     }
 }
 
 fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Result<()> {
     match args {
         BaseArgs::Infer(args) => infer::<M>(args),
+        BaseArgs::Info(args) => info::<M>(args),
         BaseArgs::DumpTokens(args) => dump_tokens::<M>(args),
         BaseArgs::Repl(args) => interactive::<M>(args, false),
         BaseArgs::ChatExperimental(args) => interactive::<M>(args, true),
@@ -44,7 +50,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         args.generate.load_session.as_deref(),
         inference_session_params,
     );
-    let inference_params = args.generate.inference_parameters();
+    let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let res = session.inference_with_prompt::<Infallible>(
@@ -81,6 +87,42 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
         // Write the memory to the cache file
         snapshot::write_session(session, session_path);
+    }
+
+    Ok(())
+}
+
+fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
+    let file = File::open(&args.model_path)?;
+    let mut reader = BufReader::new(&file);
+    let mut loader: llm::Loader<M::Hyperparameters, _> =
+        llm::Loader::new(cli_args::load_progress_handler_log);
+
+    llm::ggml_format::load(&mut reader, &mut loader)?;
+
+    log::info!("Container type: {:?}", loader.container_type);
+    log::info!("Hyperparameters: {:?}", loader.hyperparameters);
+    log::info!(
+        "Tensors: {:?}",
+        loader
+            .tensors
+            .iter()
+            .map(|(name, tensor)| format!("{} ({:?})", name, tensor.element_type))
+            .collect::<Vec<_>>()
+    );
+    log::info!("Vocabulary size: {}", loader.vocabulary.id_to_token.len());
+
+    if args.dump_vocabulary {
+        log::info!("Dumping vocabulary:");
+        for (tid, token) in loader.vocabulary.id_to_token.iter().enumerate() {
+            log::info!("{}: {}", tid, utf8_or_array(token));
+        }
+    }
+
+    fn utf8_or_array(token: &[u8]) -> String {
+        std::str::from_utf8(token)
+            .map(|s| s.to_owned())
+            .unwrap_or(format!("{:?}", token))
     }
 
     Ok(())
@@ -130,7 +172,7 @@ fn interactive<M: llm::KnownModel + 'static>(
         args.generate.load_session.as_deref(),
         inference_session_params,
     );
-    let inference_params = args.generate.inference_parameters();
+    let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let mut rl = rustyline::DefaultEditor::new()?;

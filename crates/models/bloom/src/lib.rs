@@ -472,6 +472,10 @@ impl KnownModel for Bloom {
     fn n_context_tokens(&self) -> usize {
         self.n_context_tokens
     }
+
+    fn eot_token_id(&self) -> TokenId {
+        0
+    }
 }
 
 /// The hyperparameters of the model.

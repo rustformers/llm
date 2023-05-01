@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    fmt::Debug,
     io::{BufRead, Write},
 };
 
@@ -45,6 +46,9 @@ pub trait KnownModel: Send + Sync {
 
     /// Get the context size for this model.
     fn n_context_tokens(&self) -> usize;
+
+    /// Get the end of text token ID.
+    fn eot_token_id(&self) -> TokenId;
 }
 
 /// A type-erased model to allow for interacting with a model without knowing
@@ -72,6 +76,9 @@ pub trait Model {
 
     /// Get the context size for this model.
     fn n_context_tokens(&self) -> usize;
+
+    /// Get the end of text token ID.
+    fn eot_token_id(&self) -> TokenId;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
@@ -95,10 +102,14 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn n_context_tokens(&self) -> usize {
         KnownModel::n_context_tokens(self)
     }
+
+    fn eot_token_id(&self) -> TokenId {
+        KnownModel::eot_token_id(self)
+    }
 }
 
 /// Implemented by model hyperparameters for loading and saving to a GGML model read/writer.
-pub trait Hyperparameters: Sized + Default {
+pub trait Hyperparameters: Sized + Default + Debug {
     /// The error type returned during a failure of [Self::write].
     type WriteError: Error + Send + Sync + 'static;
 

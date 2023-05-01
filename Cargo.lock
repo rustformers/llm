@@ -608,6 +608,7 @@ dependencies = [
  "llm-bloom",
  "llm-gpt2",
  "llm-llama",
+ "llm-neox",
 ]
 
 [[package]]
@@ -675,6 +676,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "llm-neox"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+ "rand",
 ]
 
 [[package]]

@@ -330,7 +330,7 @@ pub fn load<M: KnownModel>(
     let context = Context::init(ctx_size, !use_mmap);
 
     let mmap = if use_mmap {
-        let file = File::open(&path)?;
+        let file = File::open(path)?;
         Some(unsafe { Mmap::map(&file)? })
     } else {
         None

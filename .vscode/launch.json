@@ -7,15 +7,11 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug example 'bloom_inference'",
+      "name": "Debug BLOOM Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=bloom_inference",
-          "--package=bloom"
-        ],
+        "args": ["build", "--example=bloom-inference", "--package=llm-bloom"],
         "filter": {
-          "name": "bloom_inference",
+          "name": "bloom-inference",
           "kind": "example"
         }
       },
@@ -25,15 +21,11 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug example 'gpt2_inference'",
+      "name": "Debug GPT-2 Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=gpt2_inference",
-          "--package=gpt2"
-        ],
+        "args": ["build", "--example=gpt2-inference", "--package=llm-gpt2"],
         "filter": {
-          "name": "gpt2_inference",
+          "name": "gpt2-inference",
           "kind": "example"
         }
       },
@@ -43,19 +35,29 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug example 'llama_inference'",
+      "name": "Debug LLaMA Inference",
       "cargo": {
-        "args": [
-          "build",
-          "--example=llama_inference",
-          "--package=llama"
-        ],
+        "args": ["build", "--example=llama-inference", "--package=llm-llama"],
         "filter": {
-          "name": "llama_inference",
+          "name": "llama-inference",
           "kind": "example"
         }
       },
       "args": ["${env:HOME}/.ggml-models/gpt4all-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug NeoX Inference",
+      "cargo": {
+        "args": ["build", "--example=neox-inference", "--package=llm-neox"],
+        "filter": {
+          "name": "neox-inference",
+          "kind": "example"
+        }
+      },
+      "args": ["${env:HOME}/.ggml-models/stablelm-base-alpha-3b-f16.bin"],
       "cwd": "${workspaceFolder}"
     }
   ]
