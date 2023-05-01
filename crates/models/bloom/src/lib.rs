@@ -491,6 +491,8 @@ pub struct Hyperparameters {
     pub file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
+    type WriteError = llm_base::BasicWriteError;
+
     fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, llm_base::LoadError> {
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
@@ -505,6 +507,16 @@ impl llm_base::Hyperparameters for Hyperparameters {
                 FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
             },
         })
+    }
+
+    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+        util::write_i32(writer, self.n_vocab.try_into()?)?;
+        util::write_i32(writer, self.n_embd.try_into()?)?;
+        util::write_i32(writer, self.n_mult.try_into()?)?;
+        util::write_i32(writer, self.n_head.try_into()?)?;
+        util::write_i32(writer, self.n_layer.try_into()?)?;
+        util::write_i32(writer, self.file_type.into())?;
+        Ok(())
     }
 
     fn n_vocabulary(&self) -> usize {

@@ -195,10 +195,9 @@ fn interactive(
 }
 
 fn quantize(args: &cli_args::Quantize) -> Result<()> {
-    use llama::quantize::QuantizeProgress::*;
-    use llm::models::llama;
+    use llm::quantize::QuantizeProgress::*;
 
-    llama::quantize::quantize(
+    llm::quantize::quantize::<llm::models::Llama>(
         &args.source,
         &args.destination,
         args.target.into(),

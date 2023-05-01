@@ -1,4 +1,7 @@
-use std::{error::Error, io::BufRead};
+use std::{
+    error::Error,
+    io::{BufRead, Write},
+};
 
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
@@ -96,8 +99,14 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
 /// Implemented by model hyperparameters for loading and saving to a GGML model read/writer.
 pub trait Hyperparameters: Sized + Default {
+    /// The error type returned during a failure of [Self::write].
+    type WriteError: Error + 'static;
+
     /// Read the parameters from a reader.
     fn read(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
+
+    /// Write the parameters to a writer.
+    fn write(&self, writer: &mut dyn Write) -> Result<(), Self::WriteError>;
 
     /// Get the number of tokens in the vocabulary.
     fn n_vocabulary(&self) -> usize;

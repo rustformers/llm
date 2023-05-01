@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 llm-base = { path = "../llm-base" }
-llm-llama = { path = "../models/llama", features = ["convert", "quantize"], optional = true }
+llm-llama = { path = "../models/llama", features = ["convert"], optional = true }
 llm-gpt2 = { path = "../models/gpt2", optional = true }
 llm-bloom = { path = "../models/bloom", optional = true }
 

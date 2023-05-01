@@ -397,6 +397,8 @@ pub struct Hyperparameters {
     file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
+    type WriteError = llm_base::BasicWriteError;
+
     fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         let hyperparameters = Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
@@ -422,6 +424,18 @@ impl llm_base::Hyperparameters for Hyperparameters {
         }
 
         Ok(hyperparameters)
+    }
+
+    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+        util::write_i32(writer, self.n_vocab.try_into()?)?;
+        util::write_i32(writer, self.n_ctx.try_into()?)?;
+        util::write_i32(writer, self.n_embd.try_into()?)?;
+        util::write_i32(writer, self.n_head.try_into()?)?;
+        util::write_i32(writer, self.n_layer.try_into()?)?;
+        util::write_i32(writer, self.file_type.into())?;
+        util::write_i32(writer, self.n_vocab.try_into()?)?;
+
+        Ok(())
     }
 
     fn n_vocabulary(&self) -> usize {

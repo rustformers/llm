@@ -4,15 +4,13 @@
 use std::{error::Error, path::Path};
 
 use llm_base::{
-    ggml, util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader, TokenId,
-    Vocabulary,
+    ggml, util, BasicWriteError, EvaluateOutputRequest, FileType, InferenceParameters,
+    InferenceSession, InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap,
+    TensorLoader, TokenId, Vocabulary,
 };
 
 #[cfg(feature = "convert")]
 pub mod convert;
-#[cfg(feature = "quantize")]
-pub mod quantize;
 
 mod old_loader;
 
@@ -476,6 +474,8 @@ pub struct Hyperparameters {
     pub file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
+    type WriteError = BasicWriteError;
+
     fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
@@ -489,6 +489,17 @@ impl llm_base::Hyperparameters for Hyperparameters {
                 FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
             },
         })
+    }
+
+    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+        util::write_i32(writer, self.n_vocab.try_into()?)?;
+        util::write_i32(writer, self.n_embd.try_into()?)?;
+        util::write_i32(writer, self.n_mult.try_into()?)?;
+        util::write_i32(writer, self.n_head.try_into()?)?;
+        util::write_i32(writer, self.n_layer.try_into()?)?;
+        util::write_i32(writer, self.n_rot.try_into()?)?;
+        util::write_i32(writer, self.file_type.into())?;
+        Ok(())
     }
 
     fn n_vocabulary(&self) -> usize {

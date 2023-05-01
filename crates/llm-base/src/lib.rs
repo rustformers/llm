@@ -8,10 +8,12 @@ mod loader;
 mod model;
 mod vocabulary;
 
+pub mod quantize;
 pub mod util;
 
 pub use ggml;
 pub use ggml::Type as ElementType;
+
 pub use inference_session::{
     InferenceSession, InferenceSessionParameters, InferenceSnapshot, InferenceWithPromptParameters,
     ModelKVMemoryType, SnapshotError,
@@ -22,7 +24,7 @@ pub use loader::{
 };
 pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model};
-pub use util::TokenUtf8Buffer;
+pub use util::{BasicWriteError, TokenUtf8Buffer};
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
 /// The end of text token.
