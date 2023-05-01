@@ -127,8 +127,8 @@ impl<E: std::error::Error + Send + Sync + 'static> QuantizeError<E> {
 
 /// Quantizes a model.
 pub fn quantize<M: KnownModel>(
-    path_in: impl AsRef<Path>,
-    path_out: impl AsRef<Path>,
+    path_in: &Path,
+    path_out: &Path,
     desired_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError<<M::Hyperparameters as Hyperparameters>::WriteError>> {
@@ -142,7 +142,6 @@ pub fn quantize<M: KnownModel>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let path_in = path_in.as_ref();
     let mut file_in = File::open(path_in).map_err(|e| LoadError::OpenFileFailed {
         source: e,
         path: path_in.to_owned(),
@@ -174,7 +173,6 @@ pub fn quantize<M: KnownModel>(
         .zip(vocabulary.id_to_token_score)
         .collect::<Vec<_>>();
 
-    let path_out = path_out.as_ref();
     let mut writer = BufWriter::new(File::create(path_out)?);
     let mut saver = QuantizeSaver::new(
         desired_type,

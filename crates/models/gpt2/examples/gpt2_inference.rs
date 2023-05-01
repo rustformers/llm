@@ -1,4 +1,4 @@
-use std::{convert::Infallible, env::args, io::Write};
+use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 use llm_base::{load_progress_callback_stdout, KnownModel};
 
@@ -13,7 +13,7 @@ fn main() {
     println!(" >>> Loading model from {loc}...");
     let now = std::time::Instant::now();
 
-    let gpt2 = llm_gpt2::Gpt2::load(loc, true, 512, load_progress_callback_stdout)
+    let gpt2 = llm_gpt2::Gpt2::load(Path::new(loc), true, 512, load_progress_callback_stdout)
         .unwrap_or_else(|e| panic!("Error loading model from {loc}: {e}"));
 
     println!(" >>> Model loaded in {} ms.", now.elapsed().as_millis());

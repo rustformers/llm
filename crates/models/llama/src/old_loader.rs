@@ -16,7 +16,7 @@ use crate::{Llama, LoadError, LoadProgress, TokenId, Vocabulary};
 use llm_base::{ggml, mulf, util, ContainerType, FileType};
 
 pub(crate) fn load(
-    path: impl AsRef<Path>,
+    path: &Path,
     prefer_mmap: bool,
     n_context_tokens: usize,
     mut load_progress_callback: impl FnMut(LoadProgress),
@@ -24,11 +24,9 @@ pub(crate) fn load(
     use std::fs::File;
     use std::io::BufReader;
 
-    let main_path = path.as_ref();
-
-    let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
+    let file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
         source: e,
-        path: main_path.to_owned(),
+        path: path.to_owned(),
     })?;
     let mut reader = BufReader::new(&file);
 
@@ -40,7 +38,7 @@ pub(crate) fn load(
         ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
         _ => {
             return Err(LoadError::InvalidMagic {
-                path: main_path.to_owned(),
+                path: path.to_owned(),
                 magic,
             })
         }
@@ -227,12 +225,6 @@ fn load_weights_ggmf_or_unversioned(
     for (i, part_path) in paths.into_iter().enumerate() {
         let part_id = i;
 
-        load_progress_callback(LoadProgress::PartLoading {
-            file: &part_path,
-            current_part: i,
-            total_parts: n_parts,
-        });
-
         let mut part_reader = BufReader::new(File::open(&part_path)?);
 
         // Skip metadata
@@ -340,15 +332,13 @@ fn load_weights_ggmf_or_unversioned(
             }
 
             n_tensors += 1;
-            load_progress_callback(LoadProgress::PartTensorLoaded {
-                file: &part_path,
+            load_progress_callback(LoadProgress::TensorLoaded {
                 current_tensor: n_tensors.try_into()?,
                 tensor_count: tensors.len(),
             });
         }
 
-        load_progress_callback(LoadProgress::PartLoaded {
-            file: &part_path,
+        load_progress_callback(LoadProgress::Loaded {
             byte_size: total_size,
             tensor_count: n_tensors.try_into()?,
         });
@@ -477,11 +467,6 @@ fn load_weights_ggjt(
 {
     let mut loop_i = 0;
     let mut total_loaded_bytes = 0;
-    load_progress_callback(LoadProgress::PartLoading {
-        file: path,
-        current_part: 0,
-        total_parts: 1,
-    });
 
     loop {
         if !util::has_data_left(reader)? {
@@ -540,8 +525,7 @@ fn load_weights_ggjt(
 
         total_loaded_bytes += tensor.nbytes() as u64;
 
-        load_progress_callback(LoadProgress::PartTensorLoaded {
-            file: path,
+        load_progress_callback(LoadProgress::TensorLoaded {
             current_tensor: loop_i,
             tensor_count: tensors.len(),
         });
@@ -549,8 +533,7 @@ fn load_weights_ggjt(
         loop_i += 1;
     }
 
-    load_progress_callback(LoadProgress::PartLoaded {
-        file: path,
+    load_progress_callback(LoadProgress::Loaded {
         byte_size: total_loaded_bytes as usize,
         tensor_count: loop_i,
     });

@@ -84,7 +84,7 @@ impl Display for FileType {
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum LoadProgress<'a> {
+pub enum LoadProgress {
     /// The hyperparameters have been loaded from the model.
     HyperparametersLoaded,
     /// The context has been created.
@@ -92,28 +92,15 @@ pub enum LoadProgress<'a> {
         /// The size of the context.
         bytes: usize,
     },
-    /// A part of the model is being loaded.
-    PartLoading {
-        /// The path to the model part.
-        file: &'a Path,
-        /// The current part (0-indexed).
-        current_part: usize,
-        /// The number of total parts.
-        total_parts: usize,
-    },
     /// A tensor from the current part has been loaded.
-    PartTensorLoaded {
-        /// The path to the model part.
-        file: &'a Path,
+    TensorLoaded {
         /// The current tensor (0-indexed).
         current_tensor: usize,
         /// The number of total tensors.
         tensor_count: usize,
     },
     /// A model part has finished fully loading.
-    PartLoaded {
-        /// The path to the model part.
-        file: &'a Path,
+    Loaded {
         /// The number of bytes in the part.
         byte_size: usize,
         /// The number of tensors in the part.
@@ -299,36 +286,26 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   This is a limitation of the GGML format, which does not
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
-    path: impl AsRef<Path>,
+    path: &Path,
     prefer_mmap: bool,
     n_context_tokens: usize,
-    mut load_progress_callback: impl FnMut(LoadProgress),
+    load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
-    let main_path = path.as_ref();
-
-    let paths = util::find_all_model_files(main_path)?;
+    let paths = util::find_all_model_files(path)?;
     if paths.len() != 1 {
         return Err(LoadError::MultipartNotSupported { paths });
     }
 
-    let file = File::open(main_path).map_err(|e| LoadError::OpenFileFailed {
+    let file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
         source: e,
-        path: main_path.to_owned(),
+        path: path.to_owned(),
     })?;
     let mut reader = BufReader::new(&file);
-
-    let path = path.as_ref().to_owned();
-
-    (load_progress_callback)(LoadProgress::PartLoading {
-        file: &path,
-        current_part: 0,
-        total_parts: 1,
-    });
 
     let mut loader = Loader::new(load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
-        .map_err(|err| LoadError::from_format_error(err, path.clone()))?;
+        .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
 
     let Loader {
         hyperparameters,
@@ -419,8 +396,7 @@ pub fn load<M: KnownModel>(
             }
 
             self.loaded_tensors.insert(name.to_owned(), tensor.share());
-            (self.load_progress_callback)(LoadProgress::PartTensorLoaded {
-                file: &self.path,
+            (self.load_progress_callback)(LoadProgress::TensorLoaded {
                 current_tensor: self.loaded_tensors.len(),
                 tensor_count: self.tensors.len(),
             });
@@ -435,7 +411,7 @@ pub fn load<M: KnownModel>(
 
     let tensors_len = tensors.len();
     let tl = MmapCompatibleLoader {
-        path: path.clone(),
+        path: path.to_owned(),
         file,
         tensors,
         context,
@@ -446,8 +422,7 @@ pub fn load<M: KnownModel>(
 
     let model = KnownModel::new(hyperparameters, n_context_tokens, vocabulary, tl)?;
 
-    (load_progress_callback)(LoadProgress::PartLoaded {
-        file: &path,
+    (load_progress_callback)(LoadProgress::Loaded {
         byte_size: 0,
         tensor_count: tensors_len,
     });
@@ -530,20 +505,7 @@ pub fn load_progress_callback_stdout(progress: LoadProgress) {
             "ggml ctx size = {:.2} MB\n",
             bytes as f64 / (1024.0 * 1024.0)
         ),
-        LoadProgress::PartLoading {
-            file,
-            current_part,
-            total_parts,
-        } => {
-            let current_part = current_part + 1;
-            println!(
-                "Loading model part {}/{} from '{}'\n",
-                current_part,
-                total_parts,
-                file.to_string_lossy()
-            )
-        }
-        LoadProgress::PartTensorLoaded {
+        LoadProgress::TensorLoaded {
             current_tensor,
             tensor_count,
             ..
@@ -553,12 +515,11 @@ pub fn load_progress_callback_stdout(progress: LoadProgress) {
                 println!("Loaded tensor {current_tensor}/{tensor_count}");
             }
         }
-        LoadProgress::PartLoaded {
-            file,
+        LoadProgress::Loaded {
             byte_size,
             tensor_count,
         } => {
-            println!("Loading of '{}' complete", file.to_string_lossy());
+            println!("Loading of model complete");
             println!(
                 "Model size = {:.2} MB / num tensors = {}",
                 byte_size as f64 / 1024.0 / 1024.0,

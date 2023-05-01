@@ -45,7 +45,7 @@ impl Llama {
     ///
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
-        path: impl AsRef<Path>,
+        path: &Path,
         prefer_mmap: bool,
         n_context_tokens: usize,
         load_progress_callback: impl FnMut(LoadProgress),

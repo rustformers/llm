@@ -281,7 +281,6 @@ impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
         let now = std::time::Instant::now();
 
-        let prefer_mmap = !self.no_mmap;
         let model = llm::load::<M>(
             &self.model_path,
             !self.no_mmap,
@@ -294,21 +293,7 @@ impl ModelLoad {
                     "ggml ctx size = {:.2} MB\n",
                     bytes as f64 / (1024.0 * 1024.0)
                 ),
-                LoadProgress::PartLoading {
-                    file,
-                    current_part,
-                    total_parts,
-                } => {
-                    let current_part = current_part + 1;
-                    log::info!(
-                        "Loading model part {}/{} from '{}' (mmap preferred: {})\n",
-                        current_part,
-                        total_parts,
-                        file.to_string_lossy(),
-                        prefer_mmap
-                    )
-                }
-                LoadProgress::PartTensorLoaded {
+                LoadProgress::TensorLoaded {
                     current_tensor,
                     tensor_count,
                     ..
@@ -318,12 +303,11 @@ impl ModelLoad {
                         log::info!("Loaded tensor {current_tensor}/{tensor_count}");
                     }
                 }
-                LoadProgress::PartLoaded {
-                    file,
+                LoadProgress::Loaded {
                     byte_size,
                     tensor_count,
                 } => {
-                    log::info!("Loading of '{}' complete", file.to_string_lossy());
+                    log::info!("Loading of model complete");
                     log::info!(
                         "Model size = {:.2} MB / num tensors = {}",
                         byte_size as f64 / 1024.0 / 1024.0,
