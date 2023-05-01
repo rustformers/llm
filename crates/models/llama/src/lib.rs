@@ -430,6 +430,10 @@ impl KnownModel for Llama {
     fn n_context_tokens(&self) -> usize {
         self.n_context_tokens
     }
+
+    fn eot_token_id(&self) -> TokenId {
+        2
+    }
 }
 #[cfg(test)]
 impl Llama {

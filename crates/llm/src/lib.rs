@@ -12,7 +12,6 @@ pub use llm_base::{
     InferenceParameters, InferenceSession, InferenceSessionParameters, InferenceSnapshot,
     InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Loader, Model,
     ModelKVMemoryType, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
-    EOT_TOKEN_ID,
 };
 
 /// All available models.

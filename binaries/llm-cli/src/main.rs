@@ -50,7 +50,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         args.generate.load_session.as_deref(),
         inference_session_params,
     );
-    let inference_params = args.generate.inference_parameters();
+    let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let res = session.inference_with_prompt::<Infallible>(
@@ -115,14 +115,14 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     if args.dump_vocabulary {
         log::info!("Dumping vocabulary:");
         for (tid, token) in loader.vocabulary.id_to_token.iter().enumerate() {
-            log::info!(
-                "{}: {}",
-                tid,
-                std::str::from_utf8(token)
-                    .map(|s| s.to_owned())
-                    .unwrap_or(format!("{:?}", token))
-            );
+            log::info!("{}: {}", tid, utf8_or_array(token));
         }
+    }
+
+    fn utf8_or_array(token: &[u8]) -> String {
+        std::str::from_utf8(token)
+            .map(|s| s.to_owned())
+            .unwrap_or(format!("{:?}", token))
     }
 
     Ok(())
@@ -172,7 +172,7 @@ fn interactive<M: llm::KnownModel + 'static>(
         args.generate.load_session.as_deref(),
         inference_session_params,
     );
-    let inference_params = args.generate.inference_parameters();
+    let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let mut rl = rustyline::DefaultEditor::new()?;

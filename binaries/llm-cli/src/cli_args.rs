@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
     ElementType, InferenceParameters, InferenceSessionParameters, LoadProgress, Model,
-    ModelKVMemoryType, TokenBias, EOT_TOKEN_ID,
+    ModelKVMemoryType, TokenBias,
 };
 use rand::SeedableRng;
 
@@ -252,7 +252,7 @@ impl Generate {
         }
     }
 
-    pub fn inference_parameters(&self) -> InferenceParameters {
+    pub fn inference_parameters(&self, eot: llm::TokenId) -> InferenceParameters {
         InferenceParameters {
             n_threads: self.num_threads(),
             n_batch: self.batch_size,
@@ -262,7 +262,7 @@ impl Generate {
             temperature: self.temperature,
             bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
                 if self.ignore_eos {
-                    TokenBias::new(vec![(EOT_TOKEN_ID, -1.0)])
+                    TokenBias::new(vec![(eot, -1.0)])
                 } else {
                     TokenBias::default()
                 }

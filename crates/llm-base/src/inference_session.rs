@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::{
     mulf, EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId,
-    TokenUtf8Buffer, EOT_TOKEN_ID,
+    TokenUtf8Buffer,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -132,7 +132,7 @@ impl InferenceSession {
         );
 
         // Return the next token
-        if next_token as TokenId == EOT_TOKEN_ID {
+        if next_token as TokenId == model.eot_token_id() {
             Err(InferenceError::EndOfText)
         } else {
             Ok(model.vocabulary().token(next_token as usize))

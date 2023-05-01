@@ -364,6 +364,14 @@ impl KnownModel for Gpt2 {
     fn n_context_tokens(&self) -> usize {
         self.hyperparameters.n_ctx
     }
+
+    fn eot_token_id(&self) -> TokenId {
+        self.vocabulary
+            .token_to_id
+            .get("<|endoftext|>".as_bytes())
+            .copied()
+            .unwrap()
+    }
 }
 
 impl Gpt2 {
