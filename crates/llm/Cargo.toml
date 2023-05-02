@@ -11,6 +11,9 @@ llm-gptj = { path = "../models/gptj", optional = true }
 llm-bloom = { path = "../models/bloom", optional = true }
 llm-neox = { path = "../models/neox", optional = true }
 
+[dev-dependencies]
+rand = { workspace = true }
+
 [features]
 default = ["llama", "gpt2", "gptj", "bloom", "neox"]
 llama = ["dep:llm-llama"]

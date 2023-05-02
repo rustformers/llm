@@ -610,6 +610,7 @@ dependencies = [
  "llm-gptj",
  "llm-llama",
  "llm-neox",
+ "rand",
 ]
 
 [[package]]
@@ -634,7 +635,6 @@ dependencies = [
  "bytemuck",
  "ggml",
  "llm-base",
- "rand",
 ]
 
 [[package]]
@@ -661,7 +661,6 @@ dependencies = [
  "bytemuck",
  "ggml",
  "llm-base",
- "rand",
 ]
 
 [[package]]
@@ -671,7 +670,6 @@ dependencies = [
  "bytemuck",
  "ggml",
  "llm-base",
- "rand",
 ]
 
 [[package]]
@@ -696,7 +694,6 @@ dependencies = [
  "bytemuck",
  "ggml",
  "llm-base",
- "rand",
 ]
 
 [[package]]
