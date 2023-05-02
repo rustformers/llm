@@ -53,7 +53,7 @@ pub trait KnownModel: Send + Sync {
 
 /// A type-erased model to allow for interacting with a model without knowing
 /// its hyperparameters.
-pub trait Model {
+pub trait Model: Send + Sync {
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
 
