@@ -266,6 +266,8 @@ impl LoadError {
 
 /// Used by models to fetch tensors from a loader.
 pub trait TensorLoader<E: std::error::Error> {
+    /// Gets a tensor from the loader.
+    fn load_from_info(&mut self, name: &str) -> Result<ggml::Tensor, E>;
     /// Loads a tensor from the loader.
     fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
@@ -406,6 +408,15 @@ pub fn load<M: KnownModel>(
 
         fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
             (self.context, self.loaded_tensors, self.mmap)
+        }
+
+        fn load_from_info(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
+            let tensors = self.tensors.clone();
+            let info = tensors.get(name).ok_or(LoadError::UnknownTensor {
+                tensor_name: String::from(name),
+                path: Default::default(),
+            })?;
+            self.load(&info.name, info.dims())
         }
     }
 

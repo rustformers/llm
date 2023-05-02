@@ -134,21 +134,27 @@ pub fn load<E: Error, R: BufRead + Seek>(
         .map_err(LoadError::ImplementationError)?;
 
     // Load format version
-    match container_type {
-        ContainerType::Ggmf | ContainerType::Ggjt => {
-            let _version: u32 = match read_u32(reader)? {
-                crate::FORMAT_VERSION => crate::FORMAT_VERSION,
-                version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
-            };
-        }
-        ContainerType::Ggml => {}
-    }
+    let format_version = match container_type {
+        ContainerType::Ggmf | ContainerType::Ggjt => match read_u32(reader)? {
+            version @ (crate::DEFAULT_VERSION | crate::RWKV_VERSION) => Some(version),
+            version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
+        },
+        ContainerType::Ggml => None,
+    };
 
     // Load hyper params
     let hparams = handler
         .read_hyperparameters(reader)
         .map_err(LoadError::ImplementationError)?;
-    let n_vocab = hparams.n_vocab;
+
+    let n_vocab = match format_version {
+        Some(version) => match version {
+            crate::DEFAULT_VERSION => hparams.n_vocab,
+            crate::RWKV_VERSION => 0,
+            _ => return Err(LoadError::InvalidFormatVersion(container_type, version)),
+        },
+        None => hparams.n_vocab,
+    };
 
     // Load vocabulary
     for i in 0..n_vocab {

@@ -19,6 +19,7 @@ fn main() {
         "gptj" => load::<models::GptJ>(model_path),
         "llama" => load::<models::Llama>(model_path),
         "neox" => load::<models::NeoX>(model_path),
+        "rwkv" => load::<models::Rwkv>(model_path),
         model => panic!("{model} is not a supported model"),
     };
 

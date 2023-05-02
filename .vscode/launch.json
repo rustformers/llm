@@ -77,6 +77,20 @@
       },
       "args": ["neox", "${env:HOME}/.ggml-models/stablelm-base-alpha-3b.bin"],
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug RWKV Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["rwkv", "${env:HOME}/.ggml-models/rwkv-169m.bin"],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

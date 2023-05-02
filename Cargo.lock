@@ -610,6 +610,7 @@ dependencies = [
  "llm-gptj",
  "llm-llama",
  "llm-neox",
+ "llm-rwkv",
  "rand",
 ]
 
@@ -689,6 +690,15 @@ dependencies = [
 
 [[package]]
 name = "llm-neox"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
+]
+
+[[package]]
+name = "llm-rwkv"
 version = "0.1.0"
 dependencies = [
  "bytemuck",

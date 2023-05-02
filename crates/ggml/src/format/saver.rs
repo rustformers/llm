@@ -68,7 +68,7 @@ pub fn save<E: Error, W: Write + Seek>(
 ) -> Result<(), SaveError<E>> {
     // Write header and hyperparameters
     util::write_u32(writer, crate::FILE_MAGIC_GGJT)?;
-    util::write_u32(writer, crate::FORMAT_VERSION)?;
+    util::write_u32(writer, crate::DEFAULT_VERSION)?;
     handler
         .write_hyperparameters(writer)
         .map_err(SaveError::ImplementationError)?;

@@ -54,8 +54,10 @@ pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
 /// Magic constant for `ggml` files (unversioned).
 pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 
-/// The currently-supported format version for `ggml` files.
-pub const FORMAT_VERSION: u32 = 1;
+/// The currently-supported default format versions for `ggml` files.
+pub const DEFAULT_VERSION: u32 = 1;
+/// RWKV format version
+pub const RWKV_VERSION: u32 = 100;
 
 /// The size of a `ggml` object.
 pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
