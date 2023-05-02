@@ -33,9 +33,9 @@ fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Resul
     match args {
         BaseArgs::Infer(args) => infer::<M>(args),
         BaseArgs::Info(args) => info::<M>(args),
-        BaseArgs::DumpTokens(args) => dump_tokens::<M>(args),
+        BaseArgs::PromptTokens(args) => prompt_tokens::<M>(args),
         BaseArgs::Repl(args) => interactive::<M>(args, false),
-        BaseArgs::ChatExperimental(args) => interactive::<M>(args, true),
+        BaseArgs::Chat(args) => interactive::<M>(args, true),
         BaseArgs::Quantize(args) => quantize::<M>(args),
     }
 }
@@ -128,7 +128,7 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     Ok(())
 }
 
-fn dump_tokens<M: llm::KnownModel + 'static>(args: &cli_args::DumpTokens) -> Result<()> {
+fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let model = args.model_load.load::<M>()?;
     let toks = match model.vocabulary().tokenize(&prompt, false) {

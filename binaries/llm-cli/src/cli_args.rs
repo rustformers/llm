@@ -47,7 +47,7 @@ pub enum BaseArgs {
     #[command()]
     /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
     /// and then as a list of comma-separated string keys and token ID values.
-    DumpTokens(Box<DumpTokens>),
+    PromptTokens(Box<PromptTokens>),
 
     #[command()]
     /// Use a model to interactively prompt it multiple times, while
@@ -60,7 +60,7 @@ pub enum BaseArgs {
     /// Note that most, if not all, existing models are not trained for this
     /// and do not support a long enough context window to be able to
     /// have an extended conversation.
-    ChatExperimental(Box<Repl>),
+    Chat(Box<Repl>),
 
     /// Quantize a GGML model to 4-bit.
     Quantize(Box<Quantize>),
@@ -112,7 +112,7 @@ pub struct Info {
 }
 
 #[derive(Parser, Debug)]
-pub struct DumpTokens {
+pub struct PromptTokens {
     #[command(flatten)]
     pub model_load: ModelLoad,
 
