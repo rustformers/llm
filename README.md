@@ -31,7 +31,7 @@ Debug builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llm llm
+cargo install --git https://github.com/rustformers/llm llm-cli
 ```
 
 to install `llm` to your Cargo `bin` directory, which `rustup` is likely to
