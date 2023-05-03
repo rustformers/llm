@@ -606,6 +606,7 @@ version = "0.1.0"
 dependencies = [
  "llm-base",
  "llm-bloom",
+ "llm-codegen",
  "llm-gpt2",
  "llm-gptj",
  "llm-llama",
@@ -652,6 +653,15 @@ dependencies = [
  "rustyline",
  "spinners",
  "zstd",
+]
+
+[[package]]
+name = "llm-codegen"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ggml",
+ "llm-base",
 ]
 
 [[package]]

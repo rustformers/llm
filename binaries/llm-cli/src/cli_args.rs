@@ -32,6 +32,12 @@ pub enum Args {
         #[command(subcommand)]
         args: BaseArgs,
     },
+    /// Use a GPT-J model
+    #[clap(id = "codegen")]
+    CodeGen {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
     /// Use a GPT-NeoX model
     #[clap(id = "neox")]
     NeoX {

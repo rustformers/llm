@@ -10,14 +10,16 @@ llm-gpt2 = { path = "../models/gpt2", optional = true }
 llm-gptj = { path = "../models/gptj", optional = true }
 llm-bloom = { path = "../models/bloom", optional = true }
 llm-neox = { path = "../models/neox", optional = true }
+llm-codegen = { path = "../models/codegen", optional = true }
 
 [dev-dependencies]
 rand = { workspace = true }
 
 [features]
-default = ["llama", "gpt2", "gptj", "bloom", "neox"]
+default = ["llama", "gpt2", "gptj", "bloom", "neox", "codegen"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
 bloom = ["dep:llm-bloom"]
 neox = ["dep:llm-neox"]
+codegen = ["dep:llm-codegen"]
