@@ -31,6 +31,7 @@ pub struct CodeGen {
 
     // Must be kept alive for the model
     _context: ggml::Context,
+
 }
 
 unsafe impl Send for CodeGen {}
@@ -214,11 +215,11 @@ impl KnownModel for CodeGen {
                     n * n_embd,
                     (memory_k_size * n_embd) * (il * n_ctx + n_past),
                 );
-                let v = ctx0.op_view_2d(
+
+                let v = ctx0.op_view_1d(
                     memory_v,
-                    (n, n_embd),
-                    n_ctx * memory_v_size,
-                    (il * n_ctx) * memory_v_size * n_embd + n_past * memory_v_size,
+                    n * n_embd,
+                    (memory_v_size * n_embd) * (il * n_ctx + n_past),
                 );
 
                 gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
@@ -244,7 +245,7 @@ impl KnownModel for CodeGen {
                     ),
                     n_embd / n_head,
                     n_head,
-                    n,
+                    n_past + n,
                 ),
                 n_past,
                 n_rot,
@@ -270,28 +271,23 @@ impl KnownModel for CodeGen {
             let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
             let kq_softmax = ctx0.op_soft_max(&kq_masked);
 
-            let big_v = ctx0.op_view_3d(
-                memory_v,
-                (n_past + n, n_embd / n_head, n_head),
-                (
-                    n_ctx * memory_v_size,
-                    n_ctx * memory_v_size * n_embd / n_head,
-                ),
-                il * n_ctx * memory_v_size * n_embd,
-            );
-
             // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
-            let v_trans = ctx0.op_cpy(
-                &ctx0.op_permute(&big_v, 1, 2, 0, 3),
-                &ctx0.new_tensor_3d(memory_v.get_type(), n_past + n, n_embd / n_head, n_head),
-            );
+            let v_trans = &ctx0.op_cpy(
+               &ctx0.op_permute(
+                   &ctx0.op_reshape_3d(
+                       &ctx0.op_view_1d(&memory_v, (n_past + n) * n_embd, il * n_ctx * memory_v_size * n_embd),
+                       n_embd/n_head, n_head, n_past + n),
+                   1,2,0,3),
+                &ctx0.new_tensor_3d(memory_v.get_type(), n_past + n, n_embd / n_head, n_head));
+
+
 
             let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
             let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
 
             current = ctx0.op_cpy(&kqv_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
 
-            // self-attention projection
+            // projection (no bias)
             current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
 
             // feed-forward
