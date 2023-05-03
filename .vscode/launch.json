@@ -9,13 +9,13 @@
       "request": "launch",
       "name": "Debug BLOOM Inference",
       "cargo": {
-        "args": ["build", "--example=bloom-inference", "--package=llm-bloom"],
+        "args": ["build", "--example=inference", "--package=llm"],
         "filter": {
-          "name": "bloom-inference",
+          "name": "inference",
           "kind": "example"
         }
       },
-      "args": ["${env:HOME}/.ggml-models/bloom-7b.bin"],
+      "args": ["bloom", "${env:HOME}/.ggml-models/bloom-7b.bin"],
       "cwd": "${workspaceFolder}"
     },
     {
@@ -23,13 +23,31 @@
       "request": "launch",
       "name": "Debug GPT-2 Inference",
       "cargo": {
-        "args": ["build", "--example=gpt2-inference", "--package=llm-gpt2"],
+        "args": ["build", "--example=inference", "--package=llm"],
         "filter": {
-          "name": "gpt2-inference",
+          "name": "inference",
           "kind": "example"
         }
       },
-      "args": ["${env:HOME}/.ggml-models/cerebras-gpt-13b.bin"],
+      "args": ["gpt2", "${env:HOME}/.ggml-models/cerebras-gpt-13b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug GPT-J Inference",
+      "cargo": {
+        "args": [
+          "build",
+          "--example=inference",
+          "--package=llm"
+        ],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["gptj", "${env:HOME}/.ggml-models/gpt-j-6b.bin"],
       "cwd": "${workspaceFolder}"
     },
     {
@@ -37,13 +55,13 @@
       "request": "launch",
       "name": "Debug LLaMA Inference",
       "cargo": {
-        "args": ["build", "--example=llama-inference", "--package=llm-llama"],
+        "args": ["build", "--example=inference", "--package=llm"],
         "filter": {
-          "name": "llama-inference",
+          "name": "inference",
           "kind": "example"
         }
       },
-      "args": ["${env:HOME}/.ggml-models/gpt4all-7b.bin"],
+      "args": ["llama", "${env:HOME}/.ggml-models/gpt4all-7b.bin"],
       "cwd": "${workspaceFolder}"
     },
     {
@@ -51,13 +69,13 @@
       "request": "launch",
       "name": "Debug NeoX Inference",
       "cargo": {
-        "args": ["build", "--example=neox-inference", "--package=llm-neox"],
+        "args": ["build", "--example=inference", "--package=llm"],
         "filter": {
-          "name": "neox-inference",
+          "name": "inference",
           "kind": "example"
         }
       },
-      "args": ["${env:HOME}/.ggml-models/stablelm-base-alpha-3b-f16.bin"],
+      "args": ["neox", "${env:HOME}/.ggml-models/stablelm-base-alpha-3b.bin"],
       "cwd": "${workspaceFolder}"
     }
   ]

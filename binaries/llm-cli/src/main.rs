@@ -25,6 +25,7 @@ fn main() -> Result<()> {
         Args::Llama { args } => handle_args::<llm::models::Llama>(args),
         Args::Bloom { args } => handle_args::<llm::models::Bloom>(args),
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
+        Args::GptJ { args } => handle_args::<llm::models::GptJ>(args),
         Args::NeoX { args } => handle_args::<llm::models::NeoX>(args),
     }
 }

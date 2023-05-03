@@ -10,6 +10,3 @@ ggml = { path = "../../ggml" }
 llm-base = { path = "../../llm-base" }
 
 bytemuck = { workspace = true }
-
-[dev-dependencies]
-rand = { workspace = true }

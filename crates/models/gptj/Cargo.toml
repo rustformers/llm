@@ -1,5 +1,5 @@
 [package]
-name = "llm-neox"
+name = "llm-gptj"
 version = { workspace = true }
 edition = "2021"
 

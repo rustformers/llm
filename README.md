@@ -65,9 +65,11 @@ This is useful for development.
 In order to run inference, a model's weights are required. Currently, the
 following models are supported:
 
-- LLaMA
-- GPT-2
-- BLOOM (partial support, results inconsistent)
+- [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
+- [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
+- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama)
+- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox)
+- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) (partial support, results inconsistent)
 
 #### From Hugging Face
 
@@ -97,22 +99,6 @@ cargo run --bin llm llama quantize /path/to/your/models/7B/ggml-model-f16.bin /p
 >
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models.
-
-#### BLOOM
-
-The open-source [BLOOM](https://bigscience.huggingface.co/blog/bloom) model is
-also supported.
-
-[More information](https://huggingface.co/docs/transformers/model_doc/bloom)
-about BLOOM is available on HuggingFace, as are some
-[quantized models](https://huggingface.co/models?search=bloom%20ggml).
-
-#### GPT-2
-
-OpenAI's [GPT-2](https://jalammar.github.io/illustrated-gpt2/) architecture is
-also supported. The open-source family of
-[Cerebras](https://www.cerebras.net/blog/cerebras-gpt-a-family-of-open-compute-efficient-large-language-models/)
-models is built on this architecture.
 
 ### Running
 
