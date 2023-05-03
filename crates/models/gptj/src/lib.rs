@@ -64,50 +64,28 @@ impl KnownModel for GptJ {
     where
         Self: Sized,
     {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-
         let mut tl = tensor_loader;
 
         // prepare memory for weights
-        let wte = tl.load("transformer.wte.weight", &[n_embd, n_vocab])?;
-        let ln_f_g = tl.load("transformer.ln_f.weight", &[n_embd])?;
-        let ln_f_b = tl.load("transformer.ln_f.bias", &[n_embd])?;
-        let lmh_g = tl.load("lm_head.weight", &[n_embd, n_vocab])?;
-        let lmh_b = tl.load("lm_head.bias", &[n_vocab])?;
+        let wte = tl.load("transformer.wte.weight")?;
+        let ln_f_g = tl.load("transformer.ln_f.weight")?;
+        let ln_f_b = tl.load("transformer.ln_f.bias")?;
+        let lmh_g = tl.load("lm_head.weight")?;
+        let lmh_b = tl.load("lm_head.bias")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"), &[n_embd])?,
-                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"), &[n_embd])?,
-                c_attn_q_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.q_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_k_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.k_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_v_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.v_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.out_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_mlp_fc_w: tl.load(
-                    &format!("transformer.h.{i}.mlp.fc_in.weight"),
-                    &[n_embd, n_embd * 4],
-                )?,
-                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"), &[n_embd * 4])?,
-                c_mlp_proj_w: tl.load(
-                    &format!("transformer.h.{i}.mlp.fc_out.weight"),
-                    &[n_embd * 4, n_embd],
-                )?,
-                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"), &[n_embd])?,
+                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"))?,
+                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"))?,
+                c_attn_q_proj_w: tl.load(&format!("transformer.h.{i}.attn.q_proj.weight"))?,
+                c_attn_k_proj_w: tl.load(&format!("transformer.h.{i}.attn.k_proj.weight"))?,
+                c_attn_v_proj_w: tl.load(&format!("transformer.h.{i}.attn.v_proj.weight"))?,
+                c_attn_proj_w: tl.load(&format!("transformer.h.{i}.attn.out_proj.weight"))?,
+                c_mlp_fc_w: tl.load(&format!("transformer.h.{i}.mlp.fc_in.weight"))?,
+                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"))?,
+                c_mlp_proj_w: tl.load(&format!("transformer.h.{i}.mlp.fc_out.weight"))?,
+                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"))?,
             };
 
             layers.push(layer);

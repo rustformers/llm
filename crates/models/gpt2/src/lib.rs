@@ -36,36 +36,29 @@ impl KnownModel for Gpt2 {
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-        let n_ctx = hyperparameters.n_ctx;
-
         let mut tl = tensor_loader;
         // prepare memory for weights
-        let ln_f_g = tl.load("model/ln_f/g", &[n_embd])?;
-        let ln_f_b = tl.load("model/ln_f/b", &[n_embd])?;
-        let wte = tl.load("model/wte", &[n_embd, n_vocab])?;
-        let wpe = tl.load("model/wpe", &[n_embd, n_ctx])?;
-        let lm_head = tl.load("model/lm_head", &[n_embd, n_vocab])?;
+        let ln_f_g = tl.load("model/ln_f/g")?;
+        let ln_f_b = tl.load("model/ln_f/b")?;
+        let wte = tl.load("model/wte")?;
+        let wpe = tl.load("model/wpe")?;
+        let lm_head = tl.load("model/lm_head")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                ln_1_g: tl.load(&format!("model/h{i}/ln_1/g"), &[n_embd])?,
-                ln_1_b: tl.load(&format!("model/h{i}/ln_1/b"), &[n_embd])?,
-                ln_2_g: tl.load(&format!("model/h{i}/ln_2/g"), &[n_embd])?,
-                ln_2_b: tl.load(&format!("model/h{i}/ln_2/b"), &[n_embd])?,
-                c_attn_attn_w: tl
-                    .load(&format!("model/h{i}/attn/c_attn/w"), &[n_embd, n_embd * 3])?,
-                c_attn_attn_b: tl.load(&format!("model/h{i}/attn/c_attn/b"), &[n_embd * 3])?,
-                c_attn_proj_w: tl.load(&format!("model/h{i}/attn/c_proj/w"), &[n_embd, n_embd])?,
-                c_attn_proj_b: tl.load(&format!("model/h{i}/attn/c_proj/b"), &[n_embd])?,
-                c_mlp_fc_w: tl.load(&format!("model/h{i}/mlp/c_fc/w"), &[n_embd, n_embd * 4])?,
-                c_mlp_fc_b: tl.load(&format!("model/h{i}/mlp/c_fc/b"), &[n_embd * 4])?,
-                c_mlp_proj_w: tl
-                    .load(&format!("model/h{i}/mlp/c_proj/w"), &[n_embd * 4, n_embd])?,
-                c_mlp_proj_b: tl.load(&format!("model/h{i}/mlp/c_proj/b"), &[n_embd])?,
+                ln_1_g: tl.load(&format!("model/h{i}/ln_1/g"))?,
+                ln_1_b: tl.load(&format!("model/h{i}/ln_1/b"))?,
+                ln_2_g: tl.load(&format!("model/h{i}/ln_2/g"))?,
+                ln_2_b: tl.load(&format!("model/h{i}/ln_2/b"))?,
+                c_attn_attn_w: tl.load(&format!("model/h{i}/attn/c_attn/w"))?,
+                c_attn_attn_b: tl.load(&format!("model/h{i}/attn/c_attn/b"))?,
+                c_attn_proj_w: tl.load(&format!("model/h{i}/attn/c_proj/w"))?,
+                c_attn_proj_b: tl.load(&format!("model/h{i}/attn/c_proj/b"))?,
+                c_mlp_fc_w: tl.load(&format!("model/h{i}/mlp/c_fc/w"))?,
+                c_mlp_fc_b: tl.load(&format!("model/h{i}/mlp/c_fc/b"))?,
+                c_mlp_proj_w: tl.load(&format!("model/h{i}/mlp/c_proj/w"))?,
+                c_mlp_proj_b: tl.load(&format!("model/h{i}/mlp/c_proj/b"))?,
             };
 
             layers.push(layer);

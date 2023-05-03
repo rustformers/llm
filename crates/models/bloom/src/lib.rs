@@ -56,58 +56,39 @@ impl KnownModel for Bloom {
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-        let n_mult = hyperparameters.n_mult;
-        let n_ff = ((4 * n_embd + n_mult - 1) / n_mult) * n_mult;
-
         let mut tl = tensor_loader;
 
-        let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
+        let tok_embeddings = tl.load("tok_embeddings.weight")?;
 
-        let norm = tl.load("norm.weight", &[n_embd])?;
-        let norm_b = tl.load("norm.bias", &[n_embd])?;
+        let norm = tl.load("norm.weight")?;
+        let norm_b = tl.load("norm.bias")?;
 
-        let output_norm = tl.load("output_norm.weight", &[n_embd])?;
-        let output_norm_b = tl.load("output_norm.bias", &[n_embd])?;
+        let output_norm = tl.load("output_norm.weight")?;
+        let output_norm_b = tl.load("output_norm.bias")?;
 
-        let output = tl.load("output.weight", &[n_embd, n_vocab])?;
+        let output = tl.load("output.weight")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"), &[n_embd])?,
-                attention_norm_b: tl.load(&format!("layers.{i}.attention_norm.bias"), &[n_embd])?,
+                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"))?,
+                attention_norm_b: tl.load(&format!("layers.{i}.attention_norm.bias"))?,
 
-                query_key_value: tl.load(
-                    &format!("layers.{i}.attention.query_key_value.weight"),
-                    &[n_embd, 3 * n_embd],
-                )?,
-                query_key_value_b: tl.load(
-                    &format!("layers.{i}.attention.query_key_value.bias"),
-                    &[3 * n_embd],
-                )?,
+                query_key_value: tl
+                    .load(&format!("layers.{i}.attention.query_key_value.weight"))?,
+                query_key_value_b: tl
+                    .load(&format!("layers.{i}.attention.query_key_value.bias"))?,
 
-                wo: tl.load(
-                    &format!("layers.{i}.attention.wo.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                wo_b: tl.load(&format!("layers.{i}.attention.wo.bias"), &[n_embd])?,
+                wo: tl.load(&format!("layers.{i}.attention.wo.weight"))?,
+                wo_b: tl.load(&format!("layers.{i}.attention.wo.bias"))?,
 
-                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"), &[n_embd])?,
-                ffn_norm_b: tl.load(&format!("layers.{i}.ffn_norm.bias"), &[n_embd])?,
+                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"))?,
+                ffn_norm_b: tl.load(&format!("layers.{i}.ffn_norm.bias"))?,
 
-                w1: tl.load(
-                    &format!("layers.{i}.feed_forward.w1.weight"),
-                    &[n_embd, n_ff],
-                )?,
-                w1_b: tl.load(&format!("layers.{i}.feed_forward.w1.bias"), &[n_ff])?,
-                w2: tl.load(
-                    &format!("layers.{i}.feed_forward.w2.weight"),
-                    &[n_ff, n_embd],
-                )?,
-                w2_b: tl.load(&format!("layers.{i}.feed_forward.w2.bias"), &[n_embd])?,
+                w1: tl.load(&format!("layers.{i}.feed_forward.w1.weight"))?,
+                w1_b: tl.load(&format!("layers.{i}.feed_forward.w1.bias"))?,
+                w2: tl.load(&format!("layers.{i}.feed_forward.w2.weight"))?,
+                w2_b: tl.load(&format!("layers.{i}.feed_forward.w2.bias"))?,
             };
 
             layers.push(layer);
