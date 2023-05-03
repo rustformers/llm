@@ -209,33 +209,27 @@ impl KnownModel for CodeGen {
             let vcur = ctx0.op_mul_mat(&self.layers[il].c_attn_v_proj_w, &current);
 
             if n > 1 {
+                let k = ctx0.op_view_1d(
+                    memory_k,
+                    n * n_embd,
+                    (memory_k_size * n_embd) * (il * n_ctx + n_past),
+                );
+                let v = ctx0.op_view_2d(
+                    memory_v,
+                    (n, n_embd),
+                    n_ctx * memory_v_size,
+                    (il * n_ctx) * memory_v_size * n_embd + n_past * memory_v_size,
+                );
 
-            let k = ctx0.op_view_1d(
-                memory_k,
-                n * n_embd,
-                (memory_k_size * n_embd) * (il * n_ctx + n_past),
-            );
-            let v = ctx0.op_view_2d(
-                memory_v,
-                (n, n_embd),
-                n_ctx * memory_v_size,
-                (il * n_ctx) * memory_v_size * n_embd + n_past * memory_v_size,
-            );
-
-            gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
-            gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
-
+                gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
+                gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
             }
 
-
             // self-attention
-            let temp_q =
-                ctx0.op_rope(
-                &ctx0.op_reshape_3d(
-                    &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
-                    n_embd / n_head,
-                    n_head,
-                    n,
+            let temp_q = ctx0.op_rope(
+                &ctx0.op_cpy(
+                    &qcur,
+                    &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
                 ),
                 n_past,
                 n_rot,
@@ -243,14 +237,18 @@ impl KnownModel for CodeGen {
             );
             let temp_k = ctx0.op_rope(
                 &ctx0.op_reshape_3d(
-                    &ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
+                    &ctx0.op_view_1d(
+                        &memory_k,
+                        (n_past + n) * n_embd,
+                        il * n_ctx * &memory_k_size * n_embd,
+                    ),
                     n_embd / n_head,
                     n_head,
                     n,
                 ),
                 n_past,
                 n_rot,
-                0,
+                1,
             );
 
             //// self-attention store key and value to memory
@@ -272,7 +270,6 @@ impl KnownModel for CodeGen {
             let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
             let kq_softmax = ctx0.op_soft_max(&kq_masked);
 
-
             let big_v = ctx0.op_view_3d(
                 memory_v,
                 (n_past + n, n_embd / n_head, n_head),
@@ -283,13 +280,11 @@ impl KnownModel for CodeGen {
                 il * n_ctx * memory_v_size * n_embd,
             );
 
-
             // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
             let v_trans = ctx0.op_cpy(
-                &ctx0.op_permute(&big_v, 1,2, 0, 3),
-                &ctx0.new_tensor_3d(ggml::Type::F32,n_past + n, n_embd / n_head, n_head)
+                &ctx0.op_permute(&big_v, 1, 2, 0, 3),
+                &ctx0.new_tensor_3d(memory_v.get_type(), n_past + n, n_embd / n_head, n_head),
             );
-
 
             let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
             let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
@@ -480,4 +475,3 @@ struct Layer {
     c_mlp_proj_w: Tensor,
     c_mlp_proj_b: Tensor,
 }
-
