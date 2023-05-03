@@ -1,11 +1,5 @@
+use llm::{load_progress_callback_stdout, models, LoadError, Model};
 use std::{convert::Infallible, env::args, io::Write, path::Path};
-
-use llm_base::{load_progress_callback_stdout, InferenceSession, LoadError, Model};
-use llm_bloom::Bloom;
-use llm_gpt2::Gpt2;
-use llm_gptj::GptJ;
-use llm_llama::Llama;
-use llm_neox::NeoX;
 
 fn main() {
     let raw_args: Vec<String> = args().collect();
@@ -19,22 +13,23 @@ fn main() {
     let model_path = args.1;
     let prompt = args.2;
 
-    let model_load: Result<(Box<dyn Model>, InferenceSession), LoadError> = match model_type {
-        "bloom" => load::<Bloom>(model_path),
-        "gpt2" => load::<Gpt2>(model_path),
-        "gptj" => load::<GptJ>(model_path),
-        "llama" => load::<Llama>(model_path),
-        "neox" => load::<NeoX>(model_path),
+    let model_load: Result<Box<dyn Model>, LoadError> = match model_type {
+        "bloom" => load::<models::Bloom>(model_path),
+        "gpt2" => load::<models::Gpt2>(model_path),
+        "gptj" => load::<models::GptJ>(model_path),
+        "llama" => load::<models::Llama>(model_path),
+        "neox" => load::<models::NeoX>(model_path),
         model => panic!("{model} is not a supported model"),
     };
 
-    let mut model = match model_load {
+    let model = match model_load {
         Ok(model) => model,
         Err(e) => panic!("Failed to load {model_type} model from {model_path}: {e}"),
     };
+    let mut session = model.start_session(Default::default());
 
-    let res = model.1.inference_with_prompt::<Infallible>(
-        model.0.as_ref(),
+    let res = session.inference_with_prompt::<Infallible>(
+        model.as_ref(),
         &Default::default(),
         &Default::default(),
         prompt,
@@ -53,9 +48,7 @@ fn main() {
     }
 }
 
-pub fn load<M: llm::KnownModel + 'static>(
-    model_path: &str,
-) -> Result<(Box<dyn Model>, InferenceSession), LoadError> {
+pub fn load<M: llm::KnownModel + 'static>(model_path: &str) -> Result<Box<dyn Model>, LoadError> {
     let now = std::time::Instant::now();
 
     let model = llm::load::<M>(
@@ -70,6 +63,5 @@ pub fn load<M: llm::KnownModel + 'static>(
         now.elapsed().as_millis()
     );
 
-    let session = model.start_session(Default::default());
-    Ok((Box::new(model), session))
+    Ok(Box::new(model))
 }
