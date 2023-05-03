@@ -1,19 +1,19 @@
 # llm
 
-`llm` is a Rust ecosystem of libraries and CLI application for running inference on large language models, inspired by [llama.cpp](https://github.com/ggerganov/llama.cpp).
+![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
 
-The primary crate is the `llm` crate, which wraps `llm-base` and supported model crates.
-
-It is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library, and aims to bring
-the robustness and ease of use of Rust to the world of large language models.
+> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
 
 [![Latest version](https://img.shields.io/crates/v/llm.svg)](https://crates.io/crates/llm)
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
-![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
+`llm` is a Rust ecosystem of libraries for running inference on large language models, inspired by [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
-> _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
+The primary crate is the `llm` crate, which wraps `llm-base` and supported model crates. This is used by `llm-cli` to provide inference for all supported models.
+
+It is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library, and aims to bring
+the robustness and ease of use of Rust to the world of large language models.
 
 ## Getting started
 
