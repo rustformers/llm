@@ -62,52 +62,24 @@ impl KnownModel for Llama {
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E> {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-        let n_mult = hyperparameters.n_mult;
-
-        let n_ff = ((2 * (4 * n_embd) / 3 + n_mult - 1) / n_mult) * n_mult;
-
         let mut tl = tensor_loader;
 
-        let tok_embeddings = tl.load("tok_embeddings.weight", &[n_embd, n_vocab])?;
-        let norm = tl.load("norm.weight", &[n_embd])?;
-        let output = tl.load("output.weight", &[n_embd, n_vocab])?;
+        let tok_embeddings = tl.load("tok_embeddings.weight")?;
+        let norm = tl.load("norm.weight")?;
+        let output = tl.load("output.weight")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"), &[n_embd])?,
-                wq: tl.load(
-                    &format!("layers.{i}.attention.wq.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                wk: tl.load(
-                    &format!("layers.{i}.attention.wk.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                wv: tl.load(
-                    &format!("layers.{i}.attention.wv.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                wo: tl.load(
-                    &format!("layers.{i}.attention.wo.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"), &[n_embd])?,
-                w1: tl.load(
-                    &format!("layers.{i}.feed_forward.w1.weight"),
-                    &[n_embd, n_ff],
-                )?,
-                w2: tl.load(
-                    &format!("layers.{i}.feed_forward.w2.weight"),
-                    &[n_ff, n_embd],
-                )?,
-                w3: tl.load(
-                    &format!("layers.{i}.feed_forward.w3.weight"),
-                    &[n_embd, n_ff],
-                )?,
+                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"))?,
+                wq: tl.load(&format!("layers.{i}.attention.wq.weight"))?,
+                wk: tl.load(&format!("layers.{i}.attention.wk.weight"))?,
+                wv: tl.load(&format!("layers.{i}.attention.wv.weight"))?,
+                wo: tl.load(&format!("layers.{i}.attention.wo.weight"))?,
+                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"))?,
+                w1: tl.load(&format!("layers.{i}.feed_forward.w1.weight"))?,
+                w2: tl.load(&format!("layers.{i}.feed_forward.w2.weight"))?,
+                w3: tl.load(&format!("layers.{i}.feed_forward.w3.weight"))?,
             };
 
             layers.push(layer);

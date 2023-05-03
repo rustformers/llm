@@ -63,74 +63,42 @@ impl KnownModel for NeoX {
     where
         Self: Sized,
     {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-
         let mut tl = tensor_loader;
 
         // prepare memory for weights
-        let wte = tl.load("gpt_neox.embed_in.weight", &[n_embd, n_vocab])?;
-        let ln_f_g = tl.load("gpt_neox.final_layer_norm.weight", &[n_embd])?;
-        let ln_f_b = tl.load("gpt_neox.final_layer_norm.bias", &[n_embd])?;
-        let lmh_g = tl.load("embed_out.weight", &[n_embd, n_vocab])?;
+        let wte = tl.load("gpt_neox.embed_in.weight")?;
+        let ln_f_g = tl.load("gpt_neox.final_layer_norm.weight")?;
+        let ln_f_b = tl.load("gpt_neox.final_layer_norm.bias")?;
+        let lmh_g = tl.load("embed_out.weight")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                ln_1_g: tl.load(
-                    &format!("gpt_neox.layers.{i}.input_layernorm.weight"),
-                    &[n_embd],
-                )?,
-                ln_1_b: tl.load(
-                    &format!("gpt_neox.layers.{i}.input_layernorm.bias"),
-                    &[n_embd],
-                )?,
+                ln_1_g: tl.load(&format!("gpt_neox.layers.{i}.input_layernorm.weight"))?,
+                ln_1_b: tl.load(&format!("gpt_neox.layers.{i}.input_layernorm.bias"))?,
 
-                c_attn_attn_w: tl.load(
-                    &format!("gpt_neox.layers.{i}.attention.query_key_value.weight"),
-                    &[n_embd, n_embd * 3],
-                )?,
-                c_attn_attn_b: tl.load(
-                    &format!("gpt_neox.layers.{i}.attention.query_key_value.bias"),
-                    &[n_embd * 3],
-                )?,
+                c_attn_attn_w: tl.load(&format!(
+                    "gpt_neox.layers.{i}.attention.query_key_value.weight"
+                ))?,
+                c_attn_attn_b: tl.load(&format!(
+                    "gpt_neox.layers.{i}.attention.query_key_value.bias"
+                ))?,
 
-                c_attn_proj_w: tl.load(
-                    &format!("gpt_neox.layers.{i}.attention.dense.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_proj_b: tl.load(
-                    &format!("gpt_neox.layers.{i}.attention.dense.bias"),
-                    &[n_embd],
-                )?,
+                c_attn_proj_w: tl.load(&format!("gpt_neox.layers.{i}.attention.dense.weight"))?,
+                c_attn_proj_b: tl.load(&format!("gpt_neox.layers.{i}.attention.dense.bias"))?,
 
-                ln_2_g: tl.load(
-                    &format!("gpt_neox.layers.{i}.post_attention_layernorm.weight"),
-                    &[n_embd],
-                )?,
-                ln_2_b: tl.load(
-                    &format!("gpt_neox.layers.{i}.post_attention_layernorm.bias"),
-                    &[n_embd],
-                )?,
+                ln_2_g: tl.load(&format!(
+                    "gpt_neox.layers.{i}.post_attention_layernorm.weight"
+                ))?,
+                ln_2_b: tl.load(&format!(
+                    "gpt_neox.layers.{i}.post_attention_layernorm.bias"
+                ))?,
 
-                c_mlp_fc_w: tl.load(
-                    &format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.weight"),
-                    &[n_embd, n_embd * 4],
-                )?,
-                c_mlp_fc_b: tl.load(
-                    &format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.bias"),
-                    &[n_embd * 4],
-                )?,
+                c_mlp_fc_w: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.weight"))?,
+                c_mlp_fc_b: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.bias"))?,
 
-                c_mlp_proj_w: tl.load(
-                    &format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.weight"),
-                    &[n_embd * 4, n_embd],
-                )?,
-                c_mlp_proj_b: tl.load(
-                    &format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.bias"),
-                    &[n_embd],
-                )?,
+                c_mlp_proj_w: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.weight"))?,
+                c_mlp_proj_b: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.bias"))?,
             };
 
             layers.push(layer);
