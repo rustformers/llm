@@ -102,7 +102,7 @@ pub enum LoadProgress {
     /// A model part has finished fully loading.
     Loaded {
         /// The number of bytes in the part.
-        byte_size: usize,
+        file_size: u64,
         /// The number of tensors in the part.
         tensor_count: usize,
     },
@@ -331,11 +331,14 @@ pub fn load<M: KnownModel>(
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
     let context = Context::init(ctx_size, !use_mmap);
 
-    let mmap = if use_mmap {
+    let (mmap, file_size) = {
         let file = File::open(path)?;
-        Some(unsafe { Mmap::map(&file)? })
-    } else {
-        None
+        let mmap = if use_mmap {
+            Some(unsafe { Mmap::map(&file)? })
+        } else {
+            None
+        };
+        (mmap, file.metadata()?.len())
     };
 
     struct MmapCompatibleLoader<'a> {
@@ -434,7 +437,7 @@ pub fn load<M: KnownModel>(
     let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
-        byte_size: 0,
+        file_size,
         tensor_count: tensors_len,
     });
 
@@ -527,7 +530,7 @@ pub fn load_progress_callback_stdout(progress: LoadProgress) {
             }
         }
         LoadProgress::Loaded {
-            byte_size,
+            file_size: byte_size,
             tensor_count,
         } => {
             println!("Loading of model complete");

@@ -311,55 +311,58 @@ impl ModelLoad {
             ..Default::default()
         };
 
+        let mut sp = Some(spinoff::Spinner::new(
+            spinoff::spinners::Dots2,
+            "Loading model...",
+            None,
+        ));
         let now = std::time::Instant::now();
 
-        let model = llm::load::<M>(
-            &self.model_path,
-            !self.no_mmap,
-            params,
-            load_progress_handler_log,
-        )
-        .wrap_err("Could not load model")?;
-
-        log::info!(
-            "Model fully loaded! Elapsed: {}ms",
-            now.elapsed().as_millis()
-        );
+        let model =
+            llm::load::<M>(
+                &self.model_path,
+                !self.no_mmap,
+                params,
+                move |progress| match progress {
+                    LoadProgress::HyperparametersLoaded => {
+                        if let Some(sp) = sp.as_mut() {
+                            sp.update_text("Loaded hyperparameters")
+                        };
+                    }
+                    LoadProgress::ContextSize { bytes } => log::debug!(
+                        "ggml ctx size = {}",
+                        bytesize::to_string(bytes as u64, false)
+                    ),
+                    LoadProgress::TensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        if let Some(sp) = sp.as_mut() {
+                            sp.update_text(format!(
+                                "Loaded tensor {}/{}",
+                                current_tensor + 1,
+                                tensor_count
+                            ));
+                        };
+                    }
+                    LoadProgress::Loaded {
+                        file_size,
+                        tensor_count,
+                    } => {
+                        if let Some(sp) = sp.take() {
+                            sp.success(&format!(
+                                "Loaded {tensor_count} tensors ({}) after {}ms",
+                                bytesize::to_string(file_size, false),
+                                now.elapsed().as_millis()
+                            ));
+                        };
+                    }
+                },
+            )
+            .wrap_err("Could not load model")?;
 
         Ok(Box::new(model))
-    }
-}
-
-pub(crate) fn load_progress_handler_log(progress: LoadProgress) {
-    match progress {
-        LoadProgress::HyperparametersLoaded => {
-            log::debug!("Loaded hyperparameters")
-        }
-        LoadProgress::ContextSize { bytes } => log::info!(
-            "ggml ctx size = {:.2} MB\n",
-            bytes as f64 / (1024.0 * 1024.0)
-        ),
-        LoadProgress::TensorLoaded {
-            current_tensor,
-            tensor_count,
-            ..
-        } => {
-            let current_tensor = current_tensor + 1;
-            if current_tensor % 8 == 0 {
-                log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-            }
-        }
-        LoadProgress::Loaded {
-            byte_size,
-            tensor_count,
-        } => {
-            log::info!("Loading of model complete");
-            log::info!(
-                "Model size = {:.2} MB / num tensors = {}",
-                byte_size as f64 / 1024.0 / 1024.0,
-                tensor_count
-            );
-        }
     }
 }
 
