@@ -1,8 +1,10 @@
 [package]
 edition = "2021"
 name = "llm-cli"
-version = { workspace = true }
-repository = "https://github.com/rustformers/llm"
+version = "0.0.1"
+repository = { workspace = true }
+license = { workspace = true }
+description = "A CLI for running inference on supported Large Language Models. Powered by the `llm` library."
 
 [[bin]]
 name = "llm"

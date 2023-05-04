@@ -11,7 +11,8 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+repository = "https://github.com/rustformers/llm"
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 bytemuck = "1.13.1"

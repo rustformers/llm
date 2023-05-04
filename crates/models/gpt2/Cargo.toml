@@ -1,10 +1,12 @@
 [package]
 name = "llm-gpt2"
-version = { workspace = true }
+version = "0.0.1"
+license = { workspace = true }
+repository = { workspace = true }
+description = "An implementation of GPT-2 for the `llm` ecosystem."
 edition = "2021"
 
 [dependencies]
-ggml = { path = "../../ggml" }
-llm-base = { path = "../../llm-base" }
+llm-base = { path = "../../llm-base", version = "0.0.1" }
 
 bytemuck = { workspace = true }

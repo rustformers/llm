@@ -1,12 +1,14 @@
 [package]
 name = "llm-gptj"
-version = { workspace = true }
+version = "0.0.1"
+license = { workspace = true }
+repository = { workspace = true }
+description = "An implementation of GPT-J for the `llm` ecosystem."
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llm-base = { path = "../../llm-base" }
-ggml = { path = "../../ggml" }
+llm-base = { path = "../../llm-base", version = "0.0.1" }
 
 bytemuck = { workspace = true }

@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[package.metadata.release]
+release = false
+
 [dependencies]
 bindgen = "0.65.1"

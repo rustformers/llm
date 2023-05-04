@@ -1,13 +1,15 @@
 [package]
 name = "llm-llama"
-version = { workspace = true }
+version = "0.0.1"
+license = { workspace = true }
+repository = { workspace = true }
+description = "An implementation of LLaMA (Large Language Model Meta AI) for the `llm` ecosystem."
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llm-base = { path = "../../llm-base" }
-ggml = { path = "../../ggml" }
+llm-base = { path = "../../llm-base", version = "0.0.1" }
 
 bytemuck = { workspace = true }
 rand = { workspace = true }

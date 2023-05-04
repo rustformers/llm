@@ -7,9 +7,9 @@
 use std::path::Path;
 
 use llm_base::{
-    model::common, util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    Mmap, ModelParameters, TokenId, Vocabulary,
+    ggml, model::common, util, EvaluateOutputRequest, FileType, InferenceParameters,
+    InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, KnownModel,
+    LoadError, LoadProgress, Mmap, ModelParameters, TokenId, Vocabulary,
 };
 
 /// The BLOOM model.

@@ -5,9 +5,9 @@ use std::path::Path;
 
 use ggml::Tensor;
 use llm_base::{
-    model::common, util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    ModelParameters, TokenId, Vocabulary,
+    ggml, model::common, util, EvaluateOutputRequest, FileType, InferenceParameters,
+    InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, KnownModel,
+    LoadError, LoadProgress, ModelParameters, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model.
