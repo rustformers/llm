@@ -1,0 +1,7 @@
+[package]
+name = "ggml-sys"
+version = { workspace = true }
+edition = "2021"
+
+[build-dependencies]
+cc = "^1.0"

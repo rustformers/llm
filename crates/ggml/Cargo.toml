@@ -1,0 +1,11 @@
+[package]
+name = "ggml"
+version = { workspace = true }
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }
+ggml-sys = { path = "sys" }
+
+[dev-dependencies]
+rand = { workspace = true }
