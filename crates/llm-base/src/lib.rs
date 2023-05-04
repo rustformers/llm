@@ -5,9 +5,9 @@ use thiserror::Error;
 
 mod inference_session;
 mod loader;
-mod model;
 mod vocabulary;
 
+pub mod model;
 pub mod quantize;
 pub mod util;
 
