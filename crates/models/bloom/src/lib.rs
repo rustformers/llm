@@ -12,7 +12,7 @@ use llm_base::{
     LoadError, LoadProgress, Mmap, ModelParameters, TokenId, Vocabulary,
 };
 
-/// The BLOOM model.
+/// The [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) model.
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.

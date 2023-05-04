@@ -10,6 +10,10 @@ use llm_base::{
     TensorLoader, TokenId, Vocabulary,
 };
 
+/// The [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj) model.
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct GptJ {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,

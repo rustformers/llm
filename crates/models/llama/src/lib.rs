@@ -15,7 +15,7 @@ pub mod convert;
 
 mod old_loader;
 
-/// The LLaMA model.
+/// The [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) model.
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.

@@ -1,8 +1,61 @@
-//! The `llm` crate provides a unified interface for loading and using
-//! Large Language Models (LLMs) such as LLaMA.
+//! This crate provides a unified interface for loading and using
+//! Large Language Models (LLMs). The following models are supported:
 //!
-//! At present, the only supported backend is GGML, but this is expected to
+//! - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) (inference produces garbled results)
+//! - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
+//! - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
+//! - [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama)
+//! - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox)
+//!
+//! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use std::io::Write;
+//! use llm_base::Model;
+//!
+//! // load a GGML model from disk
+//! let model_load = llm::load::<llm::models::Llama>(
+//!     // path to GGML file
+//!     std::path::Path::new("/path/to/model"),
+//!     // prefer mmap
+//!     true,
+//!     // llm::ModelParameters
+//!     Default::default(),
+//!     // load progress callback
+//!     llm::load_progress_callback_stdout
+//! );
+//!    
+//! let llama = match model_load {
+//!     Ok(model) => model,
+//!     Err(e) => panic!("Failed to load model: {e}"),
+//! };
+//!   
+//! // use the model to generate text from a prompt
+//! let mut session = llama.start_session(Default::default());
+//! let res = session.infer::<std::convert::Infallible>(
+//!     // model to use for text generation
+//!     &llama,
+//!     // text generation prompt
+//!     "Rust is a cool programming language because",
+//!     // randomness provider
+//!     &mut rand::thread_rng(),
+//!     // output callback
+//!     |t| {
+//!     print!("{t}");
+//!     std::io::stdout().flush().unwrap();
+//!   
+//!     Ok(())
+//!     }
+//! );
+//!   
+//! match res {
+//!     Ok(result) => println!("\n\nInference stats:\n{result}"),
+//!     Err(err) => println!("\n{err}"),
+//! }
+//! ```
 #![deny(missing_docs)]
 
 // Try not to expose too many GGML details here.

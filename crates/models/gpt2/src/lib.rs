@@ -10,7 +10,7 @@ use llm_base::{
     LoadError, LoadProgress, ModelParameters, TokenId, Vocabulary,
 };
 
-/// The GPT-2 model.
+/// The [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) model.
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.

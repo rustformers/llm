@@ -10,6 +10,10 @@ use llm_base::{
     TensorLoader, TokenId, Vocabulary,
 };
 
+/// The [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) model.
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct NeoX {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
