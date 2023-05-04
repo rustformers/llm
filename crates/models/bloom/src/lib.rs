@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use ggml::Tensor;
+
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
     InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
@@ -20,12 +22,12 @@ pub struct Bloom {
     n_context_tokens: usize,
 
     vocabulary: Vocabulary,
-    tok_embeddings: ggml::Tensor,
-    norm: ggml::Tensor,
-    norm_b: ggml::Tensor,
-    output_norm: ggml::Tensor,
-    output_norm_b: ggml::Tensor,
-    output: ggml::Tensor,
+    tok_embeddings: Tensor,
+    norm: Tensor,
+    norm_b: Tensor,
+    output_norm: Tensor,
+    output_norm_b: Tensor,
+    output: Tensor,
     layers: Vec<Layer>,
 
     // Must be kept alive for the model
@@ -60,6 +62,7 @@ impl KnownModel for Bloom {
         let n_layer = hyperparameters.n_layer;
         let n_vocab = hyperparameters.n_vocab;
         let n_mult = hyperparameters.n_mult;
+
         let n_ff = ((4 * n_embd + n_mult - 1) / n_mult) * n_mult;
 
         let mut tl = tensor_loader;
@@ -171,7 +174,6 @@ impl KnownModel for Bloom {
         };
         let ctx0 = ggml::Context::init(buf_size, true);
 
-        // TODO: REMAKE THIS AFTER CHECKING GGML GRAPH
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
         let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
@@ -188,7 +190,7 @@ impl KnownModel for Bloom {
 
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
-            let mut current: ggml::Tensor;
+            let mut current: Tensor;
 
             // norm
             {
@@ -217,11 +219,11 @@ impl KnownModel for Bloom {
             // self-attention
             {
                 let nb = current.get_nb()[1];
+
                 let q_current = ctx0.op_view_2d(
                     &current,
                     (n_embd, n),
                     nb,
-                    //0 * std::mem::size_of::<f32>() * n_embd as usize,
                     0,
                 );
                 let k_current = ctx0.op_view_2d(
@@ -256,7 +258,7 @@ impl KnownModel for Bloom {
                 }
 
                 // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-                let q = ctx0.op_permute(
+                let big_q = ctx0.op_permute(
                     &ctx0.op_cpy(
                         &q_current,
                         &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
@@ -268,7 +270,7 @@ impl KnownModel for Bloom {
                 );
 
                 // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
-                let k = ctx0.op_permute(
+                let big_k = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             &session.memory_k,
@@ -286,7 +288,7 @@ impl KnownModel for Bloom {
                 );
 
                 // K * Q
-                let k_q = ctx0.op_mul_mat(&k, &q);
+                let k_q = ctx0.op_mul_mat(&big_k, &big_q);
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
                 let k_q_scaled = ctx0.op_scale(
@@ -327,7 +329,7 @@ impl KnownModel for Bloom {
                 // let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
 
                 // split cached V into n_head heads
-                let v = ctx0.op_view_3d(
+                let big_v = ctx0.op_view_3d(
                     &session.memory_v,
                     (n_past + n, n_embd / n_head, n_head),
                     (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
@@ -335,7 +337,7 @@ impl KnownModel for Bloom {
                 );
 
                 // KQV = transpose(V) * KQ_soft_max
-                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
+                let k_q_v = ctx0.op_mul_mat(&big_v, &k_q_soft_max);
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
@@ -408,7 +410,7 @@ impl KnownModel for Bloom {
                 &input_layer,
             );
 
-            embeddings_tensor = input_layer.share(); //TODO: CHECK if this is still necessary, (not in BLOOM C implementation)
+            embeddings_tensor = input_layer.share();
         }
 
         // lm_head
@@ -529,18 +531,18 @@ impl llm_base::Hyperparameters for Hyperparameters {
 }
 
 struct Layer {
-    pub attention_norm: ggml::Tensor,
-    pub attention_norm_b: ggml::Tensor,
-    pub wo: ggml::Tensor,
-    pub wo_b: ggml::Tensor,
-    pub query_key_value: ggml::Tensor,
-    pub query_key_value_b: ggml::Tensor,
+    pub attention_norm: Tensor,
+    pub attention_norm_b: Tensor,
+    pub wo: Tensor,
+    pub wo_b: Tensor,
+    pub query_key_value: Tensor,
+    pub query_key_value_b: Tensor,
     // normalization
-    pub ffn_norm: ggml::Tensor,
-    pub ffn_norm_b: ggml::Tensor,
+    pub ffn_norm: Tensor,
+    pub ffn_norm_b: Tensor,
     // ff
-    pub w1: ggml::Tensor,
-    pub w1_b: ggml::Tensor,
-    pub w2: ggml::Tensor,
-    pub w2_b: ggml::Tensor,
+    pub w1: Tensor,
+    pub w1_b: Tensor,
+    pub w2: Tensor,
+    pub w2_b: Tensor,
 }

@@ -1,3 +1,6 @@
+
+// Ref: https://github.com/ggerganov/ggml/blob/abea4b7/examples/gpt-j/main.cpp
+
 use std::{error::Error, path::Path};
 
 use ggml::Tensor;
@@ -31,7 +34,6 @@ pub struct CodeGen {
 
     // Must be kept alive for the model
     _context: ggml::Context,
-
 }
 
 unsafe impl Send for CodeGen {}
@@ -196,6 +198,24 @@ impl KnownModel for CodeGen {
         let memory_v_size = memory_v.element_size();
 
         for il in 0..n_layer {
+
+            //let (q, k, v) = {
+                //let mp_num = 4;
+                //let local_dim = n_embd / mp_num;
+//
+                //let base_permutation = vec![0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11];
+//
+                //let mut permutation = Vec::new();
+                //for i in &base_permutation {
+                    //for j in i * local_dim..(i + 1) * local+vim {
+                        //permutation.push(j)
+                    //}
+                //}
+//
+                //let new_qkv_proj = qkv_prov
+            //}
+
+
             // norm
             let mut current = ctx0.op_norm(&input_layer);
             current = ctx0.op_add(
@@ -205,64 +225,68 @@ impl KnownModel for CodeGen {
 
             let input_sa = current.share();
 
-            let qcur = ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current);
-            let kcur = ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current);
-            let vcur = ctx0.op_mul_mat(&self.layers[il].c_attn_v_proj_w, &current);
-
-            if n > 1 {
-                let k = ctx0.op_view_1d(
-                    memory_k,
-                    n * n_embd,
-                    (memory_k_size * n_embd) * (il * n_ctx + n_past),
-                );
-
-                let v = ctx0.op_view_1d(
-                    memory_v,
-                    n * n_embd,
-                    (memory_v_size * n_embd) * (il * n_ctx + n_past),
-                );
-
-                gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
-                gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
-            }
-
             // self-attention
-            let temp_q = ctx0.op_rope(
-                &ctx0.op_cpy(
-                    &qcur,
-                    &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
+            let qcur = ctx0.op_rope(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
+                    n_embd / n_head,
+                    n_head,
+                    n,
                 ),
                 n_past,
                 n_rot,
                 0,
             );
-            let temp_k = ctx0.op_rope(
+            let kcur = ctx0.op_rope(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
+                    n_embd / n_head,
+                    n_head,
+                    n,
+                ),
+                n_past,
+                n_rot,
+                0,
+            );
+
+            // self-attention store key and value to memory
+            let vcur =
+                ctx0.op_transpose(&ctx0.op_mul_mat(&self.layers[il].c_attn_v_proj_w, &current));
+
+            let k = ctx0.op_view_1d(
+                memory_k,
+                n * n_embd,
+                (memory_k_size * n_embd) * (il * n_ctx + n_past),
+            );
+            let v = ctx0.op_view_2d(
+                memory_v,
+                (n, n_embd),
+                n_ctx * memory_v_size,
+                (il * n_ctx) * memory_v_size * n_embd + n_past * memory_v_size,
+            );
+
+            gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
+            gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
+
+            let q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
+            let big_k = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
-                        &memory_k,
+                        memory_k,
                         (n_past + n) * n_embd,
-                        il * n_ctx * &memory_k_size * n_embd,
+                        il * n_ctx * memory_k_size * n_embd,
                     ),
                     n_embd / n_head,
                     n_head,
                     n_past + n,
                 ),
-                n_past,
-                n_rot,
+                0,
+                2,
                 1,
+                3,
             );
 
-            //// self-attention store key and value to memory
-
-            // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-            let big_q = ctx0.op_permute(&temp_q, 0, 2, 1, 3);
-
-            // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
-            let big_k = ctx0.op_permute(&temp_k, 0, 2, 1, 3);
-
-            let kq = ctx0.op_mul_mat(&big_k, &big_q);
-
-            // KQ_scaled = KQ / sqrt(n_embd/n_head)
+            let kq = ctx0.op_mul_mat(&big_k, &q);
             let kq_scaled = ctx0.op_scale(
                 &kq,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
@@ -271,23 +295,22 @@ impl KnownModel for CodeGen {
             let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
             let kq_softmax = ctx0.op_soft_max(&kq_masked);
 
-            // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
-            let v_trans = &ctx0.op_cpy(
-               &ctx0.op_permute(
-                   &ctx0.op_reshape_3d(
-                       &ctx0.op_view_1d(&memory_v, (n_past + n) * n_embd, il * n_ctx * memory_v_size * n_embd),
-                       n_embd/n_head, n_head, n_past + n),
-                   1,2,0,3),
-                &ctx0.new_tensor_3d(memory_v.get_type(), n_past + n, n_embd / n_head, n_head));
+            let big_v = ctx0.op_view_3d(
+                memory_v,
+                (n_past + n, n_embd / n_head, n_head),
+                (
+                    n_ctx * memory_v_size,
+                    n_ctx * memory_v_size * n_embd / n_head,
+                ),
+                il * n_ctx * memory_v_size * n_embd,
+            );
 
-
-
-            let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
+            let kqv = ctx0.op_mul_mat(&big_v, &kq_softmax);
             let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
 
             current = ctx0.op_cpy(&kqv_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
 
-            // projection (no bias)
+            // self-attention projection
             current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
 
             // feed-forward
@@ -461,7 +484,7 @@ struct Layer {
     c_attn_q_proj_w: Tensor,
     c_attn_k_proj_w: Tensor,
     c_attn_v_proj_w: Tensor,
-
+//
     c_attn_proj_w: Tensor,
 
     // ff
@@ -470,4 +493,50 @@ struct Layer {
 
     c_mlp_proj_w: Tensor,
     c_mlp_proj_b: Tensor,
+}
+
+#[cfg(test)]
+impl CodeGen {
+    /// This does *not* construct a valid model. All of the tensors are entirely
+    /// empty. However, it can be used to determine if some code will compile.
+    fn new_empty() -> Self {
+        let context = ggml::Context::init(1024 * 1024, true);
+
+        Self {
+            hyperparameters: Default::default(),
+            n_context_tokens: 0,
+            vocabulary: Default::default(),
+            ln_f_g: context.new_f32(0.0),
+            ln_f_b: context.new_f32(0.0),
+            wte: context.new_f32(0.0),
+            lmh_g: context.new_f32(0.0),
+            lmh_b: context.new_f32(0.0),
+            layers: Default::default(),
+            _mmap: Default::default(),
+            _context: context,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn can_share_model_between_threads() {
+        let model = Arc::new(CodeGen::new_empty());
+
+        for _ in 0..4 {
+            let model = model.clone();
+            std::thread::spawn(move || {
+                let _session = model.start_session(Default::default());
+            });
+        }
+
+        let session = model.start_session(Default::default());
+        std::thread::spawn(move || {
+            let _session = session;
+        });
+    }
 }
