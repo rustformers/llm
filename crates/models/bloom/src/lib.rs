@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use llm_base::{
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
+    model::common, util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
     InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
     Mmap, ModelParameters, TokenId, Vocabulary,
 };
@@ -155,20 +155,7 @@ impl KnownModel for Bloom {
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
 
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        let mut buf_size = 1024 * 1024 * 1024;
-        if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
-            // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
-        };
-        let ctx0 = ggml::Context::init(buf_size, true);
-
-        // TODO: REMAKE THIS AFTER CHECKING GGML GRAPH
-        let mut gf = ggml::ComputationGraph::new(n_threads);
-
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
-        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
+        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
@@ -178,6 +165,8 @@ impl KnownModel for Bloom {
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
             input_layer = ctx0.op_add(&ctx0.op_repeat(&self.norm_b, &input_layer), &input_layer);
         }
+
+        let mut gf = ggml::ComputationGraph::new(n_threads);
 
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
@@ -383,9 +372,6 @@ impl KnownModel for Bloom {
             input_layer = current;
         }
 
-        // Used at the end to optionally extract the embeddings.
-        let embeddings_tensor;
-
         // norm
         {
             input_layer = ctx0.op_norm(&input_layer);
@@ -400,8 +386,6 @@ impl KnownModel for Bloom {
                 &ctx0.op_repeat(&self.output_norm_b, &input_layer),
                 &input_layer,
             );
-
-            embeddings_tensor = input_layer.share(); //TODO: CHECK if this is still necessary, (not in BLOOM C implementation)
         }
 
         // lm_head
@@ -409,52 +393,15 @@ impl KnownModel for Bloom {
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
         }
 
-        // logits -> probs
-        // inpL = ctx0.op_soft_max(&inpL);
-
         // run the computation
         gf.build_forward_expand(&input_layer);
         ctx0.graph_compute(&mut gf);
 
-        // return result for just the last token
-        // SAFETY: yolo
-        assert_eq!(session.last_logits.len(), { n_vocab });
-        unsafe {
-            input_layer.read_data(
-                n_vocab * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(&mut session.last_logits),
-            )
-        };
-
-        // Extract logits
-        if let Some(all_logits) = &mut output_request.all_logits {
-            all_logits.resize(n_vocab * n, 0.0);
-            // SAFETY: Tensor data can be read (properly aligned, initialized,
-            // data will not be mutated or otherwise aliased during the copy),
-            // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n);
-            unsafe {
-                input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
-            }
-        }
-
-        // Extract embeddings
-        if let Some(embeddings) = &mut output_request.embeddings {
-            embeddings.resize(n_embd * n, 0.0);
-            // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embeddings_tensor.nelements(), n_embd * n);
-            unsafe {
-                embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(embeddings));
-            }
-        }
-
-        // Adjust the required memory per token if we didn't know that already
-        if session.mem_per_token == 0 {
-            session.mem_per_token = ctx0.used_mem() / n;
-        }
-
-        // Adjust n_past to new length.
-        session.n_past += input_tokens.len();
+        // finish evaluation
+        common::read_last_token(session, &input_layer, n_vocab, n);
+        common::extract_logits(output_request, &input_layer, n_vocab, n);
+        common::extract_embeddings(output_request, &embd, n_embd, n);
+        common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 
     /// Returns the vocabulary used by this model.

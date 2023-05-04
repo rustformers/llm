@@ -1,3 +1,5 @@
+//! Large language model traits and types
+
 use std::{
     error::Error,
     fmt::Debug,
@@ -9,6 +11,9 @@ use crate::{
     InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, LoadError,
     Vocabulary,
 };
+
+/// Common functions for model evaluation
+pub mod common;
 
 /// A large language model.
 pub trait KnownModel: Send + Sync {
