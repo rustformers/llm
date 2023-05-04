@@ -1,6 +1,6 @@
 [package]
 name = "llm-neox"
-version = "0.0.1"
+version = "0.1.0-rc1"
 license = { workspace = true }
 repository = { workspace = true }
 description = "An implementation of GPT-NeoX for the `llm` ecosystem."
@@ -9,6 +9,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llm-base = { path = "../../llm-base", version = "0.0.1" }
+llm-base = { path = "../../llm-base", version = "0.1.0-rc1" }
 
 bytemuck = { workspace = true }

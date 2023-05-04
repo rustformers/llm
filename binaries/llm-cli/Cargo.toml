@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "llm-cli"
-version = "0.0.1"
+version = "0.1.0-rc1"
 repository = { workspace = true }
 license = { workspace = true }
 description = "A CLI for running inference on supported Large Language Models. Powered by the `llm` library."
