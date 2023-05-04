@@ -1,5 +1,4 @@
 use llm::{load_progress_callback_stdout, models, LoadError, Model};
-use llm_base::ModelParameters;
 use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 fn main() {
@@ -45,16 +44,10 @@ fn main() {
 pub fn load<M: llm::KnownModel + 'static>(model_path: &str) -> Result<Box<dyn Model>, LoadError> {
     let now = std::time::Instant::now();
 
-    let params = ModelParameters {
-        n_context_tokens: 2048,
-        inference_params: Default::default(),
-        inference_prompt_params: Default::default(),
-    };
-
     let model = llm::load::<M>(
         Path::new(model_path),
         true,
-        params,
+        Default::default(),
         load_progress_callback_stdout,
     )?;
 
