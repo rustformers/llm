@@ -5,8 +5,8 @@ use std::{error::Error, path::Path};
 use ggml::Tensor;
 use llm_base::{
     util, BasicWriteError, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader, TokenId,
-    Vocabulary,
+    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    Mmap, ModelParameters, TensorLoader, TokenId, Vocabulary,
 };
 
 pub struct GptJ {
@@ -28,6 +28,9 @@ pub struct GptJ {
 
     layers: Vec<Layer>,
 
+    inference_params: InferenceParameters,
+    inference_prompt_params: InferenceWithPromptParameters,
+
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
@@ -45,10 +48,10 @@ impl GptJ {
     pub fn load(
         path: &Path,
         prefer_mmap: bool,
-        n_context_tokens: usize,
+        params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<GptJ, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        llm_base::load(path, prefer_mmap, params, load_progress_callback)
     }
 }
 
@@ -57,7 +60,7 @@ impl KnownModel for GptJ {
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -93,6 +96,12 @@ impl KnownModel for GptJ {
 
         let (_context, _, _mmap) = tl.finish();
 
+        let ModelParameters {
+            n_context_tokens,
+            inference_params,
+            inference_prompt_params,
+        } = params;
+
         Ok(GptJ {
             hyperparameters,
             n_context_tokens,
@@ -103,6 +112,8 @@ impl KnownModel for GptJ {
             lmh_g,
             lmh_b,
             layers,
+            inference_params,
+            inference_prompt_params,
             _mmap,
             _context,
         })
@@ -367,6 +378,14 @@ impl KnownModel for GptJ {
             .copied()
             .unwrap()
     }
+
+    fn inference_params(&self) -> InferenceParameters {
+        self.inference_params.clone()
+    }
+
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
+        self.inference_prompt_params
+    }
 }
 
 /// The hyperparameters of the model.
@@ -471,6 +490,8 @@ impl GptJ {
             lmh_g: context.new_f32(0.0),
             lmh_b: context.new_f32(0.0),
             layers: Default::default(),
+            inference_params: Default::default(),
+            inference_prompt_params: Default::default(),
             _mmap: Default::default(),
             _context: context,
         }

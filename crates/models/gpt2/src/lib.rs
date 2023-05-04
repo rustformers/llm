@@ -6,7 +6,8 @@ use std::path::Path;
 use ggml::Tensor;
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, TokenId, Vocabulary,
+    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    ModelParameters, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model.
@@ -23,6 +24,8 @@ pub struct Gpt2 {
     wpe: Tensor,
     lm_head: Tensor,
     layers: Vec<Layer>,
+    inference_params: InferenceParameters,
+    inference_prompt_params: InferenceWithPromptParameters,
     _context: ggml::Context,
 }
 unsafe impl Send for Gpt2 {}
@@ -32,7 +35,7 @@ impl KnownModel for Gpt2 {
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
@@ -66,6 +69,12 @@ impl KnownModel for Gpt2 {
 
         let (_context, _, _mmap) = tl.finish();
 
+        let ModelParameters {
+            n_context_tokens,
+            inference_params,
+            inference_prompt_params,
+        } = params;
+
         Ok(Gpt2 {
             hyperparameters,
             n_context_tokens,
@@ -76,6 +85,8 @@ impl KnownModel for Gpt2 {
             wte,
             wpe,
             lm_head,
+            inference_params,
+            inference_prompt_params,
             _context,
         })
     }
@@ -365,6 +376,14 @@ impl KnownModel for Gpt2 {
             .copied()
             .unwrap()
     }
+
+    fn inference_params(&self) -> InferenceParameters {
+        self.inference_params.clone()
+    }
+
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
+        self.inference_prompt_params
+    }
 }
 
 impl Gpt2 {
@@ -374,10 +393,10 @@ impl Gpt2 {
     pub fn load(
         path: &Path,
         prefer_mmap: bool,
-        n_context_tokens: usize,
+        params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Gpt2, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        llm_base::load(path, prefer_mmap, params, load_progress_callback)
     }
 }
 

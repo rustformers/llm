@@ -8,7 +8,8 @@ use std::path::Path;
 
 use llm_base::{
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
+    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    Mmap, ModelParameters, TokenId, Vocabulary,
 };
 
 /// The BLOOM model.
@@ -28,6 +29,9 @@ pub struct Bloom {
     output: ggml::Tensor,
     layers: Vec<Layer>,
 
+    inference_params: InferenceParameters,
+    inference_prompt_params: InferenceWithPromptParameters,
+
     // Must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -41,10 +45,10 @@ impl Bloom {
     pub fn load(
         path: &Path,
         prefer_mmap: bool,
-        n_context_tokens: usize,
+        params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Bloom, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        llm_base::load(path, prefer_mmap, params, load_progress_callback)
     }
 }
 impl KnownModel for Bloom {
@@ -52,7 +56,7 @@ impl KnownModel for Bloom {
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
@@ -96,6 +100,12 @@ impl KnownModel for Bloom {
 
         let (_context, _, _mmap) = tl.finish();
 
+        let ModelParameters {
+            n_context_tokens,
+            inference_params,
+            inference_prompt_params,
+        } = params;
+
         Ok(Bloom {
             hyperparameters,
             n_context_tokens,
@@ -107,6 +117,8 @@ impl KnownModel for Bloom {
             output_norm_b,
             output,
             layers,
+            inference_params,
+            inference_prompt_params,
             _context,
             _mmap,
         })
@@ -456,6 +468,14 @@ impl KnownModel for Bloom {
 
     fn eot_token_id(&self) -> TokenId {
         0
+    }
+
+    fn inference_params(&self) -> InferenceParameters {
+        self.inference_params.clone()
+    }
+
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
+        self.inference_prompt_params
     }
 }
 

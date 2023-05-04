@@ -54,7 +54,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let res = session.inference_with_prompt::<Infallible>(
+    let res = session.infer_with_params::<Infallible>(
         model.as_ref(),
         &inference_params,
         &llm::InferenceWithPromptParameters {
@@ -203,7 +203,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                 };
                 sp.stop();
 
-                let res = session.inference_with_prompt::<Infallible>(
+                let res = session.infer_with_params::<Infallible>(
                     model.as_ref(),
                     &inference_params,
                     &llm::InferenceWithPromptParameters {
