@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
     ElementType, InferenceParameters, InferenceSessionParameters, LoadProgress, Model,
-    ModelKVMemoryType, TokenBias,
+    ModelKVMemoryType, ModelParameters, TokenBias,
 };
 use rand::SeedableRng;
 
@@ -306,12 +306,18 @@ pub struct ModelLoad {
 }
 impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
+        let params = ModelParameters {
+            n_context_tokens: self.num_ctx_tokens,
+            inference_params: Default::default(),
+            inference_prompt_params: Default::default(),
+        };
+
         let now = std::time::Instant::now();
 
         let model = llm::load::<M>(
             &self.model_path,
             !self.no_mmap,
-            self.num_ctx_tokens,
+            params,
             load_progress_handler_log,
         )
         .wrap_err("Could not load model")?;

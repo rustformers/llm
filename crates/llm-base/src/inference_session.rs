@@ -139,9 +139,27 @@ impl InferenceSession {
         }
     }
 
+    /// Perform inference with model defaults
+    pub fn infer<E: std::error::Error + 'static>(
+        &mut self,
+        model: &dyn Model,
+        prompt: &str,
+        rng: &mut impl rand::Rng,
+        callback: impl FnMut(&str) -> Result<(), E>,
+    ) -> Result<InferenceStats, InferenceError> {
+        self.infer_with_params(
+            model,
+            &model.inference_params(),
+            &model.inference_prompt_params(),
+            prompt,
+            rng,
+            callback,
+        )
+    }
+
     /// Helper function to run inference with this session and the given model and vocabulary.
     /// The `callback` is called with each new token until inference is complete.
-    pub fn inference_with_prompt<E: std::error::Error + 'static>(
+    pub fn infer_with_params<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
         params: &InferenceParameters,

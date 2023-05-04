@@ -1,4 +1,5 @@
 use llm::{load_progress_callback_stdout, models, LoadError, Model};
+use llm_base::ModelParameters;
 use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 fn main() {
@@ -28,19 +29,12 @@ fn main() {
     };
     let mut session = model.start_session(Default::default());
 
-    let res = session.inference_with_prompt::<Infallible>(
-        model.as_ref(),
-        &Default::default(),
-        &Default::default(),
-        prompt,
-        &mut rand::thread_rng(),
-        |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
+    let res = session.infer::<Infallible>(model.as_ref(), prompt, &mut rand::thread_rng(), |t| {
+        print!("{t}");
+        std::io::stdout().flush().unwrap();
 
-            Ok(())
-        },
-    );
+        Ok(())
+    });
 
     match res {
         Ok(result) => println!("\n\nInference stats:\n{result}"),
@@ -51,10 +45,16 @@ fn main() {
 pub fn load<M: llm::KnownModel + 'static>(model_path: &str) -> Result<Box<dyn Model>, LoadError> {
     let now = std::time::Instant::now();
 
+    let params = ModelParameters {
+        n_context_tokens: 2048,
+        inference_params: Default::default(),
+        inference_prompt_params: Default::default(),
+    };
+
     let model = llm::load::<M>(
         Path::new(model_path),
         true,
-        2048,
+        params,
         load_progress_callback_stdout,
     )?;
 

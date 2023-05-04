@@ -23,7 +23,7 @@ pub use loader::{
     TensorLoader,
 };
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model};
+pub use model::{Hyperparameters, KnownModel, Model, ModelParameters};
 pub use util::{BasicWriteError, TokenUtf8Buffer};
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 

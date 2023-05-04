@@ -5,8 +5,8 @@ use std::{error::Error, path::Path};
 use ggml::Tensor;
 use llm_base::{
     util, BasicWriteError, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader, TokenId,
-    Vocabulary,
+    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    Mmap, ModelParameters, TensorLoader, TokenId, Vocabulary,
 };
 
 pub struct NeoX {
@@ -27,6 +27,9 @@ pub struct NeoX {
 
     layers: Vec<Layer>,
 
+    inference_params: InferenceParameters,
+    inference_prompt_params: InferenceWithPromptParameters,
+
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
@@ -44,10 +47,10 @@ impl NeoX {
     pub fn load(
         path: &Path,
         prefer_mmap: bool,
-        n_context_tokens: usize,
+        params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<NeoX, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        llm_base::load(path, prefer_mmap, params, load_progress_callback)
     }
 }
 
@@ -56,7 +59,7 @@ impl KnownModel for NeoX {
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -106,6 +109,12 @@ impl KnownModel for NeoX {
 
         let (_context, _, _mmap) = tl.finish();
 
+        let ModelParameters {
+            n_context_tokens,
+            inference_params,
+            inference_prompt_params,
+        } = params;
+
         Ok(NeoX {
             hyperparameters,
             n_context_tokens,
@@ -115,6 +124,8 @@ impl KnownModel for NeoX {
             wte,
             lmh_g,
             layers,
+            inference_params,
+            inference_prompt_params,
             _context,
             _mmap,
         })
@@ -391,6 +402,14 @@ impl KnownModel for NeoX {
             .copied()
             .unwrap()
     }
+
+    fn inference_params(&self) -> InferenceParameters {
+        self.inference_params.clone()
+    }
+
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
+        self.inference_prompt_params
+    }
 }
 
 /// The hyperparameters of the model.
@@ -485,6 +504,8 @@ impl NeoX {
             wte: context.new_f32(0.0),
             lmh_g: context.new_f32(0.0),
             layers: Default::default(),
+            inference_params: Default::default(),
+            inference_prompt_params: Default::default(),
             _mmap: Default::default(),
             _context: context,
         }
