@@ -153,3 +153,13 @@ pub struct ModelParameters {
     /// Default InferenceWithPromptParameters to use with the model
     pub inference_prompt_params: InferenceWithPromptParameters,
 }
+
+impl Default for ModelParameters {
+    fn default() -> Self {
+        Self {
+            n_context_tokens: 2048,
+            inference_params: Default::default(),
+            inference_prompt_params: Default::default(),
+        }
+    }
+}

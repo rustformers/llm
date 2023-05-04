@@ -308,8 +308,7 @@ impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             n_context_tokens: self.num_ctx_tokens,
-            inference_params: Default::default(),
-            inference_prompt_params: Default::default(),
+            ..Default::default()
         };
 
         let now = std::time::Instant::now();
