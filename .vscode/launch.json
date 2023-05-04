@@ -1,0 +1,82 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug BLOOM Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["bloom", "${env:HOME}/.ggml-models/bloom-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug GPT-2 Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["gpt2", "${env:HOME}/.ggml-models/cerebras-gpt-13b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug GPT-J Inference",
+      "cargo": {
+        "args": [
+          "build",
+          "--example=inference",
+          "--package=llm"
+        ],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["gptj", "${env:HOME}/.ggml-models/gpt-j-6b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug LLaMA Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["llama", "${env:HOME}/.ggml-models/gpt4all-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug NeoX Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["neox", "${env:HOME}/.ggml-models/stablelm-base-alpha-3b.bin"],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

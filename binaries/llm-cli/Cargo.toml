@@ -1,0 +1,25 @@
+[package]
+edition = "2021"
+name = "llm-cli"
+version = { workspace = true }
+
+[[bin]]
+name = "llm"
+path = "src/main.rs"
+
+[dependencies]
+llm = { path = "../../crates/llm" }
+
+log = { workspace = true }
+rand = { workspace = true }
+
+bincode = "1.3.3"
+bytesize = "1.1"
+env_logger = "0.10.0"
+num_cpus = "1.15.0"
+rustyline = "11.0.0"
+spinoff = { version = "0.7.0", default-features = false, features = ["dots2"] }
+
+clap = { version = "4.1.8", features = ["derive"] }
+color-eyre = { version = "0.6.2", default-features = false }
+zstd = { version = "0.12", default-features = false }

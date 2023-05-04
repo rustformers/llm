@@ -1,0 +1,3 @@
+[submodule "crates/ggml/sys/ggml"]
+	path = crates/ggml/sys/ggml
+	url = https://github.com/ggerganov/ggml.git

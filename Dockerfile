@@ -8,14 +8,14 @@ RUN apk add --no-cache musl-dev
 WORKDIR /app
 COPY ./ /app
 # do a release build
-RUN cargo build --release --bin llama-cli
-RUN strip target/release/llama-cli
+RUN cargo build --release --bin llm
+RUN strip target/release/llm
 
 # use a plain alpine image, the alpine version needs to match the builder
 FROM alpine:3.17
 # if needed, install additional dependencies here
 RUN apk add --no-cache libgcc
 # copy the binary into the final image
-COPY --from=builder /app/target/release/llama-cli .
+COPY --from=builder /app/target/release/llm .
 # set the binary as entrypoint
-ENTRYPOINT ["/llama-cli"]
+ENTRYPOINT ["/llm"]

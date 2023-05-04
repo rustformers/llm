@@ -1,0 +1,8 @@
+[package]
+name = "generate-ggml-bindings"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bindgen = "0.65.1"
