@@ -2,6 +2,7 @@
 edition = "2021"
 name = "llm-cli"
 version = { workspace = true }
+repository = "https://github.com/rustformers/llm"
 
 [[bin]]
 name = "llm"
