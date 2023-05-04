@@ -547,7 +547,7 @@ impl Default for InferenceSessionParameters {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Eq, serde::Serialize, serde::Deserialize)]
-/// Settings specific to [InferenceSession::inference_with_prompt].
+/// Settings specific to [InferenceSession::infer] [InferenceSession::infer_with_params].
 pub struct InferenceWithPromptParameters {
     /// Whether or not to call the callback with the previous tokens
     /// that were encountered in this session.
