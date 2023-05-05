@@ -1,4 +1,5 @@
-// Ref: https://github.com/ggerganov/ggml/blob/abea4b7/examples/gpt-j/main.cpp
+//! An implementation of [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj) for the `llm` ecosystem.
+#![deny(missing_docs)]
 
 use std::{error::Error, path::Path};
 
@@ -10,6 +11,10 @@ use llm_base::{
     TensorLoader, TokenId, Vocabulary,
 };
 
+/// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct GptJ {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
@@ -334,18 +339,18 @@ impl KnownModel for GptJ {
     }
 }
 
-/// The hyperparameters of the model.
+/// GPT-J [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     pub n_vocab: usize,
-    /// n_ctx
+    /// Size of the model's context
     pub n_ctx: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     pub n_embd: usize,
     /// n_head
     pub n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,

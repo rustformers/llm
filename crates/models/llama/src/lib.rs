@@ -1,4 +1,4 @@
-//! An implementation of LLaMA (Large Language Model Meta AI) for the `llm` ecosystem.
+//! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
 use std::{error::Error, path::Path};
@@ -15,7 +15,7 @@ pub mod convert;
 
 mod old_loader;
 
-/// The LLaMA model.
+/// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
@@ -393,18 +393,18 @@ impl Llama {
     }
 }
 
-/// The hyperparameters of the model.
+/// LLaMA [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     pub n_vocab: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     pub n_embd: usize,
     /// n_mult
     pub n_mult: usize,
     /// n_head
     pub n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,

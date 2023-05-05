@@ -1,4 +1,4 @@
-//! An implementation of BLOOM (BigScience Large Open-science Open-access Multilingual Language Model)
+//! An implementation of [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom)
 //! for the `llm` ecosystem.
 //!
 //! This implementation of BLOOM may not be fully correct. More work may be required.
@@ -12,7 +12,7 @@ use llm_base::{
     LoadError, LoadProgress, Mmap, ModelParameters, TokenId, Vocabulary,
 };
 
-/// The BLOOM model.
+/// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
@@ -426,18 +426,18 @@ impl KnownModel for Bloom {
     }
 }
 
-/// The hyperparameters of the model.
+/// BLOOM [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     pub n_vocab: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     pub n_embd: usize,
     /// n_mult
     pub n_mult: usize,
     /// n_head
     pub n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     pub n_layer: usize,
     /// file_type
     pub file_type: FileType,

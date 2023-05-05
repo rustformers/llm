@@ -12,7 +12,7 @@ use crate::{
 };
 pub use ggml::ContainerType;
 use ggml::{
-    format::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo},
+    format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
     Context,
 };
 use memmap2::Mmap;
@@ -344,7 +344,7 @@ pub fn load<M: KnownModel>(
     struct MmapCompatibleLoader<'a> {
         path: PathBuf,
         file: File,
-        tensors: HashMap<String, TensorInfo>,
+        tensors: HashMap<String, TensorLoadInfo>,
         context: Context,
         mmap: Option<Mmap>,
         load_progress_callback: &'a mut dyn FnMut(LoadProgress),
@@ -460,7 +460,7 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
     /// The vocabulary of the model.
     pub vocabulary: Vocabulary,
     /// The tensors of the model.
-    pub tensors: HashMap<String, TensorInfo>,
+    pub tensors: HashMap<String, TensorLoadInfo>,
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
@@ -508,7 +508,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
         Ok(partial)
     }
 
-    fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), LoadError> {
+    fn tensor_buffer(&mut self, info: TensorLoadInfo) -> Result<(), LoadError> {
         self.tensors.insert(info.name.clone(), info);
         Ok(())
     }

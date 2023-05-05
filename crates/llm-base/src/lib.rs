@@ -32,18 +32,18 @@ pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 pub struct InferenceParameters {
     /// The number of threads to use.
     pub n_threads: usize,
-    /// [InferenceSession::feed_prompt] processes the prompt in batches of tokens.
-    /// This controls how large an individual batch is.
+    /// Controls batch/chunk size for prompt ingestion in
+    /// [InferenceSession::feed_prompt].
     pub n_batch: usize,
-    /// Top-K: The top K words by score are kept during sampling.
+    /// The top K words by score are kept during sampling.
     pub top_k: usize,
-    /// Top-p: The cumulative probability after which no more words are kept for sampling.
+    /// The cumulative probability after which no more words are kept for sampling.
     pub top_p: f32,
     /// The penalty for repeating tokens. Higher values make the generation less
     /// likely to get into a loop, but may harm results when repetitive outputs
     /// are desired.
     pub repeat_penalty: f32,
-    /// Temperature used for sampling.
+    /// Temperature (randomness) used for sampling. A higher number is more random.
     pub temperature: f32,
     /// A list of tokens to bias against in the process of generation.
     pub bias_tokens: TokenBias,

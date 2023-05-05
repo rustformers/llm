@@ -49,7 +49,7 @@ fn can_roundtrip_loader_and_saver() {
 
                 (
                     format!("tensor_{}", i),
-                    format::TensorData {
+                    format::TensorSaveInfo {
                         n_dims,
                         dims: dims.try_into().unwrap(),
                         element_type,
@@ -109,7 +109,7 @@ impl Hyperparameters {
 struct Model {
     hyperparameters: Hyperparameters,
     vocabulary: Vec<(Vec<u8>, f32)>,
-    tensors: BTreeMap<String, format::TensorData>,
+    tensors: BTreeMap<String, format::TensorSaveInfo>,
 }
 
 struct MockSaveHandler<'a> {
@@ -121,7 +121,7 @@ impl format::SaveHandler<DummyError> for MockSaveHandler<'_> {
         Ok(())
     }
 
-    fn tensor_data(&mut self, tensor_name: &str) -> Result<format::TensorData, DummyError> {
+    fn tensor_data(&mut self, tensor_name: &str) -> Result<format::TensorSaveInfo, DummyError> {
         self.model
             .tensors
             .get(tensor_name)
@@ -161,8 +161,8 @@ impl format::LoadHandler<DummyError> for MockLoadHandler<'_> {
         })
     }
 
-    fn tensor_buffer(&mut self, info: format::TensorInfo) -> Result<(), DummyError> {
-        let data = format::TensorData {
+    fn tensor_buffer(&mut self, info: format::TensorLoadInfo) -> Result<(), DummyError> {
+        let data = format::TensorSaveInfo {
             n_dims: info.n_dims,
             dims: info.dims,
             element_type: info.element_type,
