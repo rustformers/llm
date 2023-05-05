@@ -317,6 +317,7 @@ impl ModelLoad {
             None,
         ));
         let now = std::time::Instant::now();
+        let mut prev_load_time = now;
 
         let model =
             llm::load::<M>(
@@ -338,13 +339,19 @@ impl ModelLoad {
                         tensor_count,
                         ..
                     } => {
-                        if let Some(sp) = sp.as_mut() {
-                            sp.update_text(format!(
-                                "Loaded tensor {}/{}",
-                                current_tensor + 1,
-                                tensor_count
-                            ));
-                        };
+                        if prev_load_time.elapsed().as_millis() > 500 {
+                            // We don't want to re-render this on every message, as that causes the
+                            // spinner to constantly reset and not look like it's spinning (and
+                            // it's obviously wasteful).
+                            if let Some(sp) = sp.as_mut() {
+                                sp.update_text(format!(
+                                    "Loaded tensor {}/{}",
+                                    current_tensor + 1,
+                                    tensor_count
+                                ));
+                            };
+                            prev_load_time = std::time::Instant::now();
+                        }
                     }
                     LoadProgress::Loaded {
                         file_size,
