@@ -32,7 +32,8 @@ pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 pub struct InferenceParameters {
     /// The number of threads to use.
     pub n_threads: usize,
-    /// Controls batch size for [InferenceSession::feed_prompt].
+    /// Controls batch/chunk size for prompt ingestion in
+    /// [InferenceSession::feed_prompt].
     pub n_batch: usize,
     /// The top K words by score are kept during sampling.
     pub top_k: usize,

@@ -1,11 +1,11 @@
 //! This crate provides a unified interface for loading and using
 //! Large Language Models (LLMs). The following models are supported:
 //!
-//! - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) (inference produces garbled results)
-//! - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
-//! - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
-//! - [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama)
-//! - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox)
+//! - [BLOOM](llm_bloom) (inference produces garbled results)
+//! - [GPT-2](llm_gpt2)
+//! - [GPT-J](llm_gptj)
+//! - [LLaMA](llm_llama)
+//! - [GPT-NeoX](llm_neox)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.

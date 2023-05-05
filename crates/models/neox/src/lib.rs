@@ -1,4 +1,5 @@
-// Ref: https://github.com/ggerganov/ggml/blob/5dd92f4/examples/stablelm/main.cpp
+//! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
+#![deny(missing_docs)]
 
 use std::{error::Error, path::Path};
 
@@ -10,7 +11,7 @@ use llm_base::{
     TensorLoader, TokenId, Vocabulary,
 };
 
-/// The [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) model.
+/// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
@@ -363,18 +364,18 @@ impl KnownModel for NeoX {
     }
 }
 
-/// The hyperparameters of the model.
+/// GPT-Neo-X [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     pub n_vocab: usize,
-    /// n_ctx
+    /// Size of the model's context
     pub n_ctx: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     pub n_embd: usize,
     /// n_head
     pub n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,

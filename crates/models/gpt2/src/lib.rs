@@ -1,4 +1,4 @@
-//! An implementation of GPT-2 for the `llm` ecosystem.
+//! An implementation of [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
 use std::path::Path;
@@ -10,7 +10,7 @@ use llm_base::{
     LoadError, LoadProgress, ModelParameters, TokenId, Vocabulary,
 };
 
-/// The [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) model.
+/// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
@@ -345,18 +345,18 @@ impl Gpt2 {
     }
 }
 
-/// The hyperparameters of the model.
+/// GPT-2 [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     n_vocab: usize,
-    /// n_ctx
+    /// Size of the model's context
     n_ctx: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     n_embd: usize,
     /// n_head
     n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     n_layer: usize,
     /// file type
     file_type: FileType,
