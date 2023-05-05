@@ -60,10 +60,9 @@ cargo run --release --bin llm -- <ARGS>
 
 This is useful for development.
 
-### Getting model weights
+### Getting models
 
-In order to run inference, a model's weights are required. Currently, the
-following models are supported:
+GGML files are easy to acquire. Currently, the following models are supported:
 
 - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
 - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
@@ -71,9 +70,22 @@ following models are supported:
 - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox)
 - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) (partial support, results inconsistent)
 
+Certain older GGML formats are not supported by this project, but the goal is to
+maintain feature parity with the upstream GGML project. For problems relating to
+loading models, or requesting support for
+[supported GGML model types](https://github.com/ggerganov/ggml#roadmap), please
+[open an Issue](https://github.com/rustformers/llm/issues/new).
+
 #### From Hugging Face
 
-Compatible weights can be found on [Hugging Face by searching for GGML models](https://huggingface.co/models?search=ggml).
+Hugging Face 🤗 is a leader in open-source machine learning and hosts hundreds of GGML models.
+[Search for GGML models on Hugging Face 🤗](https://huggingface.co/models?search=ggml).
+
+#### r/LocalLLaMA
+
+This Reddit community maintains [a wiki](https://www.reddit.com/r/LocalLLaMA/wiki/index/)
+related to GGML models, including well organized lists of links for acquiring
+[GGML models](https://www.reddit.com/r/LocalLLaMA/wiki/models/) (mostly from Hugging Face 🤗).
 
 #### LLaMA original weights
 
