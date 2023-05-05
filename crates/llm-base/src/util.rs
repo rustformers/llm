@@ -88,15 +88,20 @@ pub enum FindAllModelFilesError {
 
 /// Find all the files related to a model.
 pub fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, FindAllModelFilesError> {
+    let mut main_path_parent =
+        main_path
+            .parent()
+            .ok_or_else(|| FindAllModelFilesError::NoParentPath {
+                path: main_path.to_owned(),
+            })?;
+    if main_path_parent.to_str() == Some("") {
+        main_path_parent = Path::new(".");
+    }
     Ok(collect_related_paths(
         main_path,
-        std::fs::read_dir(main_path.parent().ok_or_else(|| {
-            FindAllModelFilesError::NoParentPath {
-                path: main_path.to_owned(),
-            }
-        })?)?
-        .filter_map(Result::ok)
-        .map(|de| de.path()),
+        std::fs::read_dir(main_path_parent)?
+            .filter_map(Result::ok)
+            .map(|de| de.path()),
     ))
 }
 
