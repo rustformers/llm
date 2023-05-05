@@ -284,7 +284,8 @@ pub trait TensorLoader<E: std::error::Error> {
     fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
 }
 
-/// Load an arbitrary GGML model.
+/// Load a GGML model from the `path` and configure it per the `params`. The status
+/// of the loading process will be reported through `load_progress_callback`.
 ///
 /// Note that the model must be a single-part model, and the model in `path`
 /// *must* match the architecture of `M`.

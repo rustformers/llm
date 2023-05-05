@@ -38,6 +38,8 @@
 //!     &llama,
 //!     // text generation prompt
 //!     "Rust is a cool programming language because",
+//!     // llm::EvaluateOutputRequest
+//!     &mut Default::default(),
 //!     // randomness provider
 //!     &mut rand::thread_rng(),
 //!     // output callback

@@ -65,6 +65,8 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
             maximum_token_count: args.generate.num_predict,
         },
         &prompt,
+        // EvaluateOutputRequest
+        &mut Default::default(),
         &mut rng,
         |t| {
             print!("{t}");
@@ -208,6 +210,8 @@ fn interactive<M: llm::KnownModel + 'static>(
                     model.as_ref(),
                     &inference_params,
                     &prompt,
+                    // EvaluateOutputRequest
+                    &mut Default::default(),
                     |_| Ok(()),
                 ) {
                     log::error!("Prompt exceeds context window length.")
@@ -222,6 +226,8 @@ fn interactive<M: llm::KnownModel + 'static>(
                         maximum_token_count: args.generate.num_predict,
                     },
                     "",
+                    // EvaluateOuputRequest
+                    &mut Default::default(),
                     &mut rng,
                     |tk| {
                         print!("{tk}");

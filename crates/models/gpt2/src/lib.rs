@@ -28,8 +28,23 @@ pub struct Gpt2 {
     inference_prompt_params: InferenceWithPromptParameters,
     _context: ggml::Context,
 }
+
 unsafe impl Send for Gpt2 {}
 unsafe impl Sync for Gpt2 {}
+
+impl Gpt2 {
+    /// Load a GPT-2 model from the `path` and configure it per the `params`. The status
+    /// of the loading process will be reported through `load_progress_callback`. This
+    /// is a helper function on top of [llm_base::load].
+    pub fn load(
+        path: &Path,
+        params: ModelParameters,
+        load_progress_callback: impl FnMut(LoadProgress),
+    ) -> Result<Gpt2, LoadError> {
+        llm_base::load(path, params, load_progress_callback)
+    }
+}
+
 impl KnownModel for Gpt2 {
     type Hyperparameters = Hyperparameters;
 
@@ -329,19 +344,6 @@ impl KnownModel for Gpt2 {
 
     fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
         self.inference_prompt_params
-    }
-}
-
-impl Gpt2 {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
-    pub fn load(
-        path: &Path,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Gpt2, LoadError> {
-        llm_base::load(path, params, load_progress_callback)
     }
 }
 

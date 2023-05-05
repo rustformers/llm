@@ -36,12 +36,14 @@ pub struct Bloom {
     _context: ggml::Context,
     _mmap: Option<Mmap>,
 }
+
 unsafe impl Send for Bloom {}
 unsafe impl Sync for Bloom {}
+
 impl Bloom {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
+    /// Load a BLOOM model from the `path` and configure it per the `params`. The status
+    /// of the loading process will be reported through `load_progress_callback`. This
+    /// is a helper function on top of [llm_base::load].
     pub fn load(
         path: &Path,
         params: ModelParameters,
@@ -50,6 +52,7 @@ impl Bloom {
         llm_base::load(path, params, load_progress_callback)
     }
 }
+
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
 
