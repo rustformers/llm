@@ -299,7 +299,6 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    prefer_mmap: bool,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
@@ -328,7 +327,7 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let use_mmap = prefer_mmap && container_type.support_mmap();
+    let use_mmap = params.prefer_mmap && container_type.support_mmap();
 
     let ctx_size = tensors
         .values()
