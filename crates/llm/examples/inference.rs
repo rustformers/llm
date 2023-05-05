@@ -46,7 +46,6 @@ pub fn load<M: llm::KnownModel + 'static>(model_path: &str) -> Result<Box<dyn Mo
 
     let model = llm::load::<M>(
         Path::new(model_path),
-        true,
         Default::default(),
         load_progress_callback_stdout,
     )?;

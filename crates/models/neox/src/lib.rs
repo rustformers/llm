@@ -52,11 +52,10 @@ impl NeoX {
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: &Path,
-        prefer_mmap: bool,
         params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<NeoX, LoadError> {
-        llm_base::load(path, prefer_mmap, params, load_progress_callback)
+        llm_base::load(path, params, load_progress_callback)
     }
 }
 
@@ -119,6 +118,7 @@ impl KnownModel for NeoX {
             n_context_tokens,
             inference_params,
             inference_prompt_params,
+            ..
         } = params;
 
         Ok(NeoX {

@@ -20,8 +20,6 @@
 //! let model_load = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
-//!     // prefer mmap
-//!     true,
 //!     // llm::ModelParameters
 //!     Default::default(),
 //!     // load progress callback

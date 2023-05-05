@@ -151,17 +151,23 @@ pub trait Hyperparameters: Sized + Default + Debug {
 
 /// Parameters for tuning model instances
 pub struct ModelParameters {
-    /// Model context size
+    /// For [GGML formats](ggml::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
+    /// is the default. Although mmap typically improves performance, setting this value to `false` may
+    /// be preferred in resource-constrained environments.
+    pub prefer_mmap: bool,
+    /// The context size ("memory") the model should use when evaluating a prompt. A larger context
+    /// consumes more resources, but produces more consistent and coherent responses.
     pub n_context_tokens: usize,
-    /// Default InferenceParameters to use with the model
+    /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
     pub inference_params: InferenceParameters,
-    /// Default InferenceWithPromptParameters to use with the model
+    /// Default InferenceWithPromptParameters to use when [evaluating](Model::evaluate) a prompt with this model.
     pub inference_prompt_params: InferenceWithPromptParameters,
 }
 
 impl Default for ModelParameters {
     fn default() -> Self {
         Self {
+            prefer_mmap: true,
             n_context_tokens: 2048,
             inference_params: Default::default(),
             inference_prompt_params: Default::default(),

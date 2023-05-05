@@ -307,6 +307,7 @@ pub struct ModelLoad {
 impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
+            prefer_mmap: !self.no_mmap,
             n_context_tokens: self.num_ctx_tokens,
             ..Default::default()
         };
@@ -319,55 +320,49 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let model =
-            llm::load::<M>(
-                &self.model_path,
-                !self.no_mmap,
-                params,
-                move |progress| match progress {
-                    LoadProgress::HyperparametersLoaded => {
-                        if let Some(sp) = sp.as_mut() {
-                            sp.update_text("Loaded hyperparameters")
-                        };
-                    }
-                    LoadProgress::ContextSize { bytes } => log::debug!(
-                        "ggml ctx size = {}",
-                        bytesize::to_string(bytes as u64, false)
-                    ),
-                    LoadProgress::TensorLoaded {
-                        current_tensor,
-                        tensor_count,
-                        ..
-                    } => {
-                        if prev_load_time.elapsed().as_millis() > 500 {
-                            // We don't want to re-render this on every message, as that causes the
-                            // spinner to constantly reset and not look like it's spinning (and
-                            // it's obviously wasteful).
-                            if let Some(sp) = sp.as_mut() {
-                                sp.update_text(format!(
-                                    "Loaded tensor {}/{}",
-                                    current_tensor + 1,
-                                    tensor_count
-                                ));
-                            };
-                            prev_load_time = std::time::Instant::now();
-                        }
-                    }
-                    LoadProgress::Loaded {
-                        file_size,
-                        tensor_count,
-                    } => {
-                        if let Some(sp) = sp.take() {
-                            sp.success(&format!(
-                                "Loaded {tensor_count} tensors ({}) after {}ms",
-                                bytesize::to_string(file_size, false),
-                                now.elapsed().as_millis()
-                            ));
-                        };
-                    }
-                },
-            )
-            .wrap_err("Could not load model")?;
+        let model = llm::load::<M>(&self.model_path, params, move |progress| match progress {
+            LoadProgress::HyperparametersLoaded => {
+                if let Some(sp) = sp.as_mut() {
+                    sp.update_text("Loaded hyperparameters")
+                };
+            }
+            LoadProgress::ContextSize { bytes } => log::debug!(
+                "ggml ctx size = {}",
+                bytesize::to_string(bytes as u64, false)
+            ),
+            LoadProgress::TensorLoaded {
+                current_tensor,
+                tensor_count,
+                ..
+            } => {
+                if prev_load_time.elapsed().as_millis() > 500 {
+                    // We don't want to re-render this on every message, as that causes the
+                    // spinner to constantly reset and not look like it's spinning (and
+                    // it's obviously wasteful).
+                    if let Some(sp) = sp.as_mut() {
+                        sp.update_text(format!(
+                            "Loaded tensor {}/{}",
+                            current_tensor + 1,
+                            tensor_count
+                        ));
+                    };
+                    prev_load_time = std::time::Instant::now();
+                }
+            }
+            LoadProgress::Loaded {
+                file_size,
+                tensor_count,
+            } => {
+                if let Some(sp) = sp.take() {
+                    sp.success(&format!(
+                        "Loaded {tensor_count} tensors ({}) after {}ms",
+                        bytesize::to_string(file_size, false),
+                        now.elapsed().as_millis()
+                    ));
+                };
+            }
+        })
+        .wrap_err("Could not load model")?;
 
         Ok(Box::new(model))
     }
