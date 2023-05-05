@@ -352,12 +352,15 @@ pub fn load<M: KnownModel>(
     }
     impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         fn load(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
-            let tensors = self.tensors.clone();
-            let info = tensors.get(name).ok_or(LoadError::UnknownTensor {
-                tensor_name: String::from(name),
-                path: Default::default(),
-            })?;
-            self.load_manual(&info.name, info.dims())
+            let tensor_dims = self
+                .tensors
+                .get(name)
+                .map(|tensor| tensor.dims().to_vec())
+                .ok_or(LoadError::UnknownTensor {
+                    tensor_name: String::from(name),
+                    path: Default::default(),
+                })?;
+            self.load_manual(name, &tensor_dims)
         }
 
         fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
