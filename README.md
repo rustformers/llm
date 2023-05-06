@@ -60,7 +60,7 @@ The resulting binary will be at `target/release/llm[.exe]`.
 It can also be run directly through Cargo, using
 
 ```shell
-cargo run --release --bin llm -- <ARGS>
+cargo run --release -- <ARGS>
 ```
 
 This is useful for development.
@@ -113,7 +113,7 @@ is compatible with ggml. To achieve this, follow the steps outlined below:
 python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 
 # Quantize the model to 4-bit ggml format
-cargo run --bin llm llama quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
+cargo run --release llama quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
 ```
 
 > **Note**
