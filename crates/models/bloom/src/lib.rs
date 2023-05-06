@@ -410,7 +410,11 @@ impl KnownModel for Bloom {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        0
+        self.vocabulary
+            .token_to_id
+            .get("</s>".as_bytes())
+            .copied()
+            .unwrap()
     }
 
     fn inference_params(&self) -> InferenceParameters {
