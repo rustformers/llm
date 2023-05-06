@@ -13,7 +13,7 @@ llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.1.0-rc1" }
 llm-gptj = { path = "../models/gptj", optional = true, version = "0.1.0-rc1" }
 llm-bloom = { path = "../models/bloom", optional = true, version = "0.1.0-rc1" }
 llm-neox = { path = "../models/neox", optional = true, version = "0.1.0-rc1" }
-llm-codegen = { path = "../models/codegen", optional = true }
+llm-codegen = { path = "../models/codegen", optional = true, version = "0.1.0-rc1" }
 
 [dev-dependencies]
 rand = { workspace = true }

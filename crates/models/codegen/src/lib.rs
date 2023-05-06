@@ -1,15 +1,14 @@
-
-// Ref: https://github.com/ggerganov/ggml/blob/abea4b7/examples/gpt-j/main.cpp
-
 use std::{error::Error, path::Path};
 
 use ggml::Tensor;
 use llm_base::{
-    util, BasicWriteError, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader, TokenId,
-    Vocabulary,
+    ggml, model::common, util, BasicWriteError, EvaluateOutputRequest, FileType,
+    InferenceParameters, InferenceSession, InferenceSessionParameters,
+    InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Mmap, ModelParameters,
+    TensorLoader, TokenId, Vocabulary,
 };
 
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct CodeGen {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
@@ -29,6 +28,9 @@ pub struct CodeGen {
 
     layers: Vec<Layer>,
 
+    inference_params: InferenceParameters,
+    inference_prompt_params: InferenceWithPromptParameters,
+
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
@@ -45,11 +47,10 @@ impl CodeGen {
     /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: &Path,
-        prefer_mmap: bool,
-        n_context_tokens: usize,
+        params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<CodeGen, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+        llm_base::load(path, params, load_progress_callback)
     }
 }
 
@@ -58,63 +59,48 @@ impl KnownModel for CodeGen {
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
         Self: Sized,
     {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-
         let mut tl = tensor_loader;
 
         // prepare memory for weights
-        let wte = tl.load("transformer.wte.weight", &[n_embd, n_vocab])?;
-        let ln_f_g = tl.load("transformer.ln_f.weight", &[n_embd])?;
-        let ln_f_b = tl.load("transformer.ln_f.bias", &[n_embd])?;
-        let lmh_g = tl.load("lm_head.weight", &[n_embd, n_vocab])?;
-        let lmh_b = tl.load("lm_head.bias", &[n_vocab])?;
+        let wte = tl.load("transformer.wte.weight")?;
+        let ln_f_g = tl.load("transformer.ln_f.weight")?;
+        let ln_f_b = tl.load("transformer.ln_f.bias")?;
+        let lmh_g = tl.load("lm_head.weight")?;
+        let lmh_b = tl.load("lm_head.bias")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"), &[n_embd])?,
-                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"), &[n_embd])?,
-                c_attn_q_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.q_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_k_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.k_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_v_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.v_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.out_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_mlp_fc_w: tl.load(
-                    &format!("transformer.h.{i}.mlp.fc_in.weight"),
-                    &[n_embd, n_embd * 4],
-                )?,
-                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"), &[n_embd * 4])?,
-                c_mlp_proj_w: tl.load(
-                    &format!("transformer.h.{i}.mlp.fc_out.weight"),
-                    &[n_embd * 4, n_embd],
-                )?,
-                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"), &[n_embd])?,
+                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"))?,
+                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"))?,
+                c_attn_q_proj_w: tl.load(&format!("transformer.h.{i}.attn.q_proj.weight"))?,
+                c_attn_k_proj_w: tl.load(&format!("transformer.h.{i}.attn.k_proj.weight"))?,
+                c_attn_v_proj_w: tl.load(&format!("transformer.h.{i}.attn.v_proj.weight"))?,
+                c_attn_proj_w: tl.load(&format!("transformer.h.{i}.attn.out_proj.weight"))?,
+                c_mlp_fc_w: tl.load(&format!("transformer.h.{i}.mlp.fc_in.weight"))?,
+                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"))?,
+                c_mlp_proj_w: tl.load(&format!("transformer.h.{i}.mlp.fc_out.weight"))?,
+                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"))?,
             };
 
             layers.push(layer);
         }
 
         let (_context, _, _mmap) = tl.finish();
+
+        let ModelParameters {
+            n_context_tokens,
+            inference_params,
+            inference_prompt_params,
+            ..
+        } = params;
 
         Ok(CodeGen {
             hyperparameters,
@@ -126,6 +112,8 @@ impl KnownModel for CodeGen {
             lmh_g,
             lmh_b,
             layers,
+            inference_params,
+            inference_prompt_params,
             _mmap,
             _context,
         })
@@ -161,30 +149,7 @@ impl KnownModel for CodeGen {
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
 
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        //
-        // These numbers are from `llama.cpp`, and could potentially be more efficient.
-        let mut buf_size = {
-            let buf_size_mb = if n_layer >= 80 {
-                1536
-            } else if n_layer >= 60 {
-                1280
-            } else {
-                1024
-            };
-            buf_size_mb * 1024 * 1024
-        };
-        if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
-            // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
-        };
-        let ctx0 = ggml::Context::init(buf_size, true);
-
-        let mut gf = ggml::ComputationGraph::new(n_threads);
-
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
-        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
+        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
         let n_past = session.n_past;
 
@@ -197,25 +162,9 @@ impl KnownModel for CodeGen {
         let memory_v = &session.memory_v;
         let memory_v_size = memory_v.element_size();
 
+        let mut gf = ggml::ComputationGraph::new(n_threads);
+
         for il in 0..n_layer {
-
-            //let (q, k, v) = {
-                //let mp_num = 4;
-                //let local_dim = n_embd / mp_num;
-//
-                //let base_permutation = vec![0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11];
-//
-                //let mut permutation = Vec::new();
-                //for i in &base_permutation {
-                    //for j in i * local_dim..(i + 1) * local+vim {
-                        //permutation.push(j)
-                    //}
-                //}
-//
-                //let new_qkv_proj = qkv_prov
-            //}
-
-
             // norm
             let mut current = ctx0.op_norm(&input_layer);
             current = ctx0.op_add(
@@ -348,49 +297,15 @@ impl KnownModel for CodeGen {
         input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
         input_layer = ctx0.op_add(&ctx0.op_repeat(&self.lmh_b, &input_layer), &input_layer);
 
+        // run the computation
         gf.build_forward_expand(&input_layer);
-        // thread 'main' panicked at 'WeightedIndex error: InvalidWeight', llm-base/src/inference_session.rs:293:47
         ctx0.graph_compute(&mut gf);
 
-        // return result for just the last token
-        // SAFETY: yolo
-        assert_eq!(session.last_logits.len(), n_vocab);
-        unsafe {
-            input_layer.read_data(
-                n_vocab * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(&mut session.last_logits),
-            )
-        };
-
-        // Extract logits
-        if let Some(all_logits) = &mut output_request.all_logits {
-            all_logits.resize(n_vocab * n, 0.0);
-            // SAFETY: Tensor data can be read (properly aligned, initialized,
-            // data will not be mutated or otherwise aliased during the copy),
-            // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n);
-            unsafe {
-                input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
-            }
-        }
-
-        // Extract embeddings
-        if let Some(embeddings) = &mut output_request.embeddings {
-            embeddings.resize(n_embd * n, 0.0);
-            // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embd.nelements(), n_embd * n);
-            unsafe {
-                embd.read_data(0, bytemuck::cast_slice_mut(embeddings));
-            }
-        }
-
-        // Adjust the required memory per token if we didn't know that already
-        if session.mem_per_token == 0 {
-            session.mem_per_token = ctx0.used_mem() / n;
-        }
-
-        // Adjust n_past to new length.
-        session.n_past += input_tokens.len();
+        // finish evaluation
+        common::read_last_token(session, &input_layer, n_vocab, n);
+        common::extract_logits(output_request, &input_layer, n_vocab, n);
+        common::extract_embeddings(output_request, &embd, n_embd, n);
+        common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 
     fn vocabulary(&self) -> &Vocabulary {
@@ -408,20 +323,28 @@ impl KnownModel for CodeGen {
             .copied()
             .unwrap()
     }
+
+    fn inference_params(&self) -> InferenceParameters {
+        self.inference_params.clone()
+    }
+
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
+        self.inference_prompt_params
+    }
 }
 
-/// The hyperparameters of the model.
+/// GPT-J [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     pub n_vocab: usize,
-    /// n_ctx
+    /// Size of the model's context
     pub n_ctx: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     pub n_embd: usize,
     /// n_head
     pub n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
@@ -484,7 +407,7 @@ struct Layer {
     c_attn_q_proj_w: Tensor,
     c_attn_k_proj_w: Tensor,
     c_attn_v_proj_w: Tensor,
-//
+
     c_attn_proj_w: Tensor,
 
     // ff
@@ -495,48 +418,3 @@ struct Layer {
     c_mlp_proj_b: Tensor,
 }
 
-#[cfg(test)]
-impl CodeGen {
-    /// This does *not* construct a valid model. All of the tensors are entirely
-    /// empty. However, it can be used to determine if some code will compile.
-    fn new_empty() -> Self {
-        let context = ggml::Context::init(1024 * 1024, true);
-
-        Self {
-            hyperparameters: Default::default(),
-            n_context_tokens: 0,
-            vocabulary: Default::default(),
-            ln_f_g: context.new_f32(0.0),
-            ln_f_b: context.new_f32(0.0),
-            wte: context.new_f32(0.0),
-            lmh_g: context.new_f32(0.0),
-            lmh_b: context.new_f32(0.0),
-            layers: Default::default(),
-            _mmap: Default::default(),
-            _context: context,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[test]
-    fn can_share_model_between_threads() {
-        let model = Arc::new(CodeGen::new_empty());
-
-        for _ in 0..4 {
-            let model = model.clone();
-            std::thread::spawn(move || {
-                let _session = model.start_session(Default::default());
-            });
-        }
-
-        let session = model.start_session(Default::default());
-        std::thread::spawn(move || {
-            let _session = session;
-        });
-    }
-}

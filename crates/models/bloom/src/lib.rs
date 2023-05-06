@@ -157,23 +157,7 @@ impl KnownModel for Bloom {
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
 
-<<<<<<< HEAD
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        let mut buf_size = 1024 * 1024 * 1024;
-        if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
-            // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
-        };
-        let ctx0 = ggml::Context::init(buf_size, true);
-
-        let mut gf = ggml::ComputationGraph::new(n_threads);
-
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
-        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
-=======
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
->>>>>>> main
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
 
@@ -404,11 +388,6 @@ impl KnownModel for Bloom {
                 &ctx0.op_repeat(&self.output_norm_b, &input_layer),
                 &input_layer,
             );
-<<<<<<< HEAD
-
-            embeddings_tensor = input_layer.share();
-=======
->>>>>>> main
         }
 
         // lm_head
