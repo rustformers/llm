@@ -305,7 +305,12 @@ impl KnownModel for Bloom {
                         0,
                         3,
                     ),
-                    &ctx0.new_tensor_3d(session.memory_v.get_type(), n_past + n, n_embd / n_head, n_head),
+                    &ctx0.new_tensor_3d(
+                        session.memory_v.get_type(),
+                        n_past + n,
+                        n_embd / n_head,
+                        n_head,
+                    ),
                 );
 
                 let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
