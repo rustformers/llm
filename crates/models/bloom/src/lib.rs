@@ -1,7 +1,5 @@
 //! An implementation of [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom)
 //! for the `llm` ecosystem.
-//!
-//! This implementation of BLOOM may not be fully correct. More work may be required.
 #![deny(missing_docs)]
 
 use std::path::Path;

@@ -1,7 +1,7 @@
 //! This crate provides a unified interface for loading and using
 //! Large Language Models (LLMs). The following models are supported:
 //!
-//! - [BLOOM](llm_bloom) (inference produces garbled results)
+//! - [BLOOM](llm_bloom)
 //! - [GPT-2](llm_gpt2)
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)

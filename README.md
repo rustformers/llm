@@ -73,8 +73,7 @@ GGML files are easy to acquire. Currently, the following models are supported:
 - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
 - [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama)
 - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox)
-- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) (partial
-  support, results inconsistent)
+- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom) 
 
 Certain older GGML formats are not supported by this project, but the goal is to
 maintain feature parity with the upstream GGML project. For problems relating to
