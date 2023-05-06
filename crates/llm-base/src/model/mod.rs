@@ -54,7 +54,10 @@ pub trait KnownModel: Send + Sync {
     /// this model.
     fn n_context_tokens(&self) -> usize;
 
-    /// Get the end of text token ID. This value is defined by model implementers.
+    /// Get the beginning of text/beginning of string token ID, if available. This value is defined by model implementers.
+    fn bot_token_id(&self) -> Option<TokenId>;
+
+    /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
     /// Get the default [InferenceSessionParameters] for this model (used by
@@ -93,7 +96,10 @@ pub trait Model: Send + Sync {
     /// this model.
     fn n_context_tokens(&self) -> usize;
 
-    /// Get the end of text token ID. This value is defined by model implementers.
+    /// Get the beginning of text/beginning of string token ID, if available. This value is defined by model implementers.
+    fn bot_token_id(&self) -> Option<TokenId>;
+
+    /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
     /// Get the default [InferenceSessionParameters] for this model (used by
@@ -127,6 +133,10 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
     fn n_context_tokens(&self) -> usize {
         KnownModel::n_context_tokens(self)
+    }
+
+    fn bot_token_id(&self) -> Option<TokenId> {
+        KnownModel::bot_token_id(self)
     }
 
     fn eot_token_id(&self) -> TokenId {
