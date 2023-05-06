@@ -80,9 +80,7 @@ impl KnownModel for CodeGen {
             let layer = Layer {
                 ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"))?,
                 ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"))?,
-                c_attn_q_proj_w: tl.load(&format!("transformer.h.{i}.attn.q_proj.weight"))?,
-                c_attn_k_proj_w: tl.load(&format!("transformer.h.{i}.attn.k_proj.weight"))?,
-                c_attn_v_proj_w: tl.load(&format!("transformer.h.{i}.attn.v_proj.weight"))?,
+                c_attn_qkv_proj_w: tl.load(&format!("transformer.h.{i}.attn.qkv_proj.weight"))?,
                 c_attn_proj_w: tl.load(&format!("transformer.h.{i}.attn.out_proj.weight"))?,
                 c_mlp_fc_w: tl.load(&format!("transformer.h.{i}.mlp.fc_in.weight"))?,
                 c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"))?,
@@ -174,34 +172,45 @@ impl KnownModel for CodeGen {
 
             let input_sa = current.share();
 
-            // self-attention
-            let qcur = ctx0.op_rope(
-                &ctx0.op_reshape_3d(
-                    &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
-                    n_embd / n_head,
-                    n_head,
-                    n,
-                ),
-                n_past,
-                n_rot,
-                0,
-            );
-            let kcur = ctx0.op_rope(
-                &ctx0.op_reshape_3d(
-                    &ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
-                    n_embd / n_head,
-                    n_head,
-                    n,
-                ),
-                n_past,
-                n_rot,
-                0,
-            );
+            // the number of logical TPU-v4 cores, is 4 so mp_num must be a factor of 4
+            let mp_num = 4;
 
-            // self-attention store key and value to memory
-            let vcur =
-                ctx0.op_transpose(&ctx0.op_mul_mat(&self.layers[il].c_attn_v_proj_w, &current));
+            // TODO!: rewrite self attention for codegen qkv vector
+            // TODO!: break up qkv vector into individual q, k ,v
+            let qkv_cur = ctx0.op_reshape_3d(&self.layers[il].c_attn_qkv_proj_w, n_embd / n_head, n_head, n_past + n);
 
+            let local_dim = n_embd / mp_num;
+
+            let (q, k, v) =
+
+
+            //let qcur = ctx0.op_rope(
+                //&ctx0.op_reshape_3d(
+                    //&ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
+                    //n_embd / n_head,
+                    //n_head,
+                    //n,
+                //),
+                //n_past,
+                //n_rot,
+                //0,
+            //);
+            //let kcur = ctx0.op_rope(
+                //&ctx0.op_reshape_3d(
+                    //&ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
+                    //n_embd / n_head,
+                    //n_head,
+                    //n,
+                //),
+                //n_past,
+                //n_rot,
+                //0,
+            //);
+//
+            //// self-attention store key and value to memory
+            //let vcur =
+                //ctx0.op_transpose(&ctx0.op_mul_mat(&self.layers[il].c_attn_v_proj_w, &current));
+//
             let k = ctx0.op_view_1d(
                 memory_k,
                 n * n_embd,
@@ -404,9 +413,7 @@ struct Layer {
     ln_1_b: Tensor,
 
     // attention
-    c_attn_q_proj_w: Tensor,
-    c_attn_k_proj_w: Tensor,
-    c_attn_v_proj_w: Tensor,
+    c_attn_qkv_proj_w: Tensor,
 
     c_attn_proj_w: Tensor,
 

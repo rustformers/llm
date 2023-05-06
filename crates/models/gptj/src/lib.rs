@@ -181,6 +181,7 @@ impl KnownModel for GptJ {
             let input_sa = current.share();
 
             // self-attention
+            // split heads
             let qcur = ctx0.op_rope(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
@@ -223,7 +224,9 @@ impl KnownModel for GptJ {
             gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
             gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
 
+            // merge heads
             let q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
+
             let big_k = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
