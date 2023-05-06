@@ -74,6 +74,7 @@ impl InferenceSession {
         model: &dyn Model,
         params: &InferenceParameters,
         prompt: &str,
+        output_request: &mut EvaluateOutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
@@ -90,7 +91,7 @@ impl InferenceSession {
         }
 
         for batch in prompt_tokens.chunks(params.n_batch) {
-            model.evaluate(self, params, batch, &mut EvaluateOutputRequest::default());
+            model.evaluate(self, params, batch, output_request);
             for &tk in batch {
                 // NOTE: No string ever tokenizes to the end of sentence. So we
                 // can just return the id here.
@@ -111,6 +112,7 @@ impl InferenceSession {
         &mut self,
         model: &'v dyn Model,
         params: &InferenceParameters,
+        output_request: &mut EvaluateOutputRequest,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
         if self.n_past + 1 >= model.n_context_tokens() {
@@ -124,12 +126,7 @@ impl InferenceSession {
         self.tokens.push(next_token);
 
         // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(
-            self,
-            params,
-            &[next_token],
-            &mut EvaluateOutputRequest::default(),
-        );
+        model.evaluate(self, params, &[next_token], output_request);
 
         // Return the next token
         if next_token as TokenId == model.eot_token_id() {
@@ -139,11 +136,14 @@ impl InferenceSession {
         }
     }
 
-    /// Perform inference with model defaults
+    /// Calls [Self::infer_with_params] with the [InferenceParameters] and
+    /// [InferenceWithPromptParameters] provided by the [Model]; refer to
+    /// [Self::infer_with_params] for more information.
     pub fn infer<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
         prompt: &str,
+        output_request: &mut EvaluateOutputRequest,
         rng: &mut impl rand::Rng,
         callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
@@ -152,19 +152,26 @@ impl InferenceSession {
             &model.inference_params(),
             &model.inference_prompt_params(),
             prompt,
+            output_request,
             rng,
             callback,
         )
     }
 
-    /// Helper function to run inference with this session and the given model and vocabulary.
-    /// The `callback` is called with each new token until inference is complete.
+    /// Generate text by using the provided [Model] to evaluate the `prompt`.
+    /// The `callback` is called with each new token until an end-of-text (EOT)
+    /// token is encountered or the maximum number of tokens have been
+    /// generated (specified by [InferenceWithPromptParameters::maximum_token_count]).
+    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from
+    /// the model.
+    #[allow(clippy::too_many_arguments)]
     pub fn infer_with_params<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
         params: &InferenceParameters,
         prompt_params: &InferenceWithPromptParameters,
         prompt: &str,
+        output_request: &mut EvaluateOutputRequest,
         rng: &mut impl rand::Rng,
         mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
@@ -195,6 +202,7 @@ impl InferenceSession {
             model,
             params,
             prompt,
+            output_request,
             TokenUtf8Buffer::adapt_callback(&mut callback),
         )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
@@ -207,7 +215,7 @@ impl InferenceSession {
         let mut tokens_processed = 0;
         let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
-            let token = match self.infer_next_token(model, params, rng) {
+            let token = match self.infer_next_token(model, params, output_request, rng) {
                 Ok(token) => token,
                 Err(InferenceError::EndOfText) => break,
                 Err(e) => return Err(e),

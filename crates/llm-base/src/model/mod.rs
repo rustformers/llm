@@ -15,12 +15,14 @@ use crate::{
 /// Common functions for model evaluation
 pub mod common;
 
-/// A large language model.
+/// Interfaces for creating and interacting with a large language model with a known type
+/// of [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning)).
 pub trait KnownModel: Send + Sync {
     /// Hyperparameters for the model
     type Hyperparameters: Hyperparameters;
 
-    /// Creates a new model from the provided hyperparameters.
+    /// Creates a new model from the provided [ModelParameters] hyperparameters.
+    /// This function is called by the [load](crate::loader::load) function.
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
@@ -33,12 +35,10 @@ pub trait KnownModel: Send + Sync {
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
 
-    /// Evaluates the transformer.
-    ///
-    /// The provided `output_request` struct lets you specify which additional
-    /// data you are interested in fetching from the transformer. Setting a
-    /// field to a `Some` value will clear and fill the provided vector with
-    /// data. The provided vector will be resized to the exact output size.
+    /// This function is called by the provided [InferenceSession]; it will use this model
+    /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
+    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from the
+    /// model. For more information, refer to [InferenceSession::infer_with_params]
     fn evaluate(
         &self,
         session: &mut InferenceSession,
@@ -47,19 +47,24 @@ pub trait KnownModel: Send + Sync {
         output_request: &mut EvaluateOutputRequest,
     );
 
-    /// Get the vocabulary for this model.
+    /// Get the vocabulary (loaded from the GGML file) for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
-    /// Get the context size for this model.
+    /// Get the context size (configured with [ModelParameters::n_context_tokens]) used by
+    /// this model.
     fn n_context_tokens(&self) -> usize;
 
-    /// Get the end of text token ID.
+    /// Get the end of text token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
-    /// Get the default InferenceSessionParameters to use with this model
+    /// Get the default [InferenceSessionParameters] for this model (used by
+    /// [InferenceSession::infer]). This value is configured through
+    /// [ModelParameters::inference_params].
     fn inference_params(&self) -> InferenceParameters;
 
-    /// Get the default InferenceWithPromptParameters to use with this model
+    /// Get the default [InferenceWithPromptParameters] for this model (used by
+    /// [InferenceSession::infer]). This value is configured through
+    /// [ModelParameters::inference_prompt_params].
     fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
 }
 
@@ -69,12 +74,10 @@ pub trait Model: Send + Sync {
     /// Starts a new `InferenceSession` for this model.
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
 
-    /// Evaluates the transformer.
-    ///
-    /// The provided `output_request` struct lets you specify which additional
-    /// data you are interested in fetching from the transformer. Setting a
-    /// field to a `Some` value will clear and fill the provided vector with
-    /// data. The provided vector will be resized to the exact output size.
+    /// This function is called by the provided [InferenceSession]; it will use this model
+    /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
+    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from the
+    /// model. For more information, refer to [InferenceSession::infer_with_params]
     fn evaluate(
         &self,
         session: &mut InferenceSession,
@@ -83,19 +86,24 @@ pub trait Model: Send + Sync {
         output_request: &mut EvaluateOutputRequest,
     );
 
-    /// Get the vocabulary for this model.
+    /// Get the vocabulary (loaded from the GGML file) for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
-    /// Get the context size for this model.
+    /// Get the context size (configured with [ModelParameters::n_context_tokens]) used by
+    /// this model.
     fn n_context_tokens(&self) -> usize;
 
-    /// Get the end of text token ID.
+    /// Get the end of text token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
-    /// Get the default InferenceSessionParameters to use with this model
+    /// Get the default [InferenceSessionParameters] for this model (used by
+    /// [InferenceSession::infer]). This value is configured through
+    /// [ModelParameters::inference_params].
     fn inference_params(&self) -> InferenceParameters;
 
-    /// Get the default InferenceWithPromptParameters to use with this model
+    /// Get the default [InferenceWithPromptParameters] for this model (used by
+    /// [InferenceSession::infer]). This value is configured through
+    /// [ModelParameters::inference_prompt_params].
     fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {

@@ -28,12 +28,19 @@ fn main() {
     };
     let mut session = model.start_session(Default::default());
 
-    let res = session.infer::<Infallible>(model.as_ref(), prompt, &mut rand::thread_rng(), |t| {
-        print!("{t}");
-        std::io::stdout().flush().unwrap();
+    let res = session.infer::<Infallible>(
+        model.as_ref(),
+        prompt,
+        // EvaluateOutputRequest
+        &mut Default::default(),
+        &mut rand::thread_rng(),
+        |t| {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
 
-        Ok(())
-    });
+            Ok(())
+        },
+    );
 
     match res {
         Ok(result) => println!("\n\nInference stats:\n{result}"),
@@ -46,6 +53,7 @@ pub fn load<M: llm::KnownModel + 'static>(model_path: &str) -> Result<Box<dyn Mo
 
     let model = llm::load::<M>(
         Path::new(model_path),
+        // ModelParameters
         Default::default(),
         load_progress_callback_stdout,
     )?;

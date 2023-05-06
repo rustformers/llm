@@ -81,13 +81,17 @@ pub enum InferenceError {
     UserCallback(Box<dyn std::error::Error>),
 }
 
-/// Used in a call to `evaluate` to request information from the transformer.
+/// Used in a call to [Model::evaluate] or [InferenceSession::infer] to request
+/// information from the model. If a value is set to `Some`, the `Vec` will be
+/// cleared, resized, and filled with the related data.
 #[derive(Default, Debug, Clone)]
 pub struct EvaluateOutputRequest {
-    /// Returns all the logits for the provided batch of tokens.
-    /// Output shape is `n_batch * n_vocab`.
+    /// Returns all the logits for evaluation. A logit represents the likelihood
+    /// that a given token will be generated based on the tokens that have been
+    /// evaluated or generated so far. Output shape is `n_batch * n_vocab`.
     pub all_logits: Option<Vec<f32>>,
-    /// Returns the embeddings for the provided batch of tokens
-    /// Output shape is `n_batch * n_embd`.
+    /// Returns all the embeddings for an evaluation. An embedding is a vector
+    /// that measures the relatedness of text strings. Output shape is
+    /// `n_batch * n_embd`.
     pub embeddings: Option<Vec<f32>>,
 }
