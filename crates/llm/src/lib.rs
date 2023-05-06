@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! use std::io::Write;
-//! use llm_base::Model;
+//! use llm::Model;
 //!
 //! // load a GGML model from disk
 //! let model_load = llm::load::<llm::models::Llama>(
@@ -44,10 +44,10 @@
 //!     &mut rand::thread_rng(),
 //!     // output callback
 //!     |t| {
-//!     print!("{t}");
-//!     std::io::stdout().flush().unwrap();
+//!         print!("{t}");
+//!         std::io::stdout().flush().unwrap();
 //!   
-//!     Ok(())
+//!         Ok(())
 //!     }
 //! );
 //!   

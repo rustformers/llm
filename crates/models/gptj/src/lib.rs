@@ -360,7 +360,7 @@ pub struct Hyperparameters {
 impl llm_base::Hyperparameters for Hyperparameters {
     type WriteError = BasicWriteError;
 
-    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         let hyperparameters = Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_ctx: util::read_i32(reader)?.try_into()?,
@@ -388,7 +388,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         Ok(hyperparameters)
     }
 
-    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_ctx.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;

@@ -446,7 +446,7 @@ pub struct Hyperparameters {
 impl llm_base::Hyperparameters for Hyperparameters {
     type WriteError = llm_base::BasicWriteError;
 
-    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, llm_base::LoadError> {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, llm_base::LoadError> {
         // NOTE: Field order matters! Data is laid out in the file exactly
         // in this order.
         Ok(Hyperparameters {
@@ -462,7 +462,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         })
     }
 
-    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;
         util::write_i32(writer, self.n_mult.try_into()?)?;

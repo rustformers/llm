@@ -508,7 +508,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
         reader: &mut dyn BufRead,
     ) -> Result<PartialHyperparameters, LoadError> {
         // NOTE: Field order matters! Data is laid out in the file exactly in this order.
-        let hyperparameters = Hp::read(reader)?;
+        let hyperparameters = Hp::read_ggml(reader)?;
         let partial = PartialHyperparameters {
             n_vocab: hyperparameters.n_vocabulary(),
         };

@@ -142,16 +142,17 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     }
 }
 
-/// Implemented by model hyperparameters for loading and saving to a GGML model read/writer.
+/// Implemented by model hyperparameters for interacting with hyperparameters
+/// without knowing what they are, as well as writing/reading them as required.
 pub trait Hyperparameters: Sized + Default + Debug {
-    /// The error type returned during a failure of [Self::write].
+    /// The error type returned during a failure of [Self::write_ggml].
     type WriteError: Error + Send + Sync + 'static;
 
-    /// Read the parameters from a reader.
-    fn read(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
+    /// Read the parameters in GGML format from a reader.
+    fn read_ggml(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
 
-    /// Write the parameters to a writer.
-    fn write(&self, writer: &mut dyn Write) -> Result<(), Self::WriteError>;
+    /// Write the parameters in GGML format to a writer.
+    fn write_ggml(&self, writer: &mut dyn Write) -> Result<(), Self::WriteError>;
 
     /// Get the number of tokens in the vocabulary.
     fn n_vocabulary(&self) -> usize;

@@ -246,7 +246,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters> SaveHandler<QuantizeError<H::W
         writer: &mut dyn Write,
     ) -> Result<(), QuantizeError<H::WriteError>> {
         self.hyperparameters
-            .write(writer)
+            .write_ggml(writer)
             .map_err(QuantizeError::WriteError)?;
         Ok(())
     }

@@ -1,4 +1,4 @@
-//! An implementation of [GPT-Neo-x](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
+//! An implementation of [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
 use std::{error::Error, path::Path};
@@ -47,7 +47,7 @@ unsafe impl Send for NeoX {}
 unsafe impl Sync for NeoX {}
 
 impl NeoX {
-    /// Load a GPT-Neo-X model from the `path` and configure it per the `params`. The
+    /// Load a GPT-NeoX model from the `path` and configure it per the `params`. The
     /// status of the loading process will be reported through `load_progress_callback`.
     /// This is a helper function on top of [llm_base::load].
     pub fn load(
@@ -364,7 +364,7 @@ impl KnownModel for NeoX {
     }
 }
 
-/// GPT-Neo-X [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
+/// GPT-NeoX [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
     /// Size of the model's vocabulary
@@ -385,7 +385,7 @@ pub struct Hyperparameters {
 impl llm_base::Hyperparameters for Hyperparameters {
     type WriteError = BasicWriteError;
 
-    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_ctx: util::read_i32(reader)?.try_into()?,
@@ -400,7 +400,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         })
     }
 
-    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_ctx.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;
