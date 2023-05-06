@@ -238,7 +238,7 @@ impl KnownModel for Bloom {
                 }
 
                 // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-                let q = ctx0.op_permute(
+                let big_q = ctx0.op_permute(
                     &ctx0.op_cpy(
                         &q_current,
                         &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, n),
@@ -250,7 +250,7 @@ impl KnownModel for Bloom {
                 );
 
                 // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
-                let k = ctx0.op_permute(
+                let big_k = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             &session.memory_k,
@@ -268,7 +268,7 @@ impl KnownModel for Bloom {
                 );
 
                 // K * Q
-                let k_q = ctx0.op_mul_mat(&k, &q);
+                let k_q = ctx0.op_mul_mat(&big_k, &big_q);
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
                 let k_q_scaled = ctx0.op_scale(
@@ -288,36 +288,27 @@ impl KnownModel for Bloom {
 
                 let memv_elsize = session.memory_v.element_size();
 
-                // let v_trans = ctx0.op_permute(
-                //     &ctx0.op_reshape_3d(
-                //         &ctx0.op_view_1d(
-                //             &session.memory_v,
-                //             (n_past + n) * n_embd,
-                //             il * n_ctx * memv_elsize * n_embd,
-                //         ),
-                //         n_embd / n_head,
-                //         n_head,
-                //         n_past + n,
-                //     ),
-                //     1,
-                //     2,
-                //     0,
-                //     3,
-                // );
-
-                // // GGML_ASSERT: ggml/ggml.c:4899: !ggml_is_transposed(a)
-                // let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
-
-                // split cached V into n_head heads
-                let v = ctx0.op_view_3d(
-                    &session.memory_v,
-                    (n_past + n, n_embd / n_head, n_head),
-                    (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
-                    il * n_ctx * memv_elsize * n_embd,
+                let v_trans = ctx0.op_cpy(
+                    &ctx0.op_permute(
+                        &ctx0.op_reshape_3d(
+                            &ctx0.op_view_1d(
+                                &session.memory_v,
+                                (n_past + n) * n_embd,
+                                il * n_ctx * memv_elsize * n_embd,
+                            ),
+                            n_embd / n_head,
+                            n_head,
+                            n_past + n,
+                        ),
+                        1,
+                        2,
+                        0,
+                        3,
+                    ),
+                    &ctx0.new_tensor_3d(session.memory_v.get_type(), n_past + n, n_embd / n_head, n_head),
                 );
 
-                // KQV = transpose(V) * KQ_soft_max
-                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
+                let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
