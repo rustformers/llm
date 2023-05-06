@@ -1,7 +1,7 @@
 //! Implements quantization of weights.
 
 use crate::{Hyperparameters, KnownModel, LoadError, LoadProgress, Loader};
-use ggml::format::{SaveError, SaveHandler, TensorData, TensorInfo};
+use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
 use std::{
     collections::HashMap,
@@ -208,7 +208,7 @@ struct QuantizeSaver<'a, F: Fn(QuantizeProgress), H: Hyperparameters> {
     // Input
     quantization_type: ggml::Type,
     hyperparameters: &'a H,
-    tensors: &'a HashMap<String, TensorInfo>,
+    tensors: &'a HashMap<String, TensorLoadInfo>,
     source_file: &'a mut File,
     progress_callback: F,
 
@@ -221,7 +221,7 @@ impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters> QuantizeSaver<'a, F, H> {
     fn new(
         quantization_type: ggml::Type,
         hyperparameters: &'a H,
-        tensors: &'a HashMap<String, TensorInfo>,
+        tensors: &'a HashMap<String, TensorLoadInfo>,
         source_file: &'a mut File,
         progress_callback: F,
     ) -> Self {
@@ -254,7 +254,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters> SaveHandler<QuantizeError<H::W
     fn tensor_data(
         &mut self,
         tensor_name: &str,
-    ) -> Result<TensorData, QuantizeError<H::WriteError>> {
+    ) -> Result<TensorSaveInfo, QuantizeError<H::WriteError>> {
         let tensor = self.tensors.get(tensor_name).expect(
             "tensor not found; should be impossible due to handler being populated from loader",
         );
@@ -331,7 +331,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters> SaveHandler<QuantizeError<H::W
             (tensor.element_type, raw_data)
         };
 
-        Ok(TensorData {
+        Ok(TensorSaveInfo {
             n_dims: tensor.n_dims,
             dims: tensor.dims,
             element_type,

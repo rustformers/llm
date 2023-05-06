@@ -1,3 +1,5 @@
+//! Large language model traits and types
+
 use std::{
     error::Error,
     fmt::Debug,
@@ -6,8 +8,12 @@ use std::{
 
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
-    InferenceSession, InferenceSessionParameters, LoadError, Vocabulary,
+    InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, LoadError,
+    Vocabulary,
 };
+
+/// Common functions for model evaluation
+pub mod common;
 
 /// A large language model.
 pub trait KnownModel: Send + Sync {
@@ -17,7 +23,7 @@ pub trait KnownModel: Send + Sync {
     /// Creates a new model from the provided hyperparameters.
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -49,6 +55,12 @@ pub trait KnownModel: Send + Sync {
 
     /// Get the end of text token ID.
     fn eot_token_id(&self) -> TokenId;
+
+    /// Get the default InferenceSessionParameters to use with this model
+    fn inference_params(&self) -> InferenceParameters;
+
+    /// Get the default InferenceWithPromptParameters to use with this model
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
 }
 
 /// A type-erased model to allow for interacting with a model without knowing
@@ -79,6 +91,12 @@ pub trait Model: Send + Sync {
 
     /// Get the end of text token ID.
     fn eot_token_id(&self) -> TokenId;
+
+    /// Get the default InferenceSessionParameters to use with this model
+    fn inference_params(&self) -> InferenceParameters;
+
+    /// Get the default InferenceWithPromptParameters to use with this model
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
@@ -106,6 +124,14 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn eot_token_id(&self) -> TokenId {
         KnownModel::eot_token_id(self)
     }
+
+    fn inference_params(&self) -> InferenceParameters {
+        KnownModel::inference_params(self)
+    }
+
+    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
+        KnownModel::inference_prompt_params(self)
+    }
 }
 
 /// Implemented by model hyperparameters for loading and saving to a GGML model read/writer.
@@ -121,4 +147,30 @@ pub trait Hyperparameters: Sized + Default + Debug {
 
     /// Get the number of tokens in the vocabulary.
     fn n_vocabulary(&self) -> usize;
+}
+
+/// Parameters for tuning model instances
+pub struct ModelParameters {
+    /// For [GGML formats](ggml::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
+    /// is the default. Although mmap typically improves performance, setting this value to `false` may
+    /// be preferred in resource-constrained environments.
+    pub prefer_mmap: bool,
+    /// The context size ("memory") the model should use when evaluating a prompt. A larger context
+    /// consumes more resources, but produces more consistent and coherent responses.
+    pub n_context_tokens: usize,
+    /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
+    pub inference_params: InferenceParameters,
+    /// Default InferenceWithPromptParameters to use when [evaluating](Model::evaluate) a prompt with this model.
+    pub inference_prompt_params: InferenceWithPromptParameters,
+}
+
+impl Default for ModelParameters {
+    fn default() -> Self {
+        Self {
+            prefer_mmap: true,
+            n_context_tokens: 2048,
+            inference_params: Default::default(),
+            inference_prompt_params: Default::default(),
+        }
+    }
 }

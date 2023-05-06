@@ -9,6 +9,9 @@ use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
 use llm::InferenceError;
 use rustyline::error::ReadlineError;
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
+use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
+use rustyline::{Completer, Helper, Highlighter, Hinter};
 
 mod cli_args;
 mod snapshot;
@@ -55,7 +58,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let res = session.inference_with_prompt::<Infallible>(
+    let res = session.infer_with_params::<Infallible>(
         model.as_ref(),
         &inference_params,
         &llm::InferenceWithPromptParameters {
@@ -97,8 +100,9 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
 fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     let file = File::open(&args.model_path)?;
     let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> =
-        llm::Loader::new(cli_args::load_progress_handler_log);
+    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(|_| {
+        // We purposely do not print progress here, as we are only interested in the metadata
+    });
 
     llm::ggml_format::load(&mut reader, &mut loader)?;
 
@@ -177,23 +181,30 @@ fn interactive<M: llm::KnownModel + 'static>(
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let mut rl = rustyline::DefaultEditor::new()?;
+    let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
+    rl.set_helper(Some(LineContinuationValidator));
+    rl.bind_sequence(
+        Event::KeySeq(vec![KeyEvent(KeyCode::Enter, Modifiers::SHIFT)]),
+        EventHandler::Simple(Cmd::Newline),
+    );
+
     loop {
         let readline = rl.readline(">> ");
         match readline {
-            Ok(line) => {
+            Ok(raw_line) => {
                 let session_backup = if chat_mode {
                     None
                 } else {
                     Some(session.clone())
                 };
+                let line = raw_line.replace("\\\n", "\n");
 
                 let prompt = prompt_file
                     .as_deref()
                     .map(|pf| process_prompt(pf, &line))
                     .unwrap_or(line);
 
-                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
+                let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
                 if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
                     model.as_ref(),
                     &inference_params,
@@ -202,9 +213,9 @@ fn interactive<M: llm::KnownModel + 'static>(
                 ) {
                     log::error!("Prompt exceeds context window length.")
                 };
-                sp.stop();
+                sp.clear();
 
-                let res = session.inference_with_prompt::<Infallible>(
+                let res = session.infer_with_params::<Infallible>(
                     model.as_ref(),
                     &inference_params,
                     &llm::InferenceWithPromptParameters {
@@ -295,6 +306,19 @@ fn load_prompt_file_with_prompt(
     } else {
         log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
+    }
+}
+
+#[derive(Completer, Helper, Highlighter, Hinter, Debug, Clone, Copy)]
+struct LineContinuationValidator;
+
+impl Validator for LineContinuationValidator {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        if ctx.input().ends_with('\\') {
+            Ok(ValidationResult::Incomplete)
+        } else {
+            Ok(ValidationResult::Valid(None))
+        }
     }
 }
 

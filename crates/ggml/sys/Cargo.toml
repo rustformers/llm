@@ -1,7 +1,10 @@
 [package]
 name = "ggml-sys"
-version = { workspace = true }
+version = "0.1.0-rc1"
+repository = { workspace = true }
 edition = "2021"
+description = "Raw bindings (i.e. bindgen output) for the ggml library."
+license = "MIT"
 
 [build-dependencies]
 cc = "^1.0"

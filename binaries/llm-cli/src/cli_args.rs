@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
     ElementType, InferenceParameters, InferenceSessionParameters, LoadProgress, Model,
-    ModelKVMemoryType, TokenBias,
+    ModelKVMemoryType, ModelParameters, TokenBias,
 };
 use rand::SeedableRng;
 
@@ -312,55 +312,65 @@ pub struct ModelLoad {
 }
 impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
-        let now = std::time::Instant::now();
+        let params = ModelParameters {
+            prefer_mmap: !self.no_mmap,
+            n_context_tokens: self.num_ctx_tokens,
+            ..Default::default()
+        };
 
-        let model = llm::load::<M>(
-            &self.model_path,
-            !self.no_mmap,
-            self.num_ctx_tokens,
-            load_progress_handler_log,
-        )
+        let mut sp = Some(spinoff::Spinner::new(
+            spinoff::spinners::Dots2,
+            "Loading model...",
+            None,
+        ));
+        let now = std::time::Instant::now();
+        let mut prev_load_time = now;
+
+        let model = llm::load::<M>(&self.model_path, params, move |progress| match progress {
+            LoadProgress::HyperparametersLoaded => {
+                if let Some(sp) = sp.as_mut() {
+                    sp.update_text("Loaded hyperparameters")
+                };
+            }
+            LoadProgress::ContextSize { bytes } => log::debug!(
+                "ggml ctx size = {}",
+                bytesize::to_string(bytes as u64, false)
+            ),
+            LoadProgress::TensorLoaded {
+                current_tensor,
+                tensor_count,
+                ..
+            } => {
+                if prev_load_time.elapsed().as_millis() > 500 {
+                    // We don't want to re-render this on every message, as that causes the
+                    // spinner to constantly reset and not look like it's spinning (and
+                    // it's obviously wasteful).
+                    if let Some(sp) = sp.as_mut() {
+                        sp.update_text(format!(
+                            "Loaded tensor {}/{}",
+                            current_tensor + 1,
+                            tensor_count
+                        ));
+                    };
+                    prev_load_time = std::time::Instant::now();
+                }
+            }
+            LoadProgress::Loaded {
+                file_size,
+                tensor_count,
+            } => {
+                if let Some(sp) = sp.take() {
+                    sp.success(&format!(
+                        "Loaded {tensor_count} tensors ({}) after {}ms",
+                        bytesize::to_string(file_size, false),
+                        now.elapsed().as_millis()
+                    ));
+                };
+            }
+        })
         .wrap_err("Could not load model")?;
 
-        log::info!(
-            "Model fully loaded! Elapsed: {}ms",
-            now.elapsed().as_millis()
-        );
-
         Ok(Box::new(model))
-    }
-}
-
-pub(crate) fn load_progress_handler_log(progress: LoadProgress) {
-    match progress {
-        LoadProgress::HyperparametersLoaded => {
-            log::debug!("Loaded hyperparameters")
-        }
-        LoadProgress::ContextSize { bytes } => log::info!(
-            "ggml ctx size = {:.2} MB\n",
-            bytes as f64 / (1024.0 * 1024.0)
-        ),
-        LoadProgress::TensorLoaded {
-            current_tensor,
-            tensor_count,
-            ..
-        } => {
-            let current_tensor = current_tensor + 1;
-            if current_tensor % 8 == 0 {
-                log::info!("Loaded tensor {current_tensor}/{tensor_count}");
-            }
-        }
-        LoadProgress::Loaded {
-            byte_size,
-            tensor_count,
-        } => {
-            log::info!("Loading of model complete");
-            log::info!(
-                "Model size = {:.2} MB / num tensors = {}",
-                byte_size as f64 / 1024.0 / 1024.0,
-                tensor_count
-            );
-        }
     }
 }
 
