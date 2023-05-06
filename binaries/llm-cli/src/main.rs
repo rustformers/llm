@@ -1,7 +1,7 @@
 use std::{
     convert::Infallible,
     fs::File,
-    io::{BufReader, Write},
+    io::{BufReader, BufWriter, Write},
 };
 
 use clap::Parser;
@@ -260,9 +260,12 @@ fn interactive<M: llm::KnownModel + 'static>(
 fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<()> {
     use llm::quantize::QuantizeProgress::*;
 
-    llm::quantize::quantize::<M>(
-        &args.source,
-        &args.destination,
+    let mut source = BufReader::new(std::fs::File::open(&args.source)?);
+    let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
+
+    llm::quantize::quantize::<M, _, _>(
+        &mut source,
+        &mut destination,
         args.target.into(),
         |progress| match progress {
             HyperparametersLoaded => log::info!("Loaded hyperparameters"),

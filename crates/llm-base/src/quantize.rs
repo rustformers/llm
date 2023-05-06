@@ -5,9 +5,8 @@ use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
 use std::{
     collections::HashMap,
-    fs::File,
-    io::{BufReader, BufWriter, Write},
-    path::{Path, PathBuf},
+    io::{BufRead, Seek, Write},
+    path::PathBuf,
     sync::Arc,
 };
 use thiserror::Error;
@@ -54,10 +53,10 @@ pub enum QuantizeProgress<'a> {
     },
     /// A model has been quantized.
     Finished {
-        /// The original size of the model.
-        original_size: f32,
-        /// The reduced size of the model.
-        reduced_size: f32,
+        /// The original size (in bytes) of the model.
+        original_size: usize,
+        /// The reduced size (in bytes) of the model.
+        reduced_size: usize,
         /// The history of the quantization.
         history: Vec<f32>,
     },
@@ -126,9 +125,9 @@ impl<E: std::error::Error + Send + Sync + 'static> QuantizeError<E> {
 }
 
 /// Quantizes a model.
-pub fn quantize<M: KnownModel>(
-    path_in: &Path,
-    path_out: &Path,
+pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
+    reader: &mut R,
+    writer: &mut W,
     desired_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError<<M::Hyperparameters as Hyperparameters>::WriteError>> {
@@ -142,11 +141,6 @@ pub fn quantize<M: KnownModel>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let mut file_in = File::open(path_in).map_err(|e| LoadError::OpenFileFailed {
-        source: e,
-        path: path_in.to_owned(),
-    })?;
-    let mut reader = BufReader::new(&file_in);
     let mut loader = Loader::<M::Hyperparameters, _>::new({
         let progress_callback = progress_callback.clone();
         move |p| {
@@ -155,8 +149,8 @@ pub fn quantize<M: KnownModel>(
             }
         }
     });
-    ggml::format::load(&mut reader, &mut loader)
-        .map_err(|err| LoadError::from_format_error(err, path_in.to_owned()))?;
+    ggml::format::load(reader, &mut loader)
+        .map_err(|err| LoadError::from_format_error(err, PathBuf::default()))?;
 
     // Save the quantized model, quantizing as we go
     let Loader {
@@ -173,27 +167,22 @@ pub fn quantize<M: KnownModel>(
         .zip(vocabulary.id_to_token_score)
         .collect::<Vec<_>>();
 
-    let mut writer = BufWriter::new(File::create(path_out)?);
-    let mut saver = QuantizeSaver::new(
-        desired_type,
-        &hyperparameters,
-        &tensors,
-        &mut file_in,
-        |p| progress_callback(p),
-    );
+    let mut saver = QuantizeSaver::new(desired_type, &hyperparameters, &tensors, reader, |p| {
+        progress_callback(p)
+    });
     ggml::format::save(
-        &mut writer,
+        writer,
         &mut saver,
         &vocabulary,
         &tensors.keys().cloned().collect::<Vec<_>>(),
     )
-    .map_err(|err| QuantizeError::from_format_error(err, path_out.to_owned()))?;
+    .map_err(|err| QuantizeError::from_format_error(err, PathBuf::default()))?;
 
     // Final report
     let sum_all: i64 = saver.history_all.iter().sum();
     progress_callback(QuantizeProgress::Finished {
-        original_size: saver.total_size_original as f32 / 1024.0 / 1024.0,
-        reduced_size: saver.total_size_new as f32 / 1024.0 / 1024.0,
+        original_size: saver.total_size_original,
+        reduced_size: saver.total_size_new,
         history: saver
             .history_all
             .iter()
@@ -204,12 +193,12 @@ pub fn quantize<M: KnownModel>(
     Ok(())
 }
 
-struct QuantizeSaver<'a, F: Fn(QuantizeProgress), H: Hyperparameters> {
+struct QuantizeSaver<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> {
     // Input
     quantization_type: ggml::Type,
     hyperparameters: &'a H,
     tensors: &'a HashMap<String, TensorLoadInfo>,
-    source_file: &'a mut File,
+    source_reader: &'a mut R,
     progress_callback: F,
 
     // Output
@@ -217,19 +206,21 @@ struct QuantizeSaver<'a, F: Fn(QuantizeProgress), H: Hyperparameters> {
     total_size_new: usize,
     history_all: Vec<i64>,
 }
-impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters> QuantizeSaver<'a, F, H> {
+impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
+    QuantizeSaver<'a, F, H, R>
+{
     fn new(
         quantization_type: ggml::Type,
         hyperparameters: &'a H,
         tensors: &'a HashMap<String, TensorLoadInfo>,
-        source_file: &'a mut File,
+        source_reader: &'a mut R,
         progress_callback: F,
     ) -> Self {
         Self {
             quantization_type,
             hyperparameters,
             tensors,
-            source_file,
+            source_reader,
             progress_callback,
 
             total_size_original: 0,
@@ -238,8 +229,8 @@ impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters> QuantizeSaver<'a, F, H> {
         }
     }
 }
-impl<F: Fn(QuantizeProgress), H: Hyperparameters> SaveHandler<QuantizeError<H::WriteError>>
-    for QuantizeSaver<'_, F, H>
+impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
+    SaveHandler<QuantizeError<H::WriteError>> for QuantizeSaver<'_, F, H, R>
 {
     fn write_hyperparameters(
         &mut self,
@@ -268,7 +259,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters> SaveHandler<QuantizeError<H::W
 
         // Quantize only 2D tensors
         let quantize = tensor_name.contains("weight") && tensor.n_dims == 2;
-        let raw_data = tensor.read_data(&mut BufReader::new(&mut self.source_file))?;
+        let raw_data = tensor.read_data(self.source_reader)?;
 
         if quantize && !matches!(tensor.element_type, ggml::Type::F32 | ggml::Type::F16) {
             return Err(QuantizeError::UnsupportedElementType {
