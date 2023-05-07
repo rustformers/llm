@@ -59,6 +59,7 @@
 #![deny(missing_docs)]
 
 use std::{
+    error::Error,
     fmt::{Debug, Display},
     path::Path,
     str::FromStr,
@@ -108,6 +109,11 @@ pub enum ModelArchitecture {
     NeoX,
 }
 
+impl ModelArchitecture {
+    /// All available model architectures
+    pub const ALL: [Self; 5] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX];
+}
+
 /// An unsupported model architecture was specified
 pub struct UnsupportedModelArchitecture(String);
 impl Display for UnsupportedModelArchitecture {
@@ -115,6 +121,8 @@ impl Display for UnsupportedModelArchitecture {
         write!(f, "{}", self.0)
     }
 }
+
+impl Error for UnsupportedModelArchitecture {}
 
 impl Debug for UnsupportedModelArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -206,15 +214,7 @@ mod tests {
 
     #[test]
     fn test_model_architecture_from_str() {
-        static ARCHS: [ModelArchitecture; 5] = [
-            ModelArchitecture::Bloom,
-            ModelArchitecture::Gpt2,
-            ModelArchitecture::GptJ,
-            ModelArchitecture::Llama,
-            ModelArchitecture::NeoX,
-        ];
-
-        for arch in &ARCHS {
+        for arch in &ModelArchitecture::ALL {
             assert_eq!(
                 arch,
                 &arch.to_string().parse::<ModelArchitecture>().unwrap()
