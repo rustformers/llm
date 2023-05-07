@@ -5,6 +5,7 @@ version = "0.1.0-rc2"
 repository = { workspace = true }
 license = { workspace = true }
 description = "A CLI for running inference on supported Large Language Models. Powered by the `llm` library."
+readme = "../../README.md"
 
 [[bin]]
 name = "llm"

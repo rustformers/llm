@@ -5,6 +5,7 @@ license = { workspace = true }
 repository = { workspace = true }
 description = "An implementation of GPT-J for the `llm` ecosystem."
 edition = "2021"
+readme = "../../../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

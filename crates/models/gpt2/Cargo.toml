@@ -5,6 +5,7 @@ license = { workspace = true }
 repository = { workspace = true }
 description = "An implementation of GPT-2 for the `llm` ecosystem."
 edition = "2021"
+readme = "../../../README.md"
 
 [dependencies]
 llm-base = { path = "../../llm-base", version = "0.1.0-rc2" }

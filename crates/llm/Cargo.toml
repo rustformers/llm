@@ -5,6 +5,7 @@ license = { workspace = true }
 repository = { workspace = true }
 description = "A Rust ecosystem of libraries for running inference on large language models, inspired by llama.cpp."
 edition = "2021"
+readme = "../../README.md"
 
 [dependencies]
 llm-base = { path = "../llm-base", version = "0.1.0-rc2" }

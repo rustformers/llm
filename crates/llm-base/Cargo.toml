@@ -6,6 +6,7 @@ repository = { workspace = true }
 description = "The base for `llm`; provides common structure for model implementations. Not intended for use by end-users."
 edition = "2021"
 rust-version = "1.65"
+readme = "../../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
