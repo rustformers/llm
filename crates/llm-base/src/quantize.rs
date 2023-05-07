@@ -1,6 +1,8 @@
 //! Implements quantization of weights.
 
-use crate::{Hyperparameters, KnownModel, LoadError, LoadProgress, Loader};
+use crate::{
+    model::HyperparametersWriteError, Hyperparameters, KnownModel, LoadError, LoadProgress, Loader,
+};
 use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
 use std::{
@@ -64,7 +66,7 @@ pub enum QuantizeProgress<'a> {
 
 #[derive(Error, Debug)]
 /// Errors encountered during the quantization process.
-pub enum QuantizeError<E: std::error::Error + Send + Sync> {
+pub enum QuantizeError {
     #[error("could not load model")]
     /// There was an error while attempting to load the model.
     Load(#[from] LoadError),
@@ -107,12 +109,12 @@ pub enum QuantizeError<E: std::error::Error + Send + Sync> {
         /// The element type.
         element_type: ggml::Type,
     },
-    /// An error was encountered while writing model-specific data.
-    #[error("an error was encountered while writing model-specific data")]
-    WriteError(#[source] E),
+    /// An error was encountered while writing the hyperparameters.
+    #[error("an error was encountered while writing the hyperparameters")]
+    HyperparametersWriteError(#[source] HyperparametersWriteError),
 }
-impl<E: std::error::Error + Send + Sync + 'static> QuantizeError<E> {
-    pub(crate) fn from_format_error(value: SaveError<QuantizeError<E>>, path: PathBuf) -> Self {
+impl QuantizeError {
+    pub(crate) fn from_format_error(value: SaveError<QuantizeError>, path: PathBuf) -> Self {
         match value {
             SaveError::Io(io) => QuantizeError::Io(io),
             SaveError::InvalidIntegerConversion(e) => QuantizeError::InvalidIntegerConversion(e),
@@ -130,7 +132,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     writer: &mut W,
     desired_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
-) -> Result<(), QuantizeError<<M::Hyperparameters as Hyperparameters>::WriteError>> {
+) -> Result<(), QuantizeError> {
     // Sanity check
     if !matches!(desired_type, ggml::Type::Q4_0 | ggml::Type::Q4_1) {
         return Err(QuantizeError::InvalidQuantizationTarget {
@@ -229,23 +231,17 @@ impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
         }
     }
 }
-impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
-    SaveHandler<QuantizeError<H::WriteError>> for QuantizeSaver<'_, F, H, R>
+impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler<QuantizeError>
+    for QuantizeSaver<'_, F, H, R>
 {
-    fn write_hyperparameters(
-        &mut self,
-        writer: &mut dyn Write,
-    ) -> Result<(), QuantizeError<H::WriteError>> {
+    fn write_hyperparameters(&mut self, writer: &mut dyn Write) -> Result<(), QuantizeError> {
         self.hyperparameters
             .write_ggml(writer)
-            .map_err(QuantizeError::WriteError)?;
+            .map_err(QuantizeError::HyperparametersWriteError)?;
         Ok(())
     }
 
-    fn tensor_data(
-        &mut self,
-        tensor_name: &str,
-    ) -> Result<TensorSaveInfo, QuantizeError<H::WriteError>> {
+    fn tensor_data(&mut self, tensor_name: &str) -> Result<TensorSaveInfo, QuantizeError> {
         let tensor = self.tensors.get(tensor_name).expect(
             "tensor not found; should be impossible due to handler being populated from loader",
         );

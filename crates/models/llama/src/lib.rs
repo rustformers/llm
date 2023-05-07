@@ -4,10 +4,11 @@
 use std::{error::Error, path::Path};
 
 use llm_base::{
-    ggml, model::common, util, BasicWriteError, EvaluateOutputRequest, FileType,
-    InferenceParameters, InferenceSession, InferenceSessionParameters,
-    InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Mmap, ModelParameters,
-    TensorLoader, TokenId, Vocabulary,
+    ggml,
+    model::{common, HyperparametersWriteError},
+    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
+    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    Mmap, ModelParameters, TensorLoader, TokenId, Vocabulary,
 };
 
 #[cfg(feature = "convert")]
@@ -418,8 +419,6 @@ pub struct Hyperparameters {
     pub file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
-    type WriteError = BasicWriteError;
-
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
@@ -435,7 +434,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         })
     }
 
-    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;
         util::write_i32(writer, self.n_mult.try_into()?)?;

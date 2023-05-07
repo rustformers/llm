@@ -24,7 +24,7 @@ pub use loader::{
 };
 pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model, ModelParameters};
-pub use util::{BasicWriteError, TokenUtf8Buffer};
+pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
 #[derive(Clone, Debug, PartialEq)]

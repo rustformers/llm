@@ -6,6 +6,8 @@ use std::{
     io::{BufRead, Write},
 };
 
+use thiserror::Error;
+
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
     InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, LoadError,
@@ -155,17 +157,24 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 /// Implemented by model hyperparameters for interacting with hyperparameters
 /// without knowing what they are, as well as writing/reading them as required.
 pub trait Hyperparameters: Sized + Default + Debug {
-    /// The error type returned during a failure of [Self::write_ggml].
-    type WriteError: Error + Send + Sync + 'static;
-
     /// Read the parameters in GGML format from a reader.
     fn read_ggml(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
 
     /// Write the parameters in GGML format to a writer.
-    fn write_ggml(&self, writer: &mut dyn Write) -> Result<(), Self::WriteError>;
+    fn write_ggml(&self, writer: &mut dyn Write) -> Result<(), HyperparametersWriteError>;
 
     /// Get the number of tokens in the vocabulary.
     fn n_vocabulary(&self) -> usize;
+}
+#[derive(Error, Debug)]
+/// Reported from functions that write
+pub enum HyperparametersWriteError {
+    #[error("non-specific I/O error")]
+    /// A non-specific IO error.
+    Io(#[from] std::io::Error),
+    #[error("invalid integer conversion")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 }
 
 /// Parameters for tuning model instances

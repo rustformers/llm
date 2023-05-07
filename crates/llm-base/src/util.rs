@@ -140,17 +140,6 @@ pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> 
     unsafe { MmapOptions::new().populate().map(file) }
 }
 
-#[derive(Error, Debug)]
-/// A basic error type that can be used as a default error type for [crate::Hyperparameters::WriteError].
-pub enum BasicWriteError {
-    #[error("non-specific I/O error")]
-    /// A non-specific IO error.
-    Io(#[from] std::io::Error),
-    #[error("invalid integer conversion")]
-    /// One of the integers encountered could not be converted to a more appropriate type.
-    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
