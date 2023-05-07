@@ -5,10 +5,10 @@ use thiserror::Error;
 
 mod inference_session;
 mod loader;
+mod quantize;
 mod vocabulary;
 
 pub mod model;
-pub mod quantize;
 pub mod util;
 
 pub use ggml;
@@ -24,6 +24,7 @@ pub use loader::{
 };
 pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model, ModelParameters};
+pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 

@@ -258,18 +258,18 @@ fn interactive<M: llm::KnownModel + 'static>(
 }
 
 fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<()> {
-    use llm::quantize::QuantizeProgress::*;
+    use llm::QuantizeProgress;
 
     let mut source = BufReader::new(std::fs::File::open(&args.source)?);
     let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
 
-    llm::quantize::quantize::<M, _, _>(
+    llm::quantize::<M, _, _>(
         &mut source,
         &mut destination,
         args.target.into(),
         |progress| match progress {
-            HyperparametersLoaded => log::info!("Loaded hyperparameters"),
-            TensorLoading {
+            QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
+            QuantizeProgress::TensorLoading {
                 name,
                 dims,
                 element_type,
@@ -277,8 +277,8 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
             } => log::info!(
                 "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
             ),
-            TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
-            TensorQuantized {
+            QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
+            QuantizeProgress::TensorQuantized {
                 name,
                 original_size,
                 reduced_size,
@@ -286,8 +286,10 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
             } => log::info!(
             "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
         ),
-            TensorSkipped { name, size } => log::info!("Skipped tensor `{name}` ({size} bytes)"),
-            Finished {
+            QuantizeProgress::TensorSkipped { name, size } => {
+                log::info!("Skipped tensor `{name}` ({size} bytes)")
+            }
+            QuantizeProgress::Finished {
                 original_size,
                 reduced_size,
                 history,

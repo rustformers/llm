@@ -66,8 +66,8 @@ pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
     FileType, InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters,
     InferenceSnapshot, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Loader,
-    Model, ModelKVMemoryType, ModelParameters, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer,
-    Vocabulary,
+    Model, ModelKVMemoryType, ModelParameters, QuantizeError, QuantizeProgress, SnapshotError,
+    TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
 };
 
 /// All available models.
