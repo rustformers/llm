@@ -47,7 +47,8 @@ impl Vocabulary {
         self.token_to_id.insert(content, id);
     }
 
-    pub(crate) fn token(&self, idx: usize) -> &[u8] {
+    /// Converts a token index to the token it represents in this vocabulary.
+    pub fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
     }
 

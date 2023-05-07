@@ -1,4 +1,4 @@
-use llm::{load_progress_callback_stdout as load_callback, ModelArchitecture};
+use llm::load_progress_callback_stdout as load_callback;
 use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 fn main() {
@@ -15,8 +15,7 @@ fn main() {
 
     let now = std::time::Instant::now();
 
-    let architecture = ModelArchitecture::from_tag(model_type)
-        .unwrap_or_else(|| panic!("{model_type} is not a supported model"));
+    let architecture = model_type.parse().unwrap_or_else(|e| panic!("{e}"));
 
     let model = llm::load_dynamic(architecture, model_path, Default::default(), load_callback)
         .unwrap_or_else(|err| {
