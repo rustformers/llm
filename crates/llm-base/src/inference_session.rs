@@ -93,10 +93,14 @@ impl InferenceSession {
         for batch in prompt_tokens.chunks(params.n_batch) {
             model.evaluate(self, params, batch, output_request);
             for &tk in batch {
-                // NOTE: No string ever tokenizes to the end of sentence. So we
-                // can just return the id here.
-                if let Err(e) = callback(vocab.token(tk as usize)) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
+                let should_call_callback = Some(tk) != model.bot_token_id();
+
+                if should_call_callback {
+                    // NOTE: No string ever tokenizes to the end of sentence. So we
+                    // can just return the id here.
+                    if let Err(e) = callback(vocab.token(tk as usize)) {
+                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    }
                 }
 
                 // Update the tokens for this session

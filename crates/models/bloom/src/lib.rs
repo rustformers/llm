@@ -410,6 +410,10 @@ impl KnownModel for Bloom {
         self.n_context_tokens
     }
 
+    fn bot_token_id(&self) -> Option<TokenId> {
+        self.vocabulary.token_to_id.get("<s>".as_bytes()).copied()
+    }
+
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary
             .token_to_id

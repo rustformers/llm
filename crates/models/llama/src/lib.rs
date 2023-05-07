@@ -357,6 +357,10 @@ impl KnownModel for Llama {
         self.n_context_tokens
     }
 
+    fn bot_token_id(&self) -> Option<TokenId> {
+        None
+    }
+
     fn eot_token_id(&self) -> TokenId {
         2
     }

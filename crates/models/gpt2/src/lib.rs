@@ -330,6 +330,10 @@ impl KnownModel for Gpt2 {
         self.hyperparameters.n_ctx
     }
 
+    fn bot_token_id(&self) -> Option<TokenId> {
+        None
+    }
+
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary
             .token_to_id
