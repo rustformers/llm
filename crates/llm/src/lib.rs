@@ -58,7 +58,11 @@
 //! ```
 #![deny(missing_docs)]
 
-use std::{fmt::Display, path::Path};
+use std::{
+    fmt::{Debug, Display},
+    path::Path,
+    str::FromStr,
+};
 
 // Try not to expose too many GGML details here.
 // This is the "user-facing" API, and GGML may not always be our backend.
@@ -103,6 +107,52 @@ pub enum ModelArchitecture {
     /// [GPT-NeoX](llm_neox)
     NeoX,
 }
+
+/// An unsupported model architecture was specified
+pub struct UnsupportedModelArchitecture(String);
+impl Display for UnsupportedModelArchitecture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Debug for UnsupportedModelArchitecture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("UnsupportedModelArchitecture")
+            .field(&self.0)
+            .finish()
+    }
+}
+
+impl FromStr for ModelArchitecture {
+    type Err = UnsupportedModelArchitecture;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use ModelArchitecture::*;
+        match s
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .as_str()
+        {
+            #[cfg(feature = "bloom")]
+            "bloom" => Ok(Bloom),
+            #[cfg(feature = "gpt2")]
+            "gpt2" => Ok(Gpt2),
+            #[cfg(feature = "gptj")]
+            "gptj" => Ok(GptJ),
+            #[cfg(feature = "llama")]
+            "llama" => Ok(Llama),
+            #[cfg(feature = "neox")]
+            "gptneox" => Ok(NeoX),
+            m => Err(UnsupportedModelArchitecture(format!(
+                "{m} is not a supported model architecture"
+            ))),
+        }
+    }
+}
+
 impl Display for ModelArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use ModelArchitecture::*;
@@ -118,44 +168,6 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "neox")]
             NeoX => write!(f, "GPT-NeoX"),
-        }
-    }
-}
-impl ModelArchitecture {
-    /// Returns a short string representation of the model architecture.
-    pub fn as_tag(&self) -> &'static str {
-        use ModelArchitecture::*;
-
-        match self {
-            #[cfg(feature = "bloom")]
-            Bloom => "bloom",
-            #[cfg(feature = "gpt2")]
-            Gpt2 => "gpt2",
-            #[cfg(feature = "gptj")]
-            GptJ => "gptj",
-            #[cfg(feature = "llama")]
-            Llama => "llama",
-            #[cfg(feature = "neox")]
-            NeoX => "neox",
-        }
-    }
-
-    /// Returns a model architecture from a short string representation.
-    pub fn from_tag(tag: &str) -> Option<Self> {
-        use ModelArchitecture::*;
-
-        match tag {
-            #[cfg(feature = "bloom")]
-            "bloom" => Some(Bloom),
-            #[cfg(feature = "gpt2")]
-            "gpt2" => Some(Gpt2),
-            #[cfg(feature = "gptj")]
-            "gptj" => Some(GptJ),
-            #[cfg(feature = "llama")]
-            "llama" => Some(Llama),
-            #[cfg(feature = "neox")]
-            "neox" => Some(NeoX),
-            _ => None,
         }
     }
 }
@@ -186,4 +198,27 @@ pub fn load_dynamic(
     };
 
     Ok(model)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_model_architecture_from_str() {
+        static ARCHS: [ModelArchitecture; 5] = [
+            ModelArchitecture::Bloom,
+            ModelArchitecture::Gpt2,
+            ModelArchitecture::GptJ,
+            ModelArchitecture::Llama,
+            ModelArchitecture::NeoX,
+        ];
+
+        for arch in &ARCHS {
+            assert_eq!(
+                arch,
+                &arch.to_string().parse::<ModelArchitecture>().unwrap()
+            );
+        }
+    }
 }
