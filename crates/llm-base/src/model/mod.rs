@@ -10,8 +10,7 @@ use thiserror::Error;
 
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
-    InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, LoadError,
-    Vocabulary,
+    InferenceSession, InferenceSessionConfig, InferenceWithPromptParameters, LoadError, Vocabulary,
 };
 
 /// Common functions for model evaluation
@@ -35,7 +34,7 @@ pub trait KnownModel: Send + Sync {
         Self: Sized;
 
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
@@ -62,7 +61,7 @@ pub trait KnownModel: Send + Sync {
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
-    /// Get the default [InferenceSessionParameters] for this model (used by
+    /// Get the default [InferenceParameters] for this model (used by
     /// [InferenceSession::infer]). This value is configured through
     /// [ModelParameters::inference_params].
     fn inference_params(&self) -> InferenceParameters;
@@ -77,7 +76,7 @@ pub trait KnownModel: Send + Sync {
 /// its hyperparameters.
 pub trait Model: Send + Sync {
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
@@ -104,7 +103,7 @@ pub trait Model: Send + Sync {
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
-    /// Get the default [InferenceSessionParameters] for this model (used by
+    /// Get the default [InferenceParameters] for this model (used by
     /// [InferenceSession::infer]). This value is configured through
     /// [ModelParameters::inference_params].
     fn inference_params(&self) -> InferenceParameters;
@@ -115,7 +114,7 @@ pub trait Model: Send + Sync {
     fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         KnownModel::start_session(self, params)
     }
 

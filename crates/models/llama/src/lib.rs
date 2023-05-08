@@ -7,7 +7,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    InferenceSessionConfig, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
     Mmap, ModelParameters, TensorLoader, TokenId, Vocabulary,
 };
 
@@ -116,7 +116,7 @@ impl KnownModel for Llama {
     }
 
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
             self.n_context_tokens,

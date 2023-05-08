@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
+    InferenceSessionConfig, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
     ModelParameters, TokenId, Vocabulary,
 };
 
@@ -109,7 +109,7 @@ impl KnownModel for Gpt2 {
         })
     }
 
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
             self.hyperparameters.n_ctx,

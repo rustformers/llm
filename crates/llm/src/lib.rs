@@ -25,12 +25,12 @@
 //!     // load progress callback
 //!     llm::load_progress_callback_stdout
 //! );
-//!    
+//!
 //! let llama = match model_load {
 //!     Ok(model) => model,
 //!     Err(e) => panic!("Failed to load model: {e}"),
 //! };
-//!   
+//!
 //! // use the model to generate text from a prompt
 //! let mut session = llama.start_session(Default::default());
 //! let res = session.infer::<std::convert::Infallible>(
@@ -46,11 +46,11 @@
 //!     |t| {
 //!         print!("{t}");
 //!         std::io::stdout().flush().unwrap();
-//!   
+//!
 //!         Ok(())
 //!     }
 //! );
-//!   
+//!
 //! match res {
 //!     Ok(result) => println!("\n\nInference stats:\n{result}"),
 //!     Err(err) => println!("\n{err}"),
@@ -69,7 +69,7 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
-    FileType, InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters,
+    FileType, InferenceError, InferenceParameters, InferenceSession, InferenceSessionConfig,
     InferenceSnapshot, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Loader,
     Model, ModelKVMemoryType, ModelParameters, QuantizeError, QuantizeProgress, SnapshotError,
     TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,

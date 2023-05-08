@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use llm::{InferenceSession, InferenceSessionParameters, Model};
+use llm::{InferenceSession, InferenceSessionConfig, Model};
 
 use zstd::{
     stream::{read::Decoder, write::Encoder},
@@ -19,7 +19,7 @@ pub fn read_or_create_session(
     model: &dyn Model,
     persist_session: Option<&Path>,
     load_session: Option<&Path>,
-    inference_session_params: InferenceSessionParameters,
+    inference_session_config: InferenceSessionConfig,
 ) -> (InferenceSession, bool) {
     fn load(model: &dyn Model, path: &Path) -> InferenceSession {
         let file = unwrap_or_exit(File::open(path), || format!("Could not open file {path:?}"));
@@ -39,7 +39,7 @@ pub fn read_or_create_session(
     match (persist_session, load_session) {
         (Some(path), _) if path.exists() => (load(model, path), true),
         (_, Some(path)) => (load(model, path), true),
-        _ => (model.start_session(inference_session_params), false),
+        _ => (model.start_session(inference_session_config), false),
     }
 }
 

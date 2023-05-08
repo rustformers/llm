@@ -15,7 +15,7 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceSession, InferenceSessionParameters, InferenceSnapshot, InferenceStats,
+    InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
     InferenceWithPromptParameters, ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
@@ -29,7 +29,10 @@ pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
 #[derive(Clone, Debug, PartialEq)]
-/// The parameters that drive text generation.
+/// The parameters for text generation.
+///
+/// This needs to be provided during all inference calls,
+/// but can be changed between calls.
 pub struct InferenceParameters {
     /// The number of threads to use.
     pub n_threads: usize,

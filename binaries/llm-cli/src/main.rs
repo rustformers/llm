@@ -46,13 +46,13 @@ fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Resul
 
 fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let inference_session_params = args.generate.inference_session_parameters();
+    let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load::<M>()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),
         args.generate.load_session.as_deref(),
-        inference_session_params,
+        inference_session_config,
     );
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
@@ -171,13 +171,13 @@ fn interactive<M: llm::KnownModel + 'static>(
     chat_mode: bool,
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
-    let inference_session_params = args.generate.inference_session_parameters();
+    let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load::<M>()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
         args.generate.load_session.as_deref(),
-        inference_session_params,
+        inference_session_config,
     );
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
