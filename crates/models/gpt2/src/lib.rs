@@ -105,9 +105,9 @@ impl KnownModel for Gpt2 {
         })
     }
 
-    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
-            params,
+            config,
             self.hyperparameters.n_ctx,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,

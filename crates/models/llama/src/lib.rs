@@ -113,9 +113,9 @@ impl KnownModel for Llama {
     }
 
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
-            params,
+            config,
             self.n_context_tokens,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
