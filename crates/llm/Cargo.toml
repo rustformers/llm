@@ -1,6 +1,6 @@
 [package]
 name = "llm"
-version = "0.1.0-rc4"
+version = "0.1.1"
 license = { workspace = true }
 repository = { workspace = true }
 description = "A Rust ecosystem of libraries for running inference on large language models, inspired by llama.cpp."
@@ -8,12 +8,12 @@ edition = "2021"
 readme = "../../README.md"
 
 [dependencies]
-llm-base = { path = "../llm-base", version = "0.1.0-rc4" }
-llm-llama = { path = "../models/llama", features = ["convert"], optional = true, version = "0.1.0-rc4" }
-llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.1.0-rc4" }
-llm-gptj = { path = "../models/gptj", optional = true, version = "0.1.0-rc4" }
-llm-bloom = { path = "../models/bloom", optional = true, version = "0.1.0-rc4" }
-llm-neox = { path = "../models/neox", optional = true, version = "0.1.0-rc4" }
+llm-base = { path = "../llm-base", version = "0.1.1" }
+llm-llama = { path = "../models/llama", features = ["convert"], optional = true, version = "0.1.1" }
+llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.1.1" }
+llm-gptj = { path = "../models/gptj", optional = true, version = "0.1.1" }
+llm-bloom = { path = "../models/bloom", optional = true, version = "0.1.1" }
+llm-neox = { path = "../models/neox", optional = true, version = "0.1.1" }
 
 [dev-dependencies]
 rand = { workspace = true }

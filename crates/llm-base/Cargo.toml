@@ -1,6 +1,6 @@
 [package]
 name = "llm-base"
-version = "0.1.0-rc4"
+version = "0.1.1"
 license = { workspace = true }
 repository = { workspace = true }
 description = "The base for `llm`; provides common structure for model implementations. Not intended for use by end-users."
@@ -11,7 +11,7 @@ readme = "../../README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ggml = { path = "../ggml", version = "0.1.0-rc4" }
+ggml = { path = "../ggml", version = "0.1.1" }
 
 bytemuck = { workspace = true }
 rand = { workspace = true }
