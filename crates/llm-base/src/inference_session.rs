@@ -532,7 +532,7 @@ impl Default for InferenceSessionConfig {
     }
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
 /// Settings specific to [InferenceSession::infer].
 pub struct InferenceRequest<'a> {
     /// The prompt to feed to the model.
