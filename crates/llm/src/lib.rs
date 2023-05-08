@@ -17,19 +17,15 @@
 //! use llm::Model;
 //!
 //! // load a GGML model from disk
-//! let model_load = llm::load::<llm::models::Llama>(
+//! let llama = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
 //!     // llm::ModelParameters
 //!     Default::default(),
 //!     // load progress callback
 //!     llm::load_progress_callback_stdout
-//! );
-//!
-//! let llama = match model_load {
-//!     Ok(model) => model,
-//!     Err(e) => panic!("Failed to load model: {e}"),
-//! };
+//! )
+//! .unwrap_or_else(|err| panic!("Failed to load model: {err}"));
 //!
 //! // use the model to generate text from a prompt
 //! let mut session = llama.start_session(Default::default());
@@ -38,7 +34,8 @@
 //!     &llama,
 //!     // randomness provider
 //!     &mut rand::thread_rng(),
-//!     // llm::InferenceRequest
+//!     // the prompt to use for text generation, as well as other
+//!     // inference parameters
 //!     &llm::InferenceRequest {
 //!         prompt: "Rust is a cool programming language because",
 //!         ..Default::default()
