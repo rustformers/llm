@@ -15,12 +15,16 @@ The primary crate is the `llm` crate, which wraps `llm-base` and supported model
 crates.
 
 On top of `llm`, there is a CLI application, `llm-cli`, which provides a
-convenient interface for running inference on supported models. This CLI
-is available from the latest GitHub release.
+convenient interface for running inference on supported models. Inferencing
+can be done as a one-off, or interactively, through REPL or chat modes. It
+can also print information about, or quantize, a GGML model. It can be
+downloaded from [the latest GitHub release](https://github.com/rustformers/llm/releases)
+or by installing it from `crates.io`.
 
 It is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library,
 and aims to bring the robustness and ease of use of Rust to the world of large
-language models.
+language models. At present, inference is only on the CPU, but we hope to
+support GPU inference in the future through alternate backends.
 
 Currently, the following models are supported:
 
@@ -48,7 +52,7 @@ builds are going to be very slow.
 Run
 
 ```shell
-cargo install --git https://github.com/rustformers/llm llm-cli
+cargo install llm-cli
 ```
 
 to install `llm` to your Cargo `bin` directory, which `rustup` is likely to have
