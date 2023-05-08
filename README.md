@@ -120,6 +120,8 @@ python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 cargo run --release llama quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
 ```
 
+In future, we hope to provide [a more streamlined way of converting models](https://github.com/rustformers/llm/issues/21).
+
 > **Note**
 >
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
