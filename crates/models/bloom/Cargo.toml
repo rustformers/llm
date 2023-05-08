@@ -1,6 +1,6 @@
 [package]
 name = "llm-bloom"
-version = "0.1.0-rc3"
+version = "0.1.0-rc4"
 license = { workspace = true }
 repository = { workspace = true }
 description = "An implementation of BLOOM (BigScience Large Open-science Open-access Multilingual Language Model) for the `llm` ecosystem."
@@ -10,6 +10,6 @@ readme = "../../../README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llm-base = { path = "../../llm-base", version = "0.1.0-rc3" }
+llm-base = { path = "../../llm-base", version = "0.1.0-rc4" }
 
 bytemuck = { workspace = true }
