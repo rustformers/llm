@@ -140,9 +140,12 @@ impl InferenceSession {
     }
 
     /// Generate text by using the provided [Model] to evaluate the `prompt`.
+    ///
     /// The `callback` is called with each new token until an end-of-text (EOT)
     /// token is encountered or the maximum number of tokens have been
     /// generated (specified by [InferenceRequest::maximum_token_count]).
+    ///
+    /// This is a wrapper around [Self::feed_prompt] and [Self::infer_next_token].
     pub fn infer<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
