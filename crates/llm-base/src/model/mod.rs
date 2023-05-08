@@ -34,7 +34,7 @@ pub trait KnownModel: Send + Sync {
         Self: Sized;
 
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession;
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
@@ -71,7 +71,7 @@ pub trait KnownModel: Send + Sync {
 /// its hyperparameters.
 pub trait Model: Send + Sync {
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession;
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
@@ -104,8 +104,8 @@ pub trait Model: Send + Sync {
     fn inference_parameters(&self) -> &InferenceParameters;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
-    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
-        KnownModel::start_session(self, params)
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
+        KnownModel::start_session(self, config)
     }
 
     fn evaluate(
