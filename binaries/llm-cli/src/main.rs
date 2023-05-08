@@ -66,7 +66,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
-        // EvaluateOutputRequest
+        // OutputRequest
         &mut Default::default(),
         |t| {
             print!("{t}");
@@ -210,7 +210,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                     model.as_ref(),
                     &inference_params,
                     &prompt,
-                    // EvaluateOutputRequest
+                    // OutputRequest
                     &mut Default::default(),
                     |_| Ok(()),
                 ) {

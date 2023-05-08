@@ -7,9 +7,8 @@ use std::path::Path;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, KnownModel, LoadError, LoadProgress, Mmap, ModelParameters, TokenId,
-    Vocabulary,
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -139,7 +138,7 @@ impl KnownModel for Bloom {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;

@@ -1,6 +1,6 @@
 use ggml::{Context, Tensor};
 
-use crate::{EvaluateOutputRequest, InferenceSession, TokenId};
+use crate::{InferenceSession, OutputRequest, TokenId};
 
 /// Common code to prepare a model to evaluate input
 pub fn prepare_for_evaluate(
@@ -52,9 +52,9 @@ pub fn read_last_token(
     };
 }
 
-/// Extract logits from [EvaluateOutputRequest] evaluation
+/// Extract logits from [OutputRequest] evaluation
 pub fn extract_logits(
-    output_request: &mut EvaluateOutputRequest,
+    output_request: &mut OutputRequest,
     input_layer: &Tensor,
     n_vocab: usize,
     n: usize,
@@ -71,9 +71,9 @@ pub fn extract_logits(
     }
 }
 
-/// Extract embeddings from [EvaluateOutputRequest] evaluation
+/// Extract embeddings from [OutputRequest] evaluation
 pub fn extract_embeddings(
-    output_request: &mut EvaluateOutputRequest,
+    output_request: &mut OutputRequest,
     embd: &Tensor,
     n_embd: usize,
     n: usize,

@@ -5,8 +5,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    mulf, EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId,
-    TokenUtf8Buffer,
+    mulf, InferenceError, InferenceParameters, Model, OutputRequest, TokenId, TokenUtf8Buffer,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -74,7 +73,7 @@ impl InferenceSession {
         model: &dyn Model,
         params: &InferenceParameters,
         prompt: &str,
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
@@ -116,7 +115,7 @@ impl InferenceSession {
         &mut self,
         model: &'v dyn Model,
         params: &InferenceParameters,
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
         if self.n_past + 1 >= model.n_context_tokens() {
@@ -149,7 +148,7 @@ impl InferenceSession {
         model: &dyn Model,
         rng: &mut impl rand::Rng,
         request: &InferenceRequest,
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
         mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = request.maximum_token_count.unwrap_or(usize::MAX);

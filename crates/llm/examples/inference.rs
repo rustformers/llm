@@ -37,7 +37,7 @@ fn main() {
             prompt,
             ..Default::default()
         },
-        // EvaluateOutputRequest
+        // OutputRequest
         &mut Default::default(),
         |t| {
             print!("{t}");

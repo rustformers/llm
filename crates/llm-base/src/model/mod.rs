@@ -38,14 +38,14 @@ pub trait KnownModel: Send + Sync {
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
-    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from the
+    /// The [OutputRequest] is used to specify additional data to fetch from the
     /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     );
 
     /// Get the vocabulary (loaded from the GGML file) for this model.
@@ -75,14 +75,14 @@ pub trait Model: Send + Sync {
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
-    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from the
+    /// The [OutputRequest] is used to specify additional data to fetch from the
     /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     );
 
     /// Get the vocabulary (loaded from the GGML file) for this model.
@@ -113,7 +113,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         KnownModel::evaluate(self, session, params, input_tokens, output_request)
     }
@@ -189,7 +189,7 @@ impl Default for ModelParameters {
 /// information from the model. If a value is set to `Some`, the `Vec` will be
 /// cleared, resized, and filled with the related data.
 #[derive(Default, Debug, PartialEq, Clone)]
-pub struct EvaluateOutputRequest {
+pub struct OutputRequest {
     /// Returns all the logits for evaluation. A logit represents the likelihood
     /// that a given token will be generated based on the tokens that have been
     /// evaluated or generated so far. Output shape is `n_batch * n_vocab`.

@@ -6,9 +6,9 @@ use std::{error::Error, path::Path};
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, KnownModel, LoadError, LoadProgress, Mmap, ModelParameters,
-    TensorLoader, TokenId, Vocabulary,
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
+    Vocabulary,
 };
 
 #[cfg(feature = "convert")]
@@ -128,7 +128,7 @@ impl KnownModel for Llama {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;

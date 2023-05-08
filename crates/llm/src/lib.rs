@@ -43,7 +43,7 @@
 //!         prompt: "Rust is a cool programming language because",
 //!         ..Default::default()
 //!     },
-//!     // llm::EvaluateOutputRequest
+//!     // llm::OutputRequest
 //!     &mut Default::default(),
 //!     // output callback
 //!     |t| {
@@ -74,8 +74,8 @@ pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
     FileType, InferenceError, InferenceParameters, InferenceRequest, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, KnownModel, LoadError, LoadProgress, Loader, Model,
-    ModelKVMemoryType, ModelParameters, QuantizeError, QuantizeProgress, SnapshotError, TokenBias,
-    TokenId, TokenUtf8Buffer, Vocabulary,
+    ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError, QuantizeProgress,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
 };
 
 /// All available models.
