@@ -12,11 +12,23 @@
 models, inspired by [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
 The primary crate is the `llm` crate, which wraps `llm-base` and supported model
-crates. This is used by `llm-cli` to provide inference for all supported models.
+crates.
+
+On top of `llm`, there is a CLI application, `llm-cli`, which provides a
+convenient interface for running inference on supported models. This CLI
+is available from the latest GitHub release.
 
 It is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library,
 and aims to bring the robustness and ease of use of Rust to the world of large
 language models.
+
+Currently, the following models are supported:
+
+- [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
+- [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
+- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA, Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
+- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox): GPT-NeoX, StableLM, Dolly v2 (partial, not the same tensor names?)
+- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
 
 ## Getting started
 
@@ -44,8 +56,6 @@ added to your `PATH`.
 
 The CLI application can then be run through `llm`.
 
-![Gif showcasing language generation using llm](./doc/resources/llama_gif.gif)
-
 ### Building from repository
 
 Clone the repository and then build it with
@@ -67,15 +77,7 @@ This is useful for development.
 
 ### Getting models
 
-GGML files are easy to acquire. Currently, the following models are supported:
-
-- [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
-- [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
-- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA, Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
-- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox): GPT-NeoX, StableLM, Dolly v2 (partial, not the same tensor names?)
-- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
-
-For a list of models that have been tested, see the [known-good models](./known-good-models.md).
+GGML files are easy to acquire. For a list of models that have been tested, see the [known-good models](./known-good-models.md).
 
 Certain older GGML formats are not supported by this project, but the goal is to
 maintain feature parity with the upstream GGML project. For problems relating to
@@ -141,16 +143,9 @@ Some additional things to try:
   llm llama repl -m <path>/ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
   ```
 
-  ![Gif showcasing alpaca repl mode](./doc/resources/alpaca_repl_screencap.gif)
-
 - Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file.
   To automatically load and save the same session, use `--persist-session`. This
   can be used to cache prompts to reduce load time, too:
-
-  ![Gif showcasing prompt caching](./doc/resources/prompt_caching_screencap.gif)
-
-  (This GIF shows an older version of the flags, but the mechanics are still the
-  same.)
 
 [^1]:
     A modern-ish C toolchain is required to compile `ggml`. A C++ toolchain
@@ -214,3 +209,7 @@ outside of `ggml`. This was done for a variety of reasons:
 
 In general, we hope to build a solution for model inferencing that is as easy to
 use and deploy as any other Rust crate.
+
+### What applications and libraries use `llm`?
+
+See [users.md](users.md).

@@ -1,4 +1,10 @@
-//! LLaMA-rs is a Rust port of the llama.cpp project. This allows running inference for Facebook's LLaMA model on a CPU with good performance using full precision, f16 or 4-bit quantized versions of the model.
+//! This crate provides a unified interface for loading and using
+//! Large Language Models (LLMs).
+//!
+//! This is the base crate that implementors can use to implement their own
+//! LLMs.
+//!
+//! As a user, you probably want to use the [llm](https://crates.io/crates/llm) crate instead.
 #![deny(missing_docs)]
 
 use thiserror::Error;
