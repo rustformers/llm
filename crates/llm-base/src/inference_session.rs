@@ -257,7 +257,12 @@ impl InferenceSession {
 
                 let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
                     logit_override
-                } else if self.repetition_penalty_tokens().contains(&(i as TokenId)) {
+                } else if self.tokens[self
+                    .tokens
+                    .len()
+                    .saturating_sub(params.repetition_penalty_last_n)..]
+                    .contains(&(i as TokenId))
+                {
                     // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                     // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
 
@@ -432,14 +437,6 @@ impl InferenceSession {
         }
     }
 }
-impl InferenceSession {
-    fn repetition_penalty_tokens(&self) -> &[TokenId] {
-        &self.tokens[self
-            .tokens
-            .len()
-            .saturating_sub(self.params.repetition_penalty_last_n)..]
-    }
-}
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
         let context = ggml::Context::init(self.memory_size, true);
@@ -541,8 +538,6 @@ pub struct InferenceSnapshot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Parameters for an inference session.
 pub struct InferenceSessionParameters {
-    /// The number of tokens to consider for the repetition penalty.
-    pub repetition_penalty_last_n: usize,
     /// The type of the memory K tensor.
     pub memory_k_type: ModelKVMemoryType,
     /// The type of the memory V tensor.
@@ -551,7 +546,6 @@ pub struct InferenceSessionParameters {
 impl Default for InferenceSessionParameters {
     fn default() -> Self {
         Self {
-            repetition_penalty_last_n: 512,
             memory_k_type: ModelKVMemoryType::Float32,
             memory_v_type: ModelKVMemoryType::Float32,
         }

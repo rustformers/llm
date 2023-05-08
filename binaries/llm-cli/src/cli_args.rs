@@ -246,7 +246,6 @@ impl Generate {
         InferenceSessionParameters {
             memory_k_type: mem_typ,
             memory_v_type: mem_typ,
-            repetition_penalty_last_n: self.repeat_last_n,
         }
     }
 
@@ -273,6 +272,7 @@ impl Generate {
                     TokenBias::default()
                 }
             }),
+            repetition_penalty_last_n: self.repeat_last_n,
         }
     }
 }

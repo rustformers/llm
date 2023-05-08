@@ -48,6 +48,8 @@ pub struct InferenceParameters {
     pub temperature: f32,
     /// A list of tokens to bias against in the process of generation.
     pub bias_tokens: TokenBias,
+    /// The number of tokens to consider for the repetition penalty.
+    pub repetition_penalty_last_n: usize,
 }
 impl Default for InferenceParameters {
     fn default() -> Self {
@@ -59,6 +61,7 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temperature: 0.80,
             bias_tokens: TokenBias::default(),
+            repetition_penalty_last_n: 512,
         }
     }
 }
