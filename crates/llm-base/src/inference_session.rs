@@ -140,47 +140,20 @@ impl InferenceSession {
         }
     }
 
-    /// Calls [Self::infer_with_params] with the [InferenceParameters] and
-    /// [InferenceWithPromptParameters] provided by the [Model]; refer to
-    /// [Self::infer_with_params] for more information.
-    pub fn infer<E: std::error::Error + 'static>(
-        &mut self,
-        model: &dyn Model,
-        prompt: &str,
-        output_request: &mut EvaluateOutputRequest,
-        rng: &mut impl rand::Rng,
-        callback: impl FnMut(&str) -> Result<(), E>,
-    ) -> Result<InferenceStats, InferenceError> {
-        self.infer_with_params(
-            model,
-            &model.inference_params(),
-            &model.inference_prompt_params(),
-            prompt,
-            output_request,
-            rng,
-            callback,
-        )
-    }
-
     /// Generate text by using the provided [Model] to evaluate the `prompt`.
     /// The `callback` is called with each new token until an end-of-text (EOT)
     /// token is encountered or the maximum number of tokens have been
-    /// generated (specified by [InferenceWithPromptParameters::maximum_token_count]).
-    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from
-    /// the model.
-    #[allow(clippy::too_many_arguments)]
-    pub fn infer_with_params<E: std::error::Error + 'static>(
+    /// generated (specified by [InferenceRequest::maximum_token_count]).
+    pub fn infer<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
-        params: &InferenceParameters,
-        prompt_params: &InferenceWithPromptParameters,
-        prompt: &str,
-        output_request: &mut EvaluateOutputRequest,
         rng: &mut impl rand::Rng,
+        request: &InferenceRequest,
+        output_request: &mut EvaluateOutputRequest,
         mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
-        let maximum_token_count = prompt_params.maximum_token_count.unwrap_or(usize::MAX);
-        if prompt_params.play_back_previous_tokens {
+        let maximum_token_count = request.maximum_token_count.unwrap_or(usize::MAX);
+        if request.play_back_previous_tokens {
             // "Play back" the existing tokens, so that loading from an inference snapshot works
             // as expected.
             let mut token_utf8_buf = TokenUtf8Buffer::new();
@@ -197,15 +170,16 @@ impl InferenceSession {
         }
 
         let mut stats = InferenceStats::default();
-
         let start_at = std::time::SystemTime::now();
+
+        let parameters = request.parameters.unwrap_or(model.inference_parameters());
 
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
         self.feed_prompt(
             model,
-            params,
-            prompt,
+            parameters,
+            request.prompt,
             output_request,
             TokenUtf8Buffer::adapt_callback(&mut callback),
         )?;
@@ -219,7 +193,8 @@ impl InferenceSession {
         let mut tokens_processed = 0;
         let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
-            let token = match self.infer_next_token(model, params, output_request, rng) {
+            let token = match self.infer_next_token(model, parameters, &mut Default::default(), rng)
+            {
                 Ok(token) => token,
                 Err(InferenceError::EndOfText) => break,
                 Err(e) => return Err(e),
@@ -555,9 +530,15 @@ impl Default for InferenceSessionConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, serde::Serialize, serde::Deserialize)]
-/// Settings specific to [InferenceSession::infer] [InferenceSession::infer_with_params].
-pub struct InferenceWithPromptParameters {
+#[derive(Debug, PartialEq, Default)]
+/// Settings specific to [InferenceSession::infer].
+pub struct InferenceRequest<'a> {
+    /// The prompt to feed to the model.
+    pub prompt: &'a str,
+    /// The parameters to use during this inference attempt.
+    /// If not specified, this will default to the parameters
+    /// specified in the model.
+    pub parameters: Option<&'a InferenceParameters>,
     /// Whether or not to call the callback with the previous tokens
     /// that were encountered in this session.
     ///

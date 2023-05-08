@@ -15,15 +15,15 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
-    InferenceWithPromptParameters, ModelKVMemoryType, SnapshotError,
+    InferenceRequest, InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
+    ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
     TensorLoader,
 };
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model, ModelParameters};
+pub use model::{EvaluateOutputRequest, Hyperparameters, KnownModel, Model, ModelParameters};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
@@ -86,19 +86,4 @@ pub enum InferenceError {
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error>),
-}
-
-/// Used in a call to [Model::evaluate] or [InferenceSession::infer] to request
-/// information from the model. If a value is set to `Some`, the `Vec` will be
-/// cleared, resized, and filled with the related data.
-#[derive(Default, Debug, Clone)]
-pub struct EvaluateOutputRequest {
-    /// Returns all the logits for evaluation. A logit represents the likelihood
-    /// that a given token will be generated based on the tokens that have been
-    /// evaluated or generated so far. Output shape is `n_batch * n_vocab`.
-    pub all_logits: Option<Vec<f32>>,
-    /// Returns all the embeddings for an evaluation. An embedding is a vector
-    /// that measures the relatedness of text strings. Output shape is
-    /// `n_batch * n_embd`.
-    pub embeddings: Option<Vec<f32>>,
 }

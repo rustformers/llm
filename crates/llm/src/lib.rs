@@ -36,12 +36,15 @@
 //! let res = session.infer::<std::convert::Infallible>(
 //!     // model to use for text generation
 //!     &llama,
-//!     // text generation prompt
-//!     "Rust is a cool programming language because",
-//!     // llm::EvaluateOutputRequest
-//!     &mut Default::default(),
 //!     // randomness provider
 //!     &mut rand::thread_rng(),
+//!     // llm::InferenceRequest
+//!     &llm::InferenceRequest {
+//!         prompt: "Rust is a cool programming language because",
+//!         ..Default::default()
+//!     },
+//!     // llm::EvaluateOutputRequest
+//!     &mut Default::default(),
 //!     // output callback
 //!     |t| {
 //!         print!("{t}");
@@ -69,10 +72,10 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
-    FileType, InferenceError, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    InferenceSnapshot, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Loader,
-    Model, ModelKVMemoryType, ModelParameters, QuantizeError, QuantizeProgress, SnapshotError,
-    TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    FileType, InferenceError, InferenceParameters, InferenceRequest, InferenceSession,
+    InferenceSessionConfig, InferenceSnapshot, KnownModel, LoadError, LoadProgress, Loader, Model,
+    ModelKVMemoryType, ModelParameters, QuantizeError, QuantizeProgress, SnapshotError, TokenBias,
+    TokenId, TokenUtf8Buffer, Vocabulary,
 };
 
 /// All available models.
@@ -114,7 +117,7 @@ impl ModelArchitecture {
     pub const ALL: [Self; 5] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX];
 }
 
-/// An unsupported model architecture was specified
+/// An unsupported model architecture was specified.
 pub struct UnsupportedModelArchitecture(String);
 impl Display for UnsupportedModelArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

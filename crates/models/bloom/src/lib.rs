@@ -8,8 +8,8 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    Mmap, ModelParameters, TokenId, Vocabulary,
+    InferenceSessionConfig, KnownModel, LoadError, LoadProgress, Mmap, ModelParameters, TokenId,
+    Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -29,8 +29,7 @@ pub struct Bloom {
     output: ggml::Tensor,
     layers: Vec<Layer>,
 
-    inference_params: InferenceParameters,
-    inference_prompt_params: InferenceWithPromptParameters,
+    inference_parameters: InferenceParameters,
 
     // Must be kept alive for the model
     _context: ggml::Context,
@@ -104,8 +103,7 @@ impl KnownModel for Bloom {
 
         let ModelParameters {
             n_context_tokens,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             ..
         } = params;
 
@@ -120,8 +118,7 @@ impl KnownModel for Bloom {
             output_norm_b,
             output,
             layers,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             _context,
             _mmap,
         })
@@ -424,12 +421,8 @@ impl KnownModel for Bloom {
             .unwrap()
     }
 
-    fn inference_params(&self) -> InferenceParameters {
-        self.inference_params.clone()
-    }
-
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
-        self.inference_prompt_params
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_parameters
     }
 }
 

@@ -8,8 +8,8 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    ModelParameters, TokenId, Vocabulary,
+    InferenceSessionConfig, KnownModel, LoadError, LoadProgress, ModelParameters, TokenId,
+    Vocabulary,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -27,7 +27,6 @@ pub struct Gpt2 {
     lm_head: Tensor,
     layers: Vec<Layer>,
     inference_params: InferenceParameters,
-    inference_prompt_params: InferenceWithPromptParameters,
     _context: ggml::Context,
 }
 
@@ -88,8 +87,7 @@ impl KnownModel for Gpt2 {
 
         let ModelParameters {
             n_context_tokens,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters: inference_params,
             ..
         } = params;
 
@@ -104,7 +102,6 @@ impl KnownModel for Gpt2 {
             wpe,
             lm_head,
             inference_params,
-            inference_prompt_params,
             _context,
         })
     }
@@ -344,12 +341,8 @@ impl KnownModel for Gpt2 {
             .unwrap()
     }
 
-    fn inference_params(&self) -> InferenceParameters {
-        self.inference_params.clone()
-    }
-
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
-        self.inference_prompt_params
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_params
     }
 }
 

@@ -57,17 +57,17 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let res = session.infer_with_params::<Infallible>(
+    let res = session.infer::<Infallible>(
         model.as_ref(),
-        &inference_params,
-        &llm::InferenceWithPromptParameters {
+        &mut rng,
+        &llm::InferenceRequest {
+            prompt: &prompt,
+            parameters: Some(&inference_params),
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
-        &prompt,
         // EvaluateOutputRequest
         &mut Default::default(),
-        &mut rng,
         |t| {
             print!("{t}");
             std::io::stdout().flush().unwrap();
@@ -218,17 +218,17 @@ fn interactive<M: llm::KnownModel + 'static>(
                 };
                 sp.clear();
 
-                let res = session.infer_with_params::<Infallible>(
+                let res = session.infer::<Infallible>(
                     model.as_ref(),
-                    &inference_params,
-                    &llm::InferenceWithPromptParameters {
+                    &mut rng,
+                    &llm::InferenceRequest {
+                        prompt: "",
+                        parameters: Some(&inference_params),
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
                     },
-                    "",
                     // EvaluateOuputRequest
                     &mut Default::default(),
-                    &mut rng,
                     |tk| {
                         print!("{tk}");
                         std::io::stdout().flush().unwrap();
