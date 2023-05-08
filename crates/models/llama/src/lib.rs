@@ -6,9 +6,9 @@ use std::{error::Error, path::Path};
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    Mmap, ModelParameters, TensorLoader, TokenId, Vocabulary,
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
+    Vocabulary,
 };
 
 #[cfg(feature = "convert")]
@@ -33,8 +33,7 @@ pub struct Llama {
 
     layers: Vec<Layer>,
 
-    inference_params: InferenceParameters,
-    inference_prompt_params: InferenceWithPromptParameters,
+    inference_parameters: InferenceParameters,
 
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
@@ -95,8 +94,7 @@ impl KnownModel for Llama {
 
         let ModelParameters {
             n_context_tokens,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             ..
         } = params;
 
@@ -108,15 +106,14 @@ impl KnownModel for Llama {
             norm,
             output,
             layers,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             _context,
             _mmap,
         })
     }
 
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
             self.n_context_tokens,
@@ -131,7 +128,7 @@ impl KnownModel for Llama {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;
@@ -366,12 +363,8 @@ impl KnownModel for Llama {
         2
     }
 
-    fn inference_params(&self) -> InferenceParameters {
-        self.inference_params.clone()
-    }
-
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
-        self.inference_prompt_params
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_parameters
     }
 }
 #[cfg(test)]
@@ -394,8 +387,7 @@ impl Llama {
             layers: Default::default(),
             _mmap: Default::default(),
             _context: context,
-            inference_params: Default::default(),
-            inference_prompt_params: Default::default(),
+            inference_parameters: Default::default(),
         }
     }
 }

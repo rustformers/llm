@@ -7,9 +7,8 @@ use std::path::Path;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    Mmap, ModelParameters, TokenId, Vocabulary,
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -29,8 +28,7 @@ pub struct Bloom {
     output: ggml::Tensor,
     layers: Vec<Layer>,
 
-    inference_params: InferenceParameters,
-    inference_prompt_params: InferenceWithPromptParameters,
+    inference_parameters: InferenceParameters,
 
     // Must be kept alive for the model
     _context: ggml::Context,
@@ -104,8 +102,7 @@ impl KnownModel for Bloom {
 
         let ModelParameters {
             n_context_tokens,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             ..
         } = params;
 
@@ -120,14 +117,13 @@ impl KnownModel for Bloom {
             output_norm_b,
             output,
             layers,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             _context,
             _mmap,
         })
     }
 
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
             self.n_context_tokens,
@@ -142,7 +138,7 @@ impl KnownModel for Bloom {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;
@@ -424,12 +420,8 @@ impl KnownModel for Bloom {
             .unwrap()
     }
 
-    fn inference_params(&self) -> InferenceParameters {
-        self.inference_params.clone()
-    }
-
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
-        self.inference_prompt_params
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_parameters
     }
 }
 

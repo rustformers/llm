@@ -17,40 +17,40 @@
 //! use llm::Model;
 //!
 //! // load a GGML model from disk
-//! let model_load = llm::load::<llm::models::Llama>(
+//! let llama = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
 //!     // llm::ModelParameters
 //!     Default::default(),
 //!     // load progress callback
 //!     llm::load_progress_callback_stdout
-//! );
-//!    
-//! let llama = match model_load {
-//!     Ok(model) => model,
-//!     Err(e) => panic!("Failed to load model: {e}"),
-//! };
-//!   
+//! )
+//! .unwrap_or_else(|err| panic!("Failed to load model: {err}"));
+//!
 //! // use the model to generate text from a prompt
 //! let mut session = llama.start_session(Default::default());
 //! let res = session.infer::<std::convert::Infallible>(
 //!     // model to use for text generation
 //!     &llama,
-//!     // text generation prompt
-//!     "Rust is a cool programming language because",
-//!     // llm::EvaluateOutputRequest
-//!     &mut Default::default(),
 //!     // randomness provider
 //!     &mut rand::thread_rng(),
+//!     // the prompt to use for text generation, as well as other
+//!     // inference parameters
+//!     &llm::InferenceRequest {
+//!         prompt: "Rust is a cool programming language because",
+//!         ..Default::default()
+//!     },
+//!     // llm::OutputRequest
+//!     &mut Default::default(),
 //!     // output callback
 //!     |t| {
 //!         print!("{t}");
 //!         std::io::stdout().flush().unwrap();
-//!   
+//!
 //!         Ok(())
 //!     }
 //! );
-//!   
+//!
 //! match res {
 //!     Ok(result) => println!("\n\nInference stats:\n{result}"),
 //!     Err(err) => println!("\n{err}"),
@@ -69,10 +69,10 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
-    FileType, InferenceError, InferenceParameters, InferenceSession, InferenceSessionParameters,
-    InferenceSnapshot, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress, Loader,
-    Model, ModelKVMemoryType, ModelParameters, QuantizeError, QuantizeProgress, SnapshotError,
-    TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    FileType, InferenceError, InferenceParameters, InferenceRequest, InferenceSession,
+    InferenceSessionConfig, InferenceSnapshot, KnownModel, LoadError, LoadProgress, Loader, Model,
+    ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError, QuantizeProgress,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
 };
 
 /// All available models.
@@ -114,7 +114,7 @@ impl ModelArchitecture {
     pub const ALL: [Self; 5] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX];
 }
 
-/// An unsupported model architecture was specified
+/// An unsupported model architecture was specified.
 pub struct UnsupportedModelArchitecture(String);
 impl Display for UnsupportedModelArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

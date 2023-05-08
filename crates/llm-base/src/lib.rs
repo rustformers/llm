@@ -15,21 +15,24 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceSession, InferenceSessionParameters, InferenceSnapshot, InferenceStats,
-    InferenceWithPromptParameters, ModelKVMemoryType, SnapshotError,
+    InferenceRequest, InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
+    ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
     TensorLoader,
 };
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model, ModelParameters};
+pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{TokenBias, TokenId, Vocabulary};
 
 #[derive(Clone, Debug, PartialEq)]
-/// The parameters that drive text generation.
+/// The parameters for text generation.
+///
+/// This needs to be provided during all inference calls,
+/// but can be changed between calls.
 pub struct InferenceParameters {
     /// The number of threads to use.
     pub n_threads: usize,
@@ -48,6 +51,8 @@ pub struct InferenceParameters {
     pub temperature: f32,
     /// A list of tokens to bias against in the process of generation.
     pub bias_tokens: TokenBias,
+    /// The number of tokens to consider for the repetition penalty.
+    pub repetition_penalty_last_n: usize,
 }
 impl Default for InferenceParameters {
     fn default() -> Self {
@@ -59,6 +64,7 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temperature: 0.80,
             bias_tokens: TokenBias::default(),
+            repetition_penalty_last_n: 512,
         }
     }
 }
@@ -80,19 +86,4 @@ pub enum InferenceError {
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error>),
-}
-
-/// Used in a call to [Model::evaluate] or [InferenceSession::infer] to request
-/// information from the model. If a value is set to `Some`, the `Vec` will be
-/// cleared, resized, and filled with the related data.
-#[derive(Default, Debug, Clone)]
-pub struct EvaluateOutputRequest {
-    /// Returns all the logits for evaluation. A logit represents the likelihood
-    /// that a given token will be generated based on the tokens that have been
-    /// evaluated or generated so far. Output shape is `n_batch * n_vocab`.
-    pub all_logits: Option<Vec<f32>>,
-    /// Returns all the embeddings for an evaluation. An embedding is a vector
-    /// that measures the relatedness of text strings. Output shape is
-    /// `n_batch * n_embd`.
-    pub embeddings: Option<Vec<f32>>,
 }

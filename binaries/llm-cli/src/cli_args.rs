@@ -3,7 +3,7 @@ use std::{fmt::Debug, path::PathBuf};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    ElementType, InferenceParameters, InferenceSessionParameters, LoadProgress, Model,
+    ElementType, InferenceParameters, InferenceSessionConfig, LoadProgress, Model,
     ModelKVMemoryType, ModelParameters, TokenBias,
 };
 use rand::SeedableRng;
@@ -237,16 +237,15 @@ impl Generate {
             .unwrap_or_else(|| self.autodetect_num_threads())
     }
 
-    pub fn inference_session_parameters(&self) -> InferenceSessionParameters {
+    pub fn inference_session_config(&self) -> InferenceSessionConfig {
         let mem_typ = if self.float16 {
             ModelKVMemoryType::Float16
         } else {
             ModelKVMemoryType::Float32
         };
-        InferenceSessionParameters {
+        InferenceSessionConfig {
             memory_k_type: mem_typ,
             memory_v_type: mem_typ,
-            repetition_penalty_last_n: self.repeat_last_n,
         }
     }
 
@@ -273,6 +272,7 @@ impl Generate {
                     TokenBias::default()
                 }
             }),
+            repetition_penalty_last_n: self.repeat_last_n,
         }
     }
 }

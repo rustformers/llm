@@ -9,9 +9,8 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, vocabulary::TokenId, EvaluateOutputRequest, InferenceParameters,
-    InferenceSession, InferenceSessionParameters, InferenceWithPromptParameters, LoadError,
-    Vocabulary,
+    loader::TensorLoader, vocabulary::TokenId, InferenceParameters, InferenceSession,
+    InferenceSessionConfig, LoadError, Vocabulary,
 };
 
 /// Common functions for model evaluation
@@ -35,18 +34,18 @@ pub trait KnownModel: Send + Sync {
         Self: Sized;
 
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
-    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from the
-    /// model. For more information, refer to [InferenceSession::infer_with_params]
+    /// The [OutputRequest] is used to specify additional data to fetch from the
+    /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     );
 
     /// Get the vocabulary (loaded from the GGML file) for this model.
@@ -62,33 +61,28 @@ pub trait KnownModel: Send + Sync {
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
-    /// Get the default [InferenceSessionParameters] for this model (used by
+    /// Get the default [InferenceParameters] for this model (used by
     /// [InferenceSession::infer]). This value is configured through
-    /// [ModelParameters::inference_params].
-    fn inference_params(&self) -> InferenceParameters;
-
-    /// Get the default [InferenceWithPromptParameters] for this model (used by
-    /// [InferenceSession::infer]). This value is configured through
-    /// [ModelParameters::inference_prompt_params].
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
+    /// [ModelParameters::inference_parameters].
+    fn inference_parameters(&self) -> &InferenceParameters;
 }
 
 /// A type-erased model to allow for interacting with a model without knowing
 /// its hyperparameters.
 pub trait Model: Send + Sync {
     /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession;
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
     /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
-    /// The [EvaluateOutputRequest] is used to specify additional data to fetch from the
-    /// model. For more information, refer to [InferenceSession::infer_with_params]
+    /// The [OutputRequest] is used to specify additional data to fetch from the
+    /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     );
 
     /// Get the vocabulary (loaded from the GGML file) for this model.
@@ -104,18 +98,13 @@ pub trait Model: Send + Sync {
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
 
-    /// Get the default [InferenceSessionParameters] for this model (used by
+    /// Get the default [InferenceParameters] for this model (used by
     /// [InferenceSession::infer]). This value is configured through
-    /// [ModelParameters::inference_params].
-    fn inference_params(&self) -> InferenceParameters;
-
-    /// Get the default [InferenceWithPromptParameters] for this model (used by
-    /// [InferenceSession::infer]). This value is configured through
-    /// [ModelParameters::inference_prompt_params].
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters;
+    /// [ModelParameters::inference_parameters].
+    fn inference_parameters(&self) -> &InferenceParameters;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         KnownModel::start_session(self, params)
     }
 
@@ -124,7 +113,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         KnownModel::evaluate(self, session, params, input_tokens, output_request)
     }
@@ -145,12 +134,8 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         KnownModel::eot_token_id(self)
     }
 
-    fn inference_params(&self) -> InferenceParameters {
-        KnownModel::inference_params(self)
-    }
-
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
-        KnownModel::inference_prompt_params(self)
+    fn inference_parameters(&self) -> &InferenceParameters {
+        KnownModel::inference_parameters(self)
     }
 }
 
@@ -187,9 +172,7 @@ pub struct ModelParameters {
     /// consumes more resources, but produces more consistent and coherent responses.
     pub n_context_tokens: usize,
     /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
-    pub inference_params: InferenceParameters,
-    /// Default InferenceWithPromptParameters to use when [evaluating](Model::evaluate) a prompt with this model.
-    pub inference_prompt_params: InferenceWithPromptParameters,
+    pub inference_parameters: InferenceParameters,
 }
 
 impl Default for ModelParameters {
@@ -197,8 +180,22 @@ impl Default for ModelParameters {
         Self {
             prefer_mmap: true,
             n_context_tokens: 2048,
-            inference_params: Default::default(),
-            inference_prompt_params: Default::default(),
+            inference_parameters: Default::default(),
         }
     }
+}
+
+/// Used in a call to [Model::evaluate] or [InferenceSession::infer] to request
+/// information from the model. If a value is set to `Some`, the `Vec` will be
+/// cleared, resized, and filled with the related data.
+#[derive(Default, Debug, PartialEq, Clone)]
+pub struct OutputRequest {
+    /// Returns all the logits for evaluation. A logit represents the likelihood
+    /// that a given token will be generated based on the tokens that have been
+    /// evaluated or generated so far. Output shape is `n_batch * n_vocab`.
+    pub all_logits: Option<Vec<f32>>,
+    /// Returns all the embeddings for an evaluation. An embedding is a vector
+    /// that measures the relatedness of text strings. Output shape is
+    /// `n_batch * n_embd`.
+    pub embeddings: Option<Vec<f32>>,
 }

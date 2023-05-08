@@ -7,9 +7,9 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, InferenceWithPromptParameters, KnownModel, LoadError, LoadProgress,
-    Mmap, ModelParameters, TensorLoader, TokenId, Vocabulary,
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
+    Vocabulary,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -34,8 +34,7 @@ pub struct NeoX {
 
     layers: Vec<Layer>,
 
-    inference_params: InferenceParameters,
-    inference_prompt_params: InferenceWithPromptParameters,
+    inference_parameters: InferenceParameters,
 
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
@@ -117,8 +116,7 @@ impl KnownModel for NeoX {
 
         let ModelParameters {
             n_context_tokens,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             ..
         } = params;
 
@@ -131,14 +129,13 @@ impl KnownModel for NeoX {
             wte,
             lmh_g,
             layers,
-            inference_params,
-            inference_prompt_params,
+            inference_parameters,
             _context,
             _mmap,
         })
     }
 
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
             self.hyperparameters.n_ctx,
@@ -153,7 +150,7 @@ impl KnownModel for NeoX {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_threads = params.n_threads;
@@ -360,12 +357,8 @@ impl KnownModel for NeoX {
             .unwrap()
     }
 
-    fn inference_params(&self) -> InferenceParameters {
-        self.inference_params.clone()
-    }
-
-    fn inference_prompt_params(&self) -> InferenceWithPromptParameters {
-        self.inference_prompt_params
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_parameters
     }
 }
 
@@ -459,8 +452,7 @@ impl NeoX {
             wte: context.new_f32(0.0),
             lmh_g: context.new_f32(0.0),
             layers: Default::default(),
-            inference_params: Default::default(),
-            inference_prompt_params: Default::default(),
+            inference_parameters: Default::default(),
             _mmap: Default::default(),
             _context: context,
         }

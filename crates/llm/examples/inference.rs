@@ -1,4 +1,5 @@
 use llm::load_progress_callback_stdout as load_callback;
+use llm_base::InferenceRequest;
 use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 fn main() {
@@ -31,10 +32,13 @@ fn main() {
 
     let res = session.infer::<Infallible>(
         model.as_ref(),
-        prompt,
-        // EvaluateOutputRequest
-        &mut Default::default(),
         &mut rand::thread_rng(),
+        &InferenceRequest {
+            prompt,
+            ..Default::default()
+        },
+        // OutputRequest
+        &mut Default::default(),
         |t| {
             print!("{t}");
             std::io::stdout().flush().unwrap();
