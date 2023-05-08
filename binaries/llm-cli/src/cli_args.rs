@@ -33,7 +33,7 @@ pub enum Args {
         args: BaseArgs,
     },
     /// Use a GPT-NeoX model
-    #[clap(id = "neox")]
+    #[clap(id = "gptneox")]
     NeoX {
         #[command(subcommand)]
         args: BaseArgs,
