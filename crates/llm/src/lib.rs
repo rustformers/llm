@@ -74,6 +74,7 @@ pub use llm_base::{
     LoadProgress, Loader, Model, ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError,
     QuantizeProgress, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
 };
+
 use serde::Serialize;
 
 /// All available models.
@@ -108,11 +109,21 @@ pub enum ModelArchitecture {
     #[cfg(feature = "neox")]
     /// [GPT-NeoX](llm_neox)
     NeoX,
+    #[cfg(feature = "neox")]
+    /// [GPT-NeoX](llm_neox)
+    RedPajama,
 }
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 5] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX];
+    pub const ALL: [Self; 6] = [
+        Self::Bloom,
+        Self::Gpt2,
+        Self::GptJ,
+        Self::Llama,
+        Self::NeoX,
+        Self::RedPajama,
+    ];
 }
 
 /// An unsupported model architecture was specified.
@@ -155,6 +166,8 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "neox")]
             "gptneox" => Ok(NeoX),
+            #[cfg(feature = "neox")]
+            "redpajama" => Ok(RedPajama),
             m => Err(UnsupportedModelArchitecture(format!(
                 "{m} is not a supported model architecture"
             ))),
@@ -177,6 +190,8 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "neox")]
             NeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "neox")]
+            RedPajama => write!(f, "Red Pajama"),
         }
     }
 }
@@ -203,7 +218,17 @@ pub fn load_dynamic(
         #[cfg(feature = "llama")]
         Llama => Box::new(load::<models::Llama>(path, params, load_progress_callback)?),
         #[cfg(feature = "neox")]
-        NeoX => Box::new(load::<models::NeoX>(path, params, load_progress_callback)?),
+        NeoX => Box::new(load::<models::NeoX<llm_neox::GptNeoX>>(
+            path,
+            params,
+            load_progress_callback,
+        )?),
+        #[cfg(feature = "neox")]
+        RedPajama => Box::new(load::<models::NeoX<llm_neox::RedPajama>>(
+            path,
+            params,
+            load_progress_callback,
+        )?),
     };
 
     Ok(model)
