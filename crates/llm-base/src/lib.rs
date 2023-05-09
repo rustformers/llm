@@ -32,7 +32,7 @@ pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
-pub use vocabulary::{TokenBias, TokenId, Vocabulary};
+pub use vocabulary::{InvalidTokenBias, TokenBias, TokenId, Vocabulary};
 
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters for text generation.

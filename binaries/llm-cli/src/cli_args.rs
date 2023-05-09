@@ -3,8 +3,8 @@ use std::{fmt::Debug, path::PathBuf};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    ElementType, InferenceParameters, InferenceSessionConfig, LoadProgress, Model,
-    ModelKVMemoryType, ModelParameters, TokenBias,
+    ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias, LoadProgress,
+    Model, ModelKVMemoryType, ModelParameters, TokenBias,
 };
 use rand::SeedableRng;
 
@@ -276,7 +276,7 @@ impl Generate {
         }
     }
 }
-fn parse_bias(s: &str) -> Result<TokenBias, String> {
+fn parse_bias(s: &str) -> Result<TokenBias, InvalidTokenBias> {
     s.parse()
 }
 

@@ -70,10 +70,11 @@ use std::{
 pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
     FileType, InferenceError, InferenceParameters, InferenceRequest, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, KnownModel, LoadError, LoadProgress, Loader, Model,
-    ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError, QuantizeProgress,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    InferenceSessionConfig, InferenceSnapshot, InvalidTokenBias, KnownModel, LoadError,
+    LoadProgress, Loader, Model, ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError,
+    QuantizeProgress, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
 };
+use serde::Serialize;
 
 /// All available models.
 pub mod models {
@@ -89,7 +90,7 @@ pub mod models {
     pub use llm_neox::{self as neox, NeoX};
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 /// All available model architectures.
 pub enum ModelArchitecture {
     #[cfg(feature = "bloom")]

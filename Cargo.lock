@@ -648,6 +648,7 @@ dependencies = [
  "llm-llama",
  "llm-neox",
  "rand",
+ "serde",
 ]
 
 [[package]]
