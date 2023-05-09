@@ -21,7 +21,7 @@ can also print information about, or quantize, a GGML model. It can be
 downloaded from [the latest GitHub release](https://github.com/rustformers/llm/releases)
 or by installing it from `crates.io`.
 
-It is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library,
+`llm` is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library,
 and aims to bring the robustness and ease of use of Rust to the world of large
 language models. At present, inference is only on the CPU, but we hope to
 support GPU inference in the future through alternate backends.
@@ -41,13 +41,22 @@ Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
 `llm` is a Rust library that re-exports `llm-base` and the model crates (e.g.
 `bloom`, `gpt2` `llama`).
 
-`llm-cli` (binary name `llm`) is a basic application that provides a CLI
-interface to the library.
+To use `llm`, add it to your `Cargo.toml`:
+
+```toml
+[dependencies]
+llm = "0.1"
+```
 
 **NOTE**: For best results, make sure to build and run in release mode. Debug
 builds are going to be very slow.
 
-### Building using `cargo`
+### Building `llm-cli`
+
+`llm-cli` (binary name `llm`) is a basic application that provides a CLI
+interface to the library.
+
+#### Using `cargo`
 
 Run
 
@@ -60,7 +69,7 @@ added to your `PATH`.
 
 The CLI application can then be run through `llm`.
 
-### Building from repository
+#### From repository
 
 Clone the repository and then build it with
 
