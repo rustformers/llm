@@ -1,14 +1,12 @@
 //! An implementation of [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::path::Path;
-
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, LoadProgress, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -28,22 +26,8 @@ pub struct Gpt2 {
     inference_params: InferenceParameters,
     _context: ggml::Context,
 }
-
 unsafe impl Send for Gpt2 {}
 unsafe impl Sync for Gpt2 {}
-
-impl Gpt2 {
-    /// Load a GPT-2 model from the `path` and configure it per the `params`. The status
-    /// of the loading process will be reported through `load_progress_callback`. This
-    /// is a helper function on top of [llm_base::load].
-    pub fn load(
-        path: &Path,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Gpt2, LoadError> {
-        llm_base::load(path, params, load_progress_callback)
-    }
-}
 
 impl KnownModel for Gpt2 {
     type Hyperparameters = Hyperparameters;

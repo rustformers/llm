@@ -1,7 +1,7 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, path::Path};
+use std::error::Error;
 
 use llm_base::{
     ggml,
@@ -41,22 +41,8 @@ pub struct Llama {
     // Must be kept alive for the model
     _context: ggml::Context,
 }
-
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
-
-impl Llama {
-    /// Load a LLaMA model from the `path` and configure it per the `params`. The status
-    /// of the loading process will be reported through `load_progress_callback`. This
-    /// is a helper function on top of [llm_base::load].
-    pub fn load(
-        path: &Path,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Llama, LoadError> {
-        llm_base::load(path, params, load_progress_callback)
-    }
-}
 
 impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;

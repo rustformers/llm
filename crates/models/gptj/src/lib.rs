@@ -1,15 +1,14 @@
 //! An implementation of [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, path::Path};
+use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
-    Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
 };
 
 /// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
@@ -43,22 +42,8 @@ pub struct GptJ {
     // Must be kept alive for the model
     _context: ggml::Context,
 }
-
 unsafe impl Send for GptJ {}
 unsafe impl Sync for GptJ {}
-
-impl GptJ {
-    /// Load a GPT-J model from the `path` and configure it per the `params`. The status
-    /// of the loading process will be reported through `load_progress_callback`. This
-    /// is a helper function on top of [llm_base::load].
-    pub fn load(
-        path: &Path,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<GptJ, LoadError> {
-        llm_base::load(path, params, load_progress_callback)
-    }
-}
 
 impl KnownModel for GptJ {
     type Hyperparameters = Hyperparameters;

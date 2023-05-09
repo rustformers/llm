@@ -1,15 +1,14 @@
 //! An implementation of [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, path::Path};
+use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
-    Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -42,22 +41,8 @@ pub struct NeoX {
     // Must be kept alive for the model
     _context: ggml::Context,
 }
-
 unsafe impl Send for NeoX {}
 unsafe impl Sync for NeoX {}
-
-impl NeoX {
-    /// Load a GPT-NeoX model from the `path` and configure it per the `params`. The
-    /// status of the loading process will be reported through `load_progress_callback`.
-    /// This is a helper function on top of [llm_base::load].
-    pub fn load(
-        path: &Path,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<NeoX, LoadError> {
-        llm_base::load(path, params, load_progress_callback)
-    }
-}
 
 impl KnownModel for NeoX {
     type Hyperparameters = Hyperparameters;
