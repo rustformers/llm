@@ -4,13 +4,14 @@ use std::{
     error::Error,
     fmt::Debug,
     io::{BufRead, Write},
+    path::Path,
 };
 
 use thiserror::Error;
 
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, LoadError, Vocabulary,
+    InferenceSessionConfig, LoadError, LoadProgress, Vocabulary,
 };
 
 /// Common functions for model evaluation
@@ -21,6 +22,20 @@ pub mod common;
 pub trait KnownModel: Send + Sync {
     /// Hyperparameters for the model
     type Hyperparameters: Hyperparameters;
+
+    /// Load this model from the `path` and configure it per the `params`. The status
+    /// of the loading process will be reported through `load_progress_callback`. This
+    /// is a helper function on top of [llm_base::load](crate::load).
+    fn load(
+        path: &Path,
+        params: ModelParameters,
+        load_progress_callback: impl FnMut(LoadProgress),
+    ) -> Result<Self, LoadError>
+    where
+        Self: Sized,
+    {
+        crate::load(path, params, load_progress_callback)
+    }
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
     /// This function is called by the [load](crate::loader::load) function.

@@ -2,13 +2,11 @@
 //! for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::path::Path;
-
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -34,22 +32,8 @@ pub struct Bloom {
     _context: ggml::Context,
     _mmap: Option<Mmap>,
 }
-
 unsafe impl Send for Bloom {}
 unsafe impl Sync for Bloom {}
-
-impl Bloom {
-    /// Load a BLOOM model from the `path` and configure it per the `params`. The status
-    /// of the loading process will be reported through `load_progress_callback`. This
-    /// is a helper function on top of [llm_base::load].
-    pub fn load(
-        path: &Path,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Bloom, LoadError> {
-        llm_base::load(path, params, load_progress_callback)
-    }
-}
 
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
