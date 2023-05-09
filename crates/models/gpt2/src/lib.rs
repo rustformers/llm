@@ -25,6 +25,7 @@ pub struct Gpt2 {
     layers: Vec<Layer>,
     inference_params: InferenceParameters,
     _context: ggml::Context,
+    _mmap: Option<llm_base::Mmap>,
 }
 unsafe impl Send for Gpt2 {}
 unsafe impl Sync for Gpt2 {}
@@ -86,6 +87,7 @@ impl KnownModel for Gpt2 {
             lm_head,
             inference_params,
             _context,
+            _mmap,
         })
     }
 
