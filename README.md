@@ -33,7 +33,7 @@ Currently, the following models are supported:
 - [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA,
   Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
 - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox):
-  GPT-NeoX, StableLM, RedPajama, Dolly v2 (partial, not the same tensor names?)
+  GPT-NeoX, StableLM, RedPajama, Dolly v2
 - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
 
 ## Getting started
