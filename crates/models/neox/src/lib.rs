@@ -556,7 +556,7 @@ impl KnownModel for NeoX<RedPajama> {
             let ff_in = ctx0.op_add(&out_attn, &input_layer);
 
             // feed-forward post attention layer norm
-            current = ctx0.op_norm(&input_layer);
+            current = ctx0.op_norm(&ff_in);
             current = ctx0.op_add(
                 &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_2_g, &current), &current),
                 &ctx0.op_repeat(&self.layers[il].ln_2_b, &current),
