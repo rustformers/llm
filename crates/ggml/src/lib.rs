@@ -35,6 +35,8 @@ pub enum ContainerType {
     Ggmf,
     /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format.
     Ggjt,
+    /// LoRA adapter format.
+    Ggla,
 }
 impl ContainerType {
     /// Does this container type support mmap?
@@ -42,6 +44,7 @@ impl ContainerType {
         match self {
             ContainerType::Ggml => false,
             ContainerType::Ggmf => false,
+            ContainerType::Ggla => false,
             ContainerType::Ggjt => true,
         }
     }
@@ -53,6 +56,8 @@ pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
 pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
 /// Magic constant for `ggml` files (unversioned).
 pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
+/// Magic constant for `ggla` files (LoRA adapter).
+pub const FILE_MAGIC_GGLA: u32 = 0x67676C61;
 
 /// The currently-supported format version for `ggml` files.
 pub const FORMAT_VERSION: u32 = 1;

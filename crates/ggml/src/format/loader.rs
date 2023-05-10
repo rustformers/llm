@@ -127,6 +127,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
         crate::FILE_MAGIC_GGMF => ContainerType::Ggmf,
         crate::FILE_MAGIC_GGJT => ContainerType::Ggjt,
         crate::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
+        crate::FILE_MAGIC_GGLA => ContainerType::Ggla,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
     handler
@@ -135,7 +136,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
 
     // Load format version
     match container_type {
-        ContainerType::Ggmf | ContainerType::Ggjt => {
+        ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
             let _version: u32 = match read_u32(reader)? {
                 crate::FORMAT_VERSION => crate::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
@@ -156,7 +157,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
         let token = read_bytes_with_len(reader, len)?;
         let token_score = match container_type {
             ContainerType::Ggmf | ContainerType::Ggjt => read_f32(reader)?,
-            ContainerType::Ggml => {
+            ContainerType::Ggml | ContainerType::Ggla => {
                 // Legacy model, set empty score
                 0.
             }
@@ -169,7 +170,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
     // Load tensor data
     match container_type {
         ContainerType::Ggmf | ContainerType::Ggml => load_weights(reader, handler, false),
-        ContainerType::Ggjt => load_weights(reader, handler, true),
+        ContainerType::Ggjt | ContainerType::Ggla => load_weights(reader, handler, true),
     }
 }
 

@@ -46,7 +46,7 @@ pub(crate) fn load(
 
     // Load format version
     match model_type {
-        ContainerType::Ggmf | ContainerType::Ggjt => {
+        ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
             let _version: u32 = match util::read_u32(&mut reader)? {
                 ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
                 version => {
@@ -97,7 +97,7 @@ pub(crate) fn load(
 
             let score = match model_type {
                 ContainerType::Ggmf | ContainerType::Ggjt => util::read_f32(&mut reader)?,
-                ContainerType::Ggml => {
+                ContainerType::Ggml | ContainerType::Ggla => {
                     // Legacy model, set empty score
                     0.
                 }
