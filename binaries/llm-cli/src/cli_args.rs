@@ -38,6 +38,12 @@ pub enum Args {
         #[command(subcommand)]
         args: BaseArgs,
     },
+    /// Use a RWKV model
+    #[clap(id = "rwkv")]
+    Rwkv {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
 }
 
 #[derive(Subcommand, Debug)]
