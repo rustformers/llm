@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
-use llm::InferenceError;
+use llm::{InferenceError, InferenceFeedback, InferenceResponse};
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
@@ -68,11 +68,14 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         },
         // OutputRequest
         &mut Default::default(),
-        |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
+        |r| match r {
+            InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
 
-            Ok(())
+                Ok(InferenceFeedback::Continue)
+            }
+            _ => Ok(InferenceFeedback::Continue),
         },
     );
     println!();
@@ -212,7 +215,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                     &prompt,
                     // OutputRequest
                     &mut Default::default(),
-                    |_| Ok(()),
+                    |_| Ok(InferenceFeedback::Continue),
                 ) {
                     log::error!("Prompt exceeds context window length.")
                 };
@@ -229,10 +232,14 @@ fn interactive<M: llm::KnownModel + 'static>(
                     },
                     // EvaluateOuputRequest
                     &mut Default::default(),
-                    |tk| {
-                        print!("{tk}");
-                        std::io::stdout().flush().unwrap();
-                        Ok(())
+                    |r| match r {
+                        InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                            print!("{t}");
+                            std::io::stdout().flush().unwrap();
+
+                            Ok(InferenceFeedback::Continue)
+                        }
+                        _ => Ok(InferenceFeedback::Continue),
                     },
                 );
                 println!();

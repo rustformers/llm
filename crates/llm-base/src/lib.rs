@@ -21,8 +21,8 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceRequest, InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
-    ModelKVMemoryType, SnapshotError,
+    InferenceFeedback, InferenceRequest, InferenceResponse, InferenceSession,
+    InferenceSessionConfig, InferenceSnapshot, InferenceStats, ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
