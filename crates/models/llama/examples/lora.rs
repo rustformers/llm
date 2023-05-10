@@ -25,27 +25,28 @@ fn main(){
     let adapter = r"D:\GGML_Models\alpaca-7B-lora-adapter.bin";
     let adapter_path = Path::new(adapter);
 
-    let mut adapter_loader:Loader<LoraParameters, _> = Loader::new(|x|{});
+    // let mut adapter_loader:Loader<LoraParameters, _> = Loader::new(|x|{});
     
 
-    let file = File::open(adapter_path).map_err(|e| LoadError::OpenFileFailed {
-        source: e,
-        path: adapter_path.to_owned(),
-    }).unwrap();
+    // let file = File::open(adapter_path).map_err(|e| LoadError::OpenFileFailed {
+    //     source: e,
+    //     path: adapter_path.to_owned(),
+    // }).unwrap();
 
-    let mut reader = BufReader::new(file);
-    ggml::format::load(&mut reader, &mut adapter_loader)
-        .map_err(|err| LoadError::from_format_error(err, adapter_path.to_owned())).unwrap();
+    // let mut reader = BufReader::new(file);
+    // ggml::format::load(&mut reader, &mut adapter_loader)
+    //     .map_err(|err| LoadError::from_format_error(err, adapter_path.to_owned())).unwrap();
 
-    for key in adapter_loader.tensors.keys(){
-        println!("{}",key);
-    }
+    // for key in adapter_loader.tensors.keys(){
+    //     println!("{}",key);
+    
 
     let model_params = ModelParameters {
         prefer_mmap: true,
         n_context_tokens:2048,
+        lora_adapter: Some(adapter_path.to_owned()),
         ..Default::default()
     };
-    let model:Llama = load(base_model_path,Default::default(),|x|{}).unwrap();
+    let model:Llama = load(base_model_path,model_params,|x|{}).unwrap();
     println!("Model loaded");
 }

@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     util::{self, FindAllModelFilesError},
-    Hyperparameters, KnownModel, ModelParameters, TokenId, Vocabulary,
+    Hyperparameters, KnownModel, ModelParameters, TokenId, Vocabulary, LoraParameters
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -328,7 +328,7 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let use_mmap = params.prefer_mmap && container_type.support_mmap();
+    let use_mmap = params.prefer_mmap && container_type.support_mmap() && params.lora_adapter.is_none();
 
     let ctx_size = tensors
         .values()
@@ -434,6 +434,21 @@ pub fn load<M: KnownModel>(
         fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
             (self.context, self.loaded_tensors, self.mmap)
         }
+    }
+
+
+
+    if let Some(lora_path) = &params.lora_adapter{
+        //Load in the LoRA tensors
+        let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
+            source: e,
+            path: lora_path.to_owned(),
+        })?;
+        let mut lora_reader = BufReader::new(&lora_file);
+        //TODO: check what we want to do with the callback here
+        let mut lora_loader:Loader<LoraParameters,_> = Loader::new(|_|{});
+        ggml::format::load(&mut lora_reader, &mut lora_loader)
+            .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
     }
 
     let tensors_len = tensors.len();

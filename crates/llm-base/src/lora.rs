@@ -14,6 +14,13 @@ pub struct LoraParameters{
     pub alpha: i32,
 }
 
+impl LoraParameters{
+    /// Returns the scaling factor for the LoRA adapter
+    fn scaling(&self) -> f32{
+        (self.alpha as f32) / (self.r as f32)
+    }
+}
+
 impl Hyperparameters for LoraParameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(LoraParameters {
