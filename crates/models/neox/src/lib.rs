@@ -199,6 +199,8 @@ impl KnownModel for NeoX {
 
             let nb = current.get_nb()[1];
             let f32_size = std::mem::size_of::<f32>();
+
+
             let mut qcur = ctx0.op_cont(&ctx0.op_view_3d(
                 &current,
                 (n_embd / n_head, n_head, n),

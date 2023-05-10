@@ -8,6 +8,10 @@ use llm_base::{
     TensorLoader, TokenId, Vocabulary,
 };
 
+
+/// The Codegen model. Ref: [Introducing Codegen](https://huggingface.co/Salesforce/codegen-16B-multi)
+///
+/// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct CodeGen {
     hyperparameters: Hyperparameters,
@@ -42,9 +46,6 @@ unsafe impl Send for CodeGen {}
 unsafe impl Sync for CodeGen {}
 
 impl CodeGen {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
     pub fn load(
         path: &Path,
         params: ModelParameters,
@@ -172,45 +173,36 @@ impl KnownModel for CodeGen {
 
             let input_sa = current.share();
 
-            // the number of logical TPU-v4 cores, is 4 so mp_num must be a factor of 4
+            let qkv = ctx0.op_mul_mat(&self.layers[il].c_attn_qkv_proj_w, &current);
+
+            // TODO: use n as placeholder instead of -1
+            let qkv_split = ctx0.reshape_3d(&qkv, &qkv.get_ne()[..&qkv.get_ne().len() - 1], mp_num, n);
+
+            let head_dim = n_embd / n_head;
             let mp_num = 4;
+            let local_dim = n_head * head_dim / mp_num;
 
-            // TODO!: rewrite self attention for codegen qkv vector
-            // TODO!: break up qkv vector into individual q, k ,v
-            let qkv_cur = ctx0.op_reshape_3d(&self.layers[il].c_attn_qkv_proj_w, n_embd / n_head, n_head, n_past + n);
+            fn split_heads(a: &Tensor, n_head: usize, dim_head: usize, mp_num: usize) -> &Tensor {
+                let ts_2 = &a.get_ne()[..&a.get_ne().len() - 2];
+                let ts_1 = &a.get_ne()[..&a.get_ne().len() - 1];
+                let reshape_tensor = ctx0.op_reshape_3d(&a, &ts_1, n_head / mp_num, dim_head);
+                let final_tensor = ctx0.op_reshape_3d(
+                    &reshape_tensor,
+                    &ts_2,
+                    -1,
+                    &reshape_tensor.get_ne()[&reshape_tensor.get_ne().len() - 1..],
+                );
+                final_tensor
+            }
 
-            let local_dim = n_embd / mp_num;
+            //TODO: figure out how to split this tensor
+            //let (q, k. v) = qkv_split;
 
-            let (q, k, v) =
+            let qcur = split_heads(&q, n_head, dim_head, mp_num);
+            let kcur = split_heads(&k, n_head, dim_head, mp_num);
+            let vcur = split_heads(&v, n_head, dim_head, mp_num);
 
 
-            //let qcur = ctx0.op_rope(
-                //&ctx0.op_reshape_3d(
-                    //&ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
-                    //n_embd / n_head,
-                    //n_head,
-                    //n,
-                //),
-                //n_past,
-                //n_rot,
-                //0,
-            //);
-            //let kcur = ctx0.op_rope(
-                //&ctx0.op_reshape_3d(
-                    //&ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
-                    //n_embd / n_head,
-                    //n_head,
-                    //n,
-                //),
-                //n_past,
-                //n_rot,
-                //0,
-            //);
-//
-            //// self-attention store key and value to memory
-            //let vcur =
-                //ctx0.op_transpose(&ctx0.op_mul_mat(&self.layers[il].c_attn_v_proj_w, &current));
-//
             let k = ctx0.op_view_1d(
                 memory_k,
                 n * n_embd,
@@ -226,7 +218,6 @@ impl KnownModel for CodeGen {
             gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
             gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
 
-            let q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
             let big_k = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
@@ -424,4 +415,3 @@ struct Layer {
     c_mlp_proj_w: Tensor,
     c_mlp_proj_b: Tensor,
 }
-

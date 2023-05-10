@@ -32,7 +32,7 @@ pub enum Args {
         #[command(subcommand)]
         args: BaseArgs,
     },
-    /// Use a GPT-J model
+    /// Use a CodeGen model
     #[clap(id = "codegen")]
     CodeGen {
         #[command(subcommand)]
