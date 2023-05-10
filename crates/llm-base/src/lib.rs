@@ -91,5 +91,5 @@ pub enum InferenceError {
     EndOfText,
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
-    UserCallback(Box<dyn std::error::Error>),
+    UserCallback(Option<Box<dyn std::error::Error>>),
 }

@@ -97,8 +97,19 @@ impl InferenceSession {
                 if should_call_callback {
                     // NOTE: No string ever tokenizes to the end of sentence. So we
                     // can just return the id here.
-                    if let Err(e) = callback(vocab.token(tk as usize)) {
-                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    match callback(vocab.token(tk as usize)) {
+                        Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
+                        Ok(f) => match f {
+                            InferenceFeedback::Continue => (),
+                            InferenceFeedback::FeedPrompt(_) => {
+                                return Err(InferenceError::UserCallback(Some(
+                                    "Cannot interrupt prompt ingestion".into(),
+                                )))
+                            }
+                            InferenceFeedback::Halt => {
+                                return Err(InferenceError::UserCallback(None))
+                            }
+                        },
                     }
                 }
 
@@ -165,7 +176,7 @@ impl InferenceSession {
                     token_utf8_buf.push(model.vocabulary().token(*token_id as usize))
                 {
                     if let Err(e) = callback(InferenceResponse::SnapshotToken(tokens)) {
-                        return Err(InferenceError::UserCallback(Box::new(e)));
+                        return Err(InferenceError::UserCallback(Some(Box::new(e))));
                     }
                 }
             }
@@ -204,8 +215,19 @@ impl InferenceSession {
 
             // Buffer the token until it's valid UTF-8, then call the callback.
             if let Some(tokens) = token_utf8_buf.push(token) {
-                if let Err(e) = callback(InferenceResponse::InferredToken(tokens)) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
+                match callback(InferenceResponse::InferredToken(tokens)) {
+                    Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
+                    Ok(f) => match f {
+                        InferenceFeedback::Continue => (),
+                        InferenceFeedback::FeedPrompt(p) => self.feed_prompt(
+                            model,
+                            parameters,
+                            &p,
+                            output_request,
+                            TokenUtf8Buffer::adapt_callback(&mut callback),
+                        )?,
+                        InferenceFeedback::Halt => return Err(InferenceError::UserCallback(None)),
+                    },
                 }
             }
 
