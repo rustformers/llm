@@ -1,15 +1,15 @@
-//! An implementation of GPT-2 for the `llm` ecosystem.
+//! An implementation of [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) for the `llm` ecosystem.
 #![deny(missing_docs)]
-
-use std::path::Path;
 
 use ggml::Tensor;
 use llm_base::{
-    util, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, TokenId, Vocabulary,
+    ggml,
+    model::{common, HyperparametersWriteError},
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
-/// The GPT-2 model.
+/// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
@@ -23,55 +23,57 @@ pub struct Gpt2 {
     wpe: Tensor,
     lm_head: Tensor,
     layers: Vec<Layer>,
+    inference_params: InferenceParameters,
     _context: ggml::Context,
+    _mmap: Option<llm_base::Mmap>,
 }
 unsafe impl Send for Gpt2 {}
 unsafe impl Sync for Gpt2 {}
+
 impl KnownModel for Gpt2 {
     type Hyperparameters = Hyperparameters;
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-        let n_ctx = hyperparameters.n_ctx;
-
         let mut tl = tensor_loader;
         // prepare memory for weights
-        let ln_f_g = tl.load("model/ln_f/g", &[n_embd])?;
-        let ln_f_b = tl.load("model/ln_f/b", &[n_embd])?;
-        let wte = tl.load("model/wte", &[n_embd, n_vocab])?;
-        let wpe = tl.load("model/wpe", &[n_embd, n_ctx])?;
-        let lm_head = tl.load("model/lm_head", &[n_embd, n_vocab])?;
+        let ln_f_g = tl.load("model/ln_f/g")?;
+        let ln_f_b = tl.load("model/ln_f/b")?;
+        let wte = tl.load("model/wte")?;
+        let wpe = tl.load("model/wpe")?;
+        let lm_head = tl.load("model/lm_head")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                ln_1_g: tl.load(&format!("model/h{i}/ln_1/g"), &[n_embd])?,
-                ln_1_b: tl.load(&format!("model/h{i}/ln_1/b"), &[n_embd])?,
-                ln_2_g: tl.load(&format!("model/h{i}/ln_2/g"), &[n_embd])?,
-                ln_2_b: tl.load(&format!("model/h{i}/ln_2/b"), &[n_embd])?,
-                c_attn_attn_w: tl
-                    .load(&format!("model/h{i}/attn/c_attn/w"), &[n_embd, n_embd * 3])?,
-                c_attn_attn_b: tl.load(&format!("model/h{i}/attn/c_attn/b"), &[n_embd * 3])?,
-                c_attn_proj_w: tl.load(&format!("model/h{i}/attn/c_proj/w"), &[n_embd, n_embd])?,
-                c_attn_proj_b: tl.load(&format!("model/h{i}/attn/c_proj/b"), &[n_embd])?,
-                c_mlp_fc_w: tl.load(&format!("model/h{i}/mlp/c_fc/w"), &[n_embd, n_embd * 4])?,
-                c_mlp_fc_b: tl.load(&format!("model/h{i}/mlp/c_fc/b"), &[n_embd * 4])?,
-                c_mlp_proj_w: tl
-                    .load(&format!("model/h{i}/mlp/c_proj/w"), &[n_embd * 4, n_embd])?,
-                c_mlp_proj_b: tl.load(&format!("model/h{i}/mlp/c_proj/b"), &[n_embd])?,
+                ln_1_g: tl.load(&format!("model/h{i}/ln_1/g"))?,
+                ln_1_b: tl.load(&format!("model/h{i}/ln_1/b"))?,
+                ln_2_g: tl.load(&format!("model/h{i}/ln_2/g"))?,
+                ln_2_b: tl.load(&format!("model/h{i}/ln_2/b"))?,
+                c_attn_attn_w: tl.load(&format!("model/h{i}/attn/c_attn/w"))?,
+                c_attn_attn_b: tl.load(&format!("model/h{i}/attn/c_attn/b"))?,
+                c_attn_proj_w: tl.load(&format!("model/h{i}/attn/c_proj/w"))?,
+                c_attn_proj_b: tl.load(&format!("model/h{i}/attn/c_proj/b"))?,
+                c_mlp_fc_w: tl.load(&format!("model/h{i}/mlp/c_fc/w"))?,
+                c_mlp_fc_b: tl.load(&format!("model/h{i}/mlp/c_fc/b"))?,
+                c_mlp_proj_w: tl.load(&format!("model/h{i}/mlp/c_proj/w"))?,
+                c_mlp_proj_b: tl.load(&format!("model/h{i}/mlp/c_proj/b"))?,
             };
 
             layers.push(layer);
         }
 
         let (_context, _, _mmap) = tl.finish();
+
+        let ModelParameters {
+            n_context_tokens,
+            inference_parameters: inference_params,
+            ..
+        } = params;
 
         Ok(Gpt2 {
             hyperparameters,
@@ -83,13 +85,15 @@ impl KnownModel for Gpt2 {
             wte,
             wpe,
             lm_head,
+            inference_params,
             _context,
+            _mmap,
         })
     }
 
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
-            params,
+            config,
             self.hyperparameters.n_ctx,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
@@ -102,7 +106,7 @@ impl KnownModel for Gpt2 {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_threads = params.n_threads;
@@ -116,30 +120,7 @@ impl KnownModel for Gpt2 {
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
 
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        //
-        // These numbers are from `llama.cpp`, and could potentially be more efficient.
-        let mut buf_size = {
-            let buf_size_mb = if n_layer >= 80 {
-                1536
-            } else if n_layer >= 60 {
-                1280
-            } else {
-                1024
-            };
-            buf_size_mb * 1024 * 1024
-        };
-        if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
-            // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
-        };
-        let ctx0 = ggml::Context::init(buf_size, true);
-
-        let mut gf = ggml::ComputationGraph::new(n_threads);
-
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
-        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
+        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
         let n_past = session.n_past;
 
@@ -161,6 +142,8 @@ impl KnownModel for Gpt2 {
 
         let memory_v = &session.memory_v;
         let memory_v_size = memory_v.element_size();
+
+        let mut gf = ggml::ComputationGraph::new(n_threads);
 
         for il in 0..n_layer {
             // norm
@@ -316,45 +299,11 @@ impl KnownModel for Gpt2 {
         gf.build_forward_expand(&input_layer);
         ctx0.graph_compute(&mut gf);
 
-        // return result for just the last token
-        // SAFETY: yolo
-        assert_eq!(session.last_logits.len(), n_vocab);
-        unsafe {
-            input_layer.read_data(
-                n_vocab * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(&mut session.last_logits),
-            )
-        };
-
-        // Extract logits
-        if let Some(all_logits) = &mut output_request.all_logits {
-            all_logits.resize(n_vocab * n, 0.0);
-            // SAFETY: Tensor data can be read (properly aligned, initialized,
-            // data will not be mutated or otherwise aliased during the copy),
-            // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n);
-            unsafe {
-                input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
-            }
-        }
-
-        // Extract embeddings
-        if let Some(embeddings) = &mut output_request.embeddings {
-            embeddings.resize(n_embd * n, 0.0);
-            // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embd.nelements(), n_embd * n);
-            unsafe {
-                embd.read_data(0, bytemuck::cast_slice_mut(embeddings));
-            }
-        }
-
-        // Adjust the required memory per token if we didn't know that already
-        if session.mem_per_token == 0 {
-            session.mem_per_token = ctx0.used_mem() / n;
-        }
-
-        // Adjust n_past to new length.
-        session.n_past += input_tokens.len();
+        // finish evaluation
+        common::read_last_token(session, &input_layer, n_vocab, n);
+        common::extract_logits(output_request, &input_layer, n_vocab, n);
+        common::extract_embeddings(output_request, &embd, n_embd, n);
+        common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 
     fn vocabulary(&self) -> &Vocabulary {
@@ -365,6 +314,10 @@ impl KnownModel for Gpt2 {
         self.hyperparameters.n_ctx
     }
 
+    fn bot_token_id(&self) -> Option<TokenId> {
+        None
+    }
+
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary
             .token_to_id
@@ -372,42 +325,30 @@ impl KnownModel for Gpt2 {
             .copied()
             .unwrap()
     }
-}
 
-impl Gpt2 {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
-    pub fn load(
-        path: &Path,
-        prefer_mmap: bool,
-        n_context_tokens: usize,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Gpt2, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_params
     }
 }
 
-/// The hyperparameters of the model.
+/// GPT-2 [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     n_vocab: usize,
-    /// n_ctx
+    /// Size of the model's context
     n_ctx: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     n_embd: usize,
     /// n_head
     n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     n_layer: usize,
     /// file type
     file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
-    type WriteError = llm_base::BasicWriteError;
-
-    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         let hyperparameters = Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_ctx: util::read_i32(reader)?.try_into()?,
@@ -434,7 +375,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         Ok(hyperparameters)
     }
 
-    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_ctx.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;

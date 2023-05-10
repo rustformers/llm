@@ -8,11 +8,11 @@ use std::{
 
 use crate::{
     util::{self, FindAllModelFilesError},
-    Hyperparameters, KnownModel, TokenId, Vocabulary,
+    Hyperparameters, KnownModel, ModelParameters, TokenId, Vocabulary,
 };
 pub use ggml::ContainerType;
 use ggml::{
-    format::{LoadError as FormatLoadError, PartialHyperparameters, TensorInfo},
+    format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
     Context,
 };
 use memmap2::Mmap;
@@ -35,8 +35,12 @@ pub enum FileType {
     MostlyQ4_1SomeF16,
     /// All tensors are mostly stored as `Q4_2`, except for the 1D tensors (32-bit).
     MostlyQ4_2,
-    /// All tensors are mostly stored as `Q4_3`, except for the 1D tensors (32-bit).
-    MostlyQ4_3,
+    /// All tensors are mostly stored as `Q8_0`, except for the 1D tensors (32-bit).
+    MostlyQ8_0,
+    /// All tensors are mostly stored as `Q5_0`, except for the 1D tensors (32-bit).
+    MostlyQ5_0,
+    /// All tensors are mostly stored as `Q5_1`, except for the 1D tensors (32-bit).
+    MostlyQ5_1,
 }
 impl From<FileType> for i32 {
     fn from(value: FileType) -> Self {
@@ -47,7 +51,9 @@ impl From<FileType> for i32 {
             FileType::MostlyQ4_1 => 3,
             FileType::MostlyQ4_1SomeF16 => 4,
             FileType::MostlyQ4_2 => 5,
-            FileType::MostlyQ4_3 => 6,
+            FileType::MostlyQ8_0 => 7,
+            FileType::MostlyQ5_0 => 8,
+            FileType::MostlyQ5_1 => 9,
         }
     }
 }
@@ -62,7 +68,9 @@ impl TryFrom<i32> for FileType {
             3 => Ok(FileType::MostlyQ4_1),
             4 => Ok(FileType::MostlyQ4_1SomeF16),
             5 => Ok(FileType::MostlyQ4_2),
-            6 => Ok(FileType::MostlyQ4_3),
+            7 => Ok(FileType::MostlyQ8_0),
+            8 => Ok(FileType::MostlyQ5_0),
+            9 => Ok(FileType::MostlyQ5_1),
             _ => Err(()),
         }
     }
@@ -76,7 +84,9 @@ impl Display for FileType {
             FileType::MostlyQ4_1 => write!(f, "q4_1"),
             FileType::MostlyQ4_1SomeF16 => write!(f, "q4_1_with_f16"),
             FileType::MostlyQ4_2 => write!(f, "q4_2"),
-            FileType::MostlyQ4_3 => write!(f, "q4_3"),
+            FileType::MostlyQ8_0 => write!(f, "q8_0"),
+            FileType::MostlyQ5_0 => write!(f, "q5_0"),
+            FileType::MostlyQ5_1 => write!(f, "q5_1"),
         }
     }
 }
@@ -102,7 +112,7 @@ pub enum LoadProgress {
     /// A model part has finished fully loading.
     Loaded {
         /// The number of bytes in the part.
-        byte_size: usize,
+        file_size: u64,
         /// The number of tensors in the part.
         tensor_count: usize,
     },
@@ -267,14 +277,15 @@ impl LoadError {
 /// Used by models to fetch tensors from a loader.
 pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
-    fn load_from_info(&mut self, name: &str) -> Result<ggml::Tensor, E>;
+    fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
     /// Loads a tensor from the loader.
-    fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
+    fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
     fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
 }
 
-/// Load an arbitrary GGML model.
+/// Load a GGML model from the `path` and configure it per the `params`. The status
+/// of the loading process will be reported through `load_progress_callback`.
 ///
 /// Note that the model must be a single-part model, and the model in `path`
 /// *must* match the architecture of `M`.
@@ -289,8 +300,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    prefer_mmap: bool,
-    n_context_tokens: usize,
+    params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
     let paths = util::find_all_model_files(path)?;
@@ -318,7 +328,7 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let use_mmap = prefer_mmap && container_type.support_mmap();
+    let use_mmap = params.prefer_mmap && container_type.support_mmap();
 
     let ctx_size = tensors
         .values()
@@ -331,24 +341,39 @@ pub fn load<M: KnownModel>(
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
     let context = Context::init(ctx_size, !use_mmap);
 
-    let mmap = if use_mmap {
+    let (mmap, file_size) = {
         let file = File::open(path)?;
-        Some(unsafe { Mmap::map(&file)? })
-    } else {
-        None
+        let mmap = if use_mmap {
+            Some(unsafe { Mmap::map(&file)? })
+        } else {
+            None
+        };
+        (mmap, file.metadata()?.len())
     };
 
     struct MmapCompatibleLoader<'a> {
         path: PathBuf,
         file: File,
-        tensors: HashMap<String, TensorInfo>,
+        tensors: HashMap<String, TensorLoadInfo>,
         context: Context,
         mmap: Option<Mmap>,
         load_progress_callback: &'a mut dyn FnMut(LoadProgress),
         loaded_tensors: HashMap<String, ggml::Tensor>,
     }
     impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
-        fn load(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
+        fn load(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
+            let tensor_dims = self
+                .tensors
+                .get(name)
+                .map(|tensor| tensor.dims().to_vec())
+                .ok_or(LoadError::UnknownTensor {
+                    tensor_name: String::from(name),
+                    path: Default::default(),
+                })?;
+            self.load_manual(name, &tensor_dims)
+        }
+
+        fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
             let info = self
                 .tensors
                 .get(name)
@@ -409,15 +434,6 @@ pub fn load<M: KnownModel>(
         fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
             (self.context, self.loaded_tensors, self.mmap)
         }
-
-        fn load_from_info(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
-            let tensors = self.tensors.clone();
-            let info = tensors.get(name).ok_or(LoadError::UnknownTensor {
-                tensor_name: String::from(name),
-                path: Default::default(),
-            })?;
-            self.load(&info.name, info.dims())
-        }
     }
 
     let tensors_len = tensors.len();
@@ -431,10 +447,10 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, n_context_tokens, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
-        byte_size: 0,
+        file_size,
         tensor_count: tensors_len,
     });
 
@@ -454,7 +470,7 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
     /// The vocabulary of the model.
     pub vocabulary: Vocabulary,
     /// The tensors of the model.
-    pub tensors: HashMap<String, TensorInfo>,
+    pub tensors: HashMap<String, TensorLoadInfo>,
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
@@ -492,7 +508,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
         reader: &mut dyn BufRead,
     ) -> Result<PartialHyperparameters, LoadError> {
         // NOTE: Field order matters! Data is laid out in the file exactly in this order.
-        let hyperparameters = Hp::read(reader)?;
+        let hyperparameters = Hp::read_ggml(reader)?;
         let partial = PartialHyperparameters {
             n_vocab: hyperparameters.n_vocabulary(),
         };
@@ -502,7 +518,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
         Ok(partial)
     }
 
-    fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), LoadError> {
+    fn tensor_buffer(&mut self, info: TensorLoadInfo) -> Result<(), LoadError> {
         self.tensors.insert(info.name.clone(), info);
         Ok(())
     }
@@ -527,7 +543,7 @@ pub fn load_progress_callback_stdout(progress: LoadProgress) {
             }
         }
         LoadProgress::Loaded {
-            byte_size,
+            file_size: byte_size,
             tensor_count,
         } => {
             println!("Loading of model complete");

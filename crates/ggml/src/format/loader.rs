@@ -49,8 +49,8 @@ pub enum LoadError<E: Error> {
 }
 
 #[derive(Debug, Clone)]
-/// Information about a tensor that is read.
-pub struct TensorInfo {
+/// Information about a [tensor](https://en.wikipedia.org/wiki/Tensor_(machine_learning)) that is being read.
+pub struct TensorLoadInfo {
     /// The name of the tensor.
     pub name: String,
     /// The number of dimensions in the tensor.
@@ -64,7 +64,7 @@ pub struct TensorInfo {
     /// start of tensor - start of file
     pub start_offset: u64,
 }
-impl TensorInfo {
+impl TensorLoadInfo {
     /// Get the dimensions of the tensor.
     pub fn dims(&self) -> &[usize] {
         &self.dims[0..self.n_dims]
@@ -95,29 +95,29 @@ pub(crate) fn data_size(element_type: ElementType, n_elements: usize) -> usize {
 }
 
 #[derive(Debug, Clone)]
-/// Information present within the hyperparameters that is required to continue loading the model.
+/// Information present within GGML [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
+/// that is required to continue loading the model.
 pub struct PartialHyperparameters {
-    /// The number of vocabulary tokens.
+    /// The number of tokens in the model's vocabulary.
     pub n_vocab: usize,
 }
 
-/// A handler for loading a model.
+/// A handler for loading a GGML model.
 pub trait LoadHandler<E: Error> {
-    /// Called when the container type is read.
+    /// Called when the [ContainerType] is read.
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), E>;
-    /// Called when a vocabulary token is read.
+    /// Called when a token is read so it can be added to the model's vocabulary.
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), E>;
-    /// Called when the hyperparameters need to be read.
-    /// You must read the hyperparameters for your model here.
+    /// Called when the model's hyperparameters need to be read.
     fn read_hyperparameters(
         &mut self,
         reader: &mut dyn BufRead,
     ) -> Result<PartialHyperparameters, E>;
-    /// Called when a new tensor is found.
-    fn tensor_buffer(&mut self, info: TensorInfo) -> Result<(), E>;
+    /// Called when a new [crate::Tensor] is read for the model.
+    fn tensor_buffer(&mut self, info: TensorLoadInfo) -> Result<(), E>;
 }
 
-/// Load a model from a `reader` with the `handler`, which will be called when certain events occur.
+/// Load a GGML model from a `reader` with the [LoadHandler], which will be called when certain events occur.
 pub fn load<E: Error, R: BufRead + Seek>(
     reader: &mut R,
     handler: &mut impl LoadHandler<E>,
@@ -234,7 +234,7 @@ fn load_weights<E: Error, R: BufRead + Seek>(
             offset_curr
         };
 
-        let tensor_info = TensorInfo {
+        let tensor_info = TensorLoadInfo {
             name,
             dims,
             n_dims,

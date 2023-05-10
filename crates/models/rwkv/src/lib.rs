@@ -1,11 +1,10 @@
 // Ref: https://github.com/saharNooby/rwkv.cpp/blob/5eb8f09/rwkv.cpp
 
-use std::path::Path;
-
 use ggml::Tensor;
 use llm_base::{
-    util, BasicWriteError, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TokenId, Vocabulary,
+    model::HyperparametersWriteError, util, FileType, InferenceParameters, InferenceSession,
+    InferenceSessionConfig, KnownModel, LoadError, Mmap, ModelParameters, OutputRequest, TokenId,
+    Vocabulary,
 };
 
 pub struct Rwkv {
@@ -31,79 +30,68 @@ pub struct Rwkv {
 
     // Must be kept alive for the model
     _context: ggml::Context,
+    inference_parameters: InferenceParameters,
 }
-
 unsafe impl Send for Rwkv {}
 unsafe impl Sync for Rwkv {}
-
-impl Rwkv {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
-    pub fn load(
-        path: &Path,
-        prefer_mmap: bool,
-        n_context_tokens: usize,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Rwkv, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
-    }
-}
 
 impl KnownModel for Rwkv {
     type Hyperparameters = Hyperparameters;
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E>
     where
         Self: Sized,
     {
-        let n_embd = hyperparameters.n_embd;
         let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-
         let mut tl = tensor_loader;
 
         // prepare memory for weights
-        let emb = tl.load_from_info("emb.weight")?;
-        let ln0_weight = tl.load_from_info("blocks.0.ln0.weight")?;
-        let ln0_bias = tl.load_from_info("blocks.0.ln0.bias")?;
+        let emb = tl.load("emb.weight")?;
+        let ln0_weight = tl.load("blocks.0.ln0.weight")?;
+        let ln0_bias = tl.load("blocks.0.ln0.bias")?;
 
         let mut layers = Vec::new();
         for i in 0..n_layer {
             let layer = Layer {
-                ln1_weight: tl.load_from_info(&format!("blocks.{i}.ln1.weight"))?,
-                ln1_bias: tl.load_from_info(&format!("blocks.{i}.ln1.bias"))?,
-                att_time_mix_k: tl.load_from_info(&format!("blocks.{i}.att.time_mix_k"))?,
-                att_time_mix_v: tl.load_from_info(&format!("blocks.{i}.att.time_mix_v"))?,
-                att_time_mix_r: tl.load_from_info(&format!("blocks.{i}.att.time_mix_r"))?,
-                att_time_first: tl.load_from_info(&format!("blocks.{i}.att.time_first"))?,
-                att_time_decay: tl.load_from_info(&format!("blocks.{i}.att.time_decay"))?,
-                att_key: tl.load_from_info(&format!("blocks.{i}.att.key.weight"))?,
-                att_value: tl.load_from_info(&format!("blocks.{i}.att.value.weight"))?,
-                att_receptance: tl.load_from_info(&format!("blocks.{i}.att.receptance.weight"))?,
-                att_output: tl.load_from_info(&format!("blocks.{i}.att.output.weight"))?,
-                ln2_weight: tl.load_from_info(&format!("blocks.{i}.ln2.weight"))?,
-                ln2_bias: tl.load_from_info(&format!("blocks.{i}.ln2.bias"))?,
-                ffn_time_mix_k: tl.load_from_info(&format!("blocks.{i}.ffn.time_mix_k"))?,
-                ffn_time_mix_r: tl.load_from_info(&format!("blocks.{i}.ffn.time_mix_r"))?,
-                ffn_key: tl.load_from_info(&format!("blocks.{i}.ffn.key.weight"))?,
-                ffn_value: tl.load_from_info(&format!("blocks.{i}.ffn.value.weight"))?,
-                ffn_receptance: tl.load_from_info(&format!("blocks.{i}.ffn.receptance.weight"))?,
+                ln1_weight: tl.load(&format!("blocks.{i}.ln1.weight"))?,
+                ln1_bias: tl.load(&format!("blocks.{i}.ln1.bias"))?,
+                att_time_mix_k: tl.load(&format!("blocks.{i}.att.time_mix_k"))?,
+                att_time_mix_v: tl.load(&format!("blocks.{i}.att.time_mix_v"))?,
+                att_time_mix_r: tl.load(&format!("blocks.{i}.att.time_mix_r"))?,
+                att_time_first: tl.load(&format!("blocks.{i}.att.time_first"))?,
+                att_time_decay: tl.load(&format!("blocks.{i}.att.time_decay"))?,
+                att_key: tl.load(&format!("blocks.{i}.att.key.weight"))?,
+                att_value: tl.load(&format!("blocks.{i}.att.value.weight"))?,
+                att_receptance: tl.load(&format!("blocks.{i}.att.receptance.weight"))?,
+                att_output: tl.load(&format!("blocks.{i}.att.output.weight"))?,
+                ln2_weight: tl.load(&format!("blocks.{i}.ln2.weight"))?,
+                ln2_bias: tl.load(&format!("blocks.{i}.ln2.bias"))?,
+                ffn_time_mix_k: tl.load(&format!("blocks.{i}.ffn.time_mix_k"))?,
+                ffn_time_mix_r: tl.load(&format!("blocks.{i}.ffn.time_mix_r"))?,
+                ffn_key: tl.load(&format!("blocks.{i}.ffn.key.weight"))?,
+                ffn_value: tl.load(&format!("blocks.{i}.ffn.value.weight"))?,
+                ffn_receptance: tl.load(&format!("blocks.{i}.ffn.receptance.weight"))?,
             };
 
             layers.push(layer);
         }
 
-        let ln_out_weight = tl.load_from_info("ln_out.weight")?;
-        let ln_out_bias = tl.load_from_info("ln_out.bias")?;
-        let head = tl.load_from_info("head.weight")?;
+        let ln_out_weight = tl.load("ln_out.weight")?;
+        let ln_out_bias = tl.load("ln_out.bias")?;
+        let head = tl.load("head.weight")?;
 
         let (_context, _, _mmap) = tl.finish();
+
+        let ModelParameters {
+            n_context_tokens,
+            inference_parameters,
+            ..
+        } = params;
 
         Ok(Rwkv {
             hyperparameters,
@@ -116,12 +104,13 @@ impl KnownModel for Rwkv {
             ln_out_bias,
             head,
             layers,
+            inference_parameters,
             _mmap,
             _context,
         })
     }
 
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
             self.n_context_tokens,
@@ -136,7 +125,7 @@ impl KnownModel for Rwkv {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         todo!()
     }
@@ -149,8 +138,16 @@ impl KnownModel for Rwkv {
         self.n_context_tokens
     }
 
+    fn bot_token_id(&self) -> Option<TokenId> {
+        None
+    }
+
     fn eot_token_id(&self) -> llm_base::TokenId {
         todo!()
+    }
+
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_parameters
     }
 }
 
@@ -168,9 +165,7 @@ pub struct Hyperparameters {
 }
 
 impl llm_base::Hyperparameters for Hyperparameters {
-    type WriteError = BasicWriteError;
-
-    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_embd: util::read_i32(reader)?.try_into()?,
@@ -182,7 +177,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         })
     }
 
-    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;
         util::write_i32(writer, self.n_layer.try_into()?)?;

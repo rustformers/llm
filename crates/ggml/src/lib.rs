@@ -29,11 +29,11 @@ pub type ElementType = Type;
 #[derive(Debug, PartialEq, Clone, Copy)]
 /// The format of the file containing the model.
 pub enum ContainerType {
-    /// `GGML`: legacy format, oldest ggml tensor file format
+    /// Legacy format, oldest ggml tensor file format
     Ggml,
-    /// `GGMF`: also legacy format. Introduces versioning. Newer than GGML, older than GGJT.
+    /// Legacy format. Introduces versioning. Newer than GGML, older than GGJT.
     Ggmf,
-    /// `GGJT`: mmap-able format.
+    /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format.
     Ggjt,
 }
 impl ContainerType {

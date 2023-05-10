@@ -5,8 +5,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    mulf, EvaluateOutputRequest, InferenceError, InferenceParameters, Model, TokenId,
-    TokenUtf8Buffer,
+    mulf, InferenceError, InferenceParameters, Model, OutputRequest, TokenId, TokenUtf8Buffer,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -16,7 +15,7 @@ use crate::{
 const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 
 /// An inference session represents the state of the text generation. This holds
-/// the full context window, as long as several additional parameters used
+/// the full context window, as well as several additional parameters used
 /// during sampling.
 ///
 /// # Safety
@@ -32,8 +31,8 @@ pub struct InferenceSession {
     // Original size of the memory used to create this context.
     pub(crate) memory_size: usize,
 
-    // Parameters for the session.
-    pub(crate) params: InferenceSessionParameters,
+    // Configuration for the session.
+    pub(crate) config: InferenceSessionConfig,
 
     /// Memory K
     #[doc(hidden)]
@@ -74,6 +73,7 @@ impl InferenceSession {
         model: &dyn Model,
         params: &InferenceParameters,
         prompt: &str,
+        output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
@@ -90,12 +90,16 @@ impl InferenceSession {
         }
 
         for batch in prompt_tokens.chunks(params.n_batch) {
-            model.evaluate(self, params, batch, &mut EvaluateOutputRequest::default());
+            model.evaluate(self, params, batch, output_request);
             for &tk in batch {
-                // NOTE: No string ever tokenizes to the end of sentence. So we
-                // can just return the id here.
-                if let Err(e) = callback(vocab.token(tk as usize)) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
+                let should_call_callback = Some(tk) != model.bot_token_id();
+
+                if should_call_callback {
+                    // NOTE: No string ever tokenizes to the end of sentence. So we
+                    // can just return the id here.
+                    if let Err(e) = callback(vocab.token(tk as usize)) {
+                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    }
                 }
 
                 // Update the tokens for this session
@@ -111,6 +115,7 @@ impl InferenceSession {
         &mut self,
         model: &'v dyn Model,
         params: &InferenceParameters,
+        output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
         if self.n_past + 1 >= model.n_context_tokens() {
@@ -124,12 +129,7 @@ impl InferenceSession {
         self.tokens.push(next_token);
 
         // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(
-            self,
-            params,
-            &[next_token],
-            &mut EvaluateOutputRequest::default(),
-        );
+        model.evaluate(self, params, &[next_token], output_request);
 
         // Return the next token
         if next_token as TokenId == model.eot_token_id() {
@@ -139,19 +139,23 @@ impl InferenceSession {
         }
     }
 
-    /// Helper function to run inference with this session and the given model and vocabulary.
-    /// The `callback` is called with each new token until inference is complete.
-    pub fn inference_with_prompt<E: std::error::Error + 'static>(
+    /// Generate text by using the provided [Model] to evaluate the `prompt`.
+    ///
+    /// The `callback` is called with each new token until an end-of-text (EOT)
+    /// token is encountered or the maximum number of tokens have been
+    /// generated (specified by [InferenceRequest::maximum_token_count]).
+    ///
+    /// This is a wrapper around [Self::feed_prompt] and [Self::infer_next_token].
+    pub fn infer<E: std::error::Error + 'static>(
         &mut self,
         model: &dyn Model,
-        params: &InferenceParameters,
-        prompt_params: &InferenceWithPromptParameters,
-        prompt: &str,
         rng: &mut impl rand::Rng,
+        request: &InferenceRequest,
+        output_request: &mut OutputRequest,
         mut callback: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<InferenceStats, InferenceError> {
-        let maximum_token_count = prompt_params.maximum_token_count.unwrap_or(usize::MAX);
-        if prompt_params.play_back_previous_tokens {
+        let maximum_token_count = request.maximum_token_count.unwrap_or(usize::MAX);
+        if request.play_back_previous_tokens {
             // "Play back" the existing tokens, so that loading from an inference snapshot works
             // as expected.
             let mut token_utf8_buf = TokenUtf8Buffer::new();
@@ -168,15 +172,17 @@ impl InferenceSession {
         }
 
         let mut stats = InferenceStats::default();
-
         let start_at = std::time::SystemTime::now();
+
+        let parameters = request.parameters.unwrap_or(model.inference_parameters());
 
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
         self.feed_prompt(
             model,
-            params,
-            prompt,
+            parameters,
+            request.prompt,
+            output_request,
             TokenUtf8Buffer::adapt_callback(&mut callback),
         )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
@@ -189,7 +195,8 @@ impl InferenceSession {
         let mut tokens_processed = 0;
         let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
-            let token = match self.infer_next_token(model, params, rng) {
+            let token = match self.infer_next_token(model, parameters, &mut Default::default(), rng)
+            {
                 Ok(token) => token,
                 Err(InferenceError::EndOfText) => break,
                 Err(e) => return Err(e),
@@ -227,7 +234,12 @@ impl InferenceSession {
 
                 let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
                     logit_override
-                } else if self.repetition_penalty_tokens().contains(&(i as TokenId)) {
+                } else if self.tokens[self
+                    .tokens
+                    .len()
+                    .saturating_sub(params.repetition_penalty_last_n)..]
+                    .contains(&(i as TokenId))
+                {
                     // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
                     // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
 
@@ -314,7 +326,7 @@ impl InferenceSession {
 
         InferenceSnapshotRef {
             npast: self.n_past,
-            session_params: self.params,
+            config: self.config,
             tokens: self.tokens.clone(),
             logits: self.last_logits.clone(),
             memory_k,
@@ -327,7 +339,7 @@ impl InferenceSession {
         snapshot: InferenceSnapshot,
         model: &dyn Model,
     ) -> Result<Self, SnapshotError> {
-        let mut session = model.start_session(snapshot.session_params);
+        let mut session = model.start_session(snapshot.config);
 
         if session.memory_k.nbytes() != snapshot.memory_k.len()
             || session.memory_v.nbytes() != snapshot.memory_v.len()
@@ -356,7 +368,7 @@ impl InferenceSession {
 impl InferenceSession {
     /// Create a new InferenceSession
     pub fn new(
-        params: InferenceSessionParameters,
+        config: InferenceSessionConfig,
         n_ctx: usize,
         n_layer: usize,
         n_embd: usize,
@@ -368,13 +380,13 @@ impl InferenceSession {
                 n_ctx,
                 n_layer,
                 n_embd,
-                ggml::type_sizef(params.memory_k_type.into())
+                ggml::type_sizef(config.memory_k_type.into())
             ); // memory_k
             ctx_size += mulf!(
                 n_ctx,
                 n_layer,
                 n_embd,
-                ggml::type_sizef(params.memory_v_type.into())
+                ggml::type_sizef(config.memory_v_type.into())
             ); // memory_v
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
             ctx_size
@@ -385,13 +397,13 @@ impl InferenceSession {
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(params.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(params.memory_v_type.into(), n_elements);
+        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
 
         InferenceSession {
             _session_ctx: session_ctx,
             memory_size: ctx_size,
-            params,
+            config,
             memory_k,
             memory_v,
             n_past: 0,
@@ -400,14 +412,6 @@ impl InferenceSession {
             last_logits: vec![0.0; n_vocab],
             scratch: scratch_buffers(),
         }
-    }
-}
-impl InferenceSession {
-    fn repetition_penalty_tokens(&self) -> &[TokenId] {
-        &self.tokens[self
-            .tokens
-            .len()
-            .saturating_sub(self.params.repetition_penalty_last_n)..]
     }
 }
 impl Clone for InferenceSession {
@@ -419,7 +423,7 @@ impl Clone for InferenceSession {
         Self {
             _session_ctx: context,
             memory_size: self.memory_size,
-            params: self.params,
+            config: self.config,
             memory_k,
             memory_v,
             n_past: self.n_past,
@@ -459,7 +463,7 @@ pub struct InferenceSnapshotRef<'a> {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
     /// Parameters associated with the saved inference session.
-    pub session_params: InferenceSessionParameters,
+    pub config: InferenceSessionConfig,
     /// All tokens generated by this inference session.
     pub tokens: Vec<TokenId>,
     /// The vector of logits that was produced after the last inference.
@@ -478,7 +482,7 @@ impl InferenceSnapshotRef<'_> {
     pub fn to_owned(&self) -> InferenceSnapshot {
         InferenceSnapshot {
             npast: self.npast,
-            session_params: self.session_params,
+            config: self.config,
             tokens: self.tokens.clone(),
             last_logits: self.logits.clone(),
             memory_k: self.memory_k.to_vec(),
@@ -495,7 +499,7 @@ pub struct InferenceSnapshot {
     /// How many tokens have been stored in the memory so far.
     pub npast: usize,
     /// Parameters associated with the saved inference session.
-    pub session_params: InferenceSessionParameters,
+    pub config: InferenceSessionConfig,
     /// All tokens generated by this inference session.
     pub tokens: Vec<TokenId>,
     /// The vector of logits that was produced after the last inference.
@@ -509,28 +513,34 @@ pub struct InferenceSnapshot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-/// Parameters for an inference session.
-pub struct InferenceSessionParameters {
-    /// The number of tokens to consider for the repetition penalty.
-    pub repetition_penalty_last_n: usize,
+/// Configuration for an inference session.
+///
+/// This is specified at the time of creation of an [InferenceSession],
+/// and cannot be changed after the session has been created.
+pub struct InferenceSessionConfig {
     /// The type of the memory K tensor.
     pub memory_k_type: ModelKVMemoryType,
     /// The type of the memory V tensor.
     pub memory_v_type: ModelKVMemoryType,
 }
-impl Default for InferenceSessionParameters {
+impl Default for InferenceSessionConfig {
     fn default() -> Self {
         Self {
-            repetition_penalty_last_n: 512,
             memory_k_type: ModelKVMemoryType::Float32,
             memory_v_type: ModelKVMemoryType::Float32,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, serde::Serialize, serde::Deserialize)]
-/// Settings specific to [InferenceSession::inference_with_prompt].
-pub struct InferenceWithPromptParameters {
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
+/// Settings specific to [InferenceSession::infer].
+pub struct InferenceRequest<'a> {
+    /// The prompt to feed to the model.
+    pub prompt: &'a str,
+    /// The parameters to use during this inference attempt.
+    /// If not specified, this will default to the parameters
+    /// specified in the model.
+    pub parameters: Option<&'a InferenceParameters>,
     /// Whether or not to call the callback with the previous tokens
     /// that were encountered in this session.
     ///

@@ -1,4 +1,5 @@
-use llm::{load_progress_callback_stdout, models, LoadError, Model};
+use llm::load_progress_callback_stdout as load_callback;
+use llm_base::InferenceRequest;
 use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 fn main() {
@@ -10,31 +11,34 @@ fn main() {
     };
 
     let model_type = args.0;
-    let model_path = args.1;
+    let model_path = Path::new(args.1);
     let prompt = args.2;
 
-    let model_load: Result<Box<dyn Model>, LoadError> = match model_type {
-        "bloom" => load::<models::Bloom>(model_path),
-        "gpt2" => load::<models::Gpt2>(model_path),
-        "gptj" => load::<models::GptJ>(model_path),
-        "llama" => load::<models::Llama>(model_path),
-        "neox" => load::<models::NeoX>(model_path),
-        "rwkv" => load::<models::Rwkv>(model_path),
-        model => panic!("{model} is not a supported model"),
-    };
+    let now = std::time::Instant::now();
 
-    let model = match model_load {
-        Ok(model) => model,
-        Err(e) => panic!("Failed to load {model_type} model from {model_path}: {e}"),
-    };
+    let architecture = model_type.parse().unwrap_or_else(|e| panic!("{e}"));
+
+    let model = llm::load_dynamic(architecture, model_path, Default::default(), load_callback)
+        .unwrap_or_else(|err| {
+            panic!("Failed to load {model_type} model from {model_path:?}: {err}")
+        });
+
+    println!(
+        "Model fully loaded! Elapsed: {}ms",
+        now.elapsed().as_millis()
+    );
+
     let mut session = model.start_session(Default::default());
 
-    let res = session.inference_with_prompt::<Infallible>(
+    let res = session.infer::<Infallible>(
         model.as_ref(),
-        &Default::default(),
-        &Default::default(),
-        prompt,
         &mut rand::thread_rng(),
+        &InferenceRequest {
+            prompt,
+            ..Default::default()
+        },
+        // OutputRequest
+        &mut Default::default(),
         |t| {
             print!("{t}");
             std::io::stdout().flush().unwrap();
@@ -47,22 +51,4 @@ fn main() {
         Ok(result) => println!("\n\nInference stats:\n{result}"),
         Err(err) => println!("\n{err}"),
     }
-}
-
-pub fn load<M: llm::KnownModel + 'static>(model_path: &str) -> Result<Box<dyn Model>, LoadError> {
-    let now = std::time::Instant::now();
-
-    let model = llm::load::<M>(
-        Path::new(model_path),
-        true,
-        2048,
-        load_progress_callback_stdout,
-    )?;
-
-    println!(
-        "Model fully loaded! Elapsed: {}ms",
-        now.elapsed().as_millis()
-    );
-
-    Ok(Box::new(model))
 }

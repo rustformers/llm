@@ -88,15 +88,20 @@ pub enum FindAllModelFilesError {
 
 /// Find all the files related to a model.
 pub fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, FindAllModelFilesError> {
+    let mut main_path_parent =
+        main_path
+            .parent()
+            .ok_or_else(|| FindAllModelFilesError::NoParentPath {
+                path: main_path.to_owned(),
+            })?;
+    if main_path_parent.to_str() == Some("") {
+        main_path_parent = Path::new(".");
+    }
     Ok(collect_related_paths(
         main_path,
-        std::fs::read_dir(main_path.parent().ok_or_else(|| {
-            FindAllModelFilesError::NoParentPath {
-                path: main_path.to_owned(),
-            }
-        })?)?
-        .filter_map(Result::ok)
-        .map(|de| de.path()),
+        std::fs::read_dir(main_path_parent)?
+            .filter_map(Result::ok)
+            .map(|de| de.path()),
     ))
 }
 
@@ -133,17 +138,6 @@ fn collect_related_paths(
 /// mmap with MAP_POPULATE
 pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> {
     unsafe { MmapOptions::new().populate().map(file) }
-}
-
-#[derive(Error, Debug)]
-/// A basic error type that can be used as a default error type for [crate::Hyperparameters::WriteError].
-pub enum BasicWriteError {
-    #[error("non-specific I/O error")]
-    /// A non-specific IO error.
-    Io(#[from] std::io::Error),
-    #[error("invalid integer conversion")]
-    /// One of the integers encountered could not be converted to a more appropriate type.
-    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 }
 
 #[cfg(test)]

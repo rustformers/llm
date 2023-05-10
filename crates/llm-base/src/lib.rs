@@ -1,52 +1,64 @@
-//! LLaMA-rs is a Rust port of the llama.cpp project. This allows running inference for Facebook's LLaMA model on a CPU with good performance using full precision, f16 or 4-bit quantized versions of the model.
+//! This crate provides a unified interface for loading and using
+//! Large Language Models (LLMs).
+//!
+//! This is the base crate that implementors can use to implement their own
+//! LLMs.
+//!
+//! As a user, you probably want to use the [llm](https://crates.io/crates/llm) crate instead.
 #![deny(missing_docs)]
 
 use thiserror::Error;
 
 mod inference_session;
 mod loader;
-mod model;
+mod quantize;
 mod vocabulary;
 
-pub mod quantize;
+pub mod model;
 pub mod util;
 
 pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceSession, InferenceSessionParameters, InferenceSnapshot, InferenceStats,
-    InferenceWithPromptParameters, ModelKVMemoryType, SnapshotError,
+    InferenceRequest, InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
+    ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
     TensorLoader,
 };
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model};
-pub use util::{BasicWriteError, TokenUtf8Buffer};
-pub use vocabulary::{TokenBias, TokenId, Vocabulary};
+pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
+pub use quantize::{quantize, QuantizeError, QuantizeProgress};
+pub use util::TokenUtf8Buffer;
+pub use vocabulary::{InvalidTokenBias, TokenBias, TokenId, Vocabulary};
 
 #[derive(Clone, Debug, PartialEq)]
-/// The parameters that drive text generation.
+/// The parameters for text generation.
+///
+/// This needs to be provided during all inference calls,
+/// but can be changed between calls.
 pub struct InferenceParameters {
     /// The number of threads to use.
     pub n_threads: usize,
-    /// [InferenceSession::feed_prompt] processes the prompt in batches of tokens.
-    /// This controls how large an individual batch is.
+    /// Controls batch/chunk size for prompt ingestion in
+    /// [InferenceSession::feed_prompt].
     pub n_batch: usize,
-    /// Top-K: The top K words by score are kept during sampling.
+    /// The top K words by score are kept during sampling.
     pub top_k: usize,
-    /// Top-p: The cumulative probability after which no more words are kept for sampling.
+    /// The cumulative probability after which no more words are kept for sampling.
     pub top_p: f32,
     /// The penalty for repeating tokens. Higher values make the generation less
     /// likely to get into a loop, but may harm results when repetitive outputs
     /// are desired.
     pub repeat_penalty: f32,
-    /// Temperature used for sampling.
+    /// Temperature (randomness) used for sampling. A higher number is more random.
     pub temperature: f32,
     /// A list of tokens to bias against in the process of generation.
     pub bias_tokens: TokenBias,
+    /// The number of tokens to consider for the repetition penalty.
+    pub repetition_penalty_last_n: usize,
 }
 impl Default for InferenceParameters {
     fn default() -> Self {
@@ -58,6 +70,7 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temperature: 0.80,
             bias_tokens: TokenBias::default(),
+            repetition_penalty_last_n: 512,
         }
     }
 }
@@ -79,15 +92,4 @@ pub enum InferenceError {
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error>),
-}
-
-/// Used in a call to `evaluate` to request information from the transformer.
-#[derive(Default, Debug, Clone)]
-pub struct EvaluateOutputRequest {
-    /// Returns all the logits for the provided batch of tokens.
-    /// Output shape is `n_batch * n_vocab`.
-    pub all_logits: Option<Vec<f32>>,
-    /// Returns the embeddings for the provided batch of tokens
-    /// Output shape is `n_batch * n_embd`.
-    pub embeddings: Option<Vec<f32>>,
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, error::Error, fmt::Display, str::FromStr};
 
 use crate::InferenceError;
 
@@ -47,7 +47,8 @@ impl Vocabulary {
         self.token_to_id.insert(content, id);
     }
 
-    pub(crate) fn token(&self, idx: usize) -> &[u8] {
+    /// Converts a token index to the token it represents in this vocabulary.
+    pub fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
     }
 
@@ -138,7 +139,7 @@ impl TokenBias {
 }
 
 impl FromStr for TokenBias {
-    type Err = String;
+    type Err = InvalidTokenBias;
 
     /// A comma separated list of token biases. The list should be in the format
     /// "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS is a
@@ -164,10 +165,29 @@ impl FromStr for TokenBias {
                     .map_err(|e: std::num::ParseFloatError| e.to_string())?;
                 Result::<_, String>::Ok((tid, bias))
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<_, _>>()
+            .map_err(InvalidTokenBias)?;
         Ok(TokenBias::new(x))
     }
 }
+
+/// An error was encountered when parsing a token bias string, which should be
+/// in the format "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS
+/// is a floating point number.
+#[derive(Debug)]
+pub struct InvalidTokenBias(String);
+
+impl Display for InvalidTokenBias {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "should be in the format <int>=<float>,<int>=<float>: {:?}",
+            self.0
+        )
+    }
+}
+
+impl Error for InvalidTokenBias {}
 
 impl std::fmt::Display for TokenBias {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

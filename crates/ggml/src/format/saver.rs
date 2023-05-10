@@ -28,20 +28,18 @@ pub enum SaveError<E: Error> {
     InvariantBroken(String),
 }
 
-/// A handler for saving a model.
+/// A handler for saving a GGML model.
 pub trait SaveHandler<E: Error> {
-    /// Called when the hyperparameters are to be written.
-    /// You must write the hyperparameters to the given writer.
+    /// Called when the hyperparameters must be written.
     fn write_hyperparameters(&mut self, writer: &mut dyn Write) -> Result<(), E>;
 
-    /// Called when a tensor is to be written.
-    /// You must return data for the tensor to be saved.
-    fn tensor_data(&mut self, tensor_name: &str) -> Result<TensorData, E>;
+    /// Called when information for a tensor is to be written.
+    fn tensor_data(&mut self, tensor_name: &str) -> Result<TensorSaveInfo, E>;
 }
 
-/// Information about a tensor that is to be saved.
+/// Information about a [tensor](https://en.wikipedia.org/wiki/Tensor_(machine_learning)) that is to be saved.
 #[derive(Clone, PartialEq, Debug)]
-pub struct TensorData {
+pub struct TensorSaveInfo {
     /// The number of dimensions in the tensor.
     pub n_dims: usize,
     /// The dimensions of the tensor.
@@ -82,7 +80,7 @@ pub fn save<E: Error, W: Write + Seek>(
 
     // Write tensors
     for name in tensor_names {
-        let TensorData {
+        let TensorSaveInfo {
             n_dims,
             dims,
             element_type,

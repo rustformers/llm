@@ -1,7 +1,7 @@
 use std::{
     convert::Infallible,
     fs::File,
-    io::{BufReader, Write},
+    io::{BufReader, BufWriter, Write},
 };
 
 use clap::Parser;
@@ -9,6 +9,9 @@ use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
 use llm::InferenceError;
 use rustyline::error::ReadlineError;
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
+use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
+use rustyline::{Completer, Helper, Highlighter, Hinter};
 
 mod cli_args;
 mod snapshot;
@@ -43,26 +46,28 @@ fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Resul
 
 fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let inference_session_params = args.generate.inference_session_parameters();
+    let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load::<M>()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),
         args.generate.load_session.as_deref(),
-        inference_session_params,
+        inference_session_config,
     );
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let res = session.inference_with_prompt::<Infallible>(
+    let res = session.infer::<Infallible>(
         model.as_ref(),
-        &inference_params,
-        &llm::InferenceWithPromptParameters {
+        &mut rng,
+        &llm::InferenceRequest {
+            prompt: &prompt,
+            parameters: Some(&inference_params),
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
-        &prompt,
-        &mut rng,
+        // OutputRequest
+        &mut Default::default(),
         |t| {
             print!("{t}");
             std::io::stdout().flush().unwrap();
@@ -96,8 +101,9 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
 fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     let file = File::open(&args.model_path)?;
     let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> =
-        llm::Loader::new(cli_args::load_progress_handler_log);
+    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(|_| {
+        // We purposely do not print progress here, as we are only interested in the metadata
+    });
 
     llm::ggml_format::load(&mut reader, &mut loader)?;
 
@@ -165,53 +171,64 @@ fn interactive<M: llm::KnownModel + 'static>(
     chat_mode: bool,
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
-    let inference_session_params = args.generate.inference_session_parameters();
+    let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load::<M>()?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
         args.generate.load_session.as_deref(),
-        inference_session_params,
+        inference_session_config,
     );
     let inference_params = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let mut rl = rustyline::DefaultEditor::new()?;
+    let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
+    rl.set_helper(Some(LineContinuationValidator));
+    rl.bind_sequence(
+        Event::KeySeq(vec![KeyEvent(KeyCode::Enter, Modifiers::SHIFT)]),
+        EventHandler::Simple(Cmd::Newline),
+    );
+
     loop {
         let readline = rl.readline(">> ");
         match readline {
-            Ok(line) => {
+            Ok(raw_line) => {
                 let session_backup = if chat_mode {
                     None
                 } else {
                     Some(session.clone())
                 };
+                let line = raw_line.replace("\\\n", "\n");
 
                 let prompt = prompt_file
                     .as_deref()
                     .map(|pf| process_prompt(pf, &line))
                     .unwrap_or(line);
 
-                let mut sp = spinners::Spinner::new(spinners::Spinners::Dots2, "".to_string());
+                let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
                 if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
                     model.as_ref(),
                     &inference_params,
                     &prompt,
+                    // OutputRequest
+                    &mut Default::default(),
                     |_| Ok(()),
                 ) {
                     log::error!("Prompt exceeds context window length.")
                 };
-                sp.stop();
+                sp.clear();
 
-                let res = session.inference_with_prompt::<Infallible>(
+                let res = session.infer::<Infallible>(
                     model.as_ref(),
-                    &inference_params,
-                    &llm::InferenceWithPromptParameters {
+                    &mut rng,
+                    &llm::InferenceRequest {
+                        prompt: "",
+                        parameters: Some(&inference_params),
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
                     },
-                    "",
-                    &mut rng,
+                    // EvaluateOuputRequest
+                    &mut Default::default(),
                     |tk| {
                         print!("{tk}");
                         std::io::stdout().flush().unwrap();
@@ -241,15 +258,18 @@ fn interactive<M: llm::KnownModel + 'static>(
 }
 
 fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<()> {
-    use llm::quantize::QuantizeProgress::*;
+    use llm::QuantizeProgress;
 
-    llm::quantize::quantize::<M>(
-        &args.source,
-        &args.destination,
+    let mut source = BufReader::new(std::fs::File::open(&args.source)?);
+    let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
+
+    llm::quantize::<M, _, _>(
+        &mut source,
+        &mut destination,
         args.target.into(),
         |progress| match progress {
-            HyperparametersLoaded => log::info!("Loaded hyperparameters"),
-            TensorLoading {
+            QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
+            QuantizeProgress::TensorLoading {
                 name,
                 dims,
                 element_type,
@@ -257,8 +277,8 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
             } => log::info!(
                 "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
             ),
-            TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
-            TensorQuantized {
+            QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
+            QuantizeProgress::TensorQuantized {
                 name,
                 original_size,
                 reduced_size,
@@ -266,8 +286,10 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
             } => log::info!(
             "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
         ),
-            TensorSkipped { name, size } => log::info!("Skipped tensor `{name}` ({size} bytes)"),
-            Finished {
+            QuantizeProgress::TensorSkipped { name, size } => {
+                log::info!("Skipped tensor `{name}` ({size} bytes)")
+            }
+            QuantizeProgress::Finished {
                 original_size,
                 reduced_size,
                 history,
@@ -294,6 +316,19 @@ fn load_prompt_file_with_prompt(
     } else {
         log::error!("No prompt or prompt file was provided. See --help");
         std::process::exit(1);
+    }
+}
+
+#[derive(Completer, Helper, Highlighter, Hinter, Debug, Clone, Copy)]
+struct LineContinuationValidator;
+
+impl Validator for LineContinuationValidator {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        if ctx.input().ends_with('\\') {
+            Ok(ValidationResult::Incomplete)
+        } else {
+            Ok(ValidationResult::Valid(None))
+        }
     }
 }
 

@@ -1,14 +1,20 @@
-// Ref: https://github.com/ggerganov/ggml/blob/abea4b7/examples/gpt-j/main.cpp
+//! An implementation of [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj) for the `llm` ecosystem.
+#![deny(missing_docs)]
 
-use std::{error::Error, path::Path};
+use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
-    util, BasicWriteError, EvaluateOutputRequest, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionParameters, KnownModel, LoadError, LoadProgress, Mmap, TensorLoader, TokenId,
-    Vocabulary,
+    ggml,
+    model::{common, HyperparametersWriteError},
+    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
+    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
 };
 
+/// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
+///
+/// # Safety
+/// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct GptJ {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
@@ -28,92 +34,63 @@ pub struct GptJ {
 
     layers: Vec<Layer>,
 
+    inference_parameters: InferenceParameters,
+
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
 }
-
 unsafe impl Send for GptJ {}
 unsafe impl Sync for GptJ {}
-
-impl GptJ {
-    /// Load the model from `path` with `n_context_tokens` context tokens.
-    ///
-    /// The status of the loading process will be reported through `load_progress_callback`.
-    pub fn load(
-        path: &Path,
-        prefer_mmap: bool,
-        n_context_tokens: usize,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<GptJ, LoadError> {
-        llm_base::load(path, prefer_mmap, n_context_tokens, load_progress_callback)
-    }
-}
 
 impl KnownModel for GptJ {
     type Hyperparameters = Hyperparameters;
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
-        n_context_tokens: usize,
+        params: ModelParameters,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
         Self: Sized,
     {
-        let n_embd = hyperparameters.n_embd;
-        let n_layer = hyperparameters.n_layer;
-        let n_vocab = hyperparameters.n_vocab;
-
         let mut tl = tensor_loader;
 
         // prepare memory for weights
-        let wte = tl.load("transformer.wte.weight", &[n_embd, n_vocab])?;
-        let ln_f_g = tl.load("transformer.ln_f.weight", &[n_embd])?;
-        let ln_f_b = tl.load("transformer.ln_f.bias", &[n_embd])?;
-        let lmh_g = tl.load("lm_head.weight", &[n_embd, n_vocab])?;
-        let lmh_b = tl.load("lm_head.bias", &[n_vocab])?;
+        let wte = tl.load("transformer.wte.weight")?;
+        let ln_f_g = tl.load("transformer.ln_f.weight")?;
+        let ln_f_b = tl.load("transformer.ln_f.bias")?;
+        let lmh_g = tl.load("lm_head.weight")?;
+        let lmh_b = tl.load("lm_head.bias")?;
 
         let mut layers = Vec::new();
-        for i in 0..n_layer {
+        for i in 0..hyperparameters.n_layer {
             let layer = Layer {
-                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"), &[n_embd])?,
-                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"), &[n_embd])?,
-                c_attn_q_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.q_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_k_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.k_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_v_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.v_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_attn_proj_w: tl.load(
-                    &format!("transformer.h.{i}.attn.out_proj.weight"),
-                    &[n_embd, n_embd],
-                )?,
-                c_mlp_fc_w: tl.load(
-                    &format!("transformer.h.{i}.mlp.fc_in.weight"),
-                    &[n_embd, n_embd * 4],
-                )?,
-                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"), &[n_embd * 4])?,
-                c_mlp_proj_w: tl.load(
-                    &format!("transformer.h.{i}.mlp.fc_out.weight"),
-                    &[n_embd * 4, n_embd],
-                )?,
-                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"), &[n_embd])?,
+                ln_1_g: tl.load(&format!("transformer.h.{i}.ln_1.weight"))?,
+                ln_1_b: tl.load(&format!("transformer.h.{i}.ln_1.bias"))?,
+                c_attn_q_proj_w: tl.load(&format!("transformer.h.{i}.attn.q_proj.weight"))?,
+                c_attn_k_proj_w: tl.load(&format!("transformer.h.{i}.attn.k_proj.weight"))?,
+                c_attn_v_proj_w: tl.load(&format!("transformer.h.{i}.attn.v_proj.weight"))?,
+                c_attn_proj_w: tl.load(&format!("transformer.h.{i}.attn.out_proj.weight"))?,
+                c_mlp_fc_w: tl.load(&format!("transformer.h.{i}.mlp.fc_in.weight"))?,
+                c_mlp_fc_b: tl.load(&format!("transformer.h.{i}.mlp.fc_in.bias"))?,
+                c_mlp_proj_w: tl.load(&format!("transformer.h.{i}.mlp.fc_out.weight"))?,
+                c_mlp_proj_b: tl.load(&format!("transformer.h.{i}.mlp.fc_out.bias"))?,
             };
 
             layers.push(layer);
         }
 
         let (_context, _, _mmap) = tl.finish();
+
+        let ModelParameters {
+            n_context_tokens,
+            inference_parameters,
+            ..
+        } = params;
 
         Ok(GptJ {
             hyperparameters,
@@ -125,14 +102,15 @@ impl KnownModel for GptJ {
             lmh_g,
             lmh_b,
             layers,
+            inference_parameters,
             _mmap,
             _context,
         })
     }
 
-    fn start_session(&self, params: InferenceSessionParameters) -> InferenceSession {
+    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
-            params,
+            config,
             self.hyperparameters.n_ctx,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
@@ -145,7 +123,7 @@ impl KnownModel for GptJ {
         session: &mut InferenceSession,
         params: &InferenceParameters,
         input_tokens: &[TokenId],
-        output_request: &mut EvaluateOutputRequest,
+        output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_threads = params.n_threads;
@@ -160,30 +138,7 @@ impl KnownModel for GptJ {
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
 
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        //
-        // These numbers are from `llama.cpp`, and could potentially be more efficient.
-        let mut buf_size = {
-            let buf_size_mb = if n_layer >= 80 {
-                1536
-            } else if n_layer >= 60 {
-                1280
-            } else {
-                1024
-            };
-            buf_size_mb * 1024 * 1024
-        };
-        if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
-            // add 10% to account for ggml object overhead
-            buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
-        };
-        let ctx0 = ggml::Context::init(buf_size, true);
-
-        let mut gf = ggml::ComputationGraph::new(n_threads);
-
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
-        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
+        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
         let n_past = session.n_past;
 
@@ -195,6 +150,8 @@ impl KnownModel for GptJ {
 
         let memory_v = &session.memory_v;
         let memory_v_size = memory_v.element_size();
+
+        let mut gf = ggml::ComputationGraph::new(n_threads);
 
         for il in 0..n_layer {
             // norm
@@ -329,49 +286,15 @@ impl KnownModel for GptJ {
         input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
         input_layer = ctx0.op_add(&ctx0.op_repeat(&self.lmh_b, &input_layer), &input_layer);
 
+        // run the computation
         gf.build_forward_expand(&input_layer);
-        // thread 'main' panicked at 'WeightedIndex error: InvalidWeight', llm-base/src/inference_session.rs:293:47
         ctx0.graph_compute(&mut gf);
 
-        // return result for just the last token
-        // SAFETY: yolo
-        assert_eq!(session.last_logits.len(), n_vocab);
-        unsafe {
-            input_layer.read_data(
-                n_vocab * (n - 1) * std::mem::size_of::<f32>(),
-                bytemuck::cast_slice_mut(&mut session.last_logits),
-            )
-        };
-
-        // Extract logits
-        if let Some(all_logits) = &mut output_request.all_logits {
-            all_logits.resize(n_vocab * n, 0.0);
-            // SAFETY: Tensor data can be read (properly aligned, initialized,
-            // data will not be mutated or otherwise aliased during the copy),
-            // and we're not reading past the end of the tensor data.
-            assert_eq!(input_layer.nelements(), n_vocab * n);
-            unsafe {
-                input_layer.read_data(0, bytemuck::cast_slice_mut(all_logits));
-            }
-        }
-
-        // Extract embeddings
-        if let Some(embeddings) = &mut output_request.embeddings {
-            embeddings.resize(n_embd * n, 0.0);
-            // SAFETY: Same rationale as for the "Extract logits" section applies.
-            assert_eq!(embd.nelements(), n_embd * n);
-            unsafe {
-                embd.read_data(0, bytemuck::cast_slice_mut(embeddings));
-            }
-        }
-
-        // Adjust the required memory per token if we didn't know that already
-        if session.mem_per_token == 0 {
-            session.mem_per_token = ctx0.used_mem() / n;
-        }
-
-        // Adjust n_past to new length.
-        session.n_past += input_tokens.len();
+        // finish evaluation
+        common::read_last_token(session, &input_layer, n_vocab, n);
+        common::extract_logits(output_request, &input_layer, n_vocab, n);
+        common::extract_embeddings(output_request, &embd, n_embd, n);
+        common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 
     fn vocabulary(&self) -> &Vocabulary {
@@ -382,6 +305,10 @@ impl KnownModel for GptJ {
         self.hyperparameters.n_ctx
     }
 
+    fn bot_token_id(&self) -> Option<TokenId> {
+        None
+    }
+
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary
             .token_to_id
@@ -389,20 +316,24 @@ impl KnownModel for GptJ {
             .copied()
             .unwrap()
     }
+
+    fn inference_parameters(&self) -> &InferenceParameters {
+        &self.inference_parameters
+    }
 }
 
-/// The hyperparameters of the model.
+/// GPT-J [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    /// n_vocab
+    /// Size of the model's vocabulary
     pub n_vocab: usize,
-    /// n_ctx
+    /// Size of the model's context
     pub n_ctx: usize,
-    /// n_embd
+    /// Size of the model's embedding layer
     pub n_embd: usize,
     /// n_head
     pub n_head: usize,
-    /// n_layer
+    /// Number of layers in the model
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
@@ -410,9 +341,7 @@ pub struct Hyperparameters {
     pub file_type: FileType,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
-    type WriteError = BasicWriteError;
-
-    fn read(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         let hyperparameters = Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_ctx: util::read_i32(reader)?.try_into()?,
@@ -440,7 +369,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         Ok(hyperparameters)
     }
 
-    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), Self::WriteError> {
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
         util::write_i32(writer, self.n_ctx.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;
@@ -493,6 +422,7 @@ impl GptJ {
             lmh_g: context.new_f32(0.0),
             lmh_b: context.new_f32(0.0),
             layers: Default::default(),
+            inference_parameters: Default::default(),
             _mmap: Default::default(),
             _context: context,
         }
