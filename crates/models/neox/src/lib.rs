@@ -372,27 +372,27 @@ impl KnownModel for NeoX<GptNeoX> {
     }
 
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
-        Self::start_session(&self, config)
+        Self::start_session(self, config)
     }
 
     fn vocabulary(&self) -> &Vocabulary {
-        Self::vocabulary(&self)
+        Self::vocabulary(self)
     }
 
     fn n_context_tokens(&self) -> usize {
-        Self::n_context_tokens(&self)
+        Self::n_context_tokens(self)
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        Self::bot_token_id(&self)
+        Self::bot_token_id(self)
     }
 
     fn eot_token_id(&self) -> TokenId {
-        Self::eot_token_id(&self)
+        Self::eot_token_id(self)
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {
-        Self::inference_parameters(&self)
+        Self::inference_parameters(self)
     }
 }
 
@@ -616,27 +616,27 @@ impl KnownModel for NeoX<RedPajama> {
     }
 
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
-        Self::start_session(&self, config)
+        Self::start_session(self, config)
     }
 
     fn vocabulary(&self) -> &Vocabulary {
-        Self::vocabulary(&self)
+        Self::vocabulary(self)
     }
 
     fn n_context_tokens(&self) -> usize {
-        Self::n_context_tokens(&self)
+        Self::n_context_tokens(self)
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        Self::bot_token_id(&self)
+        Self::bot_token_id(self)
     }
 
     fn eot_token_id(&self) -> TokenId {
-        Self::eot_token_id(&self)
+        Self::eot_token_id(self)
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {
-        Self::inference_parameters(&self)
+        Self::inference_parameters(self)
     }
 }
 

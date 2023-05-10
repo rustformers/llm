@@ -7,7 +7,10 @@ use std::{
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
-use llm::{models::neox::{GptNeoX, RedPajama}, InferenceError};
+use llm::{
+    models::neox::{GptNeoX, RedPajama},
+    InferenceError,
+};
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
