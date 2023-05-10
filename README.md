@@ -31,7 +31,7 @@ Currently, the following models are supported:
 - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
 - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
 - [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA, Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
-- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox): GPT-NeoX, StableLM, Dolly v2 (partial, not the same tensor names?)
+- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox): GPT-NeoX, StableLM, RedPajama, Dolly v2 (partial, not the same tensor names?)
 - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
 
 ## Getting started
