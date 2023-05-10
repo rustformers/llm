@@ -238,5 +238,5 @@ use and deploy as any other Rust crate.
 
 #### Libraries
 
-- [llm-chain](https://github.com/sobelio/llm-chain): Work in progress, see
-  [this PR](https://github.com/sobelio/llm-chain/pull/116).
+- [llm-chain](https://github.com/sobelio/llm-chain): Build chains in large
+  language models for text summarization and completion of more complex tasks
