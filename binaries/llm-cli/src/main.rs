@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
-use llm::{models::neox::GptNeoX, InferenceError};
+use llm::{models::neox::{GptNeoX, RedPajama}, InferenceError};
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
@@ -30,6 +30,7 @@ fn main() -> Result<()> {
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
         Args::GptJ { args } => handle_args::<llm::models::GptJ>(args),
         Args::NeoX { args } => handle_args::<llm::models::NeoX<GptNeoX>>(args),
+        Args::RedPajama { args } => handle_args::<llm::models::NeoX<RedPajama>>(args),
     }
 }
 

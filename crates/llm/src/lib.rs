@@ -191,7 +191,7 @@ impl Display for ModelArchitecture {
             #[cfg(feature = "neox")]
             NeoX => write!(f, "GPT-NeoX"),
             #[cfg(feature = "neox")]
-            RedPajama => write!(f, "Red Pajama"),
+            RedPajama => write!(f, "RedPajama"),
         }
     }
 }

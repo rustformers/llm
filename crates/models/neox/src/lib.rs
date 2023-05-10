@@ -1,4 +1,5 @@
 //! An implementation of [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
+//! This crate also implements the [RedPajama](https://www.together.xyz/blog/redpajama) model.
 #![deny(missing_docs)]
 
 use std::{error::Error, marker::PhantomData};
@@ -35,12 +36,14 @@ pub struct NeoX<T> {
 
     inference_parameters: InferenceParameters,
 
-    /// Needs to kept alive while the model is alive
+    // marker type for which GPT-NeoX specialization to use
+    _specialization: PhantomData<T>,
+
+    // Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
-    _phantom: PhantomData<T>,
 }
 
 unsafe impl<T> Send for NeoX<T> {}
@@ -48,7 +51,7 @@ unsafe impl<T> Sync for NeoX<T> {}
 
 /// Marker struct for using standard GPT-NeoX evaluation
 pub struct GptNeoX;
-/// Marker struct for using standard Red Pajama evaluation
+/// Marker struct for using RedPajama evaluation
 pub struct RedPajama;
 
 impl<T> NeoX<T> {
@@ -122,7 +125,7 @@ impl<T> NeoX<T> {
             inference_parameters,
             _context,
             _mmap,
-            _phantom: PhantomData,
+            _specialization: PhantomData,
         })
     }
 
@@ -730,7 +733,7 @@ impl<T> NeoX<T> {
             inference_parameters: Default::default(),
             _mmap: Default::default(),
             _context: context,
-            _phantom: PhantomData,
+            _specialization: PhantomData,
         }
     }
 }
