@@ -34,7 +34,7 @@ pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputReque
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{InvalidTokenBias, TokenBias, TokenId, Vocabulary};
-pub use lora::{LoraParameters};
+pub use lora::{LoraParameters,LoraAdapter};
 
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters for text generation.

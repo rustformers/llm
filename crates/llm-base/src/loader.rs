@@ -3,12 +3,12 @@ use std::{
     fmt::{Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::Arc,
 };
 
 use crate::{
     util::{self, FindAllModelFilesError},
-    Hyperparameters, KnownModel, ModelParameters, TokenId, Vocabulary, LoraParameters
+    Hyperparameters, KnownModel, ModelParameters, TokenId, Vocabulary, LoraParameters,LoraAdapter
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -357,6 +357,7 @@ pub fn load<M: KnownModel>(
         tensors: HashMap<String, TensorLoadInfo>,
         context: Context,
         mmap: Option<Mmap>,
+        lora_adapter: Option<&'a LoraAdapter>,
         load_progress_callback: &'a mut dyn FnMut(LoadProgress),
         loaded_tensors: HashMap<String, ggml::Tensor>,
     }
@@ -373,6 +374,7 @@ pub fn load<M: KnownModel>(
             self.load_manual(name, &tensor_dims)
         }
 
+        
         fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
             let info = self
                 .tensors
@@ -382,51 +384,39 @@ pub fn load<M: KnownModel>(
                     tensor_name: name.to_owned(),
                 })?;
 
-            let dims = ne.len();
-            if dims != info.n_dims {
-                return Err(LoadError::InvariantBroken {
-                    path: Some(self.path.clone()),
-                    invariant: format!(
-                        "the tensor {name} should have {} dimensions, not {dims}",
-                        info.n_dims
-                    ),
-                });
+            let tensor = util::load_tensor(&info, &ne, &mut self.file, &self.context, self.mmap.as_ref())
+            .map_err(|e| match e {
+                util::TensorLoadError::DimensionMissmatch{expected,actual} 
+                => LoadError::InvariantBroken { path: Some(self.path.clone()), invariant: format!(
+                    "the tensor {name} should have {expected} dimensions, not {actual}") },
+                util::TensorLoadError::UnsupportedDimensionCount{count}
+                => LoadError::InvariantBroken { path: Some(self.path.clone()), invariant: format!(
+                    "the tensor {name} should have between 1 and 3 dimensions, not {count}") },
+                util::TensorLoadError::IO(e) => LoadError::OpenFileFailed { source: e, path: self.path.clone() },
+            })?;
+
+            if let Some(lora_adapter) = &mut self.lora_adapter {
+                //Load the lora tenosrs here and apply them to the tensor
+                let a_tensor_name = format!("{}.loraA", name);
+                let b_tensor_name = format!("{}.loraB", name);
+
+                // if !lora_adapter.tensors.contains_key(&a_tensor_name){
+                //     return Err(LoadError::InvariantBroken { path: Some(lora_adapter.path.clone()), invariant: format!(
+                //         "lora adapter is missing tensor {a_tensor_name}") });
+                // }
+
+                // if !lora_adapter.tensors.contains_key(&b_tensor_name){
+                //     return Err(LoadError::InvariantBroken { path: Some(lora_adapter.path.clone()), invariant: format!(
+                //         "lora adapter is missing tensor {b_tensor_name}") });
+                // } 
             }
 
-            let ctx = &self.context;
-            let mut tensor = match dims {
-                1 => ctx.new_tensor_1d(info.element_type, ne[0]),
-                2 => ctx.new_tensor_2d(info.element_type, ne[0], ne[1]),
-                3 => ctx.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
-                _ => {
-                    return Err(LoadError::InvariantBroken {
-                        path: Some(self.path.clone()),
-                        invariant: format!(
-                            "the tensor {name} had an unsupported dimension count: {ne:?}"
-                        ),
-                    })
-                }
-            };
-
-            match self.mmap.as_ref() {
-                Some(mmap) => unsafe {
-                    let ptr = mmap.as_ptr().offset(info.start_offset as isize);
-                    tensor.set_data(ptr as *mut std::ffi::c_void);
-                },
-                None => {
-                    let buf: &mut [u8] = unsafe {
-                        std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
-                    };
-                    self.file.seek(SeekFrom::Start(info.start_offset))?;
-                    self.file.read_exact(buf)?;
-                }
-            }
-
-            self.loaded_tensors.insert(name.to_owned(), tensor.share());
             (self.load_progress_callback)(LoadProgress::TensorLoaded {
                 current_tensor: self.loaded_tensors.len(),
                 tensor_count: self.tensors.len(),
             });
+            self.loaded_tensors.insert(name.to_owned(), tensor.share());
+
 
             Ok(tensor)
         }
@@ -438,6 +428,7 @@ pub fn load<M: KnownModel>(
 
 
 
+    let mut loar_adapter:Option<LoraAdapter> = None;
     if let Some(lora_path) = &params.lora_adapter{
         //Load in the LoRA tensors
         let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
@@ -449,6 +440,13 @@ pub fn load<M: KnownModel>(
         let mut lora_loader:Loader<LoraParameters,_> = Loader::new(|_|{});
         ggml::format::load(&mut lora_reader, &mut lora_loader)
             .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
+
+        loar_adapter = Some(LoraAdapter{
+            tensors: lora_loader.tensors,
+            scaling: lora_loader.hyperparameters.calculate_scaling(),
+            file: lora_file,
+            path: lora_path.to_owned(),
+        });
     }
 
     let tensors_len = tensors.len();
@@ -458,6 +456,7 @@ pub fn load<M: KnownModel>(
         tensors,
         context,
         mmap,
+        lora_adapter: loar_adapter.as_ref(),
         load_progress_callback: &mut load_progress_callback,
         loaded_tensors: Default::default(),
     };

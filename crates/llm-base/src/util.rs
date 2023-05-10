@@ -1,6 +1,16 @@
 //! Utilities for interacting with LLMs and loading them.
 pub use ggml::util::*;
-use std::path::{Path, PathBuf};
+use ggml::Context;
+use ggml::format::{TensorLoadInfo};
+
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+    fs::File,
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
+    error::Error
+};
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
 /// int to float. What we do instead is use this macro to convert every term of
@@ -139,6 +149,69 @@ fn collect_related_paths(
 pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> {
     unsafe { MmapOptions::new().populate().map(file) }
 }
+
+
+#[derive(Error, Debug)]
+/// Errors encountered while loading a tensor from a file.
+pub enum TensorLoadError{
+    /// Dimensions do not match.
+    #[error("dimension missmatch expected:{expected:?} actual:{actual:?}")]
+    DimensionMissmatch {
+        /// Expected Dimensions.
+        expected: usize,
+        /// Given Dimensions.
+        actual: usize,
+    },
+    /// Dimensions is not supported.
+    #[error("unsupported dimension count: {count:?}")]
+    UnsupportedDimensionCount{
+        /// Given Dimensions.
+        count: usize,
+    },
+    /// Encountered error while reading from file.
+    #[error("io error")]
+    IO(#[from] std::io::Error),
+}
+
+/// Load a tensor via a TensorLoadInfo and a Dimension `ne` from a file into a given ggml context
+pub fn load_tensor(info:&TensorLoadInfo,ne: &[usize],file:&mut File,context:&Context,mmap: Option<&Mmap>) -> Result<ggml::Tensor, TensorLoadError> 
+{
+    let dims = ne.len();
+    if dims != info.n_dims {
+        return Err(TensorLoadError::DimensionMissmatch {
+            expected: info.n_dims,
+            actual: dims,
+        });
+    }
+
+    let mut tensor = match dims {
+        1 => context.new_tensor_1d(info.element_type, ne[0]),
+        2 => context.new_tensor_2d(info.element_type, ne[0], ne[1]),
+        3 => context.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
+        _ => {
+            return Err(TensorLoadError::UnsupportedDimensionCount {
+                count: dims,
+            })
+        }
+    };
+
+    match mmap {
+        Some(mmap) => unsafe {
+            let ptr = mmap.as_ptr().offset(info.start_offset as isize);
+            tensor.set_data(ptr as *mut std::ffi::c_void);
+        },
+        None => {
+            let buf: &mut [u8] = unsafe {
+                std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
+            };
+            file.seek(SeekFrom::Start(info.start_offset)).map_err(|e| TensorLoadError::IO(e))?;
+            file.read_exact(buf).map_err(|e| TensorLoadError::IO(e))?;
+        }
+    }
+
+    Ok(tensor)
+}
+
 
 #[cfg(test)]
 mod tests {
