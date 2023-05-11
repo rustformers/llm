@@ -72,8 +72,12 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         },
         // OutputRequest
         &mut Default::default(),
-        |r| match r {
+        |r| match &r {
             InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                if matches!(&r, InferenceResponse::PromptToken(_)) && args.hide_prompt {
+                    return Ok(InferenceFeedback::Continue);
+                }
+
                 print!("{t}");
                 std::io::stdout().flush().unwrap();
 
