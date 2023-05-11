@@ -101,14 +101,7 @@ impl InferenceSession {
                         Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
                         Ok(f) => match f {
                             InferenceFeedback::Continue => (),
-                            InferenceFeedback::FeedPrompt(_) => {
-                                return Err(InferenceError::UserCallback(Some(
-                                    "Cannot interrupt prompt ingestion".into(),
-                                )))
-                            }
-                            InferenceFeedback::Halt => {
-                                return Err(InferenceError::UserCallback(None))
-                            }
+                            InferenceFeedback::Halt => break,
                         },
                     }
                 }
@@ -219,14 +212,7 @@ impl InferenceSession {
                     Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
                     Ok(f) => match f {
                         InferenceFeedback::Continue => (),
-                        InferenceFeedback::FeedPrompt(p) => self.feed_prompt(
-                            model,
-                            parameters,
-                            &p,
-                            output_request,
-                            TokenUtf8Buffer::adapt_callback(&mut callback),
-                        )?,
-                        InferenceFeedback::Halt => return Err(InferenceError::UserCallback(None)),
+                        InferenceFeedback::Halt => break,
                     },
                 }
             }
@@ -644,8 +630,6 @@ pub enum InferenceResponse {
 pub enum InferenceFeedback {
     /// Continue inference
     Continue,
-    /// Feed the provided text into the inference session
-    FeedPrompt(String),
     /// Halt inference
     Halt,
 }
