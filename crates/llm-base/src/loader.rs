@@ -4,6 +4,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    ptr,
 };
 
 use crate::{
@@ -437,7 +438,7 @@ pub fn load<M: KnownModel>(
                         .ok_or(Err::<&TensorLoadInfo,_>(LoadError::UnknownTensor { path: lora_adapter.path.clone(), tensor_name: b_tensor_name.to_owned()})).unwrap();
 
                     //TODO calculate the size dynmaically 
-                    let patch_context_size = 1024*1024*1024;
+                    let patch_context_size = 1024*1024*128;
 
                     //create a temporary context for the patching operations and reload the target tensor into it
                     let patch_context = Context::init(patch_context_size, true);
@@ -447,7 +448,7 @@ pub fn load<M: KnownModel>(
 
                     //Load the A and B tensors
                     let a = get_tensor(a_tensor_info, &a_tensor_info.dims().to_vec(), &mut lora_adapter.file, &patch_context)?;
-                    let b = get_tensor(&b_tensor_info, &b_tensor_info.dims().to_vec(), &mut lora_adapter.file, &patch_context)?;
+                    let b = get_tensor(b_tensor_info, &b_tensor_info.dims().to_vec(), &mut lora_adapter.file, &patch_context)?;
                    
                     //Build a ggml context and apply the patch
                     //TODO: maybe pass the models threadcount to this context
@@ -463,10 +464,10 @@ pub fn load<M: KnownModel>(
                     //Compute the graph
                     gf.build_forward_expand(&target_tensor);
                     patch_context.graph_compute(&mut gf);
-
+                    
                     //Overwrite the original tensor, this is shoud be save as we only operated on the target_tensor which is a copy of the original
                     unsafe {
-                        tensor.set_data(target_tensor.data());
+                        ptr::copy_nonoverlapping(target_tensor.data(), tensor.data(), tensor.nbytes());
                     }
 
                     (self.load_progress_callback)(LoadProgress::LoraApplied { name: name.to_owned() }); 
