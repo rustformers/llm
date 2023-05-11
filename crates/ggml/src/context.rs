@@ -112,6 +112,12 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// Creates a new tensor with the division of `a` and `b`.
+    pub fn op_div(&self, a: &Tensor, b: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_div(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Unknown.
     pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_repeat(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
@@ -134,6 +140,12 @@ impl Context {
     /// Creates a new tensor with the addition of `a` and `b`.
     pub fn op_add(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_add(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with the soustraction of `a` and `b`.
+    pub fn op_sub(&self, a: &Tensor, b: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sub(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 

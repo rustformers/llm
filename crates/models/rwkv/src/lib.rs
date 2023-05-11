@@ -1,10 +1,10 @@
 // Ref: https://github.com/saharNooby/rwkv.cpp/blob/5eb8f09/rwkv.cpp
 
-use ggml::Tensor;
+use ggml::{Context, Tensor};
 use llm_base::{
-    model::HyperparametersWriteError, util, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, KnownModel, LoadError, Mmap, ModelParameters, OutputRequest, TokenId,
-    Vocabulary,
+    ggml, model::common, model::HyperparametersWriteError, util, FileType, InferenceParameters,
+    InferenceSession, InferenceSessionConfig, KnownModel, LoadError, Mmap, ModelParameters,
+    OutputRequest, TokenId, Vocabulary,
 };
 
 pub struct Rwkv {
@@ -34,6 +34,67 @@ pub struct Rwkv {
 }
 unsafe impl Send for Rwkv {}
 unsafe impl Sync for Rwkv {}
+
+fn rwkv_layer_norm(
+    ctx: &ggml::Context,
+    x: &ggml::Tensor,
+    weight: &ggml::Tensor,
+    bias: &ggml::Tensor,
+) -> ggml::Tensor {
+    let x = ctx.op_norm(&x);
+    let x = ctx.op_mul(&x, &weight);
+    let x = ctx.op_add(&x, &bias);
+
+    x
+}
+
+extern "C" fn rwkv_exp_impl(n_cols: i32, dest: *mut f32, src: *const f32) {
+    for i in 0..n_cols {
+        unsafe {
+            *dest.add(i as usize) = (*src.add(i as usize)).exp();
+        }
+    }
+}
+
+extern "C" fn rwkv_sigmoid_impl(n_cols: i32, dest: *mut f32, src: *const f32) {
+    for i in 0..n_cols {
+        unsafe {
+            *dest.add(i as usize) = 1.0 / (1.0 + (-(*src.add(i as usize))).exp());
+        }
+    }
+}
+
+extern "C" fn rwkv_max_impl(n_cols: i32, dest: *mut f32, src0: *const f32, src1: *const f32) {
+    for i in 0..n_cols {
+        unsafe {
+            *dest.add(i as usize) = (*src0.add(i as usize)).max(*src1.add(i as usize));
+        }
+    }
+}
+
+extern "C" fn rwkv_1_minus_x_impl(n_cols: i32, dest: *mut f32, src: *const f32) {
+    for i in 0..n_cols {
+        unsafe {
+            *dest.add(i as usize) = 1.0 - *src.add(i as usize);
+        }
+    }
+}
+
+fn rwkv_exp(ctx: &ggml::Context, x: &ggml::Tensor) -> ggml::Tensor {
+    unsafe { ctx.op_map_unary(x, rwkv_exp_impl) }
+}
+
+fn rwkv_sigmoid(ctx: &ggml::Context, x: &ggml::Tensor) -> ggml::Tensor {
+    unsafe { ctx.op_map_unary(x, rwkv_sigmoid_impl) }
+}
+
+fn rwkv_max(ctx: &ggml::Context, x: &ggml::Tensor, y: &ggml::Tensor) -> ggml::Tensor {
+    unsafe { ctx.op_map_binary(x, y, rwkv_max_impl) }
+}
+
+fn rwkv_1_minus_x(ctx: &ggml::Context, x: &ggml::Tensor) -> ggml::Tensor {
+    unsafe { ctx.op_map_unary(x, rwkv_1_minus_x_impl) }
+}
 
 impl KnownModel for Rwkv {
     type Hyperparameters = Hyperparameters;
@@ -127,7 +188,84 @@ impl KnownModel for Rwkv {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        todo!()
+        let n_threads = params.n_threads;
+
+        let Hyperparameters {
+            n_vocab,
+            n_embd,
+            n_layer,
+            file_type: _,
+        } = self.hyperparameters;
+
+        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+
+        let state = ctx0.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
+
+        let mut x = ctx0.op_get_rows(&self.emb, &embd);
+
+        x = rwkv_layer_norm(&ctx0, &x, &self.ln0_weight, &self.ln0_bias);
+
+        // struct ggml_tensor ** state_parts = new ggml_tensor * [n_layer * 5];
+        let mut state_parts: Vec<ggml::Tensor> = Vec::with_capacity(n_layer * 5);
+        let mut gf = ggml::ComputationGraph::new(n_threads);
+
+        for i in 0..n_layer {
+            let layer = &self.layers[i];
+
+            // RWKV Time Mixing
+            let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln1_weight, &layer.ln1_bias);
+            let x_prev = ctx0.op_view_1d(&state, n_embd, (5 * i + 1) * n_embd * 4);
+
+            let xk = ctx0.op_add(
+                &ctx0.op_mul(&x0, &layer.att_time_mix_k),
+                &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_k)),
+            );
+
+            let xv = ctx0.op_add(
+                &ctx0.op_mul(&x0, &layer.att_time_mix_v),
+                &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_v)),
+            );
+
+            let xr = ctx0.op_add(
+                &ctx0.op_mul(&x0, &layer.att_time_mix_r),
+                &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_r)),
+            );
+
+            state_parts[5 * i + 1] = x0;
+
+            let r = rwkv_sigmoid(&ctx0, &ctx0.op_mul_mat(&layer.att_receptance, &xr));
+            let k = ctx0.op_mul_mat(&layer.att_key, &xk);
+            let v = ctx0.op_mul_mat(&layer.att_value, &xv);
+
+            let aa = ctx0.op_view_1d(&state, n_embd, (5 * i + 2) * n_embd * 4);
+            let bb = ctx0.op_view_1d(&state, n_embd, (5 * i + 3) * n_embd * 4);
+            let pp = ctx0.op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4);
+
+            let mut ww = ctx0.op_add(&layer.att_time_first, &k);
+            let mut qq = rwkv_max(&ctx0, &pp, &ww);
+
+            let mut e1 = rwkv_exp(&ctx0, &ctx0.op_sub(&pp, &qq));
+            let mut e2 = rwkv_exp(&ctx0, &ctx0.op_sub(&ww, &qq));
+
+            let a = ctx0.op_add(&ctx0.op_mul(&e1, &aa), &ctx0.op_mul(&e2, &v));
+            let b = ctx0.op_add(&ctx0.op_mul(&e1, &bb), &e2);
+
+            let wkv = ctx0.op_div(&a, &b);
+
+            ww = ctx0.op_add(&pp, &layer.att_time_decay);
+            qq = rwkv_max(&ctx0, &ww, &k);
+            e1 = rwkv_exp(&ctx0, &ctx0.op_sub(&ww, &qq));
+            e2 = rwkv_exp(&ctx0, &ctx0.op_sub(&k, &qq));
+
+            state_parts[5 * i + 2] = ctx0.op_add(&ctx0.op_mul(&e1, &aa), &ctx0.op_mul(&e2, &v));
+            state_parts[5 * i + 3] = ctx0.op_add(&ctx0.op_mul(&e1, &bb), &e2);
+            state_parts[5 * i + 4] = qq;
+
+            x = ctx0.op_add(
+                &x,
+                &ctx0.op_mul_mat(&layer.att_output, &ctx0.op_mul(&r, &wkv)),
+            );
+        }
     }
 
     fn vocabulary(&self) -> &Vocabulary {
