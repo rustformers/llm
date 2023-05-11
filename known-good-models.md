@@ -8,6 +8,8 @@ The following models have been tested and are known to work with `llm`.
 
 ## GPT-J
 
+- <https://huggingface.co/Kastor/GPT-J-6B-Pygway-ggml-q4_1>
+
 ## LLaMA
 
 We have chosen not to include any models here until we have a better understanding of the licensing situation.
