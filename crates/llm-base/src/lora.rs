@@ -6,7 +6,7 @@ use crate::{
 };
 
 use ggml::format::TensorLoadInfo;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -52,8 +52,30 @@ pub struct LoraAdapter{
     pub scaling: f32,
     /// Lora Tensors to apply
     pub tensors: HashMap<String, TensorLoadInfo>,
+    /// Names of the tensors that should be patched
+    pub tensors_to_patch: HashSet<String>,
     ///File containing the LoRA weights
     pub file: File,
     ///Path to the LoRA file
     pub path: PathBuf,
+}
+
+impl LoraAdapter{
+    /// Creates a new LoRA adapter
+    pub fn new(scaling: f32, tensors: HashMap<String, TensorLoadInfo>, file: File, path: PathBuf) -> Self{
+
+        let mut tensors_to_patch:HashSet<String> = HashSet::new();
+        for key in tensors.keys(){
+            let basename = key.rsplitn(2,".").nth(1).unwrap();
+            tensors_to_patch.insert(basename.to_owned());
+        }
+
+        LoraAdapter{
+            scaling,
+            tensors,
+            tensors_to_patch,
+            file,
+            path,
+        }
+    }
 }
