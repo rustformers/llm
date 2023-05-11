@@ -90,6 +90,13 @@ pub struct Infer {
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
 
+    /// Hide the prompt in the generation.
+    ///
+    /// By default, the prompt tokens will be shown as they are fed to the model.
+    /// This option will only show the inferred tokens.
+    #[arg(long, default_value_t = false)]
+    pub hide_prompt: bool,
+
     /// Saves an inference session at the given path. The same session can then be
     /// loaded from disk using `--load-session`.
     ///
