@@ -67,7 +67,7 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug NeoX Inference",
+      "name": "Debug GPT-NeoX Inference",
       "cargo": {
         "args": ["build", "--example=inference", "--package=llm"],
         "filter": {
@@ -90,6 +90,20 @@
         }
       },
       "args": ["redpajama", "${env:HOME}/.ggml-models/redpajama-incite-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug Vicuna Chat",
+      "cargo": {
+        "args": ["build", "--example=vicuna-chat", "--package=llm"],
+        "filter": {
+          "name": "vicuna-chat",
+          "kind": "example"
+        }
+      },
+      "args": ["llama", "${env:HOME}/.ggml-models/wizardlm-7b.bin"],
       "cwd": "${workspaceFolder}"
     }
   ]

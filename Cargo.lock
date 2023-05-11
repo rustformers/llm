@@ -641,14 +641,18 @@ checksum = "ece97ea872ece730aed82664c424eb4c8291e1ff2480247ccf7409044bc6479f"
 name = "llm"
 version = "0.1.1"
 dependencies = [
+ "bytesize",
  "llm-base",
  "llm-bloom",
  "llm-gpt2",
  "llm-gptj",
  "llm-llama",
  "llm-neox",
+ "log",
  "rand",
+ "rustyline",
  "serde",
+ "spinoff",
 ]
 
 [[package]]

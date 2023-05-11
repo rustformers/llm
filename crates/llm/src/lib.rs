@@ -43,11 +43,14 @@
 //!     // llm::OutputRequest
 //!     &mut Default::default(),
 //!     // output callback
-//!     |t| {
-//!         print!("{t}");
-//!         std::io::stdout().flush().unwrap();
+//!     |r| match r {
+//!         llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
+//!             print!("{t}");
+//!             std::io::stdout().flush().unwrap();
 //!
-//!         Ok(())
+//!             Ok(llm::InferenceFeedback::Continue)
+//!         }
+//!         _ => Ok(llm::InferenceFeedback::Continue),         
 //!     }
 //! );
 //!
@@ -69,10 +72,11 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
-    FileType, InferenceError, InferenceParameters, InferenceRequest, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, InvalidTokenBias, KnownModel, LoadError,
-    LoadProgress, Loader, Model, ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError,
-    QuantizeProgress, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    FileType, InferenceError, InferenceFeedback, InferenceParameters, InferenceRequest,
+    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot,
+    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
+    ModelParameters, OutputRequest, QuantizeError, QuantizeProgress, SnapshotError, TokenBias,
+    TokenId, TokenUtf8Buffer, Vocabulary,
 };
 
 use serde::Serialize;

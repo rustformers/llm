@@ -18,7 +18,11 @@ llm-neox = { path = "../models/neox", optional = true, version = "0.1.1" }
 serde = { workspace = true }
 
 [dev-dependencies]
+bytesize = { workspace = true }
+log = { workspace = true }
 rand = { workspace = true }
+rustyline = { workspace = true }
+spinoff = { workspace = true }
 
 [features]
 default = ["llama", "gpt2", "gptj", "bloom", "neox"]
