@@ -306,7 +306,7 @@ pub struct ModelLoad {
 
     ///LoRA adapter top use for the model
     #[arg(long)]
-    pub lora_path: Option<PathBuf>
+    pub lora_path: Option<PathBuf>,
 }
 impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
@@ -337,11 +337,8 @@ impl ModelLoad {
             ),
             LoadProgress::LoraApplied { name } => {
                 if let Some(sp) = sp.as_mut() {
-                sp.update_text(format!(
-                    "Patched tensor {} via LoRA",
-                    name
-                ));
-            }
+                    sp.update_text(format!("Patched tensor {} via LoRA", name));
+                }
             }
             LoadProgress::TensorLoaded {
                 current_tensor,

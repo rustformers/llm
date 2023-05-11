@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     util::{self, FindAllModelFilesError},
-    Hyperparameters, KnownModel, ModelParameters, TokenId, Vocabulary, LoraParameters,LoraAdapter
+    Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId, Vocabulary,
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -106,7 +106,7 @@ pub enum LoadProgress {
     /// A tensor was patch via LoRA
     LoraApplied {
         /// The name of the patched tensor.
-        name:String
+        name: String,
     },
     /// A tensor from the current part has been loaded.
     TensorLoaded {
@@ -334,18 +334,16 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let use_mmap = params.prefer_mmap && container_type.support_mmap() && params.lora_adapter.is_none();
+    let use_mmap =
+        params.prefer_mmap && container_type.support_mmap() && params.lora_adapter.is_none();
 
     let ctx_size = tensors
         .values()
-        .map(|ti| 
-            ti.calc_absolute_size(use_mmap)
-        )
+        .map(|ti| ti.calc_absolute_size(use_mmap))
         .sum::<usize>();
 
-    
-    let mut lora_adapter:Option<LoraAdapter> = None;
-    if let Some(lora_path) = &params.lora_adapter{
+    let mut lora_adapter: Option<LoraAdapter> = None;
+    if let Some(lora_path) = &params.lora_adapter {
         //Read the LoRA file
         let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
             source: e,
@@ -353,13 +351,18 @@ pub fn load<M: KnownModel>(
         })?;
         let mut lora_reader = BufReader::new(&lora_file);
         //TODO: check what we want to do with the callback here
-        let mut lora_loader:Loader<LoraParameters,_> = Loader::new(|_|{});
+        let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
         ggml::format::load(&mut lora_reader, &mut lora_loader)
             .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
-        lora_adapter = Some(LoraAdapter::new(lora_loader.hyperparameters.calculate_scaling(),lora_loader.tensors,lora_file,lora_path.to_owned()));
+        lora_adapter = Some(LoraAdapter::new(
+            lora_loader.hyperparameters.calculate_scaling(),
+            lora_loader.tensors,
+            lora_file,
+            lora_path.to_owned(),
+        ));
     }
-    
+
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
     let context = Context::init(ctx_size, !use_mmap);
 
@@ -396,7 +399,6 @@ pub fn load<M: KnownModel>(
             self.load_manual(name, &tensor_dims)
         }
 
-        
         fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
             let info = self
                 .tensors
@@ -406,10 +408,13 @@ pub fn load<M: KnownModel>(
                     tensor_name: name.to_owned(),
                 })?;
 
-            let get_tensor = |info: &TensorLoadInfo,ne: &[usize],file:&mut File,context:&Context  |{
+            let get_tensor = |info: &TensorLoadInfo,
+                              ne: &[usize],
+                              file: &mut File,
+                              context: &Context| {
                 return util::load_tensor(info, ne, file, context, self.mmap.as_ref())
                     .map_err(|e| match e {
-                        util::TensorLoadError::DimensionMissmatch{expected,actual} 
+                        util::TensorLoadError::DimensionMissmatch{expected,actual}
                         => LoadError::InvariantBroken { path: Some(self.path.clone()), invariant: format!(
                             "the tensor {name} should have {expected} dimensions, not {actual}") },
                         util::TensorLoadError::UnsupportedDimensionCount{count}
@@ -419,26 +424,35 @@ pub fn load<M: KnownModel>(
                     });
             };
 
-            let mut tensor = get_tensor(&info, &ne, &mut self.file, &self.context)?; 
+            let mut tensor = get_tensor(&info, &ne, &mut self.file, &self.context)?;
 
             if let Some(lora_adapter) = &mut self.lora_adapter {
-               
                 //Check if we need to patch this tensor
-                if lora_adapter.tensors_to_patch.contains(name){
+                if lora_adapter.tensors_to_patch.contains(name) {
                     let a_tensor_name = format!("{}.loraA", name);
                     let b_tensor_name = format!("{}.loraB", name);
-                    
+
                     //Get the a and b tensor infos
-                    let a_tensor_info = lora_adapter.tensors
+                    let a_tensor_info = lora_adapter
+                        .tensors
                         .get(&a_tensor_name)
-                        .ok_or(Err::<&TensorLoadInfo,_>(LoadError::UnknownTensor { path: lora_adapter.path.clone(), tensor_name: a_tensor_name.to_owned()})).unwrap();
+                        .ok_or(Err::<&TensorLoadInfo, _>(LoadError::UnknownTensor {
+                            path: lora_adapter.path.clone(),
+                            tensor_name: a_tensor_name.to_owned(),
+                        }))
+                        .unwrap();
 
-                    let b_tensor_info = lora_adapter.tensors
+                    let b_tensor_info = lora_adapter
+                        .tensors
                         .get(&b_tensor_name)
-                        .ok_or(Err::<&TensorLoadInfo,_>(LoadError::UnknownTensor { path: lora_adapter.path.clone(), tensor_name: b_tensor_name.to_owned()})).unwrap();
+                        .ok_or(Err::<&TensorLoadInfo, _>(LoadError::UnknownTensor {
+                            path: lora_adapter.path.clone(),
+                            tensor_name: b_tensor_name.to_owned(),
+                        }))
+                        .unwrap();
 
-                    //TODO calculate the size dynmaically 
-                    let patch_context_size = 1024*1024*128;
+                    //TODO calculate the size dynmaically
+                    let patch_context_size = 1024 * 1024 * 128;
 
                     //create a temporary context for the patching operations and reload the target tensor into it
                     let patch_context = Context::init(patch_context_size, true);
@@ -447,30 +461,46 @@ pub fn load<M: KnownModel>(
                     let mut target_tensor = get_tensor(info, &ne, &mut self.file, &patch_context)?;
 
                     //Load the A and B tensors
-                    let a = get_tensor(a_tensor_info, &a_tensor_info.dims().to_vec(), &mut lora_adapter.file, &patch_context)?;
-                    let b = get_tensor(b_tensor_info, &b_tensor_info.dims().to_vec(), &mut lora_adapter.file, &patch_context)?;
-                   
+                    let a = get_tensor(
+                        a_tensor_info,
+                        &a_tensor_info.dims().to_vec(),
+                        &mut lora_adapter.file,
+                        &patch_context,
+                    )?;
+                    let b = get_tensor(
+                        b_tensor_info,
+                        &b_tensor_info.dims().to_vec(),
+                        &mut lora_adapter.file,
+                        &patch_context,
+                    )?;
+
                     //Build a ggml context and apply the patch
                     //TODO: maybe pass the models threadcount to this context
                     let mut gf = ggml::ComputationGraph::new(8);
-                    
+
                     //LoRA formula: w = w + ba*s
                     let mut ba = patch_context.op_mul_mat(&a, &b);
                     if lora_adapter.scaling != 1.0 {
                         let scaling_tensor = patch_context.new_f32(lora_adapter.scaling);
-                        ba = patch_context.op_scale(&ba, &scaling_tensor);  
+                        ba = patch_context.op_scale(&ba, &scaling_tensor);
                     }
                     target_tensor = patch_context.op_add(&target_tensor, &ba);
                     //Compute the graph
                     gf.build_forward_expand(&target_tensor);
                     patch_context.graph_compute(&mut gf);
-                    
+
                     //Overwrite the original tensor, this is shoud be save as we only operated on the target_tensor which is a copy of the original
                     unsafe {
-                        ptr::copy_nonoverlapping(target_tensor.data(), tensor.data(), tensor.nbytes());
+                        ptr::copy_nonoverlapping(
+                            target_tensor.data(),
+                            tensor.data(),
+                            tensor.nbytes(),
+                        );
                     }
 
-                    (self.load_progress_callback)(LoadProgress::LoraApplied { name: name.to_owned() }); 
+                    (self.load_progress_callback)(LoadProgress::LoraApplied {
+                        name: name.to_owned(),
+                    });
                 }
             }
 
@@ -479,7 +509,6 @@ pub fn load<M: KnownModel>(
                 tensor_count: self.tensors.len(),
             });
             self.loaded_tensors.insert(name.to_owned(), tensor.share());
-
 
             Ok(tensor)
         }

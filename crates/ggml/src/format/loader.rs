@@ -76,11 +76,11 @@ impl TensorLoadInfo {
     }
 
     /// Calculates the absolute size in bytes of the tensor's data, given the mmap flag.
-    pub fn calc_absolute_size(&self, mmap:bool)-> usize{
+    pub fn calc_absolute_size(&self, mmap: bool) -> usize {
         let header_size = crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE;
-        if mmap{
+        if mmap {
             return header_size;
-        }else{
+        } else {
             return header_size + self.calc_size();
         }
     }

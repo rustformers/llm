@@ -1,7 +1,7 @@
 //! Utilities for interacting with LLMs and loading them.
+use ggml::format::TensorLoadInfo;
 pub use ggml::util::*;
 use ggml::Context;
-use ggml::format::{TensorLoadInfo};
 
 use std::{
     fs::File,
@@ -147,10 +147,9 @@ pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> 
     unsafe { MmapOptions::new().populate().map(file) }
 }
 
-
 #[derive(Error, Debug)]
 /// Errors encountered while loading a tensor from a file.
-pub enum TensorLoadError{
+pub enum TensorLoadError {
     /// Dimensions do not match.
     #[error("dimension missmatch expected:{expected:?} actual:{actual:?}")]
     DimensionMissmatch {
@@ -161,7 +160,7 @@ pub enum TensorLoadError{
     },
     /// Dimensions is not supported.
     #[error("unsupported dimension count: {count:?}")]
-    UnsupportedDimensionCount{
+    UnsupportedDimensionCount {
         /// Given Dimensions.
         count: usize,
     },
@@ -171,8 +170,13 @@ pub enum TensorLoadError{
 }
 
 /// Load a tensor via a TensorLoadInfo and a Dimension `ne` from a file into a given ggml context
-pub fn load_tensor(info:&TensorLoadInfo,ne: &[usize],file:&mut File,context:&Context,mmap: Option<&Mmap>) -> Result<ggml::Tensor, TensorLoadError> 
-{
+pub fn load_tensor(
+    info: &TensorLoadInfo,
+    ne: &[usize],
+    file: &mut File,
+    context: &Context,
+    mmap: Option<&Mmap>,
+) -> Result<ggml::Tensor, TensorLoadError> {
     let dims = ne.len();
     if dims != info.n_dims {
         return Err(TensorLoadError::DimensionMissmatch {
@@ -185,11 +189,7 @@ pub fn load_tensor(info:&TensorLoadInfo,ne: &[usize],file:&mut File,context:&Con
         1 => context.new_tensor_1d(info.element_type, ne[0]),
         2 => context.new_tensor_2d(info.element_type, ne[0], ne[1]),
         3 => context.new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
-        _ => {
-            return Err(TensorLoadError::UnsupportedDimensionCount {
-                count: dims,
-            })
-        }
+        _ => return Err(TensorLoadError::UnsupportedDimensionCount { count: dims }),
     };
 
     match mmap {
@@ -201,14 +201,14 @@ pub fn load_tensor(info:&TensorLoadInfo,ne: &[usize],file:&mut File,context:&Con
             let buf: &mut [u8] = unsafe {
                 std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
             };
-            file.seek(SeekFrom::Start(info.start_offset)).map_err(|e| TensorLoadError::IO(e))?;
+            file.seek(SeekFrom::Start(info.start_offset))
+                .map_err(|e| TensorLoadError::IO(e))?;
             file.read_exact(buf).map_err(|e| TensorLoadError::IO(e))?;
         }
     }
 
     Ok(tensor)
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -11,9 +11,9 @@ use thiserror::Error;
 
 mod inference_session;
 mod loader;
+mod lora;
 mod quantize;
 mod vocabulary;
-mod lora;
 
 pub mod model;
 pub mod util;
@@ -29,12 +29,12 @@ pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
     TensorLoader,
 };
+pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{InvalidTokenBias, TokenBias, TokenId, Vocabulary};
-pub use lora::{LoraParameters,LoraAdapter};
 
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters for text generation.

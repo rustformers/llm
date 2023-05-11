@@ -1,9 +1,4 @@
-use crate::{
-    Hyperparameters,
-    util,
-    LoadError,
-    model::HyperparametersWriteError,
-};
+use crate::{model::HyperparametersWriteError, util, Hyperparameters, LoadError};
 
 use ggml::format::TensorLoadInfo;
 use std::collections::{HashMap, HashSet};
@@ -11,17 +6,17 @@ use std::fs::File;
 use std::path::PathBuf;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-/// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter 
-pub struct LoraParameters{
+/// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter
+pub struct LoraParameters {
     /// r
     pub r: i32,
     /// alpha
     pub alpha: i32,
 }
 
-impl LoraParameters{
+impl LoraParameters {
     /// Returns the scaling factor for the LoRA adapter
-    pub fn calculate_scaling(&self) -> f32{
+    pub fn calculate_scaling(&self) -> f32 {
         (self.alpha as f32) / (self.r as f32)
     }
 }
@@ -47,7 +42,7 @@ impl Hyperparameters for LoraParameters {
 }
 
 /// A LoRA adapter for a base model
-pub struct LoraAdapter{
+pub struct LoraAdapter {
     /// Scaling to apply to the LoRA weights
     pub scaling: f32,
     /// Lora Tensors to apply
@@ -60,17 +55,21 @@ pub struct LoraAdapter{
     pub path: PathBuf,
 }
 
-impl LoraAdapter{
+impl LoraAdapter {
     /// Creates a new LoRA adapter
-    pub fn new(scaling: f32, tensors: HashMap<String, TensorLoadInfo>, file: File, path: PathBuf) -> Self{
-
-        let mut tensors_to_patch:HashSet<String> = HashSet::new();
-        for key in tensors.keys(){
-            let basename = key.rsplitn(2,".").nth(1).unwrap();
+    pub fn new(
+        scaling: f32,
+        tensors: HashMap<String, TensorLoadInfo>,
+        file: File,
+        path: PathBuf,
+    ) -> Self {
+        let mut tensors_to_patch: HashSet<String> = HashSet::new();
+        for key in tensors.keys() {
+            let basename = key.rsplitn(2, ".").nth(1).unwrap();
             tensors_to_patch.insert(basename.to_owned());
         }
 
-        LoraAdapter{
+        LoraAdapter {
             scaling,
             tensors,
             tensors_to_patch,
