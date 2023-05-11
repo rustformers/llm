@@ -4,12 +4,9 @@ use ggml::Context;
 use ggml::format::{TensorLoadInfo};
 
 use std::{
-    collections::HashMap,
-    fmt::{Display, Formatter},
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    error::Error
 };
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
