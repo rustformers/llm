@@ -21,7 +21,7 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceFeedback, InferenceRequest, InferenceResponse, InferenceSession,
+    feed_prompt_callback, InferenceFeedback, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceStats, ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{

@@ -20,8 +20,6 @@ macro_rules! mulf {
 use memmap2::{Mmap, MmapAsRawDesc, MmapOptions};
 use thiserror::Error;
 
-use crate::inference_session::{InferenceFeedback, InferenceResponse};
-
 /// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
 ///
 /// Tokens are *not* valid UTF-8 by themselves. However, the LLM will produce valid UTF-8
@@ -59,18 +57,6 @@ impl TokenUtf8Buffer {
                 }
                 None
             }
-        }
-    }
-
-    /// Adapt an [InferenceResponse] callback so that it can be used in a `&[u8]`
-    /// context.
-    pub fn adapt_callback<'a, E: std::error::Error + 'static>(
-        mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a,
-    ) -> impl FnMut(&[u8]) -> Result<crate::inference_session::InferenceFeedback, E> + 'a {
-        let mut buffer = Self::new();
-        move |token| match buffer.push(token) {
-            Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
-            None => Ok(InferenceFeedback::Continue),
         }
     }
 }

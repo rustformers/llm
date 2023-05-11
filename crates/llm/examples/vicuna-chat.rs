@@ -1,6 +1,6 @@
 use llm_base::{
-    InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats, LoadProgress,
-    TokenUtf8Buffer,
+    feed_prompt_callback, InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats,
+    LoadProgress,
 };
 use rustyline::error::ReadlineError;
 use spinoff::{spinners::Dots2, Spinner};
@@ -50,7 +50,7 @@ fn main() {
             &Default::default(),
             format!("{persona}\n{history}").as_str(),
             &mut Default::default(),
-            TokenUtf8Buffer::adapt_callback(prompt_callback),
+            feed_prompt_callback(prompt_callback),
         )
         .expect("Failed to ingest initial prompt.");
 

@@ -187,7 +187,7 @@ impl InferenceSession {
             parameters,
             request.prompt,
             output_request,
-            TokenUtf8Buffer::adapt_callback(&mut callback),
+            feed_prompt_callback(&mut callback),
         )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
@@ -632,6 +632,18 @@ pub enum InferenceFeedback {
     Continue,
     /// Halt inference
     Halt,
+}
+
+/// Adapt an [InferenceResponse] callback so that it can be used in a call to
+/// [InferenceSession::feed_prompt].
+pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
+    mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a,
+) -> impl FnMut(&[u8]) -> Result<InferenceFeedback, E> + 'a {
+    let mut buffer = TokenUtf8Buffer::new();
+    move |token| match buffer.push(token) {
+        Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
+        None => Ok(InferenceFeedback::Continue),
+    }
 }
 
 fn scratch_buffers() -> [ggml::Buffer; 2] {
