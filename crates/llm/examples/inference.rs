@@ -1,5 +1,5 @@
 use llm::load_progress_callback_stdout as load_callback;
-use llm_base::InferenceRequest;
+use llm_base::{InferenceFeedback, InferenceRequest, InferenceResponse};
 use std::{convert::Infallible, env::args, io::Write, path::Path};
 
 fn main() {
@@ -39,11 +39,14 @@ fn main() {
         },
         // OutputRequest
         &mut Default::default(),
-        |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
+        |r| match r {
+            InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
 
-            Ok(())
+                Ok(InferenceFeedback::Continue)
+            }
+            _ => Ok(InferenceFeedback::Continue),
         },
     );
 
