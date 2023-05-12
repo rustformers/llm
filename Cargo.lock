@@ -727,6 +727,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "llm-mpt"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "llm-base",
+]
+
+[[package]]
 name = "llm-neox"
 version = "0.1.1"
 dependencies = [
