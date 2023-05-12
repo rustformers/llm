@@ -127,6 +127,7 @@ impl KnownModel for NeoX {
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
+            false,
         )
     }
 

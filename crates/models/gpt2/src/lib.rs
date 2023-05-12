@@ -98,6 +98,7 @@ impl KnownModel for Gpt2 {
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
+            false,
         )
     }
 

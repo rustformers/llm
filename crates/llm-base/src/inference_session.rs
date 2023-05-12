@@ -387,22 +387,28 @@ impl InferenceSession {
         n_layer: usize,
         n_embd: usize,
         n_vocab: usize,
+        is_rwkv: bool, //TODO: Find a better way to do this
     ) -> InferenceSession {
         let ctx_size = {
             let mut ctx_size = 0;
-            ctx_size += mulf!(
-                n_ctx,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_k_type.into())
-            ); // memory_k
-            ctx_size += mulf!(
-                n_ctx,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_v_type.into())
-            ); // memory_v
-            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+            if is_rwkv {
+                ctx_size += n_layer * 5 * n_embd * 4;
+                ctx_size += 720 // for some reason needed 720 extra bytes
+            } else {
+                ctx_size += mulf!(
+                    n_ctx,
+                    n_layer,
+                    n_embd,
+                    ggml::type_sizef(config.memory_k_type.into())
+                ); // memory_k
+                ctx_size += mulf!(
+                    n_ctx,
+                    n_layer,
+                    n_embd,
+                    ggml::type_sizef(config.memory_v_type.into())
+                ); // memory_v
+                ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+            }
             ctx_size
         };
 
@@ -411,9 +417,18 @@ impl InferenceSession {
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
-        let state = session_ctx.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
+        let memory_k = session_ctx.new_tensor_1d(
+            config.memory_k_type.into(),
+            if is_rwkv { 0 } else { n_elements },
+        );
+        let memory_v = session_ctx.new_tensor_1d(
+            config.memory_v_type.into(),
+            if is_rwkv { 0 } else { n_elements },
+        );
+        let state = session_ctx.new_tensor_1d(
+            ggml::Type::F32,
+            if is_rwkv { n_layer * 5 * n_embd } else { 0 },
+        );
 
         //  ggml_set_f32(ctx->state, 0.0F);
 
@@ -424,6 +439,8 @@ impl InferenceSession {
                 -1e30F
             );
             */
+
+            //session_ctx.op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4);
         }
 
         InferenceSession {

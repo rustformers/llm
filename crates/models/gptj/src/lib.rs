@@ -115,6 +115,7 @@ impl KnownModel for GptJ {
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
+            false,
         )
     }
 

@@ -178,6 +178,7 @@ impl KnownModel for Rwkv {
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
+            true,
         )
     }
 
@@ -293,7 +294,7 @@ impl KnownModel for Rwkv {
 
         x = rwkv_layer_norm(&ctx0, &x, &self.ln_out_weight, &self.ln_out_bias);
 
-        let logits = &ctx0.op_mul_mat(&self.head, &x);
+        let mut logits = ctx0.op_mul_mat(&self.head, &x);
         gf.build_forward_expand(&logits);
 
         for i in 0..(n_layer * 5) {
@@ -303,10 +304,16 @@ impl KnownModel for Rwkv {
         ctx0.graph_compute(&mut gf);
 
         // finish evaluation
+
         //common::read_last_token(session, &input_layer, n_vocab, n);
+        session.last_logits = unsafe {
+            std::slice::from_raw_parts(logits.data() as *mut f32, logits.nbytes()).to_vec()
+        };
+
         //common::extract_logits(output_request, &input_layer, n_vocab, n);
-        //common::extract_embeddings(output_request, &embd, n_embd, n);
-        // common::update_session(session, &ctx0, input_tokens.len(), n);
+
+        common::extract_embeddings(output_request, &embd, n_embd, input_tokens.len());
+        common::update_session(session, &ctx0, input_tokens.len(), input_tokens.len());
     }
 
     fn vocabulary(&self) -> &Vocabulary {
@@ -322,7 +329,11 @@ impl KnownModel for Rwkv {
     }
 
     fn eot_token_id(&self) -> llm_base::TokenId {
-        todo!()
+        self.vocabulary
+            .token_to_id
+            .get("<|endoftext|>".as_bytes())
+            .copied()
+            .unwrap() // pasted from neox cause it's using the same vocab but pretty sure it can be replaced by 0
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {
