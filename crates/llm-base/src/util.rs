@@ -66,17 +66,6 @@ impl TokenUtf8Buffer {
             }
         }
     }
-
-    /// Adapt a `&str` callback so that it can be used in a `&[u8]` context.
-    pub fn adapt_callback<'a, E: std::error::Error + 'static>(
-        mut callback: impl FnMut(&str) -> Result<(), E> + 'a,
-    ) -> impl FnMut(&[u8]) -> Result<(), E> + 'a {
-        let mut buffer = Self::new();
-        move |token| match buffer.push(token) {
-            Some(tokens) => callback(&tokens),
-            None => Ok(()),
-        }
-    }
 }
 
 #[derive(Error, Debug)]
