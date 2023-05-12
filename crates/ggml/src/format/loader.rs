@@ -79,9 +79,9 @@ impl TensorLoadInfo {
     pub fn calc_absolute_size(&self, mmap: bool) -> usize {
         let header_size = crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE;
         if mmap {
-            return header_size;
+            header_size
         } else {
-            return header_size + self.calc_size();
+            header_size + self.calc_size()
         }
     }
 

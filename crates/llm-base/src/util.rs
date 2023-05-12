@@ -202,8 +202,8 @@ pub fn load_tensor(
                 std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
             };
             file.seek(SeekFrom::Start(info.start_offset))
-                .map_err(|e| TensorLoadError::IO(e))?;
-            file.read_exact(buf).map_err(|e| TensorLoadError::IO(e))?;
+                .map_err(TensorLoadError::IO)?;
+            file.read_exact(buf).map_err(TensorLoadError::IO)?;
         }
     }
 

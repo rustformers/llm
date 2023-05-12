@@ -65,7 +65,7 @@ impl LoraAdapter {
     ) -> Self {
         let mut tensors_to_patch: HashSet<String> = HashSet::new();
         for key in tensors.keys() {
-            let basename = key.rsplitn(2, ".").nth(1).unwrap();
+            let basename = key.rsplit_once('.').unwrap().0;
             tensors_to_patch.insert(basename.to_owned());
         }
 

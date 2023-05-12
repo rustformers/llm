@@ -424,7 +424,7 @@ pub fn load<M: KnownModel>(
                     });
             };
 
-            let mut tensor = get_tensor(&info, &ne, &mut self.file, &self.context)?;
+            let mut tensor = get_tensor(info, ne, &mut self.file, &self.context)?;
 
             if let Some(lora_adapter) = &mut self.lora_adapter {
                 //Check if we need to patch this tensor
@@ -458,18 +458,18 @@ pub fn load<M: KnownModel>(
                     let patch_context = Context::init(patch_context_size, true);
 
                     //TODO check if we can avoid loading again here
-                    let mut target_tensor = get_tensor(info, &ne, &mut self.file, &patch_context)?;
+                    let mut target_tensor = get_tensor(info, ne, &mut self.file, &patch_context)?;
 
                     //Load the A and B tensors
                     let a = get_tensor(
                         a_tensor_info,
-                        &a_tensor_info.dims().to_vec(),
+                        a_tensor_info.dims(),
                         &mut lora_adapter.file,
                         &patch_context,
                     )?;
                     let b = get_tensor(
                         b_tensor_info,
-                        &b_tensor_info.dims().to_vec(),
+                        b_tensor_info.dims(),
                         &mut lora_adapter.file,
                         &patch_context,
                     )?;
