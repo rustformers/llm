@@ -30,6 +30,7 @@ fn main() -> Result<()> {
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
         Args::GptJ { args } => handle_args::<llm::models::GptJ>(args),
         Args::NeoX { args } => handle_args::<llm::models::NeoX>(args),
+        Args::Mpt { args } => handle_args::<llm::models::Mpt>(args),
     }
 }
 

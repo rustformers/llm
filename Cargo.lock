@@ -647,6 +647,7 @@ dependencies = [
  "llm-gpt2",
  "llm-gptj",
  "llm-llama",
+ "llm-mpt",
  "llm-neox",
  "log",
  "rand",

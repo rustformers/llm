@@ -82,6 +82,7 @@ impl KnownModel for Mpt {
 /// MPT [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
+    //for the love of god please rename these to something more descriptive and standardise the names accross the different models 
     /// TODO: document
     d_model: usize,
     /// TODO: document

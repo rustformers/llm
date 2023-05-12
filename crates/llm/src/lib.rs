@@ -92,6 +92,8 @@ pub mod models {
     pub use llm_llama::{self as llama, Llama};
     #[cfg(feature = "neox")]
     pub use llm_neox::{self as neox, NeoX};
+    #[cfg(feature = "mpt")]
+    pub use llm_mpt::{self as mpt, Mpt};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -112,11 +114,14 @@ pub enum ModelArchitecture {
     #[cfg(feature = "neox")]
     /// [GPT-NeoX](llm_neox)
     NeoX,
+    #[cfg(feature = "mpt")]
+    /// [Mpt](llm_mpt)
+    Mpt,
 }
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 5] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX];
+    pub const ALL: [Self; 6] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX, Self::Mpt];
 }
 
 /// An unsupported model architecture was specified.
@@ -159,6 +164,8 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "neox")]
             "gptneox" => Ok(NeoX),
+            #[cfg(feature = "mpt")]
+            "mpt" => Ok(Mpt),
             m => Err(UnsupportedModelArchitecture(format!(
                 "{m} is not a supported model architecture"
             ))),
@@ -181,6 +188,8 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "neox")]
             NeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "mpt")]
+            Mpt => write!(f, "MPT"),
         }
     }
 }
@@ -208,6 +217,8 @@ pub fn load_dynamic(
         Llama => Box::new(load::<models::Llama>(path, params, load_progress_callback)?),
         #[cfg(feature = "neox")]
         NeoX => Box::new(load::<models::NeoX>(path, params, load_progress_callback)?),
+        #[cfg(feature = "mpt")]
+        Mpt => Box::new(load::<models::Mpt>(path, params, load_progress_callback)?),
     };
 
     Ok(model)
