@@ -5,6 +5,7 @@
 //! - [GPT-2](llm_gpt2)
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)
+//! - [MPT](llm_mpt)
 //! - [GPT-NeoX](llm_neox)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
@@ -111,12 +112,12 @@ pub enum ModelArchitecture {
     #[cfg(feature = "llama")]
     /// [LLaMA](llm_llama)
     Llama,
-    #[cfg(feature = "neox")]
-    /// [GPT-NeoX](llm_neox)
-    NeoX,
     #[cfg(feature = "mpt")]
     /// [Mpt](llm_mpt)
     Mpt,
+    #[cfg(feature = "neox")]
+    /// [GPT-NeoX](llm_neox)
+    NeoX,
 }
 
 impl ModelArchitecture {
@@ -126,8 +127,8 @@ impl ModelArchitecture {
         Self::Gpt2,
         Self::GptJ,
         Self::Llama,
-        Self::NeoX,
         Self::Mpt,
+        Self::NeoX,
     ];
 }
 
@@ -169,10 +170,10 @@ impl FromStr for ModelArchitecture {
             "gptj" => Ok(GptJ),
             #[cfg(feature = "llama")]
             "llama" => Ok(Llama),
-            #[cfg(feature = "neox")]
-            "gptneox" => Ok(NeoX),
             #[cfg(feature = "mpt")]
             "mpt" => Ok(Mpt),
+            #[cfg(feature = "neox")]
+            "gptneox" => Ok(NeoX),
             m => Err(UnsupportedModelArchitecture(format!(
                 "{m} is not a supported model architecture"
             ))),
@@ -194,9 +195,9 @@ impl Display for ModelArchitecture {
             #[cfg(feature = "llama")]
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "neox")]
-            NeoX => write!(f, "GPT-NeoX"),
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
+            NeoX => write!(f, "GPT-NeoX"),
         }
     }
 }
@@ -222,10 +223,10 @@ pub fn load_dynamic(
         GptJ => Box::new(load::<models::GptJ>(path, params, load_progress_callback)?),
         #[cfg(feature = "llama")]
         Llama => Box::new(load::<models::Llama>(path, params, load_progress_callback)?),
-        #[cfg(feature = "neox")]
-        NeoX => Box::new(load::<models::NeoX>(path, params, load_progress_callback)?),
         #[cfg(feature = "mpt")]
         Mpt => Box::new(load::<models::Mpt>(path, params, load_progress_callback)?),
+        #[cfg(feature = "neox")]
+        NeoX => Box::new(load::<models::NeoX>(path, params, load_progress_callback)?),
     };
 
     Ok(model)
