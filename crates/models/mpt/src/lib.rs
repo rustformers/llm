@@ -39,7 +39,7 @@ impl KnownModel for Mpt {
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
-       todo!("implement this")
+        todo!("implement this")
     }
 
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
@@ -76,13 +76,12 @@ impl KnownModel for Mpt {
     fn inference_parameters(&self) -> &InferenceParameters {
         &self.inference_params
     }
-
 }
 
 /// MPT [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
-    //for the love of god please rename these to something more descriptive and standardise the names accross the different models 
+    //for the love of god please rename these to something more descriptive and standardise the names accross the different models
     /// TODO: document
     d_model: usize,
     /// TODO: document

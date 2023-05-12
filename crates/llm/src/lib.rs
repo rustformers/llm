@@ -90,10 +90,10 @@ pub mod models {
     pub use llm_gptj::{self as gptj, GptJ};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
-    #[cfg(feature = "neox")]
-    pub use llm_neox::{self as neox, NeoX};
     #[cfg(feature = "mpt")]
     pub use llm_mpt::{self as mpt, Mpt};
+    #[cfg(feature = "neox")]
+    pub use llm_neox::{self as neox, NeoX};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -121,7 +121,14 @@ pub enum ModelArchitecture {
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 6] = [Self::Bloom, Self::Gpt2, Self::GptJ, Self::Llama, Self::NeoX, Self::Mpt];
+    pub const ALL: [Self; 6] = [
+        Self::Bloom,
+        Self::Gpt2,
+        Self::GptJ,
+        Self::Llama,
+        Self::NeoX,
+        Self::Mpt,
+    ];
 }
 
 /// An unsupported model architecture was specified.
