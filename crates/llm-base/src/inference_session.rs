@@ -42,6 +42,10 @@ pub struct InferenceSession {
     #[doc(hidden)]
     pub memory_v: ggml::Tensor,
 
+    /// RWKV's State
+    #[doc(hidden)]
+    pub state: ggml::Tensor,
+
     /// How many tokens have been fed into the model's working memory so far.
     #[doc(hidden)]
     pub n_past: usize,
@@ -323,6 +327,9 @@ impl InferenceSession {
         let memory_v = unsafe {
             std::slice::from_raw_parts(self.memory_v.data() as *mut u8, self.memory_v.nbytes())
         };
+        let state = unsafe {
+            std::slice::from_raw_parts(self.state.data() as *mut u8, self.state.nbytes())
+        };
 
         InferenceSnapshotRef {
             npast: self.n_past,
@@ -331,6 +338,7 @@ impl InferenceSession {
             logits: self.last_logits.clone(),
             memory_k,
             memory_v,
+            state,
         }
     }
 
@@ -348,6 +356,11 @@ impl InferenceSession {
                 self_size: session.memory_k.nbytes() + session.memory_v.nbytes(),
                 input_size: snapshot.memory_k.len() + snapshot.memory_v.len(),
             });
+        } else if session.state.nbytes() != snapshot.state.len() {
+            return Err(SnapshotError::MemorySizeMismatch {
+                self_size: session.state.nbytes(),
+                input_size: snapshot.state.len(),
+            });
         }
 
         // SAFETY: We have exclusive access to Session, which means no one else
@@ -356,6 +369,7 @@ impl InferenceSession {
         unsafe {
             session.memory_k.write_data(&snapshot.memory_k);
             session.memory_v.write_data(&snapshot.memory_v);
+            session.state.write_data(&snapshot.state);
         }
 
         session.n_past = snapshot.npast;
@@ -399,6 +413,18 @@ impl InferenceSession {
         let n_elements = n_embd * n_mem;
         let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
         let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
+        let state = session_ctx.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
+
+        //  ggml_set_f32(ctx->state, 0.0F);
+
+        for i in 0..n_layer {
+            /*
+             ggml_set_f32(
+                ggml_view_1d(ctx->ctx, ctx->state, n_embed, (5 * i + 4) * n_embed * sizeof(float)),
+                -1e30F
+            );
+            */
+        }
 
         InferenceSession {
             _session_ctx: session_ctx,
@@ -406,6 +432,7 @@ impl InferenceSession {
             config,
             memory_k,
             memory_v,
+            state,
             n_past: 0,
             mem_per_token: 0,
             tokens: vec![],
@@ -419,6 +446,7 @@ impl Clone for InferenceSession {
         let context = ggml::Context::init(self.memory_size, true);
         let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
+        let state = context.new_tensor_1d(self.state.get_type(), self.state.nelements());
 
         Self {
             _session_ctx: context,
@@ -426,6 +454,7 @@ impl Clone for InferenceSession {
             config: self.config,
             memory_k,
             memory_v,
+            state,
             n_past: self.n_past,
             mem_per_token: self.mem_per_token,
             tokens: self.tokens.clone(),
@@ -474,6 +503,9 @@ pub struct InferenceSnapshotRef<'a> {
     /// The contents of the 'value' memory tensor.
     #[serde(with = "serde_bytes")]
     pub memory_v: &'a [u8],
+    /// The contents of the 'state' memory tensor.
+    #[serde(with = "serde_bytes")]
+    pub state: &'a [u8],
 }
 impl InferenceSnapshotRef<'_> {
     /// Creates an owned [InferenceSnapshot] from this [InferenceSnapshotRef].
@@ -487,6 +519,7 @@ impl InferenceSnapshotRef<'_> {
             last_logits: self.logits.clone(),
             memory_k: self.memory_k.to_vec(),
             memory_v: self.memory_v.to_vec(),
+            state: self.state.to_vec(),
         }
     }
 }
@@ -510,6 +543,9 @@ pub struct InferenceSnapshot {
     /// The contents of the 'value' memory tensor.
     #[serde(with = "serde_bytes")]
     pub memory_v: Vec<u8>,
+    /// The contents of the 'state' memory tensor.
+    #[serde(with = "serde_bytes")]
+    pub state: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -199,13 +199,12 @@ impl KnownModel for Rwkv {
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        let state = ctx0.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
+        //let state = ctx0.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
 
         let mut x = ctx0.op_get_rows(&self.emb, &embd);
 
         x = rwkv_layer_norm(&ctx0, &x, &self.ln0_weight, &self.ln0_bias);
 
-        // struct ggml_tensor ** state_parts = new ggml_tensor * [n_layer * 5];
         let mut state_parts: Vec<ggml::Tensor> = Vec::with_capacity(n_layer * 5);
         let mut gf = ggml::ComputationGraph::new(n_threads);
 
@@ -213,59 +212,101 @@ impl KnownModel for Rwkv {
             let layer = &self.layers[i];
 
             // RWKV Time Mixing
-            let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln1_weight, &layer.ln1_bias);
-            let x_prev = ctx0.op_view_1d(&state, n_embd, (5 * i + 1) * n_embd * 4);
+            {
+                let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln1_weight, &layer.ln1_bias);
+                let x_prev = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 1) * n_embd * 4);
 
-            let xk = ctx0.op_add(
-                &ctx0.op_mul(&x0, &layer.att_time_mix_k),
-                &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_k)),
-            );
+                let xk = ctx0.op_add(
+                    &ctx0.op_mul(&x0, &layer.att_time_mix_k),
+                    &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_k)),
+                );
 
-            let xv = ctx0.op_add(
-                &ctx0.op_mul(&x0, &layer.att_time_mix_v),
-                &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_v)),
-            );
+                let xv = ctx0.op_add(
+                    &ctx0.op_mul(&x0, &layer.att_time_mix_v),
+                    &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_v)),
+                );
 
-            let xr = ctx0.op_add(
-                &ctx0.op_mul(&x0, &layer.att_time_mix_r),
-                &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_r)),
-            );
+                let xr = ctx0.op_add(
+                    &ctx0.op_mul(&x0, &layer.att_time_mix_r),
+                    &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.att_time_mix_r)),
+                );
 
-            state_parts[5 * i + 1] = x0;
+                state_parts[5 * i + 1] = x0;
 
-            let r = rwkv_sigmoid(&ctx0, &ctx0.op_mul_mat(&layer.att_receptance, &xr));
-            let k = ctx0.op_mul_mat(&layer.att_key, &xk);
-            let v = ctx0.op_mul_mat(&layer.att_value, &xv);
+                let r = rwkv_sigmoid(&ctx0, &ctx0.op_mul_mat(&layer.att_receptance, &xr));
+                let k = ctx0.op_mul_mat(&layer.att_key, &xk);
+                let v = ctx0.op_mul_mat(&layer.att_value, &xv);
 
-            let aa = ctx0.op_view_1d(&state, n_embd, (5 * i + 2) * n_embd * 4);
-            let bb = ctx0.op_view_1d(&state, n_embd, (5 * i + 3) * n_embd * 4);
-            let pp = ctx0.op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4);
+                let aa = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 2) * n_embd * 4);
+                let bb = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 3) * n_embd * 4);
+                let pp = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 4) * n_embd * 4);
 
-            let mut ww = ctx0.op_add(&layer.att_time_first, &k);
-            let mut qq = rwkv_max(&ctx0, &pp, &ww);
+                let mut ww = ctx0.op_add(&layer.att_time_first, &k);
+                let mut qq = rwkv_max(&ctx0, &pp, &ww);
 
-            let mut e1 = rwkv_exp(&ctx0, &ctx0.op_sub(&pp, &qq));
-            let mut e2 = rwkv_exp(&ctx0, &ctx0.op_sub(&ww, &qq));
+                let mut e1 = rwkv_exp(&ctx0, &ctx0.op_sub(&pp, &qq));
+                let mut e2 = rwkv_exp(&ctx0, &ctx0.op_sub(&ww, &qq));
 
-            let a = ctx0.op_add(&ctx0.op_mul(&e1, &aa), &ctx0.op_mul(&e2, &v));
-            let b = ctx0.op_add(&ctx0.op_mul(&e1, &bb), &e2);
+                let a = ctx0.op_add(&ctx0.op_mul(&e1, &aa), &ctx0.op_mul(&e2, &v));
+                let b = ctx0.op_add(&ctx0.op_mul(&e1, &bb), &e2);
 
-            let wkv = ctx0.op_div(&a, &b);
+                let wkv = ctx0.op_div(&a, &b);
 
-            ww = ctx0.op_add(&pp, &layer.att_time_decay);
-            qq = rwkv_max(&ctx0, &ww, &k);
-            e1 = rwkv_exp(&ctx0, &ctx0.op_sub(&ww, &qq));
-            e2 = rwkv_exp(&ctx0, &ctx0.op_sub(&k, &qq));
+                ww = ctx0.op_add(&pp, &layer.att_time_decay);
+                qq = rwkv_max(&ctx0, &ww, &k);
+                e1 = rwkv_exp(&ctx0, &ctx0.op_sub(&ww, &qq));
+                e2 = rwkv_exp(&ctx0, &ctx0.op_sub(&k, &qq));
 
-            state_parts[5 * i + 2] = ctx0.op_add(&ctx0.op_mul(&e1, &aa), &ctx0.op_mul(&e2, &v));
-            state_parts[5 * i + 3] = ctx0.op_add(&ctx0.op_mul(&e1, &bb), &e2);
-            state_parts[5 * i + 4] = qq;
+                state_parts[5 * i + 2] = ctx0.op_add(&ctx0.op_mul(&e1, &aa), &ctx0.op_mul(&e2, &v));
+                state_parts[5 * i + 3] = ctx0.op_add(&ctx0.op_mul(&e1, &bb), &e2);
+                state_parts[5 * i + 4] = qq;
 
-            x = ctx0.op_add(
-                &x,
-                &ctx0.op_mul_mat(&layer.att_output, &ctx0.op_mul(&r, &wkv)),
-            );
+                x = ctx0.op_add(
+                    &x,
+                    &ctx0.op_mul_mat(&layer.att_output, &ctx0.op_mul(&r, &wkv)),
+                );
+            }
+
+            // RWKV FNN/channel mixing
+
+            {
+                let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln2_weight, &layer.ln2_bias);
+                let x_prev = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 0) * n_embd * 4);
+
+                let xk = ctx0.op_add(
+                    &ctx0.op_mul(&x0, &layer.ffn_time_mix_k),
+                    &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.ffn_time_mix_k)),
+                );
+                let xr = ctx0.op_add(
+                    &ctx0.op_mul(&x0, &layer.ffn_time_mix_r),
+                    &ctx0.op_mul(&x_prev, &rwkv_1_minus_x(&ctx0, &layer.ffn_time_mix_r)),
+                );
+
+                state_parts[5 * i + 0] = x0;
+
+                let r = rwkv_sigmoid(&ctx0, &ctx0.op_mul_mat(&layer.ffn_receptance, &xr));
+                let k = ctx0.op_sqrt(&ctx0.op_relu(&ctx0.op_mul_mat(&layer.ffn_key, &xk)));
+
+                x = ctx0.op_add(&x, &ctx0.op_mul(&r, &ctx0.op_mul_mat(&layer.ffn_value, &k)));
+            }
         }
+
+        x = rwkv_layer_norm(&ctx0, &x, &self.ln_out_weight, &self.ln_out_bias);
+
+        let logits = &ctx0.op_mul_mat(&self.head, &x);
+        gf.build_forward_expand(&logits);
+
+        for i in 0..(n_layer * 5) {
+            gf.build_forward_expand(&state_parts[i]);
+        }
+
+        ctx0.graph_compute(&mut gf);
+
+        // finish evaluation
+        //common::read_last_token(session, &input_layer, n_vocab, n);
+        //common::extract_logits(output_request, &input_layer, n_vocab, n);
+        //common::extract_embeddings(output_request, &embd, n_embd, n);
+        // common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 
     fn vocabulary(&self) -> &Vocabulary {

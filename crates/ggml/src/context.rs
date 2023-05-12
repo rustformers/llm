@@ -118,6 +118,12 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    /// Create a new tensor with the square route of `a 
+    pub fn op_sqrt(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sqrt(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
     /// Unknown.
     pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_repeat(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
@@ -152,6 +158,12 @@ impl Context {
     /// Creates a new tensor with the [SiLU](https://pytorch.org/docs/stable/generated/torch.nn.SiLU.html) activation function applied to `a`.
     pub fn op_silu(&self, a: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_silu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with the relu activation function applied to `a`
+    pub fn op_relu(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_relu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
