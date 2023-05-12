@@ -38,12 +38,6 @@ pub enum Args {
         #[command(subcommand)]
         args: BaseArgs,
     },
-    /// Use a RedPajama model
-    #[clap(id = "redpajama")]
-    RedPajama {
-        #[command(subcommand)]
-        args: BaseArgs,
-    },
 }
 
 #[derive(Subcommand, Debug)]
