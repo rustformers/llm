@@ -8,13 +8,13 @@ reference implementation of GGML (written in C), as well as a collection of
 [native](src) Rust helpers to provide safe, idiomatic access to those bindings.
 GGML makes use of a technique called
 "[quantization](<https://en.wikipedia.org/wiki/Quantization_(signal_processing)>)"
-that allows for large language models to run on consumer hardware. Continue
-reading to learn more about the basics of the GGML format and how
+that allows for large language models to run on consumer hardware. This
+documents describes the basics of the GGML format, including how
 [quantization](#quantization) is used to democratize access to LLMs.
 
 ## Format
 
-GGML models consists of binary-encoded data that is laid out according to a
+GGML files consists of binary-encoded data that is laid out according to a
 specified format. The format specifies what kind of data is present in the file,
 how it is represented, and the order in which it appears. The first piece of
 information present in a valid GGML file is a GGML version number, followed by
@@ -40,7 +40,7 @@ The term
 "[hyperparameter](<https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning)>)"
 describes a value that is used to configure the behavior of a large language
 model; this is in contrast to the model's **parameters**, which are the
-[weights](#weights) that were derived via the training process that was used to
+[weights](#weights) that were derived in the training process that was used to
 create the model. Each model defines its own hyperparameter structure that
 defines the hyperparameter values accepted by that model. Valid GGML files must
 list these values in the correct order, and each value must be represented using
@@ -80,8 +80,8 @@ version, the token may also include a 32-bit floating point score.
 ### Weights
 
 The final, and largest, component of a GGML file is the weights of the LLM that
-the file represents. Abstractly, a large language model is a function that is
-used to model language - just like a function that is used to model _images_ can
+the file represents. Abstractly, a large language model is software that is used
+to generate language - just like software that is used to generate _images_ can
 be improved by increasing the number of colors with which images can be
 rendered, large language models can be improved by increasing the number of
 _weights_ in the model. The total number of a weights in a model are referred to
@@ -99,9 +99,9 @@ comprise the same tensors, but StableLM 3B has relatively _fewer_ layers when
 compared to StableLM 7B.
 
 In GGML, a tensor consists of a number of components, including: a name, a
-4-element list that represents the number of dimensions in the tensor and the
-length of each dimension, and a list of the weights in that tensor. For example,
-consider the following 2 ⨯ 2 tensor named `tensor_a0`:
+4-element list that represents the number of dimensions in the tensor and their
+lengths, and a list of the weights in that tensor. For example, consider the
+following 2 ⨯ 2 tensor named `tensor_a0`:
 
 <table style="text-align: center">
   <tr>
@@ -122,8 +122,9 @@ A simplification of the GGML representation of `tensor_a0` is
 list of dimensions uses `1` as a placeholder for unused dimensions - this is
 because the product of the dimensions should not equal zero.
 
-The weights in a GGML file are encoded as a list of layers, each of which is
-encoded as a set of tensors.
+The weights in a GGML file are encoded as a list of layers, the length of which
+is typically specified in the model's hyperparameters; each layer is encoded as
+an ordered set of tensors.
 
 #### Quantization
 
