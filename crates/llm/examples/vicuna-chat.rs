@@ -133,7 +133,7 @@ fn load_progress_callback(
         }
         LoadProgress::LoraApplied { name } => {
             if let Some(sp) = sp.as_mut() {
-                sp.update_text(format!("Applied Lora: {}", name));
+                sp.update_text(format!("Applied LoRA: {}", name));
             };
         }
         LoadProgress::Loaded {
