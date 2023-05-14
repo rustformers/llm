@@ -5,10 +5,10 @@ language models (LLMs); the name is a portmanteau of the initials of its
 originator ([Georgi Gerganov](https://ggerganov.com/)) and the acronym ML, which
 stands for machine learning. This crate provides Rust [bindings](sys) into the
 reference implementation of GGML (written in C), as well as a collection of
-native [Rust helpers](src) to provide safe, idiomatic access to those bindings.
+[native](src) Rust helpers to provide safe, idiomatic access to those bindings.
 GGML makes use of a technique called
 "[quantization](<https://en.wikipedia.org/wiki/Quantization_(signal_processing)>)"
-that allows for large language models to be run on consumer hardware. Continue
+that allows for large language models to run on consumer hardware. Continue
 reading to learn more about the basics of the GGML format and how quantization
 is used to democratize access to LLMs.
 
@@ -26,12 +26,13 @@ about GGML versions and the components of a GGML model.
 
 GGML is "bleeding-edge" technology and undergoes frequent changes. In an effort
 to support rapid development without sacrificing backwards-compatibility, GGML
-uses versioning that can be used to specify additional details about the
-encoding or make use of performance-enhancing improvements. For example, newer
-versions of GGML make use of [vocabulary](#vocabulary)-scoring, which introduces
-extra information into the encoding, as well as
-[mmap](https://en.wikipedia.org/wiki/Mmap), which enhances performance through
-memory-mapping.
+uses versioning to introduce improvements that may change the format of the
+encoding. For example, newer versions of GGML make use of
+[vocabulary](#vocabulary)-scoring, which introduces extra information into the
+encoding, as well as [mmap](https://en.wikipedia.org/wiki/Mmap), which enhances
+performance through memory-mapping. The first value that is present in a valid
+GGML file is a "magic number" that indicates the GGML version that was used to
+encode the model.
 
 ### Hyperparamaters
 
@@ -77,3 +78,18 @@ version, the token may also include a 32-bit floating point score.
 [comment]: <> (I need help describing token-scoring)
 
 ### Weights
+
+The final, and largest, component of a GGML file is the weights of the LLM that
+the file represents. The total number of a weights in a model are referred to as
+the "size" of that model. For example, the
+[StableLM](https://github.com/Stability-AI/StableLM) implementation of the
+[GPT-NeoX](https://github.com/EleutherAI/gpt-neox) language model architecture
+is available in a number of sizes, like 3B and 7B, which stands for 3-billion
+and 7-billion, respectively. These numbers refer to the total number of weights
+in that model. As described in the [hyperparameters](#hyperparamaters) section,
+weights are grouped together in sets called "layers", which, like
+hyperparameters, have structures that are uniquely defined by the model
+architecture; within a layer, weights are grouped together in structures called
+"tensors". So, for instance, both StableLM 3B and StableLM 7B use layers that
+comprise the same tensors, but StableLM 3B has relatively _fewer_ layers when
+compared to StableLM 7B.
