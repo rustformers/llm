@@ -1,37 +1,36 @@
-use llm_base::{
-    feed_prompt_callback, InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats,
-    LoadProgress,
+use llm::{
+    InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats, LoadProgress,
+    ModelArchitecture,
 };
 use rustyline::error::ReadlineError;
 use spinoff::{spinners::Dots2, Spinner};
-use std::{convert::Infallible, env::args, io::Write, path::Path, time::Instant};
+use std::{convert::Infallible, io::Write, path::Path, time::Instant};
 
 fn main() {
-    let raw_args: Vec<String> = args().collect();
-    let args = match &raw_args.len() {
-        3 => (raw_args[1].as_str(), raw_args[2].as_str()),
-        _ => {
-            panic!("Usage: cargo run --release --example vicuna-chat <model type> <path to model>")
-        }
-    };
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    if raw_args.len() < 2 {
+        println!("Usage: cargo run --release --example vicuna-chat <model_architecture> <model_path> [overrides, json]");
+        std::process::exit(1);
+    }
 
-    let model_type = args.0;
-    let model_path = Path::new(args.1);
-
-    let architecture = model_type.parse().unwrap_or_else(|e| panic!("{e}"));
-
+    let model_architecture: ModelArchitecture = raw_args[0].parse().unwrap();
+    let model_path = Path::new(&raw_args[1]);
+    let overrides = raw_args.get(2).map(|s| serde_json::from_str(s).unwrap());
     let sp = Some(Spinner::new(Dots2, "Loading model...", None));
 
     let now = Instant::now();
     let prev_load_time = now;
 
     let model = llm::load_dynamic(
-        architecture,
+        model_architecture,
         model_path,
         Default::default(),
+        overrides,
         load_progress_callback(sp, now, prev_load_time),
     )
-    .unwrap_or_else(|err| panic!("Failed to load {model_type} model from {model_path:?}: {err}"));
+    .unwrap_or_else(|err| {
+        panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
+    });
 
     let mut session = model.start_session(Default::default());
 
@@ -50,7 +49,7 @@ fn main() {
             &Default::default(),
             format!("{persona}\n{history}").as_str(),
             &mut Default::default(),
-            feed_prompt_callback(prompt_callback),
+            llm::feed_prompt_callback(prompt_callback),
         )
         .expect("Failed to ingest initial prompt.");
 
@@ -131,6 +130,11 @@ fn load_progress_callback(
                 };
                 prev_load_time = std::time::Instant::now();
             }
+        }
+        LoadProgress::LoraApplied { name } => {
+            if let Some(sp) = sp.as_mut() {
+                sp.update_text(format!("Applied LoRA: {}", name));
+            };
         }
         LoadProgress::Loaded {
             file_size,

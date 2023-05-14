@@ -23,6 +23,8 @@
 //!     std::path::Path::new("/path/to/model"),
 //!     // llm::ModelParameters
 //!     Default::default(),
+//!     // llm::KnownModel::Overrides
+//!     None,
 //!     // load progress callback
 //!     llm::load_progress_callback_stdout
 //! )
@@ -51,7 +53,7 @@
 //!
 //!             Ok(llm::InferenceFeedback::Continue)
 //!         }
-//!         _ => Ok(llm::InferenceFeedback::Continue),         
+//!         _ => Ok(llm::InferenceFeedback::Continue),
 //!     }
 //! );
 //!
@@ -72,13 +74,15 @@ use std::{
 // Try not to expose too many GGML details here.
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
-    ggml::format as ggml_format, load, load_progress_callback_stdout, quantize, ElementType,
-    FileType, InferenceError, InferenceFeedback, InferenceParameters, InferenceRequest,
-    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot,
-    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
+    feed_prompt_callback, ggml::format as ggml_format, load, load_progress_callback_stdout,
+    quantize, ElementType, FileType, InferenceError, InferenceFeedback, InferenceParameters,
+    InferenceRequest, InferenceResponse, InferenceSession, InferenceSessionConfig,
+    InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel, LoadError, LoadProgress,
+    Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides, ModelKVMemoryType,
     ModelParameters, OutputRequest, QuantizeError, QuantizeProgress, SnapshotError, TokenBias,
     TokenId, TokenUtf8Buffer, Vocabulary,
 };
+
 use serde::Serialize;
 
 /// All available models.
@@ -94,7 +98,7 @@ pub mod models {
     #[cfg(feature = "mpt")]
     pub use llm_mpt::{self as mpt, Mpt};
     #[cfg(feature = "neox")]
-    pub use llm_neox::{self as neox, NeoX};
+    pub use llm_neox::{self as neox, NeoX, NeoXOverrides};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -118,17 +122,28 @@ pub enum ModelArchitecture {
     #[cfg(feature = "neox")]
     /// [GPT-NeoX](llm_neox)
     NeoX,
+    #[cfg(feature = "neox")]
+    /// RedPajama: [GPT-NeoX](llm_neox) with `use_parallel_residual` set to false
+    RedPajama,
 }
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
+        #[cfg(feature = "bloom")]
         Self::Bloom,
+        #[cfg(feature = "gpt2")]
         Self::Gpt2,
+        #[cfg(feature = "gptj")]
         Self::GptJ,
+        #[cfg(feature = "llama")]
         Self::Llama,
-        Self::Mpt,
+        #[cfg(feature = "neox")]
         Self::NeoX,
+        #[cfg(feature = "neox")]
+        Self::RedPajama,
+        #[cfg(feature = "mpt")]
+        Self::Mpt,
     ];
 }
 
@@ -139,9 +154,7 @@ impl Display for UnsupportedModelArchitecture {
         write!(f, "{}", self.0)
     }
 }
-
 impl Error for UnsupportedModelArchitecture {}
-
 impl Debug for UnsupportedModelArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("UnsupportedModelArchitecture")
@@ -174,6 +187,8 @@ impl FromStr for ModelArchitecture {
             "mpt" => Ok(Mpt),
             #[cfg(feature = "neox")]
             "gptneox" => Ok(NeoX),
+            #[cfg(feature = "neox")]
+            "redpajama" => Ok(RedPajama),
             m => Err(UnsupportedModelArchitecture(format!(
                 "{m} is not a supported model architecture"
             ))),
@@ -198,6 +213,8 @@ impl Display for ModelArchitecture {
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
             NeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "neox")]
+            RedPajama => write!(f, "RedPajama"),
         }
     }
 }
@@ -205,28 +222,60 @@ impl Display for ModelArchitecture {
 /// A helper function that loads the specified model from disk using an architecture
 /// specified at runtime.
 ///
+/// The `overrides` will attempt to deserialize to the [KnownModel::Overrides] type
+/// for that model. If the model does not support overrides, this will be an empty
+/// struct. If the overrides are invalid, this will return an error.
+///
 /// A wrapper around [load] that dispatches to the correct model.
 pub fn load_dynamic(
     architecture: ModelArchitecture,
     path: &Path,
     params: ModelParameters,
+    overrides: Option<ModelDynamicOverrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
     use ModelArchitecture::*;
 
+    fn load_model<M: KnownModel + 'static>(
+        path: &Path,
+        params: ModelParameters,
+        overrides: Option<ModelDynamicOverrides>,
+        load_progress_callback: impl FnMut(LoadProgress),
+    ) -> Result<Box<dyn Model>, LoadError> {
+        Ok(Box::new(load::<M>(
+            path,
+            params,
+            overrides.map(|o| o.into()),
+            load_progress_callback,
+        )?))
+    }
+
     let model: Box<dyn Model> = match architecture {
         #[cfg(feature = "bloom")]
-        Bloom => Box::new(load::<models::Bloom>(path, params, load_progress_callback)?),
+        Bloom => load_model::<models::Bloom>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "gpt2")]
-        Gpt2 => Box::new(load::<models::Gpt2>(path, params, load_progress_callback)?),
+        Gpt2 => load_model::<models::Gpt2>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "gptj")]
-        GptJ => Box::new(load::<models::GptJ>(path, params, load_progress_callback)?),
+        GptJ => load_model::<models::GptJ>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "llama")]
-        Llama => Box::new(load::<models::Llama>(path, params, load_progress_callback)?),
-        #[cfg(feature = "mpt")]
-        Mpt => Box::new(load::<models::Mpt>(path, params, load_progress_callback)?),
+        Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "neox")]
-        NeoX => Box::new(load::<models::NeoX>(path, params, load_progress_callback)?),
+        NeoX => load_model::<models::NeoX>(path, params, overrides, load_progress_callback)?,
+        #[cfg(feature = "neox")]
+        RedPajama => load_model::<models::NeoX>(
+            path,
+            params,
+            {
+                let mut overrides = overrides.unwrap_or_default();
+                overrides.merge(models::NeoXOverrides {
+                    use_parallel_residual: false,
+                });
+                Some(overrides)
+            },
+            load_progress_callback,
+        )?,
+        #[cfg(feature = "mpt")]
+        Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
     };
 
     Ok(model)

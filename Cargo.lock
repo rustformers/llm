@@ -653,6 +653,7 @@ dependencies = [
  "rand",
  "rustyline",
  "serde",
+ "serde_json",
  "spinoff",
 ]
 
@@ -741,6 +742,7 @@ version = "0.1.1"
 dependencies = [
  "bytemuck",
  "llm-base",
+ "serde",
 ]
 
 [[package]]
