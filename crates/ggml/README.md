@@ -9,8 +9,8 @@ reference implementation of GGML (written in C), as well as a collection of
 GGML makes use of a technique called
 "[quantization](<https://en.wikipedia.org/wiki/Quantization_(signal_processing)>)"
 that allows for large language models to run on consumer hardware. Continue
-reading to learn more about the basics of the GGML format and how quantization
-is used to democratize access to LLMs.
+reading to learn more about the basics of the GGML format and how
+[quantization](#quantization) is used to democratize access to LLMs.
 
 ## Format
 
@@ -93,3 +93,42 @@ architecture; within a layer, weights are grouped together in structures called
 "tensors". So, for instance, both StableLM 3B and StableLM 7B use layers that
 comprise the same tensors, but StableLM 3B has relatively _fewer_ layers when
 compared to StableLM 7B.
+
+In GGML, a tensor consists of a number of components, including: a name, a
+4-element list that represents the number of dimensions in the tensor and the
+length of each dimension, and a list of the weights in that tensor. For example,
+consider the following 2 ⨯ 2 tensor named `tensor_a0`:
+
+<table style="text-align: center">
+  <tr>
+    <td colspan="2"><code>tensor_a0</code></td>
+  </tr>
+  <tr>
+    <td>1.0</td>
+    <td>0.0</td>
+  </tr>
+  <tr>
+    <td>0.1</td>
+    <td>1.1</td>
+  </tr>
+</table>
+
+A simplification of the GGML representation of `tensor_a0` is
+`{"tensor_a0", [2, 2, 1, 1], [1.0, 0.0, 0.1, 1.0]}`. Note that the 4-element
+list of dimensions uses `1` as a placeholder for unused dimensions - this is
+because the product of the dimensions should not equal zero.
+
+The weights in a GGML file are encoded as a list of layers, each of which is
+encoded as a set of tensors.
+
+#### Quantization
+
+LLM weights are floating point (decimal) numbers. Just like it requires more
+space to represent a large integer (e.g. 1000) compared to a small integer (e.g.
+1), it requires more space to represent a high-precision floating point number
+(e.g. 0.0001) compared to a low-precision floating number (e.g. 0.1). The
+process of "quantizing" a large language model involves reducing the precision
+with which weights are represented in order to reduce the resources required to
+use the model. GGML supports a number of different quantization strategies (e.g.
+4-bit, 5-bit, and 8-bit quantization), each of which offers different trade-offs
+between efficiency and performance.
