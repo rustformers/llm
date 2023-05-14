@@ -9,42 +9,6 @@ use std::{
     path::PathBuf,
 };
 
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-/// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter.
-pub struct LoraParameters {
-    /// r
-    pub r: i32,
-    /// alpha
-    pub alpha: i32,
-}
-
-impl LoraParameters {
-    /// Returns the scaling factor for the LoRA adapter.
-    pub fn calculate_scaling(&self) -> f32 {
-        (self.alpha as f32) / (self.r as f32)
-    }
-}
-
-impl Hyperparameters for LoraParameters {
-    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
-        Ok(LoraParameters {
-            r: util::read_i32(reader)?,
-            alpha: util::read_i32(reader)?,
-        })
-    }
-
-    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
-        util::write_i32(writer, self.r)?;
-        util::write_i32(writer, self.alpha)?;
-        Ok(())
-    }
-
-    fn n_vocabulary(&self) -> usize {
-        // LoRA adapters do not have a vocabulary.
-        0
-    }
-}
-
 /// A LoRA adapter for a model.
 pub struct LoraAdapter {
     /// Scaling to apply to the LoRA weights.
@@ -58,7 +22,6 @@ pub struct LoraAdapter {
     /// Path to the LoRA file.
     pub path: PathBuf,
 }
-
 impl LoraAdapter {
     /// Creates a new LoRA adapter.
     pub fn new(
@@ -87,30 +50,19 @@ impl LoraAdapter {
         if !self.tensors_to_patch.contains(name) {
             return Ok(());
         }
-        let a_name = format!("{}.loraA", name);
-        let b_name = format!("{}.loraB", name);
-
-        // Get the a and b tensor infos
-        let a_tensor_info = self.tensors.get(&a_name).ok_or(LoadError::UnknownTensor {
-            path: self.path.clone(),
-            tensor_name: a_name.to_owned(),
-        })?;
-
-        let b_tensor_info = self.tensors.get(&b_name).ok_or(LoadError::UnknownTensor {
-            path: self.path.clone(),
-            tensor_name: b_name.to_owned(),
-        })?;
 
         // TODO: calculate the size dynmaically
         let patch_context_size = 1024 * 1024 * 128;
+        let a_info = self.get_info(&format!("{}.loraA", name))?;
+        let b_info = self.get_info(&format!("{}.loraB", name))?;
 
         // Create a temporary context for the patching operations
         let patch_context = ggml::Context::init(patch_context_size, true);
         let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path, None);
 
         // Load the A and B tensors
-        let a = patch_file.get_tensor(a_tensor_info)?;
-        let b = patch_file.get_tensor(b_tensor_info)?;
+        let a = patch_file.get_tensor(&a_info)?;
+        let b = patch_file.get_tensor(&b_info)?;
 
         // Build a ggml context and apply the patch
         // TODO: maybe pass the model's thread count to this context
@@ -136,5 +88,49 @@ impl LoraAdapter {
         }
 
         Ok(())
+    }
+
+    fn get_info(&self, name: &str) -> Result<TensorLoadInfo, LoadError> {
+        self.tensors
+            .get(name)
+            .cloned()
+            .ok_or(LoadError::UnknownTensor {
+                path: self.path.to_owned(),
+                tensor_name: name.to_owned(),
+            })
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+/// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter.
+pub struct LoraParameters {
+    /// r
+    pub r: i32,
+    /// alpha
+    pub alpha: i32,
+}
+impl LoraParameters {
+    /// Returns the scaling factor for the LoRA adapter.
+    pub fn calculate_scaling(&self) -> f32 {
+        (self.alpha as f32) / (self.r as f32)
+    }
+}
+impl Hyperparameters for LoraParameters {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+        Ok(LoraParameters {
+            r: util::read_i32(reader)?,
+            alpha: util::read_i32(reader)?,
+        })
+    }
+
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
+        util::write_i32(writer, self.r)?;
+        util::write_i32(writer, self.alpha)?;
+        Ok(())
+    }
+
+    fn n_vocabulary(&self) -> usize {
+        // LoRA adapters do not have a vocabulary.
+        0
     }
 }
