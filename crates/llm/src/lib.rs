@@ -117,8 +117,8 @@ pub enum ModelArchitecture {
     /// [GPT-NeoX](llm_neox)
     NeoX,
     #[cfg(feature = "neox")]
-    /// GPT-NeoX (RedPajama): [GPT-NeoX](llm_neox) with `use_parallel_residual` set to false
-    GptNeoXRedPajama,
+    /// RedPajama: [GPT-NeoX](llm_neox) with `use_parallel_residual` set to false
+    RedPajama,
 }
 
 impl ModelArchitecture {
@@ -135,7 +135,7 @@ impl ModelArchitecture {
         #[cfg(feature = "neox")]
         Self::NeoX,
         #[cfg(feature = "neox")]
-        Self::GptNeoXRedPajama,
+        Self::RedPajama,
     ];
 }
 
@@ -178,7 +178,7 @@ impl FromStr for ModelArchitecture {
             #[cfg(feature = "neox")]
             "gptneox" => Ok(NeoX),
             #[cfg(feature = "neox")]
-            "gptneoxredpajama" => Ok(GptNeoXRedPajama),
+            "redpajama" => Ok(RedPajama),
             m => Err(UnsupportedModelArchitecture(format!(
                 "{m} is not a supported model architecture"
             ))),
@@ -202,7 +202,7 @@ impl Display for ModelArchitecture {
             #[cfg(feature = "neox")]
             NeoX => write!(f, "GPT-NeoX"),
             #[cfg(feature = "neox")]
-            GptNeoXRedPajama => write!(f, "GPT-NeoX (RedPajama)"),
+            RedPajama => write!(f, "RedPajama"),
         }
     }
 }
@@ -250,7 +250,7 @@ pub fn load_dynamic(
         #[cfg(feature = "neox")]
         NeoX => load_model::<models::NeoX>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "neox")]
-        GptNeoXRedPajama => load_model::<models::NeoX>(
+        RedPajama => load_model::<models::NeoX>(
             path,
             params,
             {

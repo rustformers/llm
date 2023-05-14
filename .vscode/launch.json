@@ -89,7 +89,7 @@
           "kind": "example"
         }
       },
-      "args": ["gptneox-redpajama", "${env:HOME}/.ggml-models/redpajama-incite-7b.bin"],
+      "args": ["redpajama", "${env:HOME}/.ggml-models/redpajama-incite-7b.bin"],
       "cwd": "${workspaceFolder}"
     },
     {

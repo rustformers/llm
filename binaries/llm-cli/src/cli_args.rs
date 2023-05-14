@@ -45,11 +45,11 @@ pub enum Args {
         /// and the model format does not store this information.
         no_parallel_residual: bool,
     },
-    /// Use a GPT-NeoX model with RedPajama's modifications
+    /// Use a model from the RedPajama GPT-NeoX family
     ///
     /// (GPT-NeoX with `use_parallel_residual` set to false)
-    #[clap(id = "gptneox-redpajama")]
-    GptNeoXRedPajama {
+    #[clap(id = "redpajama")]
+    RedPajama {
         #[command(subcommand)]
         args: BaseArgs,
     },

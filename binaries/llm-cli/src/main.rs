@@ -38,7 +38,7 @@ fn main() -> Result<()> {
                 use_parallel_residual: !*no_parallel_residual,
             }),
         ),
-        Args::GptNeoXRedPajama { args } => handle_args::<llm::models::NeoX>(
+        Args::RedPajama { args } => handle_args::<llm::models::NeoX>(
             args,
             Some(llm::models::NeoXOverrides {
                 use_parallel_residual: false,
