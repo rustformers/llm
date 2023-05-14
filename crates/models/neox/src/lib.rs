@@ -1,5 +1,5 @@
 //! An implementation of [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
-//! This crate also implements the [RedPajama](https://www.together.xyz/blog/redpajama) model.
+//! This crate also supports the [RedPajama](https://www.together.xyz/blog/redpajama) GPT-NeoX model.
 #![deny(missing_docs)]
 
 use std::error::Error;
@@ -9,8 +9,10 @@ use llm_base::{
     ggml::{self, ElementType},
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
+    LoadError, Mmap, ModelDynamicOverrides, ModelParameters, OutputRequest, TensorLoader, TokenId,
+    Vocabulary,
 };
+use serde::{Deserialize, Serialize};
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
 ///
@@ -46,12 +48,51 @@ pub struct NeoX {
 unsafe impl Send for NeoX {}
 unsafe impl Sync for NeoX {}
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+/// Overrides for the GPT-NeoX model.
+pub struct NeoXOverrides {
+    /// Whether to use a "parallel" formulation in each Transformer layer, which can provide a slight training
+    /// speedup at large scales (e.g. 20B).
+    ///
+    /// Defaults to `true`.
+    /// The RedPajama models use `false`.
+    pub use_parallel_residual: bool,
+}
+impl Default for NeoXOverrides {
+    fn default() -> Self {
+        Self {
+            use_parallel_residual: true,
+        }
+    }
+}
+impl From<ModelDynamicOverrides> for NeoXOverrides {
+    fn from(val: ModelDynamicOverrides) -> Self {
+        let mut overrides = NeoXOverrides::default();
+        if let Some(v) = val.get("use_parallel_residual") {
+            overrides.use_parallel_residual = v;
+        }
+        overrides
+    }
+}
+impl From<NeoXOverrides> for ModelDynamicOverrides {
+    fn from(val: NeoXOverrides) -> Self {
+        let mut overrides = ModelDynamicOverrides::default();
+        overrides.insert(
+            "use_parallel_residual".to_string(),
+            val.use_parallel_residual,
+        );
+        overrides
+    }
+}
+
 impl KnownModel for NeoX {
     type Hyperparameters = Hyperparameters;
+    type Overrides = NeoXOverrides;
 
     fn new<E: Error>(
         hyperparameters: Hyperparameters,
         params: ModelParameters,
+        overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -106,6 +147,11 @@ impl KnownModel for NeoX {
             inference_parameters,
             ..
         } = params;
+
+        let mut hyperparameters = hyperparameters;
+        if let Some(overrides) = overrides {
+            hyperparameters.use_parallel_residual = overrides.use_parallel_residual;
+        }
 
         Ok(NeoX {
             hyperparameters,
@@ -320,13 +366,12 @@ impl KnownModel for NeoX {
             );
 
             // feed-forward
-            let ff_in;
-            if use_parallel_residual {
-                ff_in = current.share();
+            let ff_in = if use_parallel_residual {
+                current.share()
             } else {
                 let out_attn = current.share();
-                ff_in = ctx0.op_add(&out_attn, &input_layer);
-            }
+                ctx0.op_add(&out_attn, &input_layer)
+            };
 
             // feed-forward post attention layer norm
             if use_parallel_residual {
