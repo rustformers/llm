@@ -2,14 +2,13 @@ use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    ptr,
 };
 
 use crate::{
-    util::{self, FindAllModelFilesError},
-    Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId, Vocabulary,
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
+    Vocabulary,
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -103,7 +102,7 @@ pub enum LoadProgress {
         /// The size of the context.
         bytes: usize,
     },
-    /// A tensor was patch via LoRA
+    /// A tensor was patched with a LoRA.
     LoraApplied {
         /// The name of the patched tensor.
         name: String,
@@ -239,11 +238,11 @@ pub enum LoadError {
         paths: Vec<PathBuf>,
     },
 }
-impl From<FindAllModelFilesError> for LoadError {
-    fn from(value: FindAllModelFilesError) -> Self {
+impl From<util::FindAllModelFilesError> for LoadError {
+    fn from(value: util::FindAllModelFilesError) -> Self {
         match value {
-            FindAllModelFilesError::NoParentPath { path } => LoadError::NoParentPath { path },
-            FindAllModelFilesError::IO(err) => LoadError::Io(err),
+            util::FindAllModelFilesError::NoParentPath { path } => LoadError::NoParentPath { path },
+            util::FindAllModelFilesError::IO(err) => LoadError::Io(err),
         }
     }
 }
@@ -284,8 +283,6 @@ impl LoadError {
 pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
-    /// Loads a tensor from the loader.
-    fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
     fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
 }
@@ -345,13 +342,14 @@ pub fn load<M: KnownModel>(
 
     let mut lora_adapter: Option<LoraAdapter> = None;
     if let Some(lora_path) = &params.lora_adapter {
-        //Read the LoRA file
+        // Read the LoRA file
         let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
             source: e,
             path: lora_path.to_owned(),
         })?;
         let mut lora_reader = BufReader::new(&lora_file);
-        //TODO: check what we want to do with the callback here
+        // TODO: Consider updating the progress callback to report the progress of the LoRA file.
+        // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
         let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
         ggml::format::load(&mut lora_reader, &mut lora_loader)
             .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
@@ -376,148 +374,6 @@ pub fn load<M: KnownModel>(
         };
         (mmap, file.metadata()?.len())
     };
-
-    struct MmapCompatibleLoader<'a> {
-        path: PathBuf,
-        file: File,
-        tensors: HashMap<String, TensorLoadInfo>,
-        context: Context,
-        mmap: Option<Mmap>,
-        lora_adapter: Option<LoraAdapter>,
-        load_progress_callback: &'a mut dyn FnMut(LoadProgress),
-        loaded_tensors: HashMap<String, ggml::Tensor>,
-    }
-    impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
-        fn load(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
-            let tensor_dims = self
-                .tensors
-                .get(name)
-                .map(|tensor| tensor.dims().to_vec())
-                .ok_or(LoadError::UnknownTensor {
-                    tensor_name: String::from(name),
-                    path: Default::default(),
-                })?;
-            self.load_manual(name, &tensor_dims)
-        }
-
-        fn load_manual(&mut self, name: &str, ne: &[usize]) -> Result<ggml::Tensor, LoadError> {
-            let info = self
-                .tensors
-                .get(name)
-                .ok_or_else(|| LoadError::UnknownTensor {
-                    path: self.path.clone(),
-                    tensor_name: name.to_owned(),
-                })?;
-
-            let get_tensor = |info: &TensorLoadInfo,
-                              ne: &[usize],
-                              file: &mut File,
-                              context: &Context| {
-                return util::load_tensor(info, ne, file, context, self.mmap.as_ref())
-                    .map_err(|e| match e {
-                        util::TensorLoadError::DimensionMissmatch{expected,actual}
-                        => LoadError::InvariantBroken { path: Some(self.path.clone()), invariant: format!(
-                            "the tensor {name} should have {expected} dimensions, not {actual}") },
-                        util::TensorLoadError::UnsupportedDimensionCount{count}
-                        => LoadError::InvariantBroken { path: Some(self.path.clone()), invariant: format!(
-                            "the tensor {name} should have between 1 and 3 dimensions, not {count}") },
-                        util::TensorLoadError::IO(e) => LoadError::OpenFileFailed { source: e, path: self.path.clone() },
-                    });
-            };
-
-            let mut tensor = get_tensor(info, ne, &mut self.file, &self.context)?;
-
-            if let Some(lora_adapter) = &mut self.lora_adapter {
-                //Check if we need to patch this tensor
-                if lora_adapter.tensors_to_patch.contains(name) {
-                    let a_tensor_name = format!("{}.loraA", name);
-                    let b_tensor_name = format!("{}.loraB", name);
-
-                    //Get the a and b tensor infos
-                    let a_tensor_info = lora_adapter
-                        .tensors
-                        .get(&a_tensor_name)
-                        .ok_or(Err::<&TensorLoadInfo, _>(LoadError::UnknownTensor {
-                            path: lora_adapter.path.clone(),
-                            tensor_name: a_tensor_name.to_owned(),
-                        }))
-                        .unwrap();
-
-                    let b_tensor_info = lora_adapter
-                        .tensors
-                        .get(&b_tensor_name)
-                        .ok_or(Err::<&TensorLoadInfo, _>(LoadError::UnknownTensor {
-                            path: lora_adapter.path.clone(),
-                            tensor_name: b_tensor_name.to_owned(),
-                        }))
-                        .unwrap();
-
-                    //TODO calculate the size dynmaically
-                    let patch_context_size = 1024 * 1024 * 128;
-
-                    //create a temporary context for the patching operations and reload the target tensor into it
-                    let patch_context = Context::init(patch_context_size, true);
-
-                    //TODO check if we can avoid loading again here
-                    let mut target_tensor = get_tensor(info, ne, &mut self.file, &patch_context)?;
-
-                    //Load the A and B tensors
-                    let a = get_tensor(
-                        a_tensor_info,
-                        a_tensor_info.dims(),
-                        &mut lora_adapter.file,
-                        &patch_context,
-                    )?;
-                    let b = get_tensor(
-                        b_tensor_info,
-                        b_tensor_info.dims(),
-                        &mut lora_adapter.file,
-                        &patch_context,
-                    )?;
-
-                    //Build a ggml context and apply the patch
-                    //TODO: maybe pass the models threadcount to this context
-                    let mut gf = ggml::ComputationGraph::new(8);
-
-                    //LoRA formula: w = w + ba*s
-                    let mut ba = patch_context.op_mul_mat(&a, &b);
-                    if lora_adapter.scaling != 1.0 {
-                        let scaling_tensor = patch_context.new_f32(lora_adapter.scaling);
-                        ba = patch_context.op_scale(&ba, &scaling_tensor);
-                    }
-                    target_tensor = patch_context.op_add(&target_tensor, &ba);
-                    //Compute the graph
-                    gf.build_forward_expand(&target_tensor);
-                    patch_context.graph_compute(&mut gf);
-
-                    //Overwrite the original tensor, this is shoud be save as we only operated on the target_tensor which is a copy of the original
-                    unsafe {
-                        ptr::copy_nonoverlapping(
-                            target_tensor.data(),
-                            tensor.data(),
-                            tensor.nbytes(),
-                        );
-                    }
-
-                    (self.load_progress_callback)(LoadProgress::LoraApplied {
-                        name: name.to_owned(),
-                    });
-                }
-            }
-
-            (self.load_progress_callback)(LoadProgress::TensorLoaded {
-                current_tensor: self.loaded_tensors.len(),
-                tensor_count: self.tensors.len(),
-            });
-            self.loaded_tensors.insert(name.to_owned(), tensor.share());
-
-            Ok(tensor)
-        }
-
-        fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
-            (self.context, self.loaded_tensors, self.mmap)
-        }
-    }
 
     let tensors_len = tensors.len();
     let tl = MmapCompatibleLoader {
@@ -605,6 +461,123 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
     fn tensor_buffer(&mut self, info: TensorLoadInfo) -> Result<(), LoadError> {
         self.tensors.insert(info.name.clone(), info);
         Ok(())
+    }
+}
+
+struct MmapCompatibleLoader<'a> {
+    path: PathBuf,
+    file: File,
+    tensors: HashMap<String, TensorLoadInfo>,
+    context: Context,
+    mmap: Option<Mmap>,
+    lora_adapter: Option<LoraAdapter>,
+    load_progress_callback: &'a mut dyn FnMut(LoadProgress),
+    loaded_tensors: HashMap<String, ggml::Tensor>,
+}
+impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
+    fn load(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
+        let info = self.tensors.get(name).ok_or(LoadError::UnknownTensor {
+            tensor_name: String::from(name),
+            path: Default::default(),
+        })?;
+
+        let mut main_context = FileContext::new(
+            &self.context,
+            &mut self.file,
+            &self.path,
+            self.mmap.as_ref(),
+        );
+
+        let mut tensor = main_context.get_tensor(info)?;
+
+        if let Some(lora_adapter) = &mut self.lora_adapter {
+            lora_adapter.patch(&info.name, &mut tensor)?;
+            (self.load_progress_callback)(LoadProgress::LoraApplied {
+                name: name.to_owned(),
+            });
+        }
+
+        (self.load_progress_callback)(LoadProgress::TensorLoaded {
+            current_tensor: self.loaded_tensors.len(),
+            tensor_count: self.tensors.len(),
+        });
+        self.loaded_tensors.insert(name.to_owned(), tensor.share());
+
+        Ok(tensor)
+    }
+
+    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
+        (self.context, self.loaded_tensors, self.mmap)
+    }
+}
+
+pub(crate) struct FileContext<'a> {
+    context: &'a Context,
+    file: &'a mut File,
+    path: &'a Path,
+    mmap: Option<&'a Mmap>,
+}
+impl<'a> FileContext<'a> {
+    pub(crate) fn new(
+        context: &'a Context,
+        file: &'a mut File,
+        path: &'a Path,
+        mmap: Option<&'a Mmap>,
+    ) -> Self {
+        Self {
+            context,
+            file,
+            path,
+            mmap,
+        }
+    }
+
+    pub(crate) fn get_tensor(&mut self, info: &TensorLoadInfo) -> Result<ggml::Tensor, LoadError> {
+        let name = &info.name;
+        let ne = info.dims();
+        let dims = ne.len();
+
+        if dims != info.n_dims {
+            return Err(LoadError::InvariantBroken {
+                path: Some(self.path.to_owned()),
+                invariant: format!(
+                    "the tensor {name} should have {} dimensions, not {}",
+                    info.n_dims, dims
+                ),
+            });
+        }
+
+        let mut tensor = match dims {
+            1 => self.context.new_tensor_1d(info.element_type, ne[0]),
+            2 => self.context.new_tensor_2d(info.element_type, ne[0], ne[1]),
+            3 => self
+                .context
+                .new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
+            _ => {
+                return Err(LoadError::InvariantBroken {
+                    path: Some(self.path.to_owned()),
+                    invariant: format!(
+                        "the tensor {name} should have between 1 and 3 dimensions, not {dims}"
+                    ),
+                })
+            }
+        };
+
+        match self.mmap {
+            Some(mmap) => unsafe {
+                let ptr = mmap.as_ptr().offset(info.start_offset as isize);
+                tensor.set_data(ptr as *mut std::ffi::c_void);
+            },
+            None => {
+                let buf: &mut [u8] = unsafe {
+                    std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
+                };
+                self.file.seek(SeekFrom::Start(info.start_offset))?;
+                self.file.read_exact(buf)?;
+            }
+        }
+
+        Ok(tensor)
     }
 }
 
