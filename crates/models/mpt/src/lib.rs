@@ -283,11 +283,18 @@ impl KnownModel for Mpt {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        None
+        self.vocabulary
+            .token_to_id
+            .get("<|padding|>".as_bytes())
+            .copied()
     }
 
     fn eot_token_id(&self) -> TokenId {
-        0
+        self.vocabulary
+            .token_to_id
+            .get("<|endoftext|>".as_bytes())
+            .copied()
+            .unwrap()
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {
