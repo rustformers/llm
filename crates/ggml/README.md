@@ -80,8 +80,12 @@ version, the token may also include a 32-bit floating point score.
 ### Weights
 
 The final, and largest, component of a GGML file is the weights of the LLM that
-the file represents. The total number of a weights in a model are referred to as
-the "size" of that model. For example, the
+the file represents. Abstractly, a large language model is a function that is
+used to model language - just like a function that is used to model _images_ can
+be improved by increasing the number of colors with which images can be
+rendered, large language models can be improved by increasing the number of
+_weights_ in the model. The total number of a weights in a model are referred to
+as the "size" of that model. For example, the
 [StableLM](https://github.com/Stability-AI/StableLM) implementation of the
 [GPT-NeoX](https://github.com/EleutherAI/gpt-neox) language model architecture
 is available in a number of sizes, like 3B and 7B, which stands for 3-billion
