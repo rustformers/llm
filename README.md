@@ -15,23 +15,25 @@ The primary crate is the `llm` crate, which wraps `llm-base` and supported model
 crates.
 
 On top of `llm`, there is a CLI application, `llm-cli`, which provides a
-convenient interface for running inference on supported models. Inferencing
-can be done as a one-off, or interactively, through REPL or chat modes. It
-can also print information about, or quantize, a GGML model. It can be
-downloaded from [the latest GitHub release](https://github.com/rustformers/llm/releases)
-or by installing it from `crates.io`.
+convenient interface for running inference on supported models. Inferencing can
+be done as a one-off, or interactively, through REPL or chat modes. It can also
+print information about, or quantize, a GGML model. It can be downloaded from
+[the latest GitHub release](https://github.com/rustformers/llm/releases) or by
+installing it from `crates.io`.
 
-`llm` is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor library,
-and aims to bring the robustness and ease of use of Rust to the world of large
-language models. At present, inference is only on the CPU, but we hope to
-support GPU inference in the future through alternate backends.
+`llm` is powered by the [`ggml`](https://github.com/ggerganov/ggml) tensor
+library, and aims to bring the robustness and ease of use of Rust to the world
+of large language models. At present, inference is only on the CPU, but we hope
+to support GPU inference in the future through alternate backends.
 
 Currently, the following models are supported:
 
 - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
 - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
-- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA, Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
-- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox): GPT-NeoX, StableLM, Dolly v2 (partial, not the same tensor names?)
+- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA,
+  Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
+- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox):
+  GPT-NeoX, StableLM, RedPajama, Dolly v2
 - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
 
 ## Getting started
@@ -90,7 +92,8 @@ This is useful for development.
 
 ### Getting models
 
-GGML files are easy to acquire. For a list of models that have been tested, see the [known-good models](./known-good-models.md).
+GGML files are easy to acquire. For a list of models that have been tested, see
+the [known-good models](./known-good-models.md).
 
 Certain older GGML formats are not supported by this project, but the goal is to
 maintain feature parity with the upstream GGML project. For problems relating to
@@ -133,7 +136,8 @@ python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
 cargo run --release llama quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
 ```
 
-In future, we hope to provide [a more streamlined way of converting models](https://github.com/rustformers/llm/issues/21).
+In future, we hope to provide
+[a more streamlined way of converting models](https://github.com/rustformers/llm/issues/21).
 
 > **Note**
 >
@@ -229,8 +233,10 @@ use and deploy as any other Rust crate.
 
 #### Applications
 
-- [llmcord](https://github.com/rustformers/llmcord): Discord bot for generating messages using `llm`.
+- [llmcord](https://github.com/rustformers/llmcord): Discord bot for generating
+  messages using `llm`.
 
 #### Libraries
 
-- [llm-chain](https://github.com/sobelio/llm-chain): Work in progress, see [this PR](https://github.com/sobelio/llm-chain/pull/116).
+- [llm-chain](https://github.com/sobelio/llm-chain): Build chains in large
+  language models for text summarization and completion of more complex tasks
