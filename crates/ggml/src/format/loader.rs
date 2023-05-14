@@ -150,7 +150,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
     let n_vocab = match format_version {
         Some(version) => match version {
             crate::DEFAULT_VERSION => hparams.n_vocab,
-            crate::RWKV_VERSION => 0,
+            crate::RWKV_VERSION => hparams.n_vocab,
             _ => return Err(LoadError::InvalidFormatVersion(container_type, version)),
         },
         None => hparams.n_vocab,

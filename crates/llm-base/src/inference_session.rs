@@ -393,7 +393,7 @@ impl InferenceSession {
             let mut ctx_size = 0;
             if is_rwkv {
                 ctx_size += n_layer * 5 * n_embd * 4;
-                ctx_size += 720 // for some reason needed 720 extra bytes
+                ctx_size *= 2; // for some reason needed 720 extra bytes
             } else {
                 ctx_size += mulf!(
                     n_ctx,
@@ -431,6 +431,7 @@ impl InferenceSession {
         );
 
         //  ggml_set_f32(ctx->state, 0.0F);
+        state.set(0.0);
 
         for i in 0..n_layer {
             /*
@@ -440,7 +441,9 @@ impl InferenceSession {
             );
             */
 
-            //session_ctx.op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4);
+            session_ctx
+                .op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4)
+                .set(-1e30);
         }
 
         InferenceSession {

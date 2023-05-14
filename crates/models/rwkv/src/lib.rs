@@ -329,11 +329,12 @@ impl KnownModel for Rwkv {
     }
 
     fn eot_token_id(&self) -> llm_base::TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("<|endoftext|>".as_bytes())
-            .copied()
-            .unwrap() // pasted from neox cause it's using the same vocab but pretty sure it can be replaced by 0
+        0
+        // self.vocabulary
+        //     .token_to_id
+        //     .get("<|endoftext|>".as_bytes())
+        //     .copied()
+        //     .unwrap() // pasted from neox cause it's using the same vocab but pretty sure it can be replaced by 0
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {
