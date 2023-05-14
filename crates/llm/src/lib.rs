@@ -116,15 +116,15 @@ pub enum ModelArchitecture {
     #[cfg(feature = "llama")]
     /// [LLaMA](llm_llama)
     Llama,
-    #[cfg(feature = "mpt")]
-    /// [Mpt](llm_mpt)
-    Mpt,
     #[cfg(feature = "neox")]
     /// [GPT-NeoX](llm_neox)
     NeoX,
     #[cfg(feature = "neox")]
     /// RedPajama: [GPT-NeoX](llm_neox) with `use_parallel_residual` set to false
     RedPajama,
+    #[cfg(feature = "mpt")]
+    /// [MPT](llm_mpt)
+    Mpt,
 }
 
 impl ModelArchitecture {
@@ -183,14 +183,14 @@ impl FromStr for ModelArchitecture {
             "gptj" => Ok(GptJ),
             #[cfg(feature = "llama")]
             "llama" => Ok(Llama),
-            #[cfg(feature = "mpt")]
-            "mpt" => Ok(Mpt),
             #[cfg(feature = "neox")]
             "gptneox" => Ok(NeoX),
             #[cfg(feature = "neox")]
             "redpajama" => Ok(RedPajama),
-            m => Err(UnsupportedModelArchitecture(format!(
-                "{m} is not a supported model architecture"
+            #[cfg(feature = "mpt")]
+            "mpt" => Ok(Mpt),
+            _ => Err(UnsupportedModelArchitecture(format!(
+                "{s} is not a supported model architecture"
             ))),
         }
     }
@@ -210,11 +210,11 @@ impl Display for ModelArchitecture {
             #[cfg(feature = "llama")]
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "neox")]
-            #[cfg(feature = "mpt")]
-            Mpt => write!(f, "MPT"),
             NeoX => write!(f, "GPT-NeoX"),
             #[cfg(feature = "neox")]
             RedPajama => write!(f, "RedPajama"),
+            #[cfg(feature = "mpt")]
+            Mpt => write!(f, "MPT"),
         }
     }
 }
