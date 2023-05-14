@@ -55,4 +55,25 @@ some attributes appear in the hyperparameters for most models:
 
 ### Vocabulary
 
+As the name implies, a model's vocabulary comprises components that are used by
+the model to generate language (text). However, unlike the vocabulary of a
+human, which consists of _words_, the vocabulary of a large language model
+consists of "tokens". A token _can_ be an entire word, but oftentimes they are
+word _fragments_. Just like humans can compose millions of words from just a
+dozen or two letters, large language models use _tokens_ to express a large
+number of words from a relatively smaller number of components. Consider a
+vocabulary with the following tokens: `whi`, `ch` `le`, `who`, and `a`; this
+vocabulary can be used to create the English words "which", "while", "who", "a",
+and "leach". How would the behavior change if the model contained the following
+tokens: `wh`, `ich`, `ile`, `o`, and `leach`? Choices such as these allow
+model-creators to tune the behavior and performance of their models.
+
+As described above, the model's [hyperparameters](#hyperparamaters) typically
+contains a value that specifies the number of tokens in the vocabulary. The
+vocabulary is encoded as a list of tokens, each of which includes an unsigned
+32-bit integer that specifies the length of the token. Depending on the GGML
+version, the token may also include a 32-bit floating point score.
+
+[comment]: <> (I need help describing token-scoring)
+
 ### Weights
