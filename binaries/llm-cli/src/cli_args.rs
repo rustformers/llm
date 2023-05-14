@@ -325,6 +325,10 @@ pub struct ModelLoad {
     /// Don't use mmap to load the model.
     #[arg(long)]
     pub no_mmap: bool,
+
+    /// LoRA adapter to use for the model
+    #[arg(long)]
+    pub lora_path: Option<PathBuf>,
 }
 impl ModelLoad {
     pub fn load<M: llm::KnownModel + 'static>(
@@ -334,6 +338,7 @@ impl ModelLoad {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             n_context_tokens: self.num_ctx_tokens,
+            lora_adapter: self.lora_path.clone(),
             ..Default::default()
         };
 
@@ -360,6 +365,11 @@ impl ModelLoad {
                         "ggml ctx size = {}",
                         bytesize::to_string(bytes as u64, false)
                     ),
+                    LoadProgress::LoraApplied { name } => {
+                        if let Some(sp) = sp.as_mut() {
+                            sp.update_text(format!("Patched tensor {} via LoRA", name));
+                        }
+                    }
                     LoadProgress::TensorLoaded {
                         current_tensor,
                         tensor_count,

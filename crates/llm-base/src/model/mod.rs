@@ -5,7 +5,7 @@ use std::{
     error::Error,
     fmt::Debug,
     io::{BufRead, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -276,6 +276,8 @@ pub struct ModelParameters {
     pub n_context_tokens: usize,
     /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
     pub inference_parameters: InferenceParameters,
+    /// The [LoRA](https://arxiv.org/abs/2106.09685) adapter to use when loading the model. If `None`, no adapter will be used.
+    pub lora_adapter: Option<PathBuf>,
 }
 
 impl Default for ModelParameters {
@@ -284,6 +286,7 @@ impl Default for ModelParameters {
             prefer_mmap: true,
             n_context_tokens: 2048,
             inference_parameters: Default::default(),
+            lora_adapter: None,
         }
     }
 }

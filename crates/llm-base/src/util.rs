@@ -1,5 +1,6 @@
 //! Utilities for interacting with LLMs and loading them.
 pub use ggml::util::*;
+
 use std::path::{Path, PathBuf};
 
 /// NOTE: The original code relies in promotion rules and automatic cast between

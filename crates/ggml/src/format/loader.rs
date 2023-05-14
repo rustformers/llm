@@ -75,6 +75,16 @@ impl TensorLoadInfo {
         data_size(self.element_type, self.dims().iter().product())
     }
 
+    /// Calculates the absolute size in bytes of the tensor's data, given the mmap flag.
+    pub fn calc_absolute_size(&self, mmap: bool) -> usize {
+        let header_size = crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE;
+        if mmap {
+            header_size
+        } else {
+            header_size + self.calc_size()
+        }
+    }
+
     /// Reads the tensor's data from the given reader in an owned fashion.
     ///
     /// The behaviour is undefined if the reader does not correspond to this info.
@@ -127,6 +137,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
         crate::FILE_MAGIC_GGMF => ContainerType::Ggmf,
         crate::FILE_MAGIC_GGJT => ContainerType::Ggjt,
         crate::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
+        crate::FILE_MAGIC_GGLA => ContainerType::Ggla,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
     handler
@@ -135,7 +146,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
 
     // Load format version
     match container_type {
-        ContainerType::Ggmf | ContainerType::Ggjt => {
+        ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
             let _version: u32 = match read_u32(reader)? {
                 crate::FORMAT_VERSION => crate::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
@@ -156,7 +167,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
         let token = read_bytes_with_len(reader, len)?;
         let token_score = match container_type {
             ContainerType::Ggmf | ContainerType::Ggjt => read_f32(reader)?,
-            ContainerType::Ggml => {
+            ContainerType::Ggml | ContainerType::Ggla => {
                 // Legacy model, set empty score
                 0.
             }
@@ -169,7 +180,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
     // Load tensor data
     match container_type {
         ContainerType::Ggmf | ContainerType::Ggml => load_weights(reader, handler, false),
-        ContainerType::Ggjt => load_weights(reader, handler, true),
+        ContainerType::Ggjt | ContainerType::Ggla => load_weights(reader, handler, true),
     }
 }
 

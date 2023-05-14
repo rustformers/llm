@@ -131,6 +131,11 @@ fn load_progress_callback(
                 prev_load_time = std::time::Instant::now();
             }
         }
+        LoadProgress::LoraApplied { name } => {
+            if let Some(sp) = sp.as_mut() {
+                sp.update_text(format!("Applied LoRA: {}", name));
+            };
+        }
         LoadProgress::Loaded {
             file_size,
             tensor_count,
