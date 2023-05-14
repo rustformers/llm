@@ -37,6 +37,21 @@ pub enum Args {
     NeoX {
         #[command(subcommand)]
         args: BaseArgs,
+
+        #[arg(long)]
+        /// By default, the GPT-NeoX architecture uses a parallel residual.
+        ///
+        /// This flag disables that, as some models out there are trained without it,
+        /// and the model format does not store this information.
+        no_parallel_residual: bool,
+    },
+    /// Use a model from the RedPajama GPT-NeoX family
+    ///
+    /// (GPT-NeoX with `use_parallel_residual` set to false)
+    #[clap(id = "redpajama")]
+    RedPajama {
+        #[command(subcommand)]
+        args: BaseArgs,
     },
 }
 
@@ -311,12 +326,15 @@ pub struct ModelLoad {
     #[arg(long)]
     pub no_mmap: bool,
 
-    ///LoRA adapter top use for the model
+    /// LoRA adapter to use for the model
     #[arg(long)]
     pub lora_path: Option<PathBuf>,
 }
 impl ModelLoad {
-    pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(
+        &self,
+        overrides: Option<M::Overrides>,
+    ) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             n_context_tokens: self.num_ctx_tokens,
@@ -332,54 +350,60 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let model = llm::load::<M>(&self.model_path, params, move |progress| match progress {
-            LoadProgress::HyperparametersLoaded => {
-                if let Some(sp) = sp.as_mut() {
-                    sp.update_text("Loaded hyperparameters")
-                };
-            }
-            LoadProgress::ContextSize { bytes } => log::debug!(
-                "ggml ctx size = {}",
-                bytesize::to_string(bytes as u64, false)
-            ),
-            LoadProgress::LoraApplied { name } => {
-                if let Some(sp) = sp.as_mut() {
-                    sp.update_text(format!("Patched tensor {} via LoRA", name));
-                }
-            }
-            LoadProgress::TensorLoaded {
-                current_tensor,
-                tensor_count,
-                ..
-            } => {
-                if prev_load_time.elapsed().as_millis() > 500 {
-                    // We don't want to re-render this on every message, as that causes the
-                    // spinner to constantly reset and not look like it's spinning (and
-                    // it's obviously wasteful).
-                    if let Some(sp) = sp.as_mut() {
-                        sp.update_text(format!(
-                            "Loaded tensor {}/{}",
-                            current_tensor + 1,
-                            tensor_count
-                        ));
-                    };
-                    prev_load_time = std::time::Instant::now();
-                }
-            }
-            LoadProgress::Loaded {
-                file_size,
-                tensor_count,
-            } => {
-                if let Some(sp) = sp.take() {
-                    sp.success(&format!(
-                        "Loaded {tensor_count} tensors ({}) after {}ms",
-                        bytesize::to_string(file_size, false),
-                        now.elapsed().as_millis()
-                    ));
-                };
-            }
-        })
-        .wrap_err("Could not load model")?;
+        let model =
+            llm::load::<M>(
+                &self.model_path,
+                params,
+                overrides,
+                move |progress| match progress {
+                    LoadProgress::HyperparametersLoaded => {
+                        if let Some(sp) = sp.as_mut() {
+                            sp.update_text("Loaded hyperparameters")
+                        };
+                    }
+                    LoadProgress::ContextSize { bytes } => log::debug!(
+                        "ggml ctx size = {}",
+                        bytesize::to_string(bytes as u64, false)
+                    ),
+                    LoadProgress::LoraApplied { name } => {
+                        if let Some(sp) = sp.as_mut() {
+                            sp.update_text(format!("Patched tensor {} via LoRA", name));
+                        }
+                    }
+                    LoadProgress::TensorLoaded {
+                        current_tensor,
+                        tensor_count,
+                        ..
+                    } => {
+                        if prev_load_time.elapsed().as_millis() > 500 {
+                            // We don't want to re-render this on every message, as that causes the
+                            // spinner to constantly reset and not look like it's spinning (and
+                            // it's obviously wasteful).
+                            if let Some(sp) = sp.as_mut() {
+                                sp.update_text(format!(
+                                    "Loaded tensor {}/{}",
+                                    current_tensor + 1,
+                                    tensor_count
+                                ));
+                            };
+                            prev_load_time = std::time::Instant::now();
+                        }
+                    }
+                    LoadProgress::Loaded {
+                        file_size,
+                        tensor_count,
+                    } => {
+                        if let Some(sp) = sp.take() {
+                            sp.success(&format!(
+                                "Loaded {tensor_count} tensors ({}) after {}ms",
+                                bytesize::to_string(file_size, false),
+                                now.elapsed().as_millis()
+                            ));
+                        };
+                    }
+                },
+            )
+            .wrap_err("Could not load model")?;
 
         Ok(Box::new(model))
     }

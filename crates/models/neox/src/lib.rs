@@ -1,15 +1,18 @@
 //! An implementation of [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox) for the `llm` ecosystem.
+//! This crate also supports the [RedPajama](https://www.together.xyz/blog/redpajama) GPT-NeoX model.
 #![deny(missing_docs)]
 
 use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
-    ggml,
+    ggml::{self, ElementType},
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
+    LoadError, Mmap, ModelDynamicOverrides, ModelParameters, OutputRequest, TensorLoader, TokenId,
+    Vocabulary,
 };
+use serde::{Deserialize, Serialize};
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
 ///
@@ -35,21 +38,61 @@ pub struct NeoX {
 
     inference_parameters: InferenceParameters,
 
-    /// Needs to kept alive while the model is alive
+    // Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
     // Must be kept alive for the model
     _context: ggml::Context,
 }
+
 unsafe impl Send for NeoX {}
 unsafe impl Sync for NeoX {}
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+/// Overrides for the GPT-NeoX model.
+pub struct NeoXOverrides {
+    /// Whether to use a "parallel" formulation in each Transformer layer, which can provide a slight training
+    /// speedup at large scales (e.g. 20B).
+    ///
+    /// Defaults to `true`.
+    /// The RedPajama models use `false`.
+    pub use_parallel_residual: bool,
+}
+impl Default for NeoXOverrides {
+    fn default() -> Self {
+        Self {
+            use_parallel_residual: true,
+        }
+    }
+}
+impl From<ModelDynamicOverrides> for NeoXOverrides {
+    fn from(val: ModelDynamicOverrides) -> Self {
+        let mut overrides = NeoXOverrides::default();
+        if let Some(v) = val.get("use_parallel_residual") {
+            overrides.use_parallel_residual = v;
+        }
+        overrides
+    }
+}
+impl From<NeoXOverrides> for ModelDynamicOverrides {
+    fn from(val: NeoXOverrides) -> Self {
+        let mut overrides = ModelDynamicOverrides::default();
+        overrides.insert(
+            "use_parallel_residual".to_string(),
+            val.use_parallel_residual,
+        );
+        overrides
+    }
+}
+
 impl KnownModel for NeoX {
     type Hyperparameters = Hyperparameters;
+    type Overrides = NeoXOverrides;
 
     fn new<E: Error>(
-        hyperparameters: Self::Hyperparameters,
+        hyperparameters: Hyperparameters,
         params: ModelParameters,
+        overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -105,6 +148,11 @@ impl KnownModel for NeoX {
             ..
         } = params;
 
+        let mut hyperparameters = hyperparameters;
+        if let Some(overrides) = overrides {
+            hyperparameters.use_parallel_residual = overrides.use_parallel_residual;
+        }
+
         Ok(NeoX {
             hyperparameters,
             n_context_tokens,
@@ -146,6 +194,7 @@ impl KnownModel for NeoX {
             n_vocab,
             n_layer,
             n_rot,
+            use_parallel_residual,
             ..
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
@@ -180,33 +229,77 @@ impl KnownModel for NeoX {
                 &current,
             );
 
-            let nb = current.get_nb()[1];
-            let f32_size = std::mem::size_of::<f32>();
-            let mut qcur = ctx0.op_cont(&ctx0.op_view_3d(
-                &current,
-                (n_embd / n_head, n_head, n),
-                (nb / n_head, nb),
-                0,
-            ));
-            let mut kcur = ctx0.op_cont(&ctx0.op_view_3d(
-                &current,
-                (n_embd / n_head, n_head, n),
-                (nb / n_head, nb),
-                f32_size * n_embd / n_head,
-            ));
-            let mut vcur = ctx0.op_cont(&ctx0.op_view_3d(
-                &current,
-                (n_embd / n_head, n_head, n),
-                (nb / n_head, nb),
-                2 * f32_size * n_embd / n_head,
-            ));
+            let mut qcur: Tensor;
+            let mut kcur: Tensor;
+            let mut vcur: Tensor;
+
+            if use_parallel_residual {
+                let nb = current.get_nb()[1];
+                let f32_size = std::mem::size_of::<f32>();
+                qcur = ctx0.op_cont(&ctx0.op_view_3d(
+                    &current,
+                    (n_embd / n_head, n_head, n),
+                    (nb / n_head, nb),
+                    0,
+                ));
+                kcur = ctx0.op_cont(&ctx0.op_view_3d(
+                    &current,
+                    (n_embd / n_head, n_head, n),
+                    (nb / n_head, nb),
+                    f32_size * n_embd / n_head,
+                ));
+                vcur = ctx0.op_cont(&ctx0.op_view_3d(
+                    &current,
+                    (n_embd / n_head, n_head, n),
+                    (nb / n_head, nb),
+                    2 * f32_size * n_embd / n_head,
+                ));
+            } else {
+                let cur_size = current.element_size();
+                qcur = ctx0.op_view_3d(
+                    &current,
+                    (n_embd / n_head, n_head, n),
+                    (cur_size * 3 * n_embd / n_head, cur_size * 3 * n_embd),
+                    0,
+                );
+                kcur = ctx0.op_view_3d(
+                    &current,
+                    (n_embd / n_head, n_head, n),
+                    (cur_size * 3 * n_embd / n_head, cur_size * 3 * n_embd),
+                    cur_size * n_embd / n_head,
+                );
+                vcur = ctx0.op_view_3d(
+                    &current,
+                    (n_embd / n_head, n_head, n),
+                    (cur_size * 3 * n_embd / n_head, cur_size * 3 * n_embd),
+                    cur_size * n_embd / n_head * 2,
+                );
+
+                qcur = ctx0.op_cpy(
+                    &qcur,
+                    &ctx0.new_tensor_3d(ElementType::F32, n_embd / n_head, n_head, n),
+                );
+                kcur = ctx0.op_cpy(
+                    &kcur,
+                    &ctx0.new_tensor_3d(ElementType::F32, n_embd / n_head, n_head, n),
+                );
+                vcur = ctx0.op_cpy(
+                    &vcur,
+                    &ctx0.new_tensor_3d(ElementType::F32, n_embd / n_head, n_head, n),
+                );
+            }
 
             // self-attention using mode = 2 for GPT-NeoX mode
             qcur = ctx0.op_rope(&qcur, n_past, n_rot, 2);
             kcur = ctx0.op_rope(&kcur, n_past, n_rot, 2);
 
             // self-attention store key and value to memory
-            vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, n_embd, n));
+            if use_parallel_residual {
+                vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, n_embd, n));
+            } else {
+                vcur = ctx0.op_view_2d(&vcur, (n_embd, n), vcur.element_size() * n_embd, 0);
+                vcur = ctx0.op_transpose(&vcur);
+            }
 
             let little_k = ctx0.op_view_1d(
                 memory_k,
@@ -273,10 +366,19 @@ impl KnownModel for NeoX {
             );
 
             // feed-forward
-            let ff_in = current.share();
+            let ff_in = if use_parallel_residual {
+                current.share()
+            } else {
+                let out_attn = current.share();
+                ctx0.op_add(&out_attn, &input_layer)
+            };
 
             // feed-forward post attention layer norm
-            current = ctx0.op_norm(&input_layer);
+            if use_parallel_residual {
+                current = ctx0.op_norm(&input_layer);
+            } else {
+                current = ctx0.op_norm(&ff_in);
+            }
             current = ctx0.op_add(
                 &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_2_g, &current), &current),
                 &ctx0.op_repeat(&self.layers[il].ln_2_b, &current),
@@ -297,10 +399,14 @@ impl KnownModel for NeoX {
                 &current,
             );
 
-            current = ctx0.op_add(&current, &ff_in);
-
-            // input for next layer
-            input_layer = ctx0.op_add(&current, &input_layer);
+            if use_parallel_residual {
+                current = ctx0.op_add(&current, &ff_in);
+                // input for next layer
+                input_layer = ctx0.op_add(&current, &input_layer);
+            } else {
+                // input for next layer
+                input_layer = ctx0.op_add(&ff_in, &current);
+            }
         }
 
         input_layer = ctx0.op_norm(&input_layer);
@@ -348,7 +454,7 @@ impl KnownModel for NeoX {
 }
 
 /// GPT-NeoX [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Hyperparameters {
     /// Size of the model's vocabulary
     pub n_vocab: usize,
@@ -364,6 +470,25 @@ pub struct Hyperparameters {
     pub n_rot: usize,
     /// file_type
     pub file_type: FileType,
+
+    /// Whether to use a "parallel" formulation in each Transformer layer.
+    /// This is on for most models, but is off for the RedPajama model.
+    pub use_parallel_residual: bool,
+}
+
+impl Default for Hyperparameters {
+    fn default() -> Self {
+        Self {
+            n_vocab: Default::default(),
+            n_ctx: Default::default(),
+            n_embd: Default::default(),
+            n_head: Default::default(),
+            n_layer: Default::default(),
+            n_rot: Default::default(),
+            file_type: Default::default(),
+            use_parallel_residual: true,
+        }
+    }
 }
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
@@ -378,6 +503,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
                 let ftype = util::read_i32(reader)?;
                 FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
             },
+            use_parallel_residual: true,
         })
     }
 

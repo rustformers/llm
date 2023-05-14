@@ -13,3 +13,4 @@ readme = "../../../README.md"
 llm-base = { path = "../../llm-base", version = "0.1.1" }
 
 bytemuck = { workspace = true }
+serde = { workspace = true }

@@ -47,10 +47,12 @@ unsafe impl Sync for GptJ {}
 
 impl KnownModel for GptJ {
     type Hyperparameters = Hyperparameters;
+    type Overrides = ();
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
+        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>

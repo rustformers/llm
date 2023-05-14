@@ -25,29 +25,49 @@ fn main() -> Result<()> {
 
     let cli_args = Args::parse();
     match &cli_args {
-        Args::Llama { args } => handle_args::<llm::models::Llama>(args),
-        Args::Bloom { args } => handle_args::<llm::models::Bloom>(args),
-        Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
-        Args::GptJ { args } => handle_args::<llm::models::GptJ>(args),
-        Args::NeoX { args } => handle_args::<llm::models::NeoX>(args),
+        Args::Llama { args } => handle_args::<llm::models::Llama>(args, None),
+        Args::Bloom { args } => handle_args::<llm::models::Bloom>(args, None),
+        Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args, None),
+        Args::GptJ { args } => handle_args::<llm::models::GptJ>(args, None),
+        Args::NeoX {
+            args,
+            no_parallel_residual,
+        } => handle_args::<llm::models::NeoX>(
+            args,
+            Some(llm::models::NeoXOverrides {
+                use_parallel_residual: !*no_parallel_residual,
+            }),
+        ),
+        Args::RedPajama { args } => handle_args::<llm::models::NeoX>(
+            args,
+            Some(llm::models::NeoXOverrides {
+                use_parallel_residual: false,
+            }),
+        ),
     }
 }
 
-fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Result<()> {
+fn handle_args<M: llm::KnownModel + 'static>(
+    args: &cli_args::BaseArgs,
+    overrides: Option<M::Overrides>,
+) -> Result<()> {
     match args {
-        BaseArgs::Infer(args) => infer::<M>(args),
+        BaseArgs::Infer(args) => infer::<M>(args, overrides),
         BaseArgs::Info(args) => info::<M>(args),
         BaseArgs::PromptTokens(args) => prompt_tokens::<M>(args),
-        BaseArgs::Repl(args) => interactive::<M>(args, false),
-        BaseArgs::Chat(args) => interactive::<M>(args, true),
+        BaseArgs::Repl(args) => interactive::<M>(args, overrides, false),
+        BaseArgs::Chat(args) => interactive::<M>(args, overrides, true),
         BaseArgs::Quantize(args) => quantize::<M>(args),
     }
 }
 
-fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
+fn infer<M: llm::KnownModel + 'static>(
+    args: &cli_args::Infer,
+    overrides: Option<M::Overrides>,
+) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(overrides)?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),
@@ -144,7 +164,7 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 
 fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(None)?;
     let toks = match model.vocabulary().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
@@ -173,13 +193,14 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
 
 fn interactive<M: llm::KnownModel + 'static>(
     args: &cli_args::Repl,
+    overrides: Option<M::Overrides>,
     // If set to false, the session will be cloned after each inference
     // to ensure that previous state is not carried over.
     chat_mode: bool,
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(overrides)?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,

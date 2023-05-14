@@ -23,6 +23,7 @@ log = { workspace = true }
 rand = { workspace = true }
 rustyline = { workspace = true }
 spinoff = { workspace = true }
+serde_json = { workspace = true }
 
 [features]
 default = ["llama", "gpt2", "gptj", "bloom", "neox"]

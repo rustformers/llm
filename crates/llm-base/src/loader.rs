@@ -307,6 +307,7 @@ pub trait TensorLoader<E: std::error::Error> {
 pub fn load<M: KnownModel>(
     path: &Path,
     params: ModelParameters,
+    overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
     let paths = util::find_all_model_files(path)?;
@@ -530,7 +531,7 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, params, overrides, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,
