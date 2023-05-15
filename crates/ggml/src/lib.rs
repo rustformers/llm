@@ -13,6 +13,7 @@ mod context;
 mod tensor;
 
 pub mod format;
+pub mod legacy;
 pub mod util;
 
 pub use context::Context;
@@ -74,7 +75,7 @@ pub enum Type {
     /// Quantized 4-bit (type 0).
     #[default]
     Q4_0,
-    /// Quantized 4-bit (type 1); used by GPTQ.
+    /// Quantized 4-bit (type 1).
     Q4_1,
     /// Quantized 5-bit (type 0).
     Q5_0,
@@ -90,6 +91,10 @@ pub enum Type {
     F16,
     /// Float 32-bit.
     F32,
+
+    /// Legacy: Quantized 4-bit (type 2).
+    /// This is not supported by modern `ggml` and is only here for use with [legacy].
+    LegacyQ4_2,
 }
 impl From<Type> for sys::ggml_type {
     fn from(t: Type) -> Self {
@@ -103,6 +108,8 @@ impl From<Type> for sys::ggml_type {
             Type::I32 => sys::ggml_type_GGML_TYPE_I32,
             Type::F16 => sys::ggml_type_GGML_TYPE_F16,
             Type::F32 => sys::ggml_type_GGML_TYPE_F32,
+            // Legacy
+            Type::LegacyQ4_2 => 4,
         }
     }
 }
@@ -119,6 +126,9 @@ impl TryFrom<sys::ggml_type> for Type {
             sys::ggml_type_GGML_TYPE_I32 => Ok(Type::I32),
             sys::ggml_type_GGML_TYPE_F16 => Ok(Type::F16),
             sys::ggml_type_GGML_TYPE_F32 => Ok(Type::F32),
+            // Legacy
+            4 => Ok(Type::LegacyQ4_2),
+
             _ => Err(()),
         }
     }
@@ -135,6 +145,8 @@ impl std::fmt::Display for Type {
             Type::I32 => write!(f, "i32"),
             Type::F16 => write!(f, "f16"),
             Type::F32 => write!(f, "f32"),
+            // Legacy
+            Type::LegacyQ4_2 => write!(f, "q4_2"),
         }
     }
 }
