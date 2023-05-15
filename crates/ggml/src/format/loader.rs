@@ -77,11 +77,10 @@ impl TensorLoadInfo {
 
     /// Calculates the absolute size in bytes of the tensor's data, given the mmap flag.
     pub fn calc_absolute_size(&self, mmap: bool) -> usize {
-        let header_size = crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE;
         if mmap {
-            header_size
+            header_size()
         } else {
-            header_size + self.calc_size()
+            header_size() + self.calc_size()
         }
     }
 
@@ -102,6 +101,16 @@ impl TensorLoadInfo {
 /// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.
 pub(crate) fn data_size(element_type: ElementType, n_elements: usize) -> usize {
     (crate::type_size(element_type) * n_elements) / crate::blck_size(element_type)
+}
+
+/// Returns the size of the ggml tensor header in bytes.
+pub(crate) fn header_size() -> usize {
+    crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE
+}
+
+/// Returns the size of a tensor in bytes given the element type and number of elements. This includes the tensor's header.
+pub fn tensor_size(element_type: ElementType, n_elements: usize) -> usize {
+    header_size() + data_size(element_type, n_elements)
 }
 
 #[derive(Debug, Clone)]
