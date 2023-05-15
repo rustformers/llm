@@ -157,6 +157,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
     match container_type {
         ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
             let _version: u32 = match read_u32(reader)? {
+                crate::FORMAT_VERSION_1 => crate::FORMAT_VERSION_1,
                 crate::FORMAT_VERSION => crate::FORMAT_VERSION,
                 version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
             };

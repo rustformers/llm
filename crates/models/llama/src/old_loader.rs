@@ -48,7 +48,7 @@ pub(crate) fn load(
     match model_type {
         ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
             let _version: u32 = match util::read_u32(&mut reader)? {
-                ggml::FORMAT_VERSION => ggml::FORMAT_VERSION,
+                ggml::FORMAT_VERSION_1 => ggml::FORMAT_VERSION_1,
                 version => {
                     return Err(LoadError::InvalidFormatVersion {
                         container_type: model_type,
