@@ -45,17 +45,31 @@ impl LoraAdapter {
     }
 
     /// Apply this LoRA adapter to a tensor.
-    pub fn patch(&mut self, name: &str, tensor: &mut ggml::Tensor) -> Result<(), LoadError> {
+    pub fn patch(
+        &mut self,
+        info: &TensorLoadInfo,
+        tensor: &mut ggml::Tensor,
+    ) -> Result<(), LoadError> {
         // Check if we need to patch this tensor
+        let name = &info.name;
         if !self.tensors_to_patch.contains(name) {
             return Ok(());
         }
 
-        // TODO: calculate the size dynmaically
-        let patch_context_size = 1024 * 1024 * 128;
         let a_info = self.get_info(&format!("{}.loraA", name))?;
         let b_info = self.get_info(&format!("{}.loraB", name))?;
 
+        // Calculate the size of the patch context via the following steps:
+        // 1. Calculate the size of the two `a` and `b` tensors
+        // 2. Calculate the size of the original tensor
+        // 3. Calculate the  size of the `ba` and `scaling` tensors. These have the same dimensions as the original tensor, but are of the element type of the `a` or `b` tensor e.g. fp16
+        // 4. Add 20% as ggml overhead
+        let ba_size = ggml::format::tensor_size(a_info.element_type, info.dims().iter().product());
+        let patch_context_size = ((a_info.calc_absolute_size(false)
+            + b_info.calc_absolute_size(false)
+            + info.calc_absolute_size(false)
+            + ba_size * 2) as f32
+            * 1.2) as usize;
         // Create a temporary context for the patching operations
         let patch_context = ggml::Context::init(patch_context_size, true);
         let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path, None);

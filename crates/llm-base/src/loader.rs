@@ -491,7 +491,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         let mut tensor = main_context.get_tensor(info)?;
 
         if let Some(lora_adapter) = &mut self.lora_adapter {
-            lora_adapter.patch(&info.name, &mut tensor)?;
+            lora_adapter.patch(info, &mut tensor)?;
             (self.load_progress_callback)(LoadProgress::LoraApplied {
                 name: name.to_owned(),
             });
