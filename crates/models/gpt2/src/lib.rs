@@ -214,13 +214,13 @@ impl KnownModel for Gpt2 {
             );
 
             let kq = ctx0.op_mul_mat(&k, &q);
-            let kq_scaled = ctx0.op_scale(
+            let kq_scaled = ctx0.op_scale_inplace(
                 &kq,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
 
-            let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
-            let kq_softmax = ctx0.op_soft_max(&kq_masked);
+            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, n_past);
+            let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
 
             let v_trans = ctx0.op_cpy(
                 &ctx0.op_permute(

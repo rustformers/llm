@@ -143,13 +143,20 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// In-place, scales `a` by the 1D tensor `b`.
+    /// Scales `a` by the 1D tensor `b`.
     pub fn op_scale(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_scale(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    /// In-place, sets the elements above the diagonal to -INF.
+    /// In-place, scales `a` by the 1D tensor `b`.
+    pub fn op_scale_inplace(&self, a: &Tensor, b: &Tensor) -> Tensor {
+        let tensor =
+            unsafe { sys::ggml_scale_inplace(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Sets the elements above the diagonal to -INF.
     pub fn op_diag_mask_inf(&self, a: &Tensor, n_past: usize) -> Tensor {
         let tensor = unsafe {
             sys::ggml_diag_mask_inf(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past))
@@ -157,9 +164,23 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// In-place, applies the [Softmax function](https://en.wikipedia.org/wiki/Softmax_function) to `a`.
+    /// In-place, sets the elements above the diagonal to -INF.
+    pub fn op_diag_mask_inf_inplace(&self, a: &Tensor, n_past: usize) -> Tensor {
+        let tensor = unsafe {
+            sys::ggml_diag_mask_inf_inplace(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past))
+        };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Applies the [Softmax function](https://en.wikipedia.org/wiki/Softmax_function) to `a`.
     pub fn op_soft_max(&self, a: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_soft_max(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// In-place, applies the [Softmax function](https://en.wikipedia.org/wiki/Softmax_function) to `a`.
+    pub fn op_soft_max_inplace(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_soft_max_inplace(self.ptr.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
@@ -332,10 +353,24 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// In-place; applies ROtary Positional Encoding.
+    /// Applies ROtary Positional Encoding.
     pub fn op_rope(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
         let tensor = unsafe {
             sys::ggml_rope(
+                self.ptr.as_ptr(),
+                a.ptr.as_ptr(),
+                usize_to_i32(npast),
+                usize_to_i32(ndims),
+                mode,
+            )
+        };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// In-place; applies ROtary Positional Encoding.
+    pub fn op_rope_inplace(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
+        let tensor = unsafe {
+            sys::ggml_rope_inplace(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i32(npast),
@@ -380,7 +415,7 @@ impl Context {
         }
     }
 
-    /// TODO: something something
+    /// Attention with LInear BIases (Ref: <https://arxiv.org/pdf/2108.12409.pdf>)
     pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize) -> Tensor {
         let tensor = unsafe {
             sys::ggml_alibi(
