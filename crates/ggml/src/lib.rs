@@ -73,8 +73,6 @@ pub enum Type {
     Q4_0,
     /// Quantized 4-bit (type 1); used by GPTQ.
     Q4_1,
-    /// Quantized 4-bit (type 2).
-    Q4_2,
     /// Quantized 5-bit (type 0).
     Q5_0,
     /// Quantized 5-bit (type 1).
@@ -95,7 +93,6 @@ impl From<Type> for sys::ggml_type {
         match t {
             Type::Q4_0 => sys::ggml_type_GGML_TYPE_Q4_0,
             Type::Q4_1 => sys::ggml_type_GGML_TYPE_Q4_1,
-            Type::Q4_2 => sys::ggml_type_GGML_TYPE_Q4_2,
             Type::Q5_0 => sys::ggml_type_GGML_TYPE_Q5_0,
             Type::Q5_1 => sys::ggml_type_GGML_TYPE_Q5_1,
             Type::Q8_0 => sys::ggml_type_GGML_TYPE_Q8_0,
@@ -112,7 +109,6 @@ impl TryFrom<sys::ggml_type> for Type {
         match t {
             sys::ggml_type_GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
             sys::ggml_type_GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
-            sys::ggml_type_GGML_TYPE_Q4_2 => Ok(Type::Q4_2),
             sys::ggml_type_GGML_TYPE_Q5_0 => Ok(Type::Q5_0),
             sys::ggml_type_GGML_TYPE_Q5_1 => Ok(Type::Q5_1),
             sys::ggml_type_GGML_TYPE_Q8_0 => Ok(Type::Q8_0),
@@ -129,7 +125,6 @@ impl std::fmt::Display for Type {
         match self {
             Type::Q4_0 => write!(f, "q4_0"),
             Type::Q4_1 => write!(f, "q4_1"),
-            Type::Q4_2 => write!(f, "q4_2"),
             Type::Q5_0 => write!(f, "q5_0"),
             Type::Q5_1 => write!(f, "q5_1"),
             Type::Q8_0 => write!(f, "q8_0"),
