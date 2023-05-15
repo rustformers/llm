@@ -60,11 +60,10 @@ pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 /// Magic constant for `ggla` files (LoRA adapter).
 pub const FILE_MAGIC_GGLA: u32 = 0x67676C61;
 
-/// The legacy format version for `ggml` files.
-pub const FORMAT_VERSION_1: u32 = 1;
-
-/// The currently-supported format version for `ggml` files.
-pub const FORMAT_VERSION: u32 = 2;
+/// The current quantization version.
+pub const QNT_VERSION: u32 = sys::GGML_QNT_VERSION;
+/// The factor by which to divide `ftype` to determine the current quantization version.
+pub const QNT_VERSION_FACTOR: u32 = sys::GGML_QNT_VERSION_FACTOR;
 
 /// The size of a `ggml` object.
 pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;

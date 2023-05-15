@@ -124,7 +124,11 @@ pub struct PartialHyperparameters {
 /// A handler for loading a GGML model.
 pub trait LoadHandler<E: Error> {
     /// Called when the [ContainerType] is read.
-    fn container_type(&mut self, container_type: ContainerType) -> Result<(), E>;
+    fn container_type(
+        &mut self,
+        container_type: ContainerType,
+        format_version: Option<u32>,
+    ) -> Result<(), E>;
     /// Called when a token is read so it can be added to the model's vocabulary.
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), E>;
     /// Called when the model's hyperparameters need to be read.
@@ -149,21 +153,29 @@ pub fn load<E: Error, R: BufRead + Seek>(
         crate::FILE_MAGIC_GGLA => ContainerType::Ggla,
         magic => return Err(LoadError::InvalidMagic(magic)),
     };
-    handler
-        .container_type(container_type)
-        .map_err(LoadError::ImplementationError)?;
 
     // Load format version
-    match container_type {
+    let format_version = match container_type {
         ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
-            let _version: u32 = match read_u32(reader)? {
-                crate::FORMAT_VERSION_1 => crate::FORMAT_VERSION_1,
-                crate::FORMAT_VERSION => crate::FORMAT_VERSION,
-                version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
+            let version = read_u32(reader)?;
+
+            let supported_versions: &[u32] = if container_type == ContainerType::Ggjt {
+                &[1, 2]
+            } else {
+                &[1]
             };
+
+            if !supported_versions.contains(&version) {
+                return Err(LoadError::InvalidFormatVersion(container_type, version));
+            }
+
+            Some(version)
         }
-        ContainerType::Ggml => {}
-    }
+        ContainerType::Ggml => None,
+    };
+    handler
+        .container_type(container_type, format_version)
+        .map_err(LoadError::ImplementationError)?;
 
     // Load hyper params
     let hparams = handler

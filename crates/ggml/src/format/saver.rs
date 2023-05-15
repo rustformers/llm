@@ -57,16 +57,18 @@ pub struct TensorSaveInfo {
 
 /// Saves a model to the given writer.
 ///
-/// Only GGJT is supported.
+/// Only GGJT version 2 is supported.
 pub fn save<E: Error, W: Write + Seek>(
     writer: &mut W,
     handler: &mut dyn SaveHandler<E>,
     vocabulary: &[(Vec<u8>, f32)],
     tensor_names: &[String],
 ) -> Result<(), SaveError<E>> {
+    const VERSION: u32 = 2;
+
     // Write header and hyperparameters
     util::write_u32(writer, crate::FILE_MAGIC_GGJT)?;
-    util::write_u32(writer, crate::FORMAT_VERSION_1)?;
+    util::write_u32(writer, VERSION)?;
     handler
         .write_hyperparameters(writer)
         .map_err(SaveError::ImplementationError)?;

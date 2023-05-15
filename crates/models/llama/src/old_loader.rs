@@ -13,7 +13,7 @@ use std::{
 
 use crate::Hyperparameters;
 use crate::{Llama, LoadError, LoadProgress, TokenId, Vocabulary};
-use llm_base::{ggml, mulf, util, ContainerType, FileType};
+use llm_base::{ggml, mulf, util, ContainerType, FileTypeFormat};
 
 pub(crate) fn load(
     path: &Path,
@@ -47,8 +47,8 @@ pub(crate) fn load(
     // Load format version
     match model_type {
         ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
-            let _version: u32 = match util::read_u32(&mut reader)? {
-                ggml::FORMAT_VERSION_1 => ggml::FORMAT_VERSION_1,
+            match util::read_u32(&mut reader)? {
+                1 => {}
                 version => {
                     return Err(LoadError::InvalidFormatVersion {
                         container_type: model_type,
@@ -73,10 +73,7 @@ pub(crate) fn load(
         n_head: util::read_i32(&mut reader)?.try_into()?,
         n_layer: util::read_i32(&mut reader)?.try_into()?,
         n_rot: util::read_i32(&mut reader)?.try_into()?,
-        file_type: {
-            let ftype = util::read_i32(&mut reader)?;
-            FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))
-        }?,
+        file_type: util::read_filetype(&mut reader)?,
     };
 
     let n_ff =
@@ -112,11 +109,11 @@ pub(crate) fn load(
     // for the big tensors, we have the option to store the data in 16-bit
     // floats or quantized in order to save memory and also to speed up the
     // computation
-    let wtype = match hparams.file_type {
-        FileType::F32 => ggml::Type::F32,
-        FileType::MostlyF16 => ggml::Type::F16,
-        FileType::MostlyQ4_0 => ggml::Type::Q4_0,
-        FileType::MostlyQ4_1 => ggml::Type::Q4_1,
+    let wtype = match hparams.file_type.format {
+        FileTypeFormat::F32 => ggml::Type::F32,
+        FileTypeFormat::MostlyF16 => ggml::Type::F16,
+        FileTypeFormat::MostlyQ4_0 => ggml::Type::Q4_0,
+        FileTypeFormat::MostlyQ4_1 => ggml::Type::Q4_1,
         _ => unimplemented!(),
     };
 

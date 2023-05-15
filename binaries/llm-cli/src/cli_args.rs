@@ -465,13 +465,13 @@ pub enum FileType {
     /// Float 32-bit.
     F32,
 }
-impl From<FileType> for llm::FileType {
+impl From<FileType> for llm::FileTypeFormat {
     fn from(t: FileType) -> Self {
         match t {
-            FileType::Q4_0 => llm::FileType::MostlyQ4_0,
-            FileType::Q4_1 => llm::FileType::MostlyQ4_1,
-            FileType::F16 => llm::FileType::MostlyF16,
-            FileType::F32 => llm::FileType::F32,
+            FileType::Q4_0 => llm::FileTypeFormat::MostlyQ4_0,
+            FileType::Q4_1 => llm::FileTypeFormat::MostlyQ4_1,
+            FileType::F16 => llm::FileTypeFormat::MostlyF16,
+            FileType::F32 => llm::FileTypeFormat::F32,
         }
     }
 }
