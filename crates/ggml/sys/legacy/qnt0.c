@@ -51,7 +51,11 @@
 #undef bool
 #define bool _Bool
 #else
+#if defined(_MSC_VER) || defined(__MINGW32__)
+#include <intrin.h>
+#else
 #include <immintrin.h>
+#endif
 #endif
 #endif
 
@@ -176,6 +180,88 @@ static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
 #endif // __F16C__
 
 #endif // __ARM_NEON
+
+//
+// global data
+//
+
+// precomputed gelu table for f16 (128 KB)
+static ggml_fp16_t table_gelu_f16[1 << 16];
+
+// precomputed silu table for f16 (128 KB)
+static ggml_fp16_t table_silu_f16[1 << 16];
+
+// precomputed exp table for f16 (128 KB)
+static ggml_fp16_t table_exp_f16[1 << 16];
+
+// precomputed f32 table for f16 (256 KB)
+static float table_f32_f16[1 << 16];
+
+#if defined(__ARM_NEON) || defined(__wasm_simd128__)
+#define B1(c,s,n)  0x ## n ## c ,  0x ## n ## s
+#define B2(c,s,n) B1(c,s,n ## c), B1(c,s,n ## s)
+#define B3(c,s,n) B2(c,s,n ## c), B2(c,s,n ## s)
+#define B4(c,s,n) B3(c,s,n ## c), B3(c,s,n ## s)
+#define B5(c,s,n) B4(c,s,n ## c), B4(c,s,n ## s)
+#define B6(c,s,n) B5(c,s,n ## c), B5(c,s,n ## s)
+#define B7(c,s,n) B6(c,s,n ## c), B6(c,s,n ## s)
+#define B8(c,s  ) B7(c,s,     c), B7(c,s,     s)
+
+// precomputed tables for expanding 8bits to 8 bytes:
+static const uint64_t table_b2b_0[1 << 8] = { B8(00, 10) }; // ( b) << 4
+static const uint64_t table_b2b_1[1 << 8] = { B8(10, 00) }; // (!b) << 4
+#endif
+
+// On ARM NEON, it's quicker to directly convert x -> x instead of calling into ggml_lookup_fp16_to_fp32,
+// so we define GGML_FP16_TO_FP32 and GGML_FP32_TO_FP16 elsewhere for NEON.
+// This is also true for POWER9.
+#if !defined(GGML_FP16_TO_FP32) || !defined(GGML_FP32_TO_FP16)
+
+inline static float ggml_lookup_fp16_to_fp32(ggml_fp16_t f) {
+    uint16_t s;
+    memcpy(&s, &f, sizeof(uint16_t));
+    return table_f32_f16[s];
+}
+
+#define GGML_FP16_TO_FP32(x) ggml_lookup_fp16_to_fp32(x)
+#define GGML_FP32_TO_FP16(x) GGML_COMPUTE_FP32_TO_FP16(x)
+
+#endif
+
+// note: do not use these inside ggml.c
+// these are meant to be used via the ggml.h API
+float ggml_fp16_to_fp32(ggml_fp16_t x) {
+    return (float) GGML_FP16_TO_FP32(x);
+}
+
+ggml_fp16_t ggml_fp32_to_fp16(float x) {
+    return GGML_FP32_TO_FP16(x);
+}
+
+void ggml_fp16_to_fp32_row(const ggml_fp16_t * x, float * y, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        y[i] = GGML_FP16_TO_FP32(x[i]);
+    }
+}
+
+void ggml_fp32_to_fp16_row(const float * x, ggml_fp16_t * y, size_t n) {
+    size_t i = 0;
+#if defined(__F16C__)
+    for (; i + 7 < n; i += 8) {
+        __m256 x_vec = _mm256_loadu_ps(x + i);
+        __m128i y_vec = _mm256_cvtps_ph(x_vec, _MM_FROUND_TO_NEAREST_INT);
+        _mm_storeu_si128((__m128i *)(y + i), y_vec);
+    }
+    for(; i + 3 < n; i += 4) {
+        __m128 x_vec = _mm_loadu_ps(x + i);
+        __m128i y_vec = _mm_cvtps_ph(x_vec, _MM_FROUND_TO_NEAREST_INT);
+        _mm_storel_epi64((__m128i *)(y + i), y_vec);
+    }
+#endif
+    for (; i < n; i++) {
+        y[i] = GGML_FP32_TO_FP16(x[i]);
+    }
+}
 
 //
 // quantization
