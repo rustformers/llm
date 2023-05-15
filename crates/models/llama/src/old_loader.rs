@@ -31,34 +31,8 @@ pub(crate) fn load(
     let mut reader = BufReader::new(&file);
 
     // Verify magic
-    let magic = util::read_u32(&mut reader)?;
-    let model_type: ContainerType = match magic {
-        ggml::FILE_MAGIC_GGMF => ContainerType::Ggmf,
-        ggml::FILE_MAGIC_GGJT => ContainerType::Ggjt,
-        ggml::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
-        _ => {
-            return Err(LoadError::InvalidMagic {
-                path: path.to_owned(),
-                magic,
-            })
-        }
-    };
-
-    // Load format version
-    match model_type {
-        ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
-            match util::read_u32(&mut reader)? {
-                1 => {}
-                version => {
-                    return Err(LoadError::InvalidFormatVersion {
-                        container_type: model_type,
-                        version,
-                    })
-                }
-            };
-        }
-        ContainerType::Ggml => {}
-    }
+    let model_type = ContainerType::read(&mut reader)
+        .map_err(|e| LoadError::from_format_error(e, path.to_owned()))?;
 
     // =================
     // Load hyper params
@@ -93,8 +67,8 @@ pub(crate) fn load(
             let token = util::read_bytes_with_len(&mut reader, len.try_into()?)?;
 
             let score = match model_type {
-                ContainerType::Ggmf | ContainerType::Ggjt => util::read_f32(&mut reader)?,
-                ContainerType::Ggml | ContainerType::Ggla => {
+                ContainerType::Ggmf(_) | ContainerType::Ggjt(_) => util::read_f32(&mut reader)?,
+                ContainerType::Ggml | ContainerType::Ggla(_) => {
                     // Legacy model, set empty score
                     0.
                 }

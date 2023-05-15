@@ -9,7 +9,7 @@ use std::{
     io::{Seek, Write},
 };
 
-use crate::{util, ElementType};
+use crate::{util, ContainerType, ElementType};
 
 #[derive(Debug, thiserror::Error)]
 /// Errors that can occur while writing a model.
@@ -64,11 +64,8 @@ pub fn save<E: Error, W: Write + Seek>(
     vocabulary: &[(Vec<u8>, f32)],
     tensor_names: &[String],
 ) -> Result<(), SaveError<E>> {
-    const VERSION: u32 = 2;
-
     // Write header and hyperparameters
-    util::write_u32(writer, crate::FILE_MAGIC_GGJT)?;
-    util::write_u32(writer, VERSION)?;
+    ContainerType::Ggjt(2).write(writer)?;
     handler
         .write_hyperparameters(writer)
         .map_err(SaveError::ImplementationError)?;

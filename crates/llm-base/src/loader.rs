@@ -187,13 +187,11 @@ pub enum LoadError {
         /// The magic number that was encountered.
         magic: u32,
     },
-    #[error("invalid file format version {version}")]
+    #[error("invalid file format {container_type:?}")]
     /// The version of the format is not supported by this version of `llm`.
     InvalidFormatVersion {
         /// The format that was encountered.
         container_type: ContainerType,
-        /// The version that was encountered.
-        version: u32,
     },
     #[error("invalid value {ftype} for `f16` in hyperparameters")]
     /// The `f16` hyperparameter had an invalid value.
@@ -271,11 +269,8 @@ impl LoadError {
     pub fn from_format_error(value: FormatLoadError<LoadError>, path: PathBuf) -> Self {
         match value {
             FormatLoadError::InvalidMagic(magic) => LoadError::InvalidMagic { path, magic },
-            FormatLoadError::InvalidFormatVersion(container_type, version) => {
-                LoadError::InvalidFormatVersion {
-                    container_type,
-                    version,
-                }
+            FormatLoadError::InvalidFormatVersion(container_type) => {
+                LoadError::InvalidFormatVersion { container_type }
             }
             FormatLoadError::Io(err) => LoadError::Io(err),
             FormatLoadError::InvalidUtf8(err) => LoadError::InvalidUtf8(err),
@@ -348,7 +343,6 @@ pub fn load<M: KnownModel>(
         tensors,
         mut load_progress_callback,
         container_type,
-        format_version,
         ..
     } = loader;
 
@@ -361,7 +355,7 @@ pub fn load<M: KnownModel>(
         // but two days after version 2, the quantization version mechanism was
         // added. To work around this, we assume the quantization version if
         // it's a version 2 model with a quantization version of 0.
-        if format_version == Some(2) {
+        if container_type == ggml::ContainerType::Ggjt(2) {
             1
         } else {
             quantization_version
@@ -370,6 +364,7 @@ pub fn load<M: KnownModel>(
         quantization_version
     };
 
+    // TODO: this is temporary while we figure out how to handle this
     assert_eq!(quantization_version, 1, "quantization version must be 1");
 
     let use_mmap =
@@ -445,8 +440,6 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
     // Output
     /// The container type of the model.
     pub container_type: ContainerType,
-    /// The format version of the model.
-    pub format_version: Option<u32>,
     /// The hyperparameters of the model.
     pub hyperparameters: Hp,
     /// The vocabulary of the model.
@@ -460,8 +453,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
         Self {
             load_progress_callback,
 
-            container_type: ContainerType::Ggjt,
-            format_version: None,
+            container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
             vocabulary: Vocabulary::default(),
             tensors: HashMap::default(),
@@ -471,13 +463,8 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<LoadError>
     for Loader<Hp, F>
 {
-    fn container_type(
-        &mut self,
-        container_type: ContainerType,
-        format_version: Option<u32>,
-    ) -> Result<(), LoadError> {
+    fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {
         self.container_type = container_type;
-        self.format_version = format_version;
         Ok(())
     }
 
