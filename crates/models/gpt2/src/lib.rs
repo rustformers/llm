@@ -9,6 +9,8 @@ use llm_base::{
     LoadError, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
+use tokenizers::Tokenizer;
+
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
 ///
 /// # Safety
@@ -16,7 +18,7 @@ use llm_base::{
 pub struct Gpt2 {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
     ln_f_g: Tensor,
     ln_f_b: Tensor,
     wte: Tensor,
@@ -36,7 +38,7 @@ impl KnownModel for Gpt2 {
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -78,7 +80,7 @@ impl KnownModel for Gpt2 {
         Ok(Gpt2 {
             hyperparameters,
             n_context_tokens,
-            vocabulary,
+            tokenizer,
             layers,
             ln_f_g,
             ln_f_b,
@@ -307,8 +309,8 @@ impl KnownModel for Gpt2 {
         common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn n_context_tokens(&self) -> usize {
@@ -320,11 +322,7 @@ impl KnownModel for Gpt2 {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("<|endoftext|>".as_bytes())
-            .copied()
-            .unwrap()
+        self.tokenizer().token_to_id("<|endoftext|>").unwrap() as i32
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {

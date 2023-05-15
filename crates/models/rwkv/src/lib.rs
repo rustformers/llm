@@ -7,11 +7,13 @@ use llm_base::{
     OutputRequest, TokenId, Vocabulary,
 };
 
+use tokenizers::Tokenizer;
+
 pub struct Rwkv {
     hyperparameters: Hyperparameters,
     n_context_tokens: usize,
 
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     emb: Tensor,
 
@@ -31,6 +33,12 @@ pub struct Rwkv {
     // Must be kept alive for the model
     _context: ggml::Context,
     inference_parameters: InferenceParameters,
+
+    graph: ggml::ComputationGraph,
+    token_index: ggml::Tensor,
+    state: ggml::Tensor,
+    logits: ggml::Tensor,
+    state_parts: Vec<ggml::Tensor>,
 }
 unsafe impl Send for Rwkv {}
 unsafe impl Sync for Rwkv {}
@@ -102,7 +110,7 @@ impl KnownModel for Rwkv {
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -154,68 +162,35 @@ impl KnownModel for Rwkv {
             ..
         } = params;
 
-        Ok(Rwkv {
-            hyperparameters,
-            n_context_tokens,
-            vocabulary,
-            emb,
-            ln0_weight,
-            ln0_bias,
-            ln_out_weight,
-            ln_out_bias,
-            head,
-            layers,
-            inference_parameters,
-            _mmap,
-            _context,
-        })
-    }
-
-    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
-        InferenceSession::new(
-            params,
-            self.n_context_tokens,
-            self.hyperparameters.n_layer,
-            self.hyperparameters.n_embd,
-            self.hyperparameters.n_vocab,
-            true,
-        )
-    }
-
-    fn evaluate(
-        &self,
-        session: &mut InferenceSession,
-        params: &InferenceParameters,
-        input_tokens: &[TokenId],
-        output_request: &mut OutputRequest,
-    ) {
-        let n_threads = params.n_threads;
-
         let Hyperparameters {
             n_vocab,
             n_embd,
             n_layer,
             file_type: _,
-        } = self.hyperparameters;
+        } = hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let ctx0 = ggml::Context::init(
+            100 * n_embd * 4 + 2 * 5 * n_layer * n_embd * 4 + n_vocab * 4 + 256 * 1024 * 1024,
+            true,
+        );
 
-        //let state = ctx0.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
+        let state = ctx0.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
+        let token_index = ctx0.new_tensor_1d(ggml::Type::I32, 1);
 
-        let mut x = ctx0.op_get_rows(&self.emb, &embd);
+        let mut x = ctx0.op_get_rows(&emb, &token_index);
 
-        x = rwkv_layer_norm(&ctx0, &x, &self.ln0_weight, &self.ln0_bias);
+        x = rwkv_layer_norm(&ctx0, &x, &ln0_weight, &ln0_bias);
 
         let mut state_parts: Vec<ggml::Tensor> = Vec::with_capacity(n_layer * 5);
-        let mut gf = ggml::ComputationGraph::new(n_threads);
+        let mut gf = ggml::ComputationGraph::new(params.inference_parameters.n_threads);
 
         for i in 0..n_layer {
-            let layer = &self.layers[i];
+            let layer = &layers[i];
 
             // RWKV Time Mixing
             {
                 let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln1_weight, &layer.ln1_bias);
-                let x_prev = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 1) * n_embd * 4);
+                let x_prev = ctx0.op_view_1d(&state, n_embd, (5 * i + 1) * n_embd * 4);
 
                 let xk = ctx0.op_add(
                     &ctx0.op_mul(&x0, &layer.att_time_mix_k),
@@ -238,9 +213,9 @@ impl KnownModel for Rwkv {
                 let k = ctx0.op_mul_mat(&layer.att_key, &xk);
                 let v = ctx0.op_mul_mat(&layer.att_value, &xv);
 
-                let aa = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 2) * n_embd * 4);
-                let bb = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 3) * n_embd * 4);
-                let pp = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 4) * n_embd * 4);
+                let aa = ctx0.op_view_1d(&state, n_embd, (5 * i + 2) * n_embd * 4);
+                let bb = ctx0.op_view_1d(&state, n_embd, (5 * i + 3) * n_embd * 4);
+                let pp = ctx0.op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4);
 
                 let mut ww = ctx0.op_add(&layer.att_time_first, &k);
                 let mut qq = rwkv_max(&ctx0, &pp, &ww);
@@ -272,7 +247,7 @@ impl KnownModel for Rwkv {
 
             {
                 let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln2_weight, &layer.ln2_bias);
-                let x_prev = ctx0.op_view_1d(&session.state, n_embd, (5 * i + 0) * n_embd * 4);
+                let x_prev = ctx0.op_view_1d(&state, n_embd, (5 * i + 0) * n_embd * 4);
 
                 let xk = ctx0.op_add(
                     &ctx0.op_mul(&x0, &layer.ffn_time_mix_k),
@@ -292,32 +267,104 @@ impl KnownModel for Rwkv {
             }
         }
 
-        x = rwkv_layer_norm(&ctx0, &x, &self.ln_out_weight, &self.ln_out_bias);
+        x = rwkv_layer_norm(&ctx0, &x, &ln_out_weight, &ln_out_bias);
 
-        let mut logits = ctx0.op_mul_mat(&self.head, &x);
+        let mut logits = ctx0.op_mul_mat(&head, &x);
         gf.build_forward_expand(&logits);
 
         for i in 0..(n_layer * 5) {
             gf.build_forward_expand(&state_parts[i]);
         }
 
-        ctx0.graph_compute(&mut gf);
+        Ok(Rwkv {
+            hyperparameters,
+            n_context_tokens,
+            tokenizer,
+            emb,
+            ln0_weight,
+            ln0_bias,
+            ln_out_weight,
+            ln_out_bias,
+            head,
+            layers,
+            inference_parameters,
+            _mmap,
+            _context,
+            graph: gf,
+            token_index,
+            state,
+            logits,
+            state_parts,
+        })
+    }
+
+    fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
+        InferenceSession::new(
+            params,
+            self.n_context_tokens,
+            self.hyperparameters.n_layer,
+            self.hyperparameters.n_embd,
+            self.hyperparameters.n_vocab,
+            true,
+        )
+    }
+
+    fn evaluate(
+        &self,
+        session: &mut InferenceSession,
+        params: &InferenceParameters,
+        input_tokens: &[TokenId],
+        output_request: &mut OutputRequest,
+    ) {
+        let token_index = session.n_past;
+        self.token_index.set(token_index as f32);
+
+        unsafe {
+            self.state
+                .data()
+                .copy_from(session.state.data(), self.state.nelements());
+        }
+
+        self._context.graph_compute(&mut self.graph);
 
         // finish evaluation
 
+        for i in 0..(self.hyperparameters.n_layer * 5) {
+            let part = &self.state_parts[i];
+
+            unsafe {
+                std::slice::from_raw_parts_mut(part.data() as *mut f32, part.nelements())
+                    .copy_from_slice(std::slice::from_raw_parts(
+                        part.data() as *mut f32,
+                        part.nelements(),
+                    ))
+            }
+        }
+
         //common::read_last_token(session, &input_layer, n_vocab, n);
         session.last_logits = unsafe {
-            std::slice::from_raw_parts(logits.data() as *mut f32, logits.nbytes()).to_vec()
+            std::slice::from_raw_parts(self.logits.data() as *mut f32, self.logits.nbytes())
+                .to_vec()
         };
 
         //common::extract_logits(output_request, &input_layer, n_vocab, n);
 
-        common::extract_embeddings(output_request, &embd, n_embd, input_tokens.len());
-        common::update_session(session, &ctx0, input_tokens.len(), input_tokens.len());
+        common::extract_embeddings(
+            output_request,
+            &self.token_index,
+            self.hyperparameters.n_embd,
+            input_tokens.len(),
+        );
+        common::update_session(
+            session,
+            &self._context,
+            input_tokens.len(),
+            input_tokens.len(),
+        );
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn n_context_tokens(&self) -> usize {

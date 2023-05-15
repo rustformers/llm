@@ -81,7 +81,6 @@ impl Vocabulary {
                     if score[next] < local_score {
                         score[next] = local_score;
                         prev[next] = *token;
-                        println!("{}: {} -> {}", next, token, str::from_utf8(sub).unwrap());
                     }
                 }
             }
@@ -92,9 +91,7 @@ impl Vocabulary {
         let mut i = len;
         while i > 0 {
             let token_id = prev[i];
-            println!("i: {}, token_id: {}", i, token_id);
             if token_id == 0 {
-                println!("Tokenization failed");
                 return Err(InferenceError::TokenizationFailed);
             }
             let token = self.id_to_token[token_id as usize].as_slice();

@@ -204,6 +204,7 @@ impl Display for ModelArchitecture {
 pub fn load_dynamic(
     architecture: ModelArchitecture,
     path: &Path,
+    vocab_path: &Path,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
@@ -211,17 +212,47 @@ pub fn load_dynamic(
 
     let model: Box<dyn Model> = match architecture {
         #[cfg(feature = "bloom")]
-        Bloom => Box::new(load::<models::Bloom>(path, params, load_progress_callback)?),
+        Bloom => Box::new(load::<models::Bloom>(
+            path,
+            vocab_path,
+            params,
+            load_progress_callback,
+        )?),
         #[cfg(feature = "gpt2")]
-        Gpt2 => Box::new(load::<models::Gpt2>(path, params, load_progress_callback)?),
+        Gpt2 => Box::new(load::<models::Gpt2>(
+            path,
+            vocab_path,
+            params,
+            load_progress_callback,
+        )?),
         #[cfg(feature = "gptj")]
-        GptJ => Box::new(load::<models::GptJ>(path, params, load_progress_callback)?),
+        GptJ => Box::new(load::<models::GptJ>(
+            path,
+            vocab_path,
+            params,
+            load_progress_callback,
+        )?),
         #[cfg(feature = "llama")]
-        Llama => Box::new(load::<models::Llama>(path, params, load_progress_callback)?),
+        Llama => Box::new(load::<models::Llama>(
+            path,
+            vocab_path,
+            params,
+            load_progress_callback,
+        )?),
         #[cfg(feature = "neox")]
-        NeoX => Box::new(load::<models::NeoX>(path, params, load_progress_callback)?),
+        NeoX => Box::new(load::<models::NeoX>(
+            path,
+            vocab_path,
+            params,
+            load_progress_callback,
+        )?),
         #[cfg(feature = "rwkv")]
-        Rwkv => Box::new(load::<models::Rwkv>(path, params, load_progress_callback)?),
+        Rwkv => Box::new(load::<models::Rwkv>(
+            path,
+            vocab_path,
+            params,
+            load_progress_callback,
+        )?),
     };
 
     Ok(model)

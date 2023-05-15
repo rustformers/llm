@@ -7,21 +7,26 @@ fn main() {
     let args = match &raw_args.len() {
       3 => (raw_args[1].as_str(), raw_args[2].as_str(), "Rust is a cool programming language because"),
       4 => (raw_args[1].as_str(), raw_args[2].as_str(), raw_args[3].as_str()),
-      _ => panic!("Usage: cargo run --release --example inference <model type> <path to model> <optional prompt>")
+      _ => panic!("Usage: cargo run --release --example inference <model type> <path to model> <path to vocab> <optional prompt>")
     };
 
     let model_type = args.0;
     let model_path = Path::new(args.1);
-    let prompt = args.2;
+    let vocab_path = Path::new(args.2);
+    let prompt = "Rust is a cool programming language because"; // args.3;
 
     let now = std::time::Instant::now();
 
     let architecture = model_type.parse().unwrap_or_else(|e| panic!("{e}"));
 
-    let model = llm::load_dynamic(architecture, model_path, Default::default(), load_callback)
-        .unwrap_or_else(|err| {
-            panic!("Failed to load {model_type} model from {model_path:?}: {err}")
-        });
+    let model = llm::load_dynamic(
+        architecture,
+        model_path,
+        vocab_path,
+        Default::default(),
+        load_callback,
+    )
+    .unwrap_or_else(|err| panic!("Failed to load {model_type} model from {model_path:?}: {err}"));
 
     println!(
         "Model fully loaded! Elapsed: {}ms",

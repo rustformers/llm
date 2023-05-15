@@ -18,6 +18,8 @@ use ggml::{
 use memmap2::Mmap;
 use thiserror::Error;
 
+use tokenizers::Tokenizer;
+
 /// How the tensors are stored in GGML LLM models.
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
 pub enum FileType {
@@ -232,6 +234,15 @@ pub enum LoadError {
         /// The paths that were found.
         paths: Vec<PathBuf>,
     },
+
+    /// The vocab file for the tokenizer could not be loaded.
+    ///
+    ///
+    #[error("could not load vocab file {path:?}")]
+    TokenizerLoadFailed {
+        /// The path that failed.
+        path: PathBuf,
+    },
 }
 impl From<FindAllModelFilesError> for LoadError {
     fn from(value: FindAllModelFilesError) -> Self {
@@ -300,6 +311,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
+    vocab_path: &Path,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
@@ -327,6 +339,13 @@ pub fn load<M: KnownModel>(
         container_type,
         ..
     } = loader;
+
+    let tokenizer = Tokenizer::from_file(vocab_path);
+    if tokenizer.is_err() {
+        return Err(LoadError::TokenizerLoadFailed {
+            path: vocab_path.to_owned(),
+        });
+    }
 
     let use_mmap = params.prefer_mmap && container_type.support_mmap();
 
@@ -447,7 +466,7 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, params, tokenizer.unwrap(), tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,

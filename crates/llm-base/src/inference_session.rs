@@ -82,11 +82,14 @@ impl InferenceSession {
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
 
-        let vocab = model.vocabulary();
-        let prompt_tokens: Vec<TokenId> = vocab
-            .tokenize(prompt, beginning_of_sentence)?
+        let tokenizer = model.tokenizer();
+        let prompt_tokens: Vec<TokenId> = tokenizer
+            .encode(prompt, false)
+            .unwrap()
+            .get_ids()
+            .to_vec()
             .iter()
-            .map(|(_, tok)| *tok)
+            .map(|&id| id as TokenId)
             .collect();
 
         if self.n_past + prompt_tokens.len() >= model.n_context_tokens() {
@@ -101,7 +104,7 @@ impl InferenceSession {
                 if should_call_callback {
                     // NOTE: No string ever tokenizes to the end of sentence. So we
                     // can just return the id here.
-                    if let Err(e) = callback(vocab.token(tk as usize)) {
+                    if let Err(e) = callback(tokenizer.id_to_token(tk as u32).unwrap().as_bytes()) {
                         return Err(InferenceError::UserCallback(Box::new(e)));
                     }
                 }
@@ -121,7 +124,7 @@ impl InferenceSession {
         params: &InferenceParameters,
         output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
-    ) -> Result<&'v [u8], InferenceError> {
+    ) -> Result<Vec<u8>, InferenceError> {
         if self.n_past + 1 >= model.n_context_tokens() {
             return Err(InferenceError::ContextFull);
         }
@@ -139,7 +142,12 @@ impl InferenceSession {
         if next_token as TokenId == model.eot_token_id() {
             Err(InferenceError::EndOfText)
         } else {
-            Ok(model.vocabulary().token(next_token as usize))
+            Ok(model
+                .tokenizer()
+                .id_to_token(next_token as u32)
+                .unwrap()
+                .as_bytes()
+                .to_vec())
         }
     }
 
@@ -165,9 +173,13 @@ impl InferenceSession {
             let mut token_utf8_buf = TokenUtf8Buffer::new();
             for token_id in &self.tokens {
                 // Buffer the token until it's valid UTF-8, then call the callback.
-                if let Some(tokens) =
-                    token_utf8_buf.push(model.vocabulary().token(*token_id as usize))
-                {
+                if let Some(tokens) = token_utf8_buf.push(
+                    model
+                        .tokenizer()
+                        .id_to_token(*token_id as u32)
+                        .unwrap()
+                        .as_bytes(),
+                ) {
                     if let Err(e) = callback(&tokens) {
                         return Err(InferenceError::UserCallback(Box::new(e)));
                     }
@@ -207,7 +219,7 @@ impl InferenceSession {
             };
 
             // Buffer the token until it's valid UTF-8, then call the callback.
-            if let Some(tokens) = token_utf8_buf.push(token) {
+            if let Some(tokens) = token_utf8_buf.push(&token) {
                 if let Err(e) = callback(&tokens) {
                     return Err(InferenceError::UserCallback(Box::new(e)));
                 }

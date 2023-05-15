@@ -139,7 +139,7 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let model = args.model_load.load::<M>()?;
-    let toks = match model.vocabulary().tokenize(&prompt, false) {
+    let toks = match model.tokenizer().encode(prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
             log::error!("Could not tokenize prompt: {e}");
@@ -149,15 +149,17 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
     log::info!("=== Dumping prompt tokens:");
     log::info!(
         "{}",
-        toks.iter()
-            .map(|(_, tid)| tid.to_string())
+        toks.get_ids()
+            .iter()
+            .map(|(tid)| tid.to_string())
             .collect::<Vec<_>>()
             .join(", ")
     );
     log::info!(
         "{}",
-        toks.iter()
-            .map(|(s, tid)| format!("{s:?}:{tid}"))
+        toks.get_ids()
+            .iter()
+            .map(|(tid)| format!("s:?:{tid}"))
             .collect::<Vec<_>>()
             .join(", ")
     );

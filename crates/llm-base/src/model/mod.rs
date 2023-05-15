@@ -14,6 +14,8 @@ use crate::{
     InferenceSessionConfig, LoadError, LoadProgress, Vocabulary,
 };
 
+use tokenizers::Tokenizer;
+
 /// Common functions for model evaluation
 pub mod common;
 
@@ -28,13 +30,14 @@ pub trait KnownModel: Send + Sync {
     /// is a helper function on top of [llm_base::load](crate::load).
     fn load(
         path: &Path,
+        vocab_path: &Path,
         params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Self, LoadError>
     where
         Self: Sized,
     {
-        crate::load(path, params, load_progress_callback)
+        crate::load(path, vocab_path, params, load_progress_callback)
     }
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
@@ -42,7 +45,7 @@ pub trait KnownModel: Send + Sync {
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -64,7 +67,7 @@ pub trait KnownModel: Send + Sync {
     );
 
     /// Get the vocabulary (loaded from the GGML file) for this model.
-    fn vocabulary(&self) -> &Vocabulary;
+    fn tokenizer(&self) -> &Tokenizer;
 
     /// Get the context size (configured with [ModelParameters::n_context_tokens]) used by
     /// this model.
@@ -101,7 +104,7 @@ pub trait Model: Send + Sync {
     );
 
     /// Get the vocabulary (loaded from the GGML file) for this model.
-    fn vocabulary(&self) -> &Vocabulary;
+    fn tokenizer(&self) -> &Tokenizer;
 
     /// Get the context size (configured with [ModelParameters::n_context_tokens]) used by
     /// this model.
@@ -133,8 +136,8 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         KnownModel::evaluate(self, session, params, input_tokens, output_request)
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        KnownModel::vocabulary(self)
+    fn tokenizer(&self) -> &Tokenizer {
+        KnownModel::tokenizer(self)
     }
 
     fn n_context_tokens(&self) -> usize {

@@ -89,7 +89,7 @@
           "kind": "example"
         }
       },
-      "args": ["rwkv", "${env:HOME}/.ggml-models/rwkv-169m.bin"],
+      "args": ["rwkv", "${env:HOME}/.ggml-models/rwkv-14b.bin", "${env:HOME}/RWKV/rwkv.cpp/rwkv/20B_tokenizer.json"],
       "cwd": "${workspaceFolder}"
     }
   ]
