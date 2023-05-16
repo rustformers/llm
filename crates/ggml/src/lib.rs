@@ -197,6 +197,23 @@ impl std::fmt::Display for Type {
         }
     }
 }
+impl Type {
+    /// Returns whether this type is quantized.
+    pub fn is_quantized(&self) -> bool {
+        match self {
+            Type::Q4_0 => true,
+            Type::Q4_1 => true,
+            Type::Q5_0 => true,
+            Type::Q5_1 => true,
+            Type::Q8_0 => true,
+            Type::Q8_1 => true,
+            Type::I32 => false,
+            Type::F16 => false,
+            Type::F32 => false,
+            Type::LegacyQ4_2 => true,
+        }
+    }
+}
 
 /// A buffer of memory that can be used as a scratch buffer for a [Context].
 ///
