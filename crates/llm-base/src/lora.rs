@@ -1,16 +1,51 @@
 use crate::{
-    loader::FileContext, model::HyperparametersWriteError, util, Hyperparameters, LoadError,
+    loader::FileContext, model::HyperparametersWriteError, util, Hyperparameters, LoadError, Loader,
 };
 
 use ggml::format::TensorLoadInfo;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
+    io::BufReader,
     path::PathBuf,
 };
 
-/// A LoRA adapter for a model.
-pub struct LoraAdapter {
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+/// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter.
+pub struct LoraParameters {
+    /// r
+    pub r: i32,
+    /// alpha
+    pub alpha: i32,
+}
+impl LoraParameters {
+    /// Returns the scaling factor for the LoRA adapter.
+    pub fn calculate_scaling(&self) -> f32 {
+        (self.alpha as f32) / (self.r as f32)
+    }
+}
+impl Hyperparameters for LoraParameters {
+    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
+        Ok(LoraParameters {
+            r: util::read_i32(reader)?,
+            alpha: util::read_i32(reader)?,
+        })
+    }
+
+    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
+        util::write_i32(writer, self.r)?;
+        util::write_i32(writer, self.alpha)?;
+        Ok(())
+    }
+
+    fn n_vocabulary(&self) -> usize {
+        // LoRA adapters do not have a vocabulary.
+        0
+    }
+}
+
+/// [LoRA](https://arxiv.org/abs/2106.09685) patches for a model.
+pub struct LoraPatches {
     /// Scaling to apply to the LoRA weights.
     pub scaling: f32,
     /// The tensors of the LoRA.
@@ -22,29 +57,40 @@ pub struct LoraAdapter {
     /// Path to the LoRA file.
     pub path: PathBuf,
 }
-impl LoraAdapter {
-    /// Creates a new LoRA adapter.
-    pub fn new(
-        scaling: f32,
-        tensors: HashMap<String, TensorLoadInfo>,
-        file: File,
-        path: PathBuf,
-    ) -> Self {
-        let tensors_to_patch = tensors
+
+impl LoraPatches {
+    /// Loads LoRA patches from a file.
+    pub fn new(path: &PathBuf) -> Result<Self, LoadError> {
+        // Read the LoRA file
+        let lora_file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
+            source: e,
+            path: path.to_owned(),
+        })?;
+        let mut lora_reader = BufReader::new(&lora_file);
+        // TODO: Consider updating the progress callback to report the progress of the LoRA file.
+        // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
+        let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
+        ggml::format::load(&mut lora_reader, &mut lora_loader)
+            .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
+
+        // Collect the names of the tensors that should be patched
+        let tensors_to_patch = lora_loader
+            .tensors
             .keys()
             .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
             .collect();
 
-        LoraAdapter {
-            scaling,
-            tensors,
+        // Return the LoRA patches
+        Ok(LoraPatches {
+            scaling: lora_loader.hyperparameters.calculate_scaling(),
+            tensors: lora_loader.tensors,
             tensors_to_patch,
-            file,
-            path,
-        }
+            file: lora_file,
+            path: path.to_owned(),
+        })
     }
 
-    /// Apply this LoRA adapter to a tensor.
+    /// Patch a tensor via LoRA
     pub fn patch(
         &mut self,
         info: &TensorLoadInfo,
@@ -115,36 +161,29 @@ impl LoraAdapter {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-/// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter.
-pub struct LoraParameters {
-    /// r
-    pub r: i32,
-    /// alpha
-    pub alpha: i32,
+/// A collection of [LoRA](https://arxiv.org/abs/2106.09685) patches which can be applied to a model.
+pub struct LoraAdapter {
+    /// The LoRA patches.
+    pub patches: Vec<LoraPatches>,
 }
-impl LoraParameters {
-    /// Returns the scaling factor for the LoRA adapter.
-    pub fn calculate_scaling(&self) -> f32 {
-        (self.alpha as f32) / (self.r as f32)
-    }
-}
-impl Hyperparameters for LoraParameters {
-    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
-        Ok(LoraParameters {
-            r: util::read_i32(reader)?,
-            alpha: util::read_i32(reader)?,
-        })
+
+impl LoraAdapter {
+    /// Loads LoRA patches from the provided paths and returns a new adapter.
+    pub fn new(paths: &[PathBuf]) -> Result<Self, LoadError> {
+        let patches: Vec<LoraPatches> =
+            paths.iter().map(|p| LoraPatches::new(p).unwrap()).collect();
+        Ok(LoraAdapter { patches })
     }
 
-    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
-        util::write_i32(writer, self.r)?;
-        util::write_i32(writer, self.alpha)?;
+    /// Applies this LoRA adapter to the provided tensor.
+    pub fn apply(
+        &mut self,
+        info: &TensorLoadInfo,
+        tensor: &mut ggml::Tensor,
+    ) -> Result<(), LoadError> {
+        for patch in &mut self.patches {
+            patch.patch(info, tensor)?;
+        }
         Ok(())
-    }
-
-    fn n_vocabulary(&self) -> usize {
-        // LoRA adapters do not have a vocabulary.
-        0
     }
 }

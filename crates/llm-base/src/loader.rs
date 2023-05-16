@@ -6,10 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
-    Vocabulary,
-};
+use crate::{util, Hyperparameters, KnownModel, LoraAdapter, ModelParameters, TokenId, Vocabulary};
 pub use ggml::ContainerType;
 use ggml::{
     format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
@@ -333,7 +330,7 @@ pub fn load<M: KnownModel>(
     } = loader;
 
     let use_mmap =
-        params.prefer_mmap && container_type.support_mmap() && params.lora_adapter.is_none();
+        params.prefer_mmap && container_type.support_mmap() && params.lora_adapters.is_none();
 
     let ctx_size = tensors
         .values()
@@ -341,25 +338,8 @@ pub fn load<M: KnownModel>(
         .sum::<usize>();
 
     let mut lora_adapter: Option<LoraAdapter> = None;
-    if let Some(lora_path) = &params.lora_adapter {
-        // Read the LoRA file
-        let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
-            source: e,
-            path: lora_path.to_owned(),
-        })?;
-        let mut lora_reader = BufReader::new(&lora_file);
-        // TODO: Consider updating the progress callback to report the progress of the LoRA file.
-        // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-        let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
-        ggml::format::load(&mut lora_reader, &mut lora_loader)
-            .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
-
-        lora_adapter = Some(LoraAdapter::new(
-            lora_loader.hyperparameters.calculate_scaling(),
-            lora_loader.tensors,
-            lora_file,
-            lora_path.to_owned(),
-        ));
+    if let Some(lora_paths) = &params.lora_adapters {
+        lora_adapter = Some(LoraAdapter::new(lora_paths)?);
     }
 
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
@@ -491,7 +471,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         let mut tensor = main_context.get_tensor(info)?;
 
         if let Some(lora_adapter) = &mut self.lora_adapter {
-            lora_adapter.patch(info, &mut tensor)?;
+            lora_adapter.apply(info, &mut tensor)?;
             (self.load_progress_callback)(LoadProgress::LoraApplied {
                 name: name.to_owned(),
             });
