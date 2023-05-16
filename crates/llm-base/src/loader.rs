@@ -145,6 +145,12 @@ pub enum LoadProgress {
 #[derive(Error, Debug)]
 /// Errors encountered during the loading process.
 pub enum LoadError {
+    #[error("the file does not exist {path:?}")]
+    /// The file does not exist.
+    FileDoesNotExist {
+        /// The path that failed.
+        path: PathBuf,
+    },
     #[error("could not open file {path:?}")]
     /// A file failed to open.
     OpenFileFailed {
@@ -321,6 +327,12 @@ pub fn load<M: KnownModel>(
     overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
+    if !path.exists() {
+        return Err(LoadError::FileDoesNotExist {
+            path: path.to_owned(),
+        });
+    }
+
     let paths = util::find_all_model_files(path)?;
     if paths.len() != 1 {
         return Err(LoadError::MultipartNotSupported { paths });
