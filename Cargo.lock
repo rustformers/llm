@@ -646,9 +646,9 @@ dependencies = [
  "llm-bloom",
  "llm-gpt2",
  "llm-gptj",
+ "llm-gptneox",
  "llm-llama",
  "llm-mpt",
- "llm-neox",
  "log",
  "rand",
  "rustyline",
@@ -715,6 +715,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "llm-gptneox"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "llm-base",
+ "serde",
+]
+
+[[package]]
 name = "llm-llama"
 version = "0.1.1"
 dependencies = [
@@ -734,15 +743,6 @@ version = "0.1.1"
 dependencies = [
  "bytemuck",
  "llm-base",
-]
-
-[[package]]
-name = "llm-neox"
-version = "0.1.1"
-dependencies = [
- "bytemuck",
- "llm-base",
- "serde",
 ]
 
 [[package]]

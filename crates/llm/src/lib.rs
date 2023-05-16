@@ -5,8 +5,8 @@
 //! - [GPT-2](llm_gpt2)
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)
+//! - [GPT-NeoX](llm_gptneox)
 //! - [MPT](llm_mpt)
-//! - [GPT-NeoX](llm_neox)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -75,12 +75,12 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     feed_prompt_callback, ggml::format as ggml_format, load, load_progress_callback_stdout,
-    quantize, ElementType, FileType, InferenceError, InferenceFeedback, InferenceParameters,
-    InferenceRequest, InferenceResponse, InferenceSession, InferenceSessionConfig,
-    InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel, LoadError, LoadProgress,
-    Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides, ModelKVMemoryType,
-    ModelParameters, OutputRequest, QuantizeError, QuantizeProgress, SnapshotError, TokenBias,
-    TokenId, TokenUtf8Buffer, Vocabulary,
+    quantize, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
+    InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
+    InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
+    LoadError, LoadProgress, Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
+    ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError, QuantizeProgress,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
 };
 
 use serde::Serialize;
@@ -93,9 +93,10 @@ pub mod models {
     pub use llm_gpt2::{self as gpt2, Gpt2};
     #[cfg(feature = "gptj")]
     pub use llm_gptj::{self as gptj, GptJ};
+    #[cfg(feature = "gptneox")]
+    pub use llm_gptneox::{self as gptneox, GptNeoX, GptNeoXOverrides};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
-    #[cfg(feature = "mpt")]
     pub use llm_mpt::{self as mpt, Mpt};
     #[cfg(feature = "neox")]
     pub use llm_neox::{self as neox, NeoX, NeoXOverrides};
@@ -116,11 +117,11 @@ pub enum ModelArchitecture {
     #[cfg(feature = "llama")]
     /// [LLaMA](llm_llama)
     Llama,
-    #[cfg(feature = "neox")]
-    /// [GPT-NeoX](llm_neox)
-    NeoX,
-    #[cfg(feature = "neox")]
-    /// RedPajama: [GPT-NeoX](llm_neox) with `use_parallel_residual` set to false
+    #[cfg(feature = "gptneox")]
+    /// [GPT-NeoX](llm_gptneox)
+    GptNeoX,
+    #[cfg(feature = "gptneox")]
+    /// RedPajama: [GPT-NeoX](llm_gptneox) with `use_parallel_residual` set to false
     RedPajama,
     #[cfg(feature = "mpt")]
     /// [MPT](llm_mpt)
@@ -138,9 +139,9 @@ impl ModelArchitecture {
         Self::GptJ,
         #[cfg(feature = "llama")]
         Self::Llama,
-        #[cfg(feature = "neox")]
-        Self::NeoX,
-        #[cfg(feature = "neox")]
+        #[cfg(feature = "gptneox")]
+        Self::GptNeoX,
+        #[cfg(feature = "gptneox")]
         Self::RedPajama,
         #[cfg(feature = "mpt")]
         Self::Mpt,
@@ -183,9 +184,9 @@ impl FromStr for ModelArchitecture {
             "gptj" => Ok(GptJ),
             #[cfg(feature = "llama")]
             "llama" => Ok(Llama),
-            #[cfg(feature = "neox")]
-            "gptneox" => Ok(NeoX),
-            #[cfg(feature = "neox")]
+            #[cfg(feature = "gptneox")]
+            "gptneox" => Ok(GptNeoX),
+            #[cfg(feature = "gptneox")]
             "redpajama" => Ok(RedPajama),
             #[cfg(feature = "mpt")]
             "mpt" => Ok(Mpt),
@@ -209,9 +210,9 @@ impl Display for ModelArchitecture {
             GptJ => write!(f, "GPT-J"),
             #[cfg(feature = "llama")]
             Llama => write!(f, "LLaMA"),
-            #[cfg(feature = "neox")]
-            NeoX => write!(f, "GPT-NeoX"),
-            #[cfg(feature = "neox")]
+            #[cfg(feature = "gptneox")]
+            GptNeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "gptneox")]
             RedPajama => write!(f, "RedPajama"),
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
@@ -259,15 +260,15 @@ pub fn load_dynamic(
         GptJ => load_model::<models::GptJ>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "llama")]
         Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "neox")]
-        NeoX => load_model::<models::NeoX>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "neox")]
-        RedPajama => load_model::<models::NeoX>(
+        #[cfg(feature = "gptneox")]
+        GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
+        #[cfg(feature = "gptneox")]
+        RedPajama => load_model::<models::GptNeoX>(
             path,
             params,
             {
                 let mut overrides = overrides.unwrap_or_default();
-                overrides.merge(models::NeoXOverrides {
+                overrides.merge(models::GptNeoXOverrides {
                     use_parallel_residual: false,
                 });
                 Some(overrides)

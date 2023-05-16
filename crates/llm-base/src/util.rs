@@ -1,7 +1,10 @@
 //! Utilities for interacting with LLMs and loading them.
 pub use ggml::util::*;
 
-use std::path::{Path, PathBuf};
+use std::{
+    io::BufRead,
+    path::{Path, PathBuf},
+};
 
 /// NOTE: The original code relies in promotion rules and automatic cast between
 /// int to float. What we do instead is use this macro to convert every term of
@@ -20,6 +23,14 @@ macro_rules! mulf {
 
 use memmap2::{Mmap, MmapAsRawDesc, MmapOptions};
 use thiserror::Error;
+
+use crate::{FileType, LoadError};
+
+/// Read the filetype from a reader.
+pub fn read_filetype(reader: &mut dyn BufRead) -> Result<FileType, LoadError> {
+    let ftype = read_i32(reader)?;
+    FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))
+}
 
 /// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
 ///

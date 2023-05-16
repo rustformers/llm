@@ -348,6 +348,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
     }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
+    }
 }
 
 struct Layer {
