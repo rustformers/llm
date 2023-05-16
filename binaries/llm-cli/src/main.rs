@@ -32,15 +32,15 @@ fn main() -> Result<()> {
         Args::NeoX {
             args,
             no_parallel_residual,
-        } => handle_args::<llm::models::NeoX>(
+        } => handle_args::<llm::models::GptNeoX>(
             args,
-            Some(llm::models::NeoXOverrides {
+            Some(llm::models::GptNeoXOverrides {
                 use_parallel_residual: !*no_parallel_residual,
             }),
         ),
-        Args::RedPajama { args } => handle_args::<llm::models::NeoX>(
+        Args::RedPajama { args } => handle_args::<llm::models::GptNeoX>(
             args,
-            Some(llm::models::NeoXOverrides {
+            Some(llm::models::GptNeoXOverrides {
                 use_parallel_residual: false,
             }),
         ),

@@ -5,7 +5,7 @@
 //! - [GPT-2](llm_gpt2)
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)
-//! - [GPT-NeoX](llm_neox)
+//! - [GPT-NeoX](llm_gptneox)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -92,10 +92,10 @@ pub mod models {
     pub use llm_gpt2::{self as gpt2, Gpt2};
     #[cfg(feature = "gptj")]
     pub use llm_gptj::{self as gptj, GptJ};
+    #[cfg(feature = "gptneox")]
+    pub use llm_gptneox::{self as gptneox, GptNeoX, GptNeoXOverrides};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
-    #[cfg(feature = "neox")]
-    pub use llm_neox::{self as neox, NeoX, NeoXOverrides};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -113,11 +113,11 @@ pub enum ModelArchitecture {
     #[cfg(feature = "llama")]
     /// [LLaMA](llm_llama)
     Llama,
-    #[cfg(feature = "neox")]
-    /// [GPT-NeoX](llm_neox)
-    NeoX,
-    #[cfg(feature = "neox")]
-    /// RedPajama: [GPT-NeoX](llm_neox) with `use_parallel_residual` set to false
+    #[cfg(feature = "gptneox")]
+    /// [GPT-NeoX](llm_gptneox)
+    GptNeoX,
+    #[cfg(feature = "gptneox")]
+    /// RedPajama: [GPT-NeoX](llm_gptneox) with `use_parallel_residual` set to false
     RedPajama,
 }
 
@@ -132,9 +132,9 @@ impl ModelArchitecture {
         Self::GptJ,
         #[cfg(feature = "llama")]
         Self::Llama,
-        #[cfg(feature = "neox")]
-        Self::NeoX,
-        #[cfg(feature = "neox")]
+        #[cfg(feature = "gptneox")]
+        Self::GptNeoX,
+        #[cfg(feature = "gptneox")]
         Self::RedPajama,
     ];
 }
@@ -175,9 +175,9 @@ impl FromStr for ModelArchitecture {
             "gptj" => Ok(GptJ),
             #[cfg(feature = "llama")]
             "llama" => Ok(Llama),
-            #[cfg(feature = "neox")]
-            "gptneox" => Ok(NeoX),
-            #[cfg(feature = "neox")]
+            #[cfg(feature = "gptneox")]
+            "gptneox" => Ok(GptNeoX),
+            #[cfg(feature = "gptneox")]
             "redpajama" => Ok(RedPajama),
             m => Err(UnsupportedModelArchitecture(format!(
                 "{m} is not a supported model architecture"
@@ -199,9 +199,9 @@ impl Display for ModelArchitecture {
             GptJ => write!(f, "GPT-J"),
             #[cfg(feature = "llama")]
             Llama => write!(f, "LLaMA"),
-            #[cfg(feature = "neox")]
-            NeoX => write!(f, "GPT-NeoX"),
-            #[cfg(feature = "neox")]
+            #[cfg(feature = "gptneox")]
+            GptNeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "gptneox")]
             RedPajama => write!(f, "RedPajama"),
         }
     }
@@ -247,15 +247,15 @@ pub fn load_dynamic(
         GptJ => load_model::<models::GptJ>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "llama")]
         Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "neox")]
-        NeoX => load_model::<models::NeoX>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "neox")]
-        RedPajama => load_model::<models::NeoX>(
+        #[cfg(feature = "gptneox")]
+        GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
+        #[cfg(feature = "gptneox")]
+        RedPajama => load_model::<models::GptNeoX>(
             path,
             params,
             {
                 let mut overrides = overrides.unwrap_or_default();
-                overrides.merge(models::NeoXOverrides {
+                overrides.merge(models::GptNeoXOverrides {
                     use_parallel_residual: false,
                 });
                 Some(overrides)

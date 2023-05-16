@@ -13,7 +13,7 @@ llm-llama = { path = "../models/llama", features = ["convert"], optional = true,
 llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.1.1" }
 llm-gptj = { path = "../models/gptj", optional = true, version = "0.1.1" }
 llm-bloom = { path = "../models/bloom", optional = true, version = "0.1.1" }
-llm-neox = { path = "../models/neox", optional = true, version = "0.1.1" }
+llm-gptneox = { path = "../models/gptneox", optional = true, version = "0.1.1" }
 
 serde = { workspace = true }
 
@@ -26,9 +26,9 @@ spinoff = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["llama", "gpt2", "gptj", "bloom", "neox"]
+default = ["llama", "gpt2", "gptj", "bloom", "gptneox"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
 bloom = ["dep:llm-bloom"]
-neox = ["dep:llm-neox"]
+gptneox = ["dep:llm-gptneox"]
