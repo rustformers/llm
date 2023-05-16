@@ -290,8 +290,8 @@ impl KnownModel for GptNeoX {
             }
 
             // self-attention using mode = 2 for GPT-NeoX mode
-            qcur = ctx0.op_rope(&qcur, n_past, n_rot, 2);
-            kcur = ctx0.op_rope(&kcur, n_past, n_rot, 2);
+            qcur = ctx0.op_rope_inplace(&qcur, n_past, n_rot, 2);
+            kcur = ctx0.op_rope_inplace(&kcur, n_past, n_rot, 2);
 
             // self-attention store key and value to memory
             if use_parallel_residual {
@@ -335,13 +335,13 @@ impl KnownModel for GptNeoX {
             );
 
             let kq = ctx0.op_mul_mat(&big_k, &q);
-            let kq_scaled = ctx0.op_scale(
+            let kq_scale_inplaced = ctx0.op_scale_inplace(
                 &kq,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
 
-            let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
-            let kq_softmax = ctx0.op_soft_max(&kq_masked);
+            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scale_inplaced, n_past);
+            let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
 
             let big_v = ctx0.op_view_3d(
                 memory_v,
@@ -499,10 +499,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
             n_rot: util::read_i32(reader)?.try_into()?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
             use_parallel_residual: true,
         })
     }
@@ -520,6 +517,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
     }
 }
 

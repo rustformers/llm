@@ -1,5 +1,6 @@
 use crate::{
-    loader::FileContext, model::HyperparametersWriteError, util, Hyperparameters, LoadError,
+    loader::FileContext, model::HyperparametersWriteError, util, FileType, Hyperparameters,
+    LoadError,
 };
 
 use ggml::format::TensorLoadInfo;
@@ -146,5 +147,9 @@ impl Hyperparameters for LoraParameters {
     fn n_vocabulary(&self) -> usize {
         // LoRA adapters do not have a vocabulary.
         0
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        None
     }
 }
