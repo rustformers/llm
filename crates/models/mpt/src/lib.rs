@@ -303,7 +303,7 @@ impl KnownModel for Mpt {
 }
 
 /// MPT [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub struct Hyperparameters {
     /// Size of the model's embedding layer
     n_embd: usize,
@@ -315,6 +315,10 @@ pub struct Hyperparameters {
     n_layer: usize,
     /// Size of the model's vocabulary
     n_vocab: usize,
+    /// Alibi bias max
+    alibi_bias_max: f32,
+    /// Clip KQV
+    clip_kqv: f32,
     /// file_type
     file_type: FileType,
 }
@@ -326,6 +330,8 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
             n_vocab: util::read_i32(reader)?.try_into()?,
+            alibi_bias_max: util::read_f32(reader)?,
+            clip_kqv: util::read_f32(reader)?,
             file_type: {
                 let ftype = util::read_i32(reader)?;
                 FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
