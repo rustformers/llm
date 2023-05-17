@@ -145,7 +145,7 @@ pub enum LoadProgress {
 #[derive(Error, Debug)]
 /// Errors encountered during the loading process.
 pub enum LoadError {
-    #[error("the file does not exist {path:?}")]
+    #[error("the file {path:?} does not exist")]
     /// The file does not exist.
     FileDoesNotExist {
         /// The path that failed.
