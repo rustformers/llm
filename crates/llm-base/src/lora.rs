@@ -7,7 +7,6 @@ use ggml::format::TensorLoadInfo;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::BufReader,
     path::PathBuf,
 };
 
@@ -43,10 +42,14 @@ impl Hyperparameters for LoraParameters {
         // LoRA adapters do not have a vocabulary.
         0
     }
+
+    fn file_type(&self) -> Option<FileType> {
+        None
+    }
 }
 
-/// [LoRA](https://arxiv.org/abs/2106.09685) patches for a model.
-pub struct LoraPatches {
+/// [LoRA](https://arxiv.org/abs/2106.09685) adapter for a model.
+pub struct LoraAdapter {
     /// Scaling to apply to the LoRA weights.
     pub scaling: f32,
     /// The tensors of the LoRA.
@@ -59,38 +62,7 @@ pub struct LoraPatches {
     pub path: PathBuf,
 }
 
-impl LoraPatches {
-    /// Loads LoRA patches from a file.
-    pub fn new(path: &PathBuf) -> Result<Self, LoadError> {
-        // Read the LoRA file
-        let lora_file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
-            source: e,
-            path: path.to_owned(),
-        })?;
-        let mut lora_reader = BufReader::new(&lora_file);
-        // TODO: Consider updating the progress callback to report the progress of the LoRA file.
-        // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-        let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
-        ggml::format::load(&mut lora_reader, &mut lora_loader)
-            .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
-
-        // Collect the names of the tensors that should be patched
-        let tensors_to_patch = lora_loader
-            .tensors
-            .keys()
-            .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
-            .collect();
-
-        // Return the LoRA patches
-        Ok(LoraPatches {
-            scaling: lora_loader.hyperparameters.calculate_scaling(),
-            tensors: lora_loader.tensors,
-            tensors_to_patch,
-            file: lora_file,
-            path: path.to_owned(),
-        })
-    }
-
+impl LoraAdapter {
     /// Patch a tensor via LoRA
     pub fn patch(
         &mut self,
@@ -159,41 +131,5 @@ impl LoraPatches {
                 path: self.path.to_owned(),
                 tensor_name: name.to_owned(),
             })
-    }
-}
-
-/// A collection of [LoRA](https://arxiv.org/abs/2106.09685) patches which can be applied to a model.
-pub struct LoraAdapter {
-    /// The LoRA patches.
-    pub patches: Vec<LoraPatches>,
-}
-
-impl LoraAdapter {
-    /// Loads LoRA patches from the provided paths and returns a new adapter.
-    pub fn new(paths: &[PathBuf]) -> Result<Self, LoadError> {
-        let patches: Vec<LoraPatches> =
-            paths.iter().map(|p| LoraPatches::new(p).unwrap()).collect();
-        Ok(LoraAdapter { patches })
-    }
-
-    /// Applies this LoRA adapter to the provided tensor.
-    pub fn apply(
-        &mut self,
-        info: &TensorLoadInfo,
-        tensor: &mut ggml::Tensor,
-    ) -> Result<(), LoadError> {
-        for patch in &mut self.patches {
-            patch.patch(info, tensor)?;
-        }
-        Ok(())
-    }
-
-    fn n_vocabulary(&self) -> usize {
-        // LoRA adapters do not have a vocabulary.
-        0
-    }
-
-    fn file_type(&self) -> Option<FileType> {
-        None
     }
 }

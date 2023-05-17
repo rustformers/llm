@@ -364,9 +364,13 @@ impl ModelLoad {
                     "ggml ctx size = {}",
                     bytesize::to_string(bytes as u64, false)
                 ),
-                LoadProgress::LoraApplied { name } => {
+                LoadProgress::LoraApplied { name, source } => {
                     if let Some(sp) = sp.as_mut() {
-                        sp.update_text(format!("Patched tensor {} via LoRA", name));
+                        sp.update_text(format!(
+                            "Patched tensor {} via LoRA from '{}'",
+                            name,
+                            source.file_name().unwrap().to_str().unwrap()
+                        ));
                     }
                 }
                 LoadProgress::TensorLoaded {

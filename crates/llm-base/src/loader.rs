@@ -6,7 +6,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{util, Hyperparameters, KnownModel, LoraAdapter, ModelParameters, TokenId, Vocabulary};
+use crate::{
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
+    Vocabulary,
+};
 pub use ggml::ContainerType;
 use ggml::{
     format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
@@ -122,6 +125,8 @@ pub enum LoadProgress {
     LoraApplied {
         /// The name of the patched tensor.
         name: String,
+        /// LoRA file the patch was applied from.
+        source: PathBuf,
     },
     /// A tensor from the current part has been loaded.
     TensorLoaded {
@@ -386,9 +391,41 @@ pub fn load<M: KnownModel>(
         .map(|ti| ti.calc_absolute_size(use_mmap))
         .sum::<usize>();
 
-    let mut lora_adapter: Option<LoraAdapter> = None;
+    let mut lora_adapters: Option<Vec<LoraAdapter>> = None;
     if let Some(lora_paths) = &params.lora_adapters {
-        lora_adapter = Some(LoraAdapter::new(lora_paths)?);
+        let adapters: Result<Vec<_>, _> = lora_paths
+            .iter()
+            .map(|p| {
+                // Read the LoRA file
+                let lora_file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
+                    source: e,
+                    path: p.to_owned(),
+                })?;
+                let mut lora_reader = BufReader::new(&lora_file);
+                // TODO: Consider updating the progress callback to report the progress of the LoRA file.
+                // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
+                let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
+                ggml::format::load(&mut lora_reader, &mut lora_loader)
+                    .map_err(|err| LoadError::from_format_error(err, p.to_owned()))?;
+
+                // Collect the names of the tensors that should be patched
+                let tensors_to_patch = lora_loader
+                    .tensors
+                    .keys()
+                    .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
+                    .collect();
+
+                // Return the LoRA patches
+                Ok::<_, LoadError>(LoraAdapter {
+                    scaling: lora_loader.hyperparameters.calculate_scaling(),
+                    tensors: lora_loader.tensors,
+                    tensors_to_patch,
+                    file: lora_file,
+                    path: path.to_owned(),
+                })
+            })
+            .collect();
+        lora_adapters = Some(adapters?);
     }
 
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
@@ -411,7 +448,7 @@ pub fn load<M: KnownModel>(
         tensors,
         context,
         mmap,
-        lora_adapter,
+        lora_adapters,
         load_progress_callback: &mut load_progress_callback,
         loaded_tensors: Default::default(),
     };
@@ -499,7 +536,7 @@ struct MmapCompatibleLoader<'a> {
     tensors: HashMap<String, TensorLoadInfo>,
     context: Context,
     mmap: Option<Mmap>,
-    lora_adapter: Option<LoraAdapter>,
+    lora_adapters: Option<Vec<LoraAdapter>>,
     load_progress_callback: &'a mut dyn FnMut(LoadProgress),
     loaded_tensors: HashMap<String, ggml::Tensor>,
 }
@@ -519,11 +556,14 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
 
         let mut tensor = main_context.get_tensor(info)?;
 
-        if let Some(lora_adapter) = &mut self.lora_adapter {
-            lora_adapter.apply(info, &mut tensor)?;
-            (self.load_progress_callback)(LoadProgress::LoraApplied {
-                name: name.to_owned(),
-            });
+        if let Some(lora_adapters) = &mut self.lora_adapters {
+            for lora_adapter in lora_adapters {
+                lora_adapter.patch(info, &mut tensor)?;
+                (self.load_progress_callback)(LoadProgress::LoraApplied {
+                    name: name.to_owned(),
+                    source: lora_adapter.path.to_owned(),
+                });
+            }
         }
 
         (self.load_progress_callback)(LoadProgress::TensorLoaded {
@@ -639,8 +679,12 @@ pub fn load_progress_callback_stdout(progress: LoadProgress) {
                 tensor_count
             );
         }
-        LoadProgress::LoraApplied { name } => {
-            println!("Patched tensor {} via LoRA", name);
+        LoadProgress::LoraApplied { name, source } => {
+            println!(
+                "Patched tensor {} via LoRA from '{}'",
+                name,
+                source.file_name().unwrap().to_str().unwrap()
+            );
         }
     };
 }

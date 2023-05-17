@@ -29,7 +29,7 @@ pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, LoadError,
     LoadProgress, Loader, TensorLoader,
 };
-pub use lora::{LoraAdapter, LoraParameters, LoraPatches};
+pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
 pub use model::{
     Hyperparameters, KnownModel, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
