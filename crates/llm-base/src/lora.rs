@@ -1,5 +1,6 @@
 use crate::{
-    loader::FileContext, model::HyperparametersWriteError, util, Hyperparameters, LoadError, Loader,
+    loader::FileContext, model::HyperparametersWriteError, util, FileType, Hyperparameters,
+    LoadError,
 };
 
 use ggml::format::TensorLoadInfo;
@@ -185,5 +186,14 @@ impl LoraAdapter {
             patch.patch(info, tensor)?;
         }
         Ok(())
+    }
+
+    fn n_vocabulary(&self) -> usize {
+        // LoRA adapters do not have a vocabulary.
+        0
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        None
     }
 }

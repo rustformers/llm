@@ -136,7 +136,7 @@ struct MockLoadHandler<'a> {
 }
 impl format::LoadHandler<DummyError> for MockLoadHandler<'_> {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), DummyError> {
-        assert_eq!(container_type, ContainerType::Ggjt);
+        assert_eq!(container_type, ContainerType::Ggjt(2));
         Ok(())
     }
 

@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -437,10 +437,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_mult: util::read_i32(reader)?.try_into()?,
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
         })
     }
 
@@ -456,6 +453,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
     }
 }
 

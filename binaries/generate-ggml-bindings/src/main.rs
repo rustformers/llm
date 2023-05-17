@@ -5,17 +5,15 @@
 use std::path::PathBuf;
 
 fn main() {
-    const HEADER_PATH: &str = "crates/ggml/sys/ggml/include/ggml/ggml.h";
-
     let bindings = bindgen::Builder::default()
-        .header(HEADER_PATH)
+        .header("crates/ggml/sys/bindings.h")
         // Suppress some warnings
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_camel_case_types)]")
         .raw_line("#![allow(non_snake_case)]")
         .raw_line("#![allow(unused)]")
-        // Do not generate code for ggml's includes (stdlib)
-        .allowlist_file(HEADER_PATH)
+        // Only generate code if it's from GGML
+        .allowlist_file("crates/ggml/.*")
         .generate()
         .expect("Unable to generate bindings");
 

@@ -20,9 +20,9 @@ pub enum LoadError<E: Error> {
     #[error("invalid file magic number: {0}")]
     /// The file magic number is invalid.
     InvalidMagic(u32),
-    #[error("invalid ggml format: format={0:?} version={1}")]
+    #[error("invalid ggml format: format={0:?}")]
     /// An unsupported format version was found.
-    InvalidFormatVersion(ContainerType, u32),
+    InvalidFormatVersion(ContainerType),
     #[error("non-specific I/O error")]
     /// A non-specific IO error.
     Io(#[from] std::io::Error),
@@ -142,27 +142,19 @@ pub fn load<E: Error, R: BufRead + Seek>(
     handler: &mut impl LoadHandler<E>,
 ) -> Result<(), LoadError<E>> {
     // Verify magic
-    let container_type: ContainerType = match read_u32(reader)? {
-        crate::FILE_MAGIC_GGMF => ContainerType::Ggmf,
-        crate::FILE_MAGIC_GGJT => ContainerType::Ggjt,
-        crate::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
-        crate::FILE_MAGIC_GGLA => ContainerType::Ggla,
-        magic => return Err(LoadError::InvalidMagic(magic)),
-    };
+    let container_type = ContainerType::read(reader)?;
+
+    match container_type {
+        ContainerType::Ggml
+        | ContainerType::Ggmf(1)
+        | ContainerType::Ggjt(1 | 2)
+        | ContainerType::Ggla(1) => {}
+        _ => return Err(LoadError::InvalidFormatVersion(container_type)),
+    }
+
     handler
         .container_type(container_type)
         .map_err(LoadError::ImplementationError)?;
-
-    // Load format version
-    match container_type {
-        ContainerType::Ggmf | ContainerType::Ggjt | ContainerType::Ggla => {
-            let _version: u32 = match read_u32(reader)? {
-                crate::FORMAT_VERSION => crate::FORMAT_VERSION,
-                version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
-            };
-        }
-        ContainerType::Ggml => {}
-    }
 
     // Load hyper params
     let hparams = handler
@@ -175,8 +167,8 @@ pub fn load<E: Error, R: BufRead + Seek>(
         let len = read_u32(reader)?.try_into()?;
         let token = read_bytes_with_len(reader, len)?;
         let token_score = match container_type {
-            ContainerType::Ggmf | ContainerType::Ggjt => read_f32(reader)?,
-            ContainerType::Ggml | ContainerType::Ggla => {
+            ContainerType::Ggmf(_version) | ContainerType::Ggjt(_version) => read_f32(reader)?,
+            ContainerType::Ggml | ContainerType::Ggla(_) => {
                 // Legacy model, set empty score
                 0.
             }
@@ -188,8 +180,10 @@ pub fn load<E: Error, R: BufRead + Seek>(
 
     // Load tensor data
     match container_type {
-        ContainerType::Ggmf | ContainerType::Ggml => load_weights(reader, handler, false),
-        ContainerType::Ggjt | ContainerType::Ggla => load_weights(reader, handler, true),
+        ContainerType::Ggmf(_) | ContainerType::Ggml => load_weights(reader, handler, false),
+        ContainerType::Ggjt(_version) | ContainerType::Ggla(_version) => {
+            load_weights(reader, handler, true)
+        }
     }
 }
 

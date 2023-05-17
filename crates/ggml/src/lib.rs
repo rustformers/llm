@@ -13,6 +13,7 @@ mod context;
 mod tensor;
 
 pub mod format;
+pub mod legacy;
 pub mod util;
 
 pub use context::Context;
@@ -32,35 +33,85 @@ pub enum ContainerType {
     /// Legacy format, oldest ggml tensor file format
     Ggml,
     /// Legacy format. Introduces versioning. Newer than GGML, older than GGJT.
-    Ggmf,
-    /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format.
-    Ggjt,
+    Ggmf(u32),
+    /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format. Current version of the format.
+    Ggjt(u32),
     /// LoRA adapter format.
-    Ggla,
+    Ggla(u32),
 }
 impl ContainerType {
     /// Does this container type support mmap?
     pub fn support_mmap(&self) -> bool {
         match self {
             ContainerType::Ggml => false,
-            ContainerType::Ggmf => false,
-            ContainerType::Ggla => false,
-            ContainerType::Ggjt => true,
+            ContainerType::Ggmf(_) => false,
+            ContainerType::Ggla(_) => false,
+            ContainerType::Ggjt(_) => true,
         }
+    }
+
+    /// Read the container type from a reader.
+    pub fn read<E: std::error::Error>(
+        reader: &mut dyn std::io::BufRead,
+    ) -> Result<Self, crate::format::LoadError<E>> {
+        // Verify magic
+        let magic = util::read_u32(reader)?;
+        let container_type: ContainerType = match magic {
+            crate::FILE_MAGIC_GGML => ContainerType::Ggml,
+            crate::FILE_MAGIC_GGMF => {
+                let version = util::read_u32(reader)?;
+                ContainerType::Ggmf(version)
+            }
+            crate::FILE_MAGIC_GGJT => {
+                let version = util::read_u32(reader)?;
+                ContainerType::Ggjt(version)
+            }
+            crate::FILE_MAGIC_GGLA => {
+                let version = util::read_u32(reader)?;
+                ContainerType::Ggla(version)
+            }
+            magic => return Err(crate::format::LoadError::InvalidMagic(magic)),
+        };
+
+        Ok(container_type)
+    }
+
+    /// Write the container type to a writer.
+    pub fn write(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
+        match self {
+            ContainerType::Ggml => {
+                util::write_u32(writer, FILE_MAGIC_GGMF)?;
+            }
+            ContainerType::Ggmf(version) => {
+                util::write_u32(writer, FILE_MAGIC_GGMF)?;
+                util::write_u32(writer, *version)?;
+            }
+            ContainerType::Ggjt(version) => {
+                util::write_u32(writer, FILE_MAGIC_GGJT)?;
+                util::write_u32(writer, *version)?;
+            }
+            ContainerType::Ggla(version) => {
+                util::write_u32(writer, FILE_MAGIC_GGLA)?;
+                util::write_u32(writer, *version)?;
+            }
+        }
+        Ok(())
     }
 }
 
+/// Magic constant for `ggml` files (unversioned).
+pub const FILE_MAGIC_GGML: u32 = 0x67676d6c;
 /// Magic constant for `ggml` files (versioned, ggmf).
 pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
 /// Magic constant for `ggml` files (versioned, ggjt).
 pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
-/// Magic constant for `ggml` files (unversioned).
-pub const FILE_MAGIC_UNVERSIONED: u32 = 0x67676d6c;
 /// Magic constant for `ggla` files (LoRA adapter).
 pub const FILE_MAGIC_GGLA: u32 = 0x67676C61;
 
-/// The currently-supported format version for `ggml` files.
-pub const FORMAT_VERSION: u32 = 1;
+/// The current quantization version.
+pub const QNT_VERSION: u32 = sys::GGML_QNT_VERSION;
+/// The factor by which to divide `ftype` to determine the current quantization version.
+pub const QNT_VERSION_FACTOR: u32 = sys::GGML_QNT_VERSION_FACTOR;
 
 /// The size of a `ggml` object.
 pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
@@ -71,10 +122,8 @@ pub enum Type {
     /// Quantized 4-bit (type 0).
     #[default]
     Q4_0,
-    /// Quantized 4-bit (type 1); used by GPTQ.
+    /// Quantized 4-bit (type 1).
     Q4_1,
-    /// Quantized 4-bit (type 2).
-    Q4_2,
     /// Quantized 5-bit (type 0).
     Q5_0,
     /// Quantized 5-bit (type 1).
@@ -89,13 +138,16 @@ pub enum Type {
     F16,
     /// Float 32-bit.
     F32,
+
+    /// Legacy: Quantized 4-bit (type 2).
+    /// This is not supported by modern `ggml` and is only here for use with [legacy].
+    LegacyQ4_2,
 }
 impl From<Type> for sys::ggml_type {
     fn from(t: Type) -> Self {
         match t {
             Type::Q4_0 => sys::ggml_type_GGML_TYPE_Q4_0,
             Type::Q4_1 => sys::ggml_type_GGML_TYPE_Q4_1,
-            Type::Q4_2 => sys::ggml_type_GGML_TYPE_Q4_2,
             Type::Q5_0 => sys::ggml_type_GGML_TYPE_Q5_0,
             Type::Q5_1 => sys::ggml_type_GGML_TYPE_Q5_1,
             Type::Q8_0 => sys::ggml_type_GGML_TYPE_Q8_0,
@@ -103,6 +155,8 @@ impl From<Type> for sys::ggml_type {
             Type::I32 => sys::ggml_type_GGML_TYPE_I32,
             Type::F16 => sys::ggml_type_GGML_TYPE_F16,
             Type::F32 => sys::ggml_type_GGML_TYPE_F32,
+            // Legacy
+            Type::LegacyQ4_2 => 4,
         }
     }
 }
@@ -112,7 +166,6 @@ impl TryFrom<sys::ggml_type> for Type {
         match t {
             sys::ggml_type_GGML_TYPE_Q4_0 => Ok(Type::Q4_0),
             sys::ggml_type_GGML_TYPE_Q4_1 => Ok(Type::Q4_1),
-            sys::ggml_type_GGML_TYPE_Q4_2 => Ok(Type::Q4_2),
             sys::ggml_type_GGML_TYPE_Q5_0 => Ok(Type::Q5_0),
             sys::ggml_type_GGML_TYPE_Q5_1 => Ok(Type::Q5_1),
             sys::ggml_type_GGML_TYPE_Q8_0 => Ok(Type::Q8_0),
@@ -120,6 +173,9 @@ impl TryFrom<sys::ggml_type> for Type {
             sys::ggml_type_GGML_TYPE_I32 => Ok(Type::I32),
             sys::ggml_type_GGML_TYPE_F16 => Ok(Type::F16),
             sys::ggml_type_GGML_TYPE_F32 => Ok(Type::F32),
+            // Legacy
+            4 => Ok(Type::LegacyQ4_2),
+
             _ => Err(()),
         }
     }
@@ -129,7 +185,6 @@ impl std::fmt::Display for Type {
         match self {
             Type::Q4_0 => write!(f, "q4_0"),
             Type::Q4_1 => write!(f, "q4_1"),
-            Type::Q4_2 => write!(f, "q4_2"),
             Type::Q5_0 => write!(f, "q5_0"),
             Type::Q5_1 => write!(f, "q5_1"),
             Type::Q8_0 => write!(f, "q8_0"),
@@ -137,6 +192,25 @@ impl std::fmt::Display for Type {
             Type::I32 => write!(f, "i32"),
             Type::F16 => write!(f, "f16"),
             Type::F32 => write!(f, "f32"),
+            // Legacy
+            Type::LegacyQ4_2 => write!(f, "q4_2"),
+        }
+    }
+}
+impl Type {
+    /// Returns whether this type is quantized.
+    pub fn is_quantized(&self) -> bool {
+        match self {
+            Type::Q4_0 => true,
+            Type::Q4_1 => true,
+            Type::Q5_0 => true,
+            Type::Q5_1 => true,
+            Type::Q8_0 => true,
+            Type::Q8_1 => true,
+            Type::I32 => false,
+            Type::F16 => false,
+            Type::F32 => false,
+            Type::LegacyQ4_2 => true,
         }
     }
 }

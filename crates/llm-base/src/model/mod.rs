@@ -12,7 +12,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, vocabulary::TokenId, InferenceParameters, InferenceSession,
+    loader::TensorLoader, vocabulary::TokenId, FileType, InferenceParameters, InferenceSession,
     InferenceSessionConfig, LoadError, LoadProgress, Vocabulary,
 };
 
@@ -253,6 +253,9 @@ pub trait Hyperparameters: Sized + Default + Debug {
 
     /// Get the number of tokens in the vocabulary.
     fn n_vocabulary(&self) -> usize;
+
+    /// Get the filetype of the model.
+    fn file_type(&self) -> Option<FileType>;
 }
 #[derive(Error, Debug)]
 /// Reported from functions that write

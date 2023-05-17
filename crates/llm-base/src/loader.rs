@@ -15,9 +15,76 @@ use ggml::{
 use memmap2::Mmap;
 use thiserror::Error;
 
+#[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
+/// Information about the file.
+pub struct FileType {
+    /// The format of the tensors.
+    pub format: FileTypeFormat,
+    /// The quantization version.
+    pub quantization_version: u32,
+}
+impl From<FileType> for i32 {
+    fn from(value: FileType) -> Self {
+        (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
+            + match value.format {
+                FileTypeFormat::F32 => 0,
+                FileTypeFormat::MostlyF16 => 1,
+                FileTypeFormat::MostlyQ4_0 => 2,
+                FileTypeFormat::MostlyQ4_1 => 3,
+                FileTypeFormat::MostlyQ4_1SomeF16 => 4,
+                FileTypeFormat::MostlyQ4_2 => 5,
+                FileTypeFormat::MostlyQ8_0 => 7,
+                FileTypeFormat::MostlyQ5_0 => 8,
+                FileTypeFormat::MostlyQ5_1 => 9,
+            }
+    }
+}
+impl TryFrom<i32> for FileType {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        let format = match (value as u32) % ggml::QNT_VERSION_FACTOR {
+            0 => FileTypeFormat::F32,
+            1 => FileTypeFormat::MostlyF16,
+            2 => FileTypeFormat::MostlyQ4_0,
+            3 => FileTypeFormat::MostlyQ4_1,
+            4 => FileTypeFormat::MostlyQ4_1SomeF16,
+            5 => FileTypeFormat::MostlyQ4_2,
+            7 => FileTypeFormat::MostlyQ8_0,
+            8 => FileTypeFormat::MostlyQ5_0,
+            9 => FileTypeFormat::MostlyQ5_1,
+            _ => return Err(()),
+        };
+
+        Ok(Self {
+            format,
+            quantization_version: (value as u32) / ggml::QNT_VERSION_FACTOR,
+        })
+    }
+}
+impl Display for FileType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.format {
+            FileTypeFormat::F32 => write!(f, "f32"),
+            FileTypeFormat::MostlyF16 => write!(f, "f16"),
+            FileTypeFormat::MostlyQ4_0 => write!(f, "q4_0"),
+            FileTypeFormat::MostlyQ4_1 => write!(f, "q4_1"),
+            FileTypeFormat::MostlyQ4_1SomeF16 => write!(f, "q4_1_with_f16"),
+            FileTypeFormat::MostlyQ4_2 => write!(f, "q4_2"),
+            FileTypeFormat::MostlyQ8_0 => write!(f, "q8_0"),
+            FileTypeFormat::MostlyQ5_0 => write!(f, "q5_0"),
+            FileTypeFormat::MostlyQ5_1 => write!(f, "q5_1"),
+        }?;
+
+        write!(f, "_qnt{}", self.quantization_version)?;
+
+        Ok(())
+    }
+}
+
 /// How the tensors are stored in GGML LLM models.
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
-pub enum FileType {
+pub enum FileTypeFormat {
     /// All tensors are stored as f32.
     F32,
     #[default]
@@ -38,54 +105,6 @@ pub enum FileType {
     MostlyQ5_0,
     /// All tensors are mostly stored as `Q5_1`, except for the 1D tensors (32-bit).
     MostlyQ5_1,
-}
-impl From<FileType> for i32 {
-    fn from(value: FileType) -> Self {
-        match value {
-            FileType::F32 => 0,
-            FileType::MostlyF16 => 1,
-            FileType::MostlyQ4_0 => 2,
-            FileType::MostlyQ4_1 => 3,
-            FileType::MostlyQ4_1SomeF16 => 4,
-            FileType::MostlyQ4_2 => 5,
-            FileType::MostlyQ8_0 => 7,
-            FileType::MostlyQ5_0 => 8,
-            FileType::MostlyQ5_1 => 9,
-        }
-    }
-}
-impl TryFrom<i32> for FileType {
-    type Error = ();
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(FileType::F32),
-            1 => Ok(FileType::MostlyF16),
-            2 => Ok(FileType::MostlyQ4_0),
-            3 => Ok(FileType::MostlyQ4_1),
-            4 => Ok(FileType::MostlyQ4_1SomeF16),
-            5 => Ok(FileType::MostlyQ4_2),
-            7 => Ok(FileType::MostlyQ8_0),
-            8 => Ok(FileType::MostlyQ5_0),
-            9 => Ok(FileType::MostlyQ5_1),
-            _ => Err(()),
-        }
-    }
-}
-impl Display for FileType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FileType::F32 => write!(f, "f32"),
-            FileType::MostlyF16 => write!(f, "f16"),
-            FileType::MostlyQ4_0 => write!(f, "q4_0"),
-            FileType::MostlyQ4_1 => write!(f, "q4_1"),
-            FileType::MostlyQ4_1SomeF16 => write!(f, "q4_1_with_f16"),
-            FileType::MostlyQ4_2 => write!(f, "q4_2"),
-            FileType::MostlyQ8_0 => write!(f, "q8_0"),
-            FileType::MostlyQ5_0 => write!(f, "q5_0"),
-            FileType::MostlyQ5_1 => write!(f, "q5_1"),
-        }
-    }
 }
 
 /// Each variant represents a step within the process of loading the model.
@@ -123,6 +142,12 @@ pub enum LoadProgress {
 #[derive(Error, Debug)]
 /// Errors encountered during the loading process.
 pub enum LoadError {
+    #[error("the file {path:?} does not exist")]
+    /// The file does not exist.
+    FileDoesNotExist {
+        /// The path that failed.
+        path: PathBuf,
+    },
     #[error("could not open file {path:?}")]
     /// A file failed to open.
     OpenFileFailed {
@@ -165,13 +190,11 @@ pub enum LoadError {
         /// The magic number that was encountered.
         magic: u32,
     },
-    #[error("invalid file format version {version}")]
+    #[error("invalid file format {container_type:?}")]
     /// The version of the format is not supported by this version of `llm`.
     InvalidFormatVersion {
         /// The format that was encountered.
         container_type: ContainerType,
-        /// The version that was encountered.
-        version: u32,
     },
     #[error("invalid value {ftype} for `f16` in hyperparameters")]
     /// The `f16` hyperparameter had an invalid value.
@@ -249,11 +272,8 @@ impl LoadError {
     pub fn from_format_error(value: FormatLoadError<LoadError>, path: PathBuf) -> Self {
         match value {
             FormatLoadError::InvalidMagic(magic) => LoadError::InvalidMagic { path, magic },
-            FormatLoadError::InvalidFormatVersion(container_type, version) => {
-                LoadError::InvalidFormatVersion {
-                    container_type,
-                    version,
-                }
+            FormatLoadError::InvalidFormatVersion(container_type) => {
+                LoadError::InvalidFormatVersion { container_type }
             }
             FormatLoadError::Io(err) => LoadError::Io(err),
             FormatLoadError::InvalidUtf8(err) => LoadError::InvalidUtf8(err),
@@ -304,6 +324,12 @@ pub fn load<M: KnownModel>(
     overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
+    if !path.exists() {
+        return Err(LoadError::FileDoesNotExist {
+            path: path.to_owned(),
+        });
+    }
+
     let paths = util::find_all_model_files(path)?;
     if paths.len() != 1 {
         return Err(LoadError::MultipartNotSupported { paths });
@@ -328,6 +354,29 @@ pub fn load<M: KnownModel>(
         container_type,
         ..
     } = loader;
+
+    let quantization_version = (&hyperparameters as &M::Hyperparameters)
+        .file_type()
+        .map(|ft| ft.quantization_version)
+        .unwrap_or_default();
+    let quantization_version = if quantization_version == 0 {
+        // HACK: version 2 of the GGJT format changed the quantization algorithm,
+        // but two days after version 2, the quantization version mechanism was
+        // added. To work around this, we assume the quantization version if
+        // it's a version 2 model with a quantization version of 0.
+        if container_type == ggml::ContainerType::Ggjt(2) {
+            1
+        } else {
+            quantization_version
+        }
+    } else {
+        quantization_version
+    };
+
+    // TODO: this is temporary while we figure out how to handle this
+    if tensors.values().any(|t| t.element_type.is_quantized()) {
+        assert_eq!(quantization_version, 1, "quantization version must be 1");
+    }
 
     let use_mmap =
         params.prefer_mmap && container_type.support_mmap() && params.lora_adapters.is_none();
@@ -398,7 +447,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
         Self {
             load_progress_callback,
 
-            container_type: ContainerType::Ggjt,
+            container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
             vocabulary: Vocabulary::default(),
             tensors: HashMap::default(),

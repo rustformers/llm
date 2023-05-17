@@ -350,62 +350,69 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let model =
-            llm::load::<M>(
-                &self.model_path,
-                params,
-                overrides,
-                move |progress| match progress {
-                    LoadProgress::HyperparametersLoaded => {
+        let model = llm::load::<M>(
+            &self.model_path,
+            params,
+            overrides,
+            |progress| match progress {
+                LoadProgress::HyperparametersLoaded => {
+                    if let Some(sp) = sp.as_mut() {
+                        sp.update_text("Loaded hyperparameters")
+                    };
+                }
+                LoadProgress::ContextSize { bytes } => log::debug!(
+                    "ggml ctx size = {}",
+                    bytesize::to_string(bytes as u64, false)
+                ),
+                LoadProgress::LoraApplied { name } => {
+                    if let Some(sp) = sp.as_mut() {
+                        sp.update_text(format!("Patched tensor {} via LoRA", name));
+                    }
+                }
+                LoadProgress::TensorLoaded {
+                    current_tensor,
+                    tensor_count,
+                    ..
+                } => {
+                    if prev_load_time.elapsed().as_millis() > 500 {
+                        // We don't want to re-render this on every message, as that causes the
+                        // spinner to constantly reset and not look like it's spinning (and
+                        // it's obviously wasteful).
                         if let Some(sp) = sp.as_mut() {
-                            sp.update_text("Loaded hyperparameters")
-                        };
-                    }
-                    LoadProgress::ContextSize { bytes } => log::debug!(
-                        "ggml ctx size = {}",
-                        bytesize::to_string(bytes as u64, false)
-                    ),
-                    LoadProgress::LoraApplied { name } => {
-                        if let Some(sp) = sp.as_mut() {
-                            sp.update_text(format!("Patched tensor {} via LoRA", name));
-                        }
-                    }
-                    LoadProgress::TensorLoaded {
-                        current_tensor,
-                        tensor_count,
-                        ..
-                    } => {
-                        if prev_load_time.elapsed().as_millis() > 500 {
-                            // We don't want to re-render this on every message, as that causes the
-                            // spinner to constantly reset and not look like it's spinning (and
-                            // it's obviously wasteful).
-                            if let Some(sp) = sp.as_mut() {
-                                sp.update_text(format!(
-                                    "Loaded tensor {}/{}",
-                                    current_tensor + 1,
-                                    tensor_count
-                                ));
-                            };
-                            prev_load_time = std::time::Instant::now();
-                        }
-                    }
-                    LoadProgress::Loaded {
-                        file_size,
-                        tensor_count,
-                    } => {
-                        if let Some(sp) = sp.take() {
-                            sp.success(&format!(
-                                "Loaded {tensor_count} tensors ({}) after {}ms",
-                                bytesize::to_string(file_size, false),
-                                now.elapsed().as_millis()
+                            sp.update_text(format!(
+                                "Loaded tensor {}/{tensor_count}",
+                                current_tensor + 1,
                             ));
                         };
+                        prev_load_time = std::time::Instant::now();
                     }
-                },
-            )
-            .wrap_err("Could not load model")?;
+                }
+                LoadProgress::Loaded {
+                    file_size,
+                    tensor_count,
+                } => {
+                    if let Some(sp) = sp.take() {
+                        sp.success(&format!(
+                            "Loaded {tensor_count} tensors ({}) after {}ms",
+                            bytesize::to_string(file_size, false),
+                            now.elapsed().as_millis()
+                        ));
+                    };
+                }
+            },
+        )
+        .map(Box::new)
+        .wrap_err("Could not load model");
 
-        Ok(Box::new(model))
+        if model.is_err() {
+            // If we've failed at loading the model, we probably haven't stopped the spinner yet.
+            // Cancel it now if needed.
+            if let Some(sp) = sp {
+                sp.fail("Failed to load model")
+            }
+        }
+
+        Ok(model?)
     }
 }
 
@@ -465,13 +472,13 @@ pub enum FileType {
     /// Float 32-bit.
     F32,
 }
-impl From<FileType> for llm::FileType {
+impl From<FileType> for llm::FileTypeFormat {
     fn from(t: FileType) -> Self {
         match t {
-            FileType::Q4_0 => llm::FileType::MostlyQ4_0,
-            FileType::Q4_1 => llm::FileType::MostlyQ4_1,
-            FileType::F16 => llm::FileType::MostlyF16,
-            FileType::F32 => llm::FileType::F32,
+            FileType::Q4_0 => llm::FileTypeFormat::MostlyQ4_0,
+            FileType::Q4_1 => llm::FileTypeFormat::MostlyQ4_1,
+            FileType::F16 => llm::FileTypeFormat::MostlyF16,
+            FileType::F32 => llm::FileTypeFormat::F32,
         }
     }
 }
