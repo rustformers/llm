@@ -9,10 +9,8 @@ use llm_base::{
     ggml::{self, ElementType},
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelDynamicOverrides, ModelParameters, OutputRequest, TensorLoader, TokenId,
-    Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
 };
-use serde::{Deserialize, Serialize};
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
 ///
@@ -48,51 +46,14 @@ pub struct GptNeoX {
 unsafe impl Send for GptNeoX {}
 unsafe impl Sync for GptNeoX {}
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
-/// Overrides for the GPT-NeoX model.
-pub struct GptNeoXOverrides {
-    /// Whether to use a "parallel" formulation in each Transformer layer, which can provide a slight training
-    /// speedup at large scales (e.g. 20B).
-    ///
-    /// Defaults to `true`.
-    /// The RedPajama models use `false`.
-    pub use_parallel_residual: bool,
-}
-impl Default for GptNeoXOverrides {
-    fn default() -> Self {
-        Self {
-            use_parallel_residual: true,
-        }
-    }
-}
-impl From<ModelDynamicOverrides> for GptNeoXOverrides {
-    fn from(val: ModelDynamicOverrides) -> Self {
-        let mut overrides = GptNeoXOverrides::default();
-        if let Some(v) = val.get("use_parallel_residual") {
-            overrides.use_parallel_residual = v;
-        }
-        overrides
-    }
-}
-impl From<GptNeoXOverrides> for ModelDynamicOverrides {
-    fn from(val: GptNeoXOverrides) -> Self {
-        let mut overrides = ModelDynamicOverrides::default();
-        overrides.insert(
-            "use_parallel_residual".to_string(),
-            val.use_parallel_residual,
-        );
-        overrides
-    }
-}
-
 impl KnownModel for GptNeoX {
     type Hyperparameters = Hyperparameters;
-    type Overrides = GptNeoXOverrides;
+    type Overrides = ();
 
     fn new<E: Error>(
         hyperparameters: Hyperparameters,
         params: ModelParameters,
-        overrides: Option<Self::Overrides>,
+        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -147,11 +108,6 @@ impl KnownModel for GptNeoX {
             inference_parameters,
             ..
         } = params;
-
-        let mut hyperparameters = hyperparameters;
-        if let Some(overrides) = overrides {
-            hyperparameters.use_parallel_residual = overrides.use_parallel_residual;
-        }
 
         Ok(GptNeoX {
             hyperparameters,
@@ -468,12 +424,11 @@ pub struct Hyperparameters {
     pub n_layer: usize,
     /// n_rot
     pub n_rot: usize,
+    /// Whether to use a "parallel" formulation in each Transformer layer.
+    /// This is on for most models, but is off for some e.g. RedPajama.
+    pub use_parallel_residual: bool,
     /// file_type
     pub file_type: FileType,
-
-    /// Whether to use a "parallel" formulation in each Transformer layer.
-    /// This is on for most models, but is off for the RedPajama model.
-    pub use_parallel_residual: bool,
 }
 
 impl Default for Hyperparameters {
@@ -499,8 +454,8 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
             n_rot: util::read_i32(reader)?.try_into()?,
+            use_parallel_residual: util::read_bool(reader)?,
             file_type: util::read_filetype(reader)?,
-            use_parallel_residual: true,
         })
     }
 
@@ -511,6 +466,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         util::write_i32(writer, self.n_head.try_into()?)?;
         util::write_i32(writer, self.n_layer.try_into()?)?;
         util::write_i32(writer, self.n_rot.try_into()?)?;
+        util::write_bool(writer, self.use_parallel_residual)?;
         util::write_i32(writer, self.file_type.into())?;
         Ok(())
     }

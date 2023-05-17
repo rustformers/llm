@@ -24,6 +24,19 @@ pub fn read_f32(reader: &mut dyn BufRead) -> Result<f32, std::io::Error> {
     Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
 }
 
+/// Read a `bool` represented as an `i32` from a reader.
+pub fn read_bool(reader: &mut dyn BufRead) -> Result<bool, std::io::Error> {
+    let val = i32::from_le_bytes(read_bytes::<4>(reader)?);
+    match val {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Invalid i32 value for bool: '{}'", val),
+        )),
+    }
+}
+
 /// Read a variable-length array of bytes from a reader.
 pub fn read_bytes_with_len(
     reader: &mut dyn BufRead,
@@ -47,6 +60,12 @@ pub fn write_u32(writer: &mut dyn Write, value: u32) -> Result<(), std::io::Erro
 /// Write a `f32` from a writer.
 pub fn write_f32(writer: &mut dyn Write, value: f32) -> Result<(), std::io::Error> {
     writer.write_all(&value.to_le_bytes())
+}
+
+/// Write a `bool` represented as an `i32` to a writer.
+pub fn write_bool(writer: &mut dyn Write, value: bool) -> Result<(), std::io::Error> {
+    let int_value: i32 = if value { 1 } else { 0 };
+    writer.write_all(&int_value.to_le_bytes())
 }
 
 // NOTE: Implementation from #![feature(buf_read_has_data_left)]
