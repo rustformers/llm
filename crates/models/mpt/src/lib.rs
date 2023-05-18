@@ -117,6 +117,7 @@ impl KnownModel for Mpt {
             n_head,
             n_vocab,
             n_layer,
+            alibi_bias_max,
             ..
         } = self.hyperparameters;
         let n_ctx = self.n_context_tokens;
@@ -198,7 +199,7 @@ impl KnownModel for Mpt {
                 &kq,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
-            let kq_scaled_alibi = ctx0.op_alibi(&kq_scaled, n_past, n_head);
+            let kq_scaled_alibi = ctx0.op_alibi(&kq_scaled, n_past, n_head, alibi_bias_max);
             let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled_alibi, n_past);
             let kq_softmax = ctx0.op_soft_max(&kq_masked);
 
