@@ -42,11 +42,9 @@ fn rwkv_layer_norm(
     weight: &ggml::Tensor,
     bias: &ggml::Tensor,
 ) -> ggml::Tensor {
-    let x = ctx.op_norm(&x);
-    let x = ctx.op_mul(&x, &weight);
-    let x = ctx.op_add(&x, &bias);
-
-    x
+    let x = ctx.op_norm(x);
+    let x = ctx.op_mul(&x, weight);
+    ctx.op_add(&x, bias)
 }
 
 extern "C" fn rwkv_exp_impl(n_cols: i32, dest: *mut f32, src: *const f32) {
@@ -99,11 +97,13 @@ fn rwkv_1_minus_x(ctx: &ggml::Context, x: &ggml::Tensor) -> ggml::Tensor {
 
 impl KnownModel for Rwkv {
     type Hyperparameters = Hyperparameters;
+    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
+        _overrides: Option<Self::Overrides>,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -242,6 +242,7 @@ impl KnownModel for Rwkv {
 
             // RWKV FNN/channel mixing
 
+            #[allow(clippy::identity_op)]
             {
                 let x0 = rwkv_layer_norm(&ctx0, &x, &layer.ln2_weight, &layer.ln2_bias);
                 let x_prev = ctx0.op_view_1d(&state, n_embd, (5 * i + 0) * n_embd * 4);
@@ -271,8 +272,8 @@ impl KnownModel for Rwkv {
         let mut gf = ggml::ComputationGraph::new(inference_parameters.n_threads);
         gf.build_forward_expand(&logits);
 
-        for i in 0..(n_layer * 5) {
-            gf.build_forward_expand(&state_parts[i]);
+        for part in state_parts.iter().take(n_layer * 5) {
+            gf.build_forward_expand(part);
         }
 
         Ok(Rwkv {
@@ -284,7 +285,7 @@ impl KnownModel for Rwkv {
             _context,
             ctx: ctx0,
             graph: RefCell::new(gf),
-            token_index: token_index,
+            token_index,
             state: RefCell::new(state),
             logits,
             state_parts: RefCell::new(state_parts),
@@ -405,10 +406,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             n_embd: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
         })
     }
 
@@ -422,6 +420,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
     }
 }
 

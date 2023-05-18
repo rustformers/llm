@@ -78,7 +78,7 @@ impl InferenceSession {
         params: &InferenceParameters,
         prompt: &str,
         output_request: &mut OutputRequest,
-        mut callback: impl FnMut(&[u8]) -> Result<(), E>,
+        mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
     ) -> Result<(), InferenceError> {
         //let beginning_of_sentence = self.n_past == 0;
 
@@ -104,10 +104,12 @@ impl InferenceSession {
                 if should_call_callback {
                     // NOTE: No string ever tokenizes to the end of sentence. So we
                     // can just return the id here.
-                    if let Err(e) =
-                        callback(tokenizer.decode(vec![tk as u32], true).unwrap().as_bytes())
-                    {
-                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    match callback(tokenizer.decode(vec![tk as u32], true).unwrap().as_bytes()) {
+                        Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
+                        Ok(f) => match f {
+                            InferenceFeedback::Continue => (),
+                            InferenceFeedback::Halt => break,
+                        },
                     }
                 }
 
@@ -120,9 +122,9 @@ impl InferenceSession {
     }
 
     /// Infer the next token for this session.
-    pub fn infer_next_token<'v>(
+    pub fn infer_next_token(
         &mut self,
-        model: &'v dyn Model,
+        model: &dyn Model,
         params: &InferenceParameters,
         output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
@@ -166,7 +168,7 @@ impl InferenceSession {
         rng: &mut impl rand::Rng,
         request: &InferenceRequest,
         output_request: &mut OutputRequest,
-        mut callback: impl FnMut(&str) -> Result<(), E>,
+        mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E>,
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = request.maximum_token_count.unwrap_or(usize::MAX);
         if request.play_back_previous_tokens {
@@ -182,8 +184,8 @@ impl InferenceSession {
                         .unwrap()
                         .as_bytes(),
                 ) {
-                    if let Err(e) = callback(&tokens) {
-                        return Err(InferenceError::UserCallback(Box::new(e)));
+                    if let Err(e) = callback(InferenceResponse::SnapshotToken(tokens)) {
+                        return Err(InferenceError::UserCallback(Some(Box::new(e))));
                     }
                 }
             }
@@ -201,7 +203,7 @@ impl InferenceSession {
             parameters,
             request.prompt,
             output_request,
-            TokenUtf8Buffer::adapt_callback(&mut callback),
+            feed_prompt_callback(&mut callback),
         )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
@@ -222,8 +224,12 @@ impl InferenceSession {
 
             // Buffer the token until it's valid UTF-8, then call the callback.
             if let Some(tokens) = token_utf8_buf.push(&token) {
-                if let Err(e) = callback(&tokens) {
-                    return Err(InferenceError::UserCallback(Box::new(e)));
+                match callback(InferenceResponse::InferredToken(tokens)) {
+                    Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
+                    Ok(f) => match f {
+                        InferenceFeedback::Continue => (),
+                        InferenceFeedback::Halt => break,
+                    },
                 }
             }
 
@@ -665,6 +671,40 @@ impl From<ModelKVMemoryType> for ggml::Type {
             ModelKVMemoryType::Float16 => ggml::Type::F16,
             ModelKVMemoryType::Float32 => ggml::Type::F32,
         }
+    }
+}
+
+/// A response to an inference request, sent as the argument to the `callback`
+/// argument of the [InferenceSession::infer] function.
+pub enum InferenceResponse {
+    /// A token from playing back a snapshot
+    SnapshotToken(String),
+    /// A token from the prompt that has been fed into the inference session
+    PromptToken(String),
+    /// A token that has been generated via inference
+    InferredToken(String),
+    /// The inference session has generated an end-of-text token
+    EotToken,
+}
+
+/// Feedback from a caller to [InferenceSession::infer], sent as the return
+/// value to the `callback` function.
+pub enum InferenceFeedback {
+    /// Continue inference
+    Continue,
+    /// Halt inference
+    Halt,
+}
+
+/// Adapt an [InferenceResponse] callback so that it can be used in a call to
+/// [InferenceSession::feed_prompt].
+pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
+    mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a,
+) -> impl FnMut(&[u8]) -> Result<InferenceFeedback, E> + 'a {
+    let mut buffer = TokenUtf8Buffer::new();
+    move |token| match buffer.push(token) {
+        Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
+        None => Ok(InferenceFeedback::Continue),
     }
 }
 

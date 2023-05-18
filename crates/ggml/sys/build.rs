@@ -6,13 +6,11 @@ use std::env;
 fn main() {
     println!("cargo:rerun-if-changed=ggml");
 
-    let ggml_src = ["ggml/src/ggml.c"];
-
     let mut builder = cc::Build::new();
 
     let build = builder
-        .files(ggml_src.iter())
-        .include("./ggml/include/ggml");
+        .files(["ggml/src/ggml.c", "legacy/qnt0.c"])
+        .includes(["ggml/include/ggml", "legacy"]);
 
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.

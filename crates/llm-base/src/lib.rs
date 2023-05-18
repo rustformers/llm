@@ -11,6 +11,7 @@ use thiserror::Error;
 
 mod inference_session;
 mod loader;
+mod lora;
 mod quantize;
 mod vocabulary;
 
@@ -21,15 +22,19 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    InferenceRequest, InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
-    ModelKVMemoryType, SnapshotError,
+    feed_prompt_callback, InferenceFeedback, InferenceRequest, InferenceResponse, InferenceSession,
+    InferenceSessionConfig, InferenceSnapshot, InferenceStats, ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
-    load, load_progress_callback_stdout, ContainerType, FileType, LoadError, LoadProgress, Loader,
-    TensorLoader,
+    load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, LoadError,
+    LoadProgress, Loader, TensorLoader,
 };
+pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
+pub use model::{
+    Hyperparameters, KnownModel, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
+    ModelParameters, OutputRequest,
+};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{InvalidTokenBias, TokenBias, TokenId, Vocabulary};
@@ -91,5 +96,5 @@ pub enum InferenceError {
     EndOfText,
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
-    UserCallback(Box<dyn std::error::Error>),
+    UserCallback(Option<Box<dyn std::error::Error>>),
 }

@@ -9,7 +9,7 @@ use std::{
     io::{Seek, Write},
 };
 
-use crate::{util, ElementType};
+use crate::{util, ContainerType, ElementType};
 
 #[derive(Debug, thiserror::Error)]
 /// Errors that can occur while writing a model.
@@ -57,7 +57,7 @@ pub struct TensorSaveInfo {
 
 /// Saves a model to the given writer.
 ///
-/// Only GGJT is supported.
+/// Only GGJT version 2 is supported.
 pub fn save<E: Error, W: Write + Seek>(
     writer: &mut W,
     handler: &mut dyn SaveHandler<E>,
@@ -65,8 +65,7 @@ pub fn save<E: Error, W: Write + Seek>(
     tensor_names: &[String],
 ) -> Result<(), SaveError<E>> {
     // Write header and hyperparameters
-    util::write_u32(writer, crate::FILE_MAGIC_GGJT)?;
-    util::write_u32(writer, crate::DEFAULT_VERSION)?;
+    ContainerType::Ggjt(2).write(writer)?;
     handler
         .write_hyperparameters(writer)
         .map_err(SaveError::ImplementationError)?;

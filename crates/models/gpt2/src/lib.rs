@@ -34,11 +34,13 @@ unsafe impl Sync for Gpt2 {}
 
 impl KnownModel for Gpt2 {
     type Hyperparameters = Hyperparameters;
+    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
+        _overrides: Option<Self::Overrides>,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -215,13 +217,13 @@ impl KnownModel for Gpt2 {
             );
 
             let kq = ctx0.op_mul_mat(&k, &q);
-            let kq_scaled = ctx0.op_scale(
+            let kq_scaled = ctx0.op_scale_inplace(
                 &kq,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
 
-            let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
-            let kq_softmax = ctx0.op_soft_max(&kq_masked);
+            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, n_past);
+            let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
 
             let v_trans = ctx0.op_cpy(
                 &ctx0.op_permute(
@@ -354,10 +356,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_embd: util::read_i32(reader)?.try_into()?,
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
         };
 
         let n_vocab = util::read_i32(reader)? as usize;
@@ -388,6 +387,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
     }
 }
 

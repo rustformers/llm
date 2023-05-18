@@ -20,9 +20,9 @@ pub enum LoadError<E: Error> {
     #[error("invalid file magic number: {0}")]
     /// The file magic number is invalid.
     InvalidMagic(u32),
-    #[error("invalid ggml format: format={0:?} version={1}")]
+    #[error("invalid ggml format: format={0:?}")]
     /// An unsupported format version was found.
-    InvalidFormatVersion(ContainerType, u32),
+    InvalidFormatVersion(ContainerType),
     #[error("non-specific I/O error")]
     /// A non-specific IO error.
     Io(#[from] std::io::Error),
@@ -75,6 +75,15 @@ impl TensorLoadInfo {
         data_size(self.element_type, self.dims().iter().product())
     }
 
+    /// Calculates the absolute size in bytes of the tensor's data, given the mmap flag.
+    pub fn calc_absolute_size(&self, mmap: bool) -> usize {
+        if mmap {
+            header_size()
+        } else {
+            header_size() + self.calc_size()
+        }
+    }
+
     /// Reads the tensor's data from the given reader in an owned fashion.
     ///
     /// The behaviour is undefined if the reader does not correspond to this info.
@@ -92,6 +101,16 @@ impl TensorLoadInfo {
 /// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.
 pub(crate) fn data_size(element_type: ElementType, n_elements: usize) -> usize {
     (crate::type_size(element_type) * n_elements) / crate::blck_size(element_type)
+}
+
+/// Returns the size of the ggml tensor header in bytes.
+pub(crate) fn header_size() -> usize {
+    crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE
+}
+
+/// Returns the size of a tensor in bytes given the element type and number of elements. This includes the tensor's header.
+pub fn tensor_size(element_type: ElementType, n_elements: usize) -> usize {
+    header_size() + data_size(element_type, n_elements)
 }
 
 #[derive(Debug, Clone)]
@@ -123,46 +142,34 @@ pub fn load<E: Error, R: BufRead + Seek>(
     handler: &mut impl LoadHandler<E>,
 ) -> Result<(), LoadError<E>> {
     // Verify magic
-    let container_type: ContainerType = match read_u32(reader)? {
-        crate::FILE_MAGIC_GGMF => ContainerType::Ggmf,
-        crate::FILE_MAGIC_GGJT => ContainerType::Ggjt,
-        crate::FILE_MAGIC_UNVERSIONED => ContainerType::Ggml,
-        magic => return Err(LoadError::InvalidMagic(magic)),
-    };
+    let container_type = ContainerType::read(reader)?;
+
+    match container_type {
+        ContainerType::Ggml
+        | ContainerType::Ggmf(1 | 100)
+        | ContainerType::Ggjt(1 | 2 | 100)
+        | ContainerType::Ggla(1) => {}
+        _ => return Err(LoadError::InvalidFormatVersion(container_type)),
+    }
+
     handler
         .container_type(container_type)
         .map_err(LoadError::ImplementationError)?;
-
-    // Load format version
-    let format_version = match container_type {
-        ContainerType::Ggmf | ContainerType::Ggjt => match read_u32(reader)? {
-            version @ (crate::DEFAULT_VERSION | crate::RWKV_VERSION) => Some(version),
-            version => return Err(LoadError::InvalidFormatVersion(container_type, version)),
-        },
-        ContainerType::Ggml => None,
-    };
 
     // Load hyper params
     let hparams = handler
         .read_hyperparameters(reader)
         .map_err(LoadError::ImplementationError)?;
 
-    let n_vocab = match format_version {
-        Some(version) => match version {
-            crate::DEFAULT_VERSION => hparams.n_vocab,
-            crate::RWKV_VERSION => hparams.n_vocab,
-            _ => return Err(LoadError::InvalidFormatVersion(container_type, version)),
-        },
-        None => hparams.n_vocab,
-    };
+    let n_vocab = hparams.n_vocab;
 
     // Load vocabulary
     for i in 0..n_vocab {
         let len = read_u32(reader)?.try_into()?;
         let token = read_bytes_with_len(reader, len)?;
         let token_score = match container_type {
-            ContainerType::Ggmf | ContainerType::Ggjt => read_f32(reader)?,
-            ContainerType::Ggml => {
+            ContainerType::Ggmf(_version) | ContainerType::Ggjt(_version) => read_f32(reader)?,
+            ContainerType::Ggml | ContainerType::Ggla(_) => {
                 // Legacy model, set empty score
                 0.
             }
@@ -174,8 +181,10 @@ pub fn load<E: Error, R: BufRead + Seek>(
 
     // Load tensor data
     match container_type {
-        ContainerType::Ggmf | ContainerType::Ggml => load_weights(reader, handler, false),
-        ContainerType::Ggjt => load_weights(reader, handler, true),
+        ContainerType::Ggmf(_) | ContainerType::Ggml => load_weights(reader, handler, false),
+        ContainerType::Ggjt(_version) | ContainerType::Ggla(_version) => {
+            load_weights(reader, handler, true)
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TokenId,
+    Mmap, ModelParameters, OutputRequest, TokenId,
 };
 
 use tokenizers::Tokenizer;
@@ -39,11 +39,13 @@ unsafe impl Sync for Bloom {}
 
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
+    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
+        _overrides: Option<Self::Overrides>,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -434,10 +436,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_mult: util::read_i32(reader)?.try_into()?,
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
         })
     }
 
@@ -453,6 +452,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
     }
 }
 

@@ -1,32 +1,47 @@
-use llm::load_progress_callback_stdout as load_callback;
-use llm_base::InferenceRequest;
-use std::{convert::Infallible, env::args, io::Write, path::Path};
+use clap::Parser;
+use llm::{
+    load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceRequest,
+    InferenceResponse, ModelArchitecture,
+};
+use std::{convert::Infallible, io::Write, path::PathBuf};
+
+#[derive(Parser)]
+struct Args {
+    model_architecture: String,
+    model_path: PathBuf,
+    prompt: Option<String>,
+
+    #[arg(short, long)]
+    overrides: Option<String>,
+
+    #[arg(short, long)]
+    vocabulary_path: Option<PathBuf>,
+}
 
 fn main() {
-    let raw_args: Vec<String> = args().collect();
-    let args = match &raw_args.len() {
-      3 => (raw_args[1].as_str(), raw_args[2].as_str(), "Rust is a cool programming language because"),
-      4 => (raw_args[1].as_str(), raw_args[2].as_str(), raw_args[3].as_str()),
-      _ => panic!("Usage: cargo run --release --example inference <model type> <path to model> <path to vocab> <optional prompt>")
-    };
+    let args = Args::parse();
 
-    let model_type = args.0;
-    let model_path = Path::new(args.1);
-    let vocab_path = Path::new(args.2);
-    let prompt = "Rust is a cool programming language because"; // args.3;
+    let model_architecture: ModelArchitecture = args.model_architecture.parse().unwrap();
+    let model_path = args.model_path;
+    let prompt = args
+        .prompt
+        .as_deref()
+        .unwrap_or("Rust is a cool programming language because");
+    let overrides = args.overrides.map(|s| serde_json::from_str(&s).unwrap());
 
     let now = std::time::Instant::now();
 
-    let architecture = model_type.parse().unwrap_or_else(|e| panic!("{e}"));
-
     let model = llm::load_dynamic(
-        architecture,
-        model_path,
-        Some(vocab_path),
+        model_architecture,
+        &model_path,
+        args.vocabulary_path.as_deref(),
         Default::default(),
+        overrides,
         load_callback,
     )
-    .unwrap_or_else(|err| panic!("Failed to load {model_type} model from {model_path:?}: {err}"));
+    .unwrap_or_else(|err| {
+        panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
+    });
 
     println!(
         "Model fully loaded! Elapsed: {}ms",
@@ -44,11 +59,14 @@ fn main() {
         },
         // OutputRequest
         &mut Default::default(),
-        |t| {
-            print!("{t}");
-            std::io::stdout().flush().unwrap();
+        |r| match r {
+            InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                print!("{t}");
+                std::io::stdout().flush().unwrap();
 
-            Ok(())
+                Ok(InferenceFeedback::Continue)
+            }
+            _ => Ok(InferenceFeedback::Continue),
         },
     );
 

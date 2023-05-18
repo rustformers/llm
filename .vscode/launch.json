@@ -67,7 +67,7 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug NeoX Inference",
+      "name": "Debug GPT-NeoX Inference",
       "cargo": {
         "args": ["build", "--example=inference", "--package=llm"],
         "filter": {
@@ -75,7 +75,35 @@
           "kind": "example"
         }
       },
-      "args": ["neox", "${env:HOME}/.ggml-models/stablelm-base-alpha-3b.bin"],
+      "args": ["gptneox", "${env:HOME}/.ggml-models/stablelm-base-alpha-3b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug RedPajama Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["redpajama", "${env:HOME}/.ggml-models/redpajama-incite-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug Vicuna Chat",
+      "cargo": {
+        "args": ["build", "--example=vicuna-chat", "--package=llm"],
+        "filter": {
+          "name": "vicuna-chat",
+          "kind": "example"
+        }
+      },
+      "args": ["llama", "${env:HOME}/.ggml-models/wizardlm-7b.bin"],
       "cwd": "${workspaceFolder}"
     },
     {

@@ -37,6 +37,21 @@ pub enum Args {
     NeoX {
         #[command(subcommand)]
         args: BaseArgs,
+
+        #[arg(long)]
+        /// By default, the GPT-NeoX architecture uses a parallel residual.
+        ///
+        /// This flag disables that, as some models out there are trained without it,
+        /// and the model format does not store this information.
+        no_parallel_residual: bool,
+    },
+    /// Use a model from the RedPajama GPT-NeoX family
+    ///
+    /// (GPT-NeoX with `use_parallel_residual` set to false)
+    #[clap(id = "redpajama")]
+    RedPajama {
+        #[command(subcommand)]
+        args: BaseArgs,
     },
     /// Use a RWKV model
     #[clap(id = "rwkv")]
@@ -95,6 +110,13 @@ pub struct Infer {
     /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'p', default_value = None)]
     pub prompt: Option<String>,
+
+    /// Hide the prompt in the generation.
+    ///
+    /// By default, the prompt tokens will be shown as they are fed to the model.
+    /// This option will only show the inferred tokens.
+    #[arg(long, default_value_t = false)]
+    pub hide_prompt: bool,
 
     /// Saves an inference session at the given path. The same session can then be
     /// loaded from disk using `--load-session`.
@@ -312,12 +334,20 @@ pub struct ModelLoad {
     /// Don't use mmap to load the model.
     #[arg(long)]
     pub no_mmap: bool,
+
+    /// LoRA adapter to use for the model
+    #[arg(long, num_args(0..))]
+    pub lora_paths: Option<Vec<PathBuf>>,
 }
 impl ModelLoad {
-    pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(
+        &self,
+        overrides: Option<M::Overrides>,
+    ) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             n_context_tokens: self.num_ctx_tokens,
+            lora_adapters: self.lora_paths.clone(),
             ..Default::default()
         };
 
@@ -331,9 +361,10 @@ impl ModelLoad {
 
         let model = llm::load::<M>(
             &self.model_path,
-            self.vocab_path.as_ref().map(|p| p.as_path()),
+            self.vocab_path.as_deref(),
             params,
-            move |progress| match progress {
+            overrides,
+            |progress| match progress {
                 LoadProgress::HyperparametersLoaded => {
                     if let Some(sp) = sp.as_mut() {
                         sp.update_text("Loaded hyperparameters")
@@ -343,6 +374,15 @@ impl ModelLoad {
                     "ggml ctx size = {}",
                     bytesize::to_string(bytes as u64, false)
                 ),
+                LoadProgress::LoraApplied { name, source } => {
+                    if let Some(sp) = sp.as_mut() {
+                        sp.update_text(format!(
+                            "Patched tensor {} via LoRA from '{}'",
+                            name,
+                            source.file_name().unwrap().to_str().unwrap()
+                        ));
+                    }
+                }
                 LoadProgress::TensorLoaded {
                     current_tensor,
                     tensor_count,
@@ -354,9 +394,8 @@ impl ModelLoad {
                         // it's obviously wasteful).
                         if let Some(sp) = sp.as_mut() {
                             sp.update_text(format!(
-                                "Loaded tensor {}/{}",
+                                "Loaded tensor {}/{tensor_count}",
                                 current_tensor + 1,
-                                tensor_count
                             ));
                         };
                         prev_load_time = std::time::Instant::now();
@@ -376,9 +415,18 @@ impl ModelLoad {
                 }
             },
         )
-        .wrap_err("Could not load model")?;
+        .map(Box::new)
+        .wrap_err("Could not load model");
 
-        Ok(Box::new(model))
+        if model.is_err() {
+            // If we've failed at loading the model, we probably haven't stopped the spinner yet.
+            // Cancel it now if needed.
+            if let Some(sp) = sp {
+                sp.fail("Failed to load model")
+            }
+        }
+
+        Ok(model?)
     }
 }
 
@@ -438,13 +486,13 @@ pub enum FileType {
     /// Float 32-bit.
     F32,
 }
-impl From<FileType> for llm::FileType {
+impl From<FileType> for llm::FileTypeFormat {
     fn from(t: FileType) -> Self {
         match t {
-            FileType::Q4_0 => llm::FileType::MostlyQ4_0,
-            FileType::Q4_1 => llm::FileType::MostlyQ4_1,
-            FileType::F16 => llm::FileType::MostlyF16,
-            FileType::F32 => llm::FileType::F32,
+            FileType::Q4_0 => llm::FileTypeFormat::MostlyQ4_0,
+            FileType::Q4_1 => llm::FileTypeFormat::MostlyQ4_1,
+            FileType::F16 => llm::FileTypeFormat::MostlyF16,
+            FileType::F32 => llm::FileTypeFormat::F32,
         }
     }
 }

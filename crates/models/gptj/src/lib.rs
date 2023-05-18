@@ -49,11 +49,13 @@ unsafe impl Sync for GptJ {}
 
 impl KnownModel for GptJ {
     type Hyperparameters = Hyperparameters;
+    type Overrides = ();
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
+        _overrides: Option<Self::Overrides>,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -167,7 +169,7 @@ impl KnownModel for GptJ {
             let input_sa = current.share();
 
             // self-attention
-            let qcur = ctx0.op_rope(
+            let qcur = ctx0.op_rope_inplace(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
                     n_embd / n_head,
@@ -178,7 +180,7 @@ impl KnownModel for GptJ {
                 n_rot,
                 0,
             );
-            let kcur = ctx0.op_rope(
+            let kcur = ctx0.op_rope_inplace(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
                     n_embd / n_head,
@@ -228,13 +230,13 @@ impl KnownModel for GptJ {
             );
 
             let kq = ctx0.op_mul_mat(&big_k, &q);
-            let kq_scaled = ctx0.op_scale(
+            let kq_scaled = ctx0.op_scale_inplace(
                 &kq,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
 
-            let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled, n_past);
-            let kq_softmax = ctx0.op_soft_max(&kq_masked);
+            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, n_past);
+            let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
 
             let big_v = ctx0.op_view_3d(
                 memory_v,
@@ -348,10 +350,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
             n_rot: util::read_i32(reader)?.try_into()?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
         };
 
         let n_vocab = util::read_i32(reader)? as usize;
@@ -381,6 +380,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn n_vocabulary(&self) -> usize {
         self.n_vocab
+    }
+
+    fn file_type(&self) -> Option<FileType> {
+        Some(self.file_type)
     }
 }
 

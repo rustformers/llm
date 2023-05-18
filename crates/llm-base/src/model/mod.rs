@@ -1,16 +1,18 @@
 //! Large language model traits and types
 
 use std::{
+    collections::HashMap,
     error::Error,
     fmt::Debug,
     io::{BufRead, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, vocabulary::TokenId, InferenceParameters, InferenceSession,
+    loader::TensorLoader, vocabulary::TokenId, FileType, InferenceParameters, InferenceSession,
     InferenceSessionConfig, LoadError, LoadProgress,
 };
 
@@ -19,11 +21,95 @@ use tokenizers::Tokenizer;
 /// Common functions for model evaluation
 pub mod common;
 
+macro_rules! define_model_dynamic_override_value {
+    ($(($name:ident, $type:ty, $doc:literal)),*) => {
+        #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+        #[serde(untagged)]
+        /// Valid value types for dynamic model overrides.
+        pub enum ModelDynamicOverrideValue {
+            $(#[doc=$doc] $name($type),)*
+        }
+
+        $(
+            impl TryFrom<ModelDynamicOverrideValue> for $type {
+                type Error = ();
+
+                fn try_from(value: ModelDynamicOverrideValue) -> Result<Self, Self::Error> {
+                    match value {
+                        ModelDynamicOverrideValue::$name(value) => Ok(value),
+                        _ => Err(()),
+                    }
+                }
+            }
+
+            impl From<$type> for ModelDynamicOverrideValue {
+                fn from(value: $type) -> Self {
+                    Self::$name(value)
+                }
+            }
+        )*
+    };
+}
+
+define_model_dynamic_override_value!(
+    (Bool, bool, "A boolean value"),
+    (String, String, "A string value"),
+    (Int, i64, "An integer value"),
+    (Float, f64, "A float value")
+);
+
+/// Model options that can be overridden by the user at runtime.
+///
+/// Each model has its own set of options that can be overridden.
+/// However, the calling code may not know the type of the model
+/// at compile time. This type is used to store the overrides
+/// for a model in a generic way.
+#[derive(Debug, PartialEq, Serialize, Deserialize, Default, Clone)]
+#[serde(transparent)]
+pub struct ModelDynamicOverrides(pub HashMap<String, ModelDynamicOverrideValue>);
+impl ModelDynamicOverrides {
+    /// Get the value of the override with the given `key`.
+    pub fn get<T: TryFrom<ModelDynamicOverrideValue>>(&self, key: &str) -> Option<T> {
+        self.0
+            .get(key)
+            .cloned()
+            .and_then(|value| T::try_from(value).ok())
+    }
+
+    /// Merge the overrides from `other` into this one.
+    pub fn merge(&mut self, other: impl Into<Self>) -> &mut Self {
+        self.0.extend(other.into().0.into_iter());
+        self
+    }
+
+    /// Insert a new override with the given `key` and `value`.
+    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<ModelDynamicOverrideValue>) {
+        self.0.insert(key.into(), value.into());
+    }
+}
+impl From<ModelDynamicOverrides> for () {
+    fn from(_: ModelDynamicOverrides) -> Self {}
+}
+impl From<()> for ModelDynamicOverrides {
+    fn from(_: ()) -> Self {
+        Self::default()
+    }
+}
+
 /// Interfaces for creating and interacting with a large language model with a known type
 /// of [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning)).
 pub trait KnownModel: Send + Sync {
-    /// Hyperparameters for the model
+    /// Hyperparameters for the model.
     type Hyperparameters: Hyperparameters;
+
+    /// Model options that can be overridden by the user.
+    ///
+    /// If there are no options to override, use `()`.
+    type Overrides: Serialize
+        + DeserializeOwned
+        + Default
+        + From<ModelDynamicOverrides>
+        + Into<ModelDynamicOverrides>;
 
     /// Load this model from the `path` and configure it per the `params`. The status
     /// of the loading process will be reported through `load_progress_callback`. This
@@ -32,12 +118,13 @@ pub trait KnownModel: Send + Sync {
         path: &Path,
         vocab_path: Option<&Path>,
         params: ModelParameters,
+        overrides: Option<Self::Overrides>,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Self, LoadError>
     where
         Self: Sized,
     {
-        crate::load(path, vocab_path, params, load_progress_callback)
+        crate::load(path, vocab_path, params, overrides, load_progress_callback)
     }
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
@@ -46,6 +133,7 @@ pub trait KnownModel: Send + Sync {
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
+        overrides: Option<Self::Overrides>,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -168,6 +256,9 @@ pub trait Hyperparameters: Sized + Default + Debug {
 
     /// Get the number of tokens in the vocabulary.
     fn n_vocabulary(&self) -> usize;
+
+    /// Get the filetype of the model.
+    fn file_type(&self) -> Option<FileType>;
 }
 #[derive(Error, Debug)]
 /// Reported from functions that write
@@ -191,6 +282,8 @@ pub struct ModelParameters {
     pub n_context_tokens: usize,
     /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
     pub inference_parameters: InferenceParameters,
+    /// The [LoRA](https://arxiv.org/abs/2106.09685) adapters to use when loading the model. If `None`, no adapters will be used.
+    pub lora_adapters: Option<Vec<PathBuf>>,
 }
 
 impl Default for ModelParameters {
@@ -199,6 +292,7 @@ impl Default for ModelParameters {
             prefer_mmap: true,
             n_context_tokens: 2048,
             inference_parameters: Default::default(),
+            lora_adapters: None,
         }
     }
 }
