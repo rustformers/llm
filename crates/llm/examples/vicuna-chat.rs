@@ -131,9 +131,13 @@ fn load_progress_callback(
                 prev_load_time = std::time::Instant::now();
             }
         }
-        LoadProgress::LoraApplied { name } => {
+        LoadProgress::LoraApplied { name, source } => {
             if let Some(sp) = sp.as_mut() {
-                sp.update_text(format!("Applied LoRA: {}", name));
+                sp.update_text(format!(
+                    "Applied LoRA: {} from '{}'",
+                    name,
+                    source.file_name().unwrap().to_str().unwrap()
+                ));
             };
         }
         LoadProgress::Loaded {
