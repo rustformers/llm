@@ -46,6 +46,10 @@ impl Hyperparameters for LoraParameters {
     fn file_type(&self) -> Option<FileType> {
         None
     }
+
+    fn file_type_mut(&mut self) -> Option<&mut FileType> {
+        None
+    }
 }
 
 /// [LoRA](https://arxiv.org/abs/2106.09685) adapter for a model.

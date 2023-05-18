@@ -1,10 +1,10 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{fmt, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias, LoadProgress,
-    Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
 };
 use rand::SeedableRng;
 
@@ -497,8 +497,39 @@ pub struct Quantize {
     #[arg()]
     pub destination: PathBuf,
 
+    /// The GGML container type to target.
+    ///
+    /// Note that using GGML requires the original model to have
+    /// an unscored vocabulary, which is not the case for newer models.
+    #[arg(short, long, default_value_t = SaveContainerType::GgjtV2)]
+    pub container_type: SaveContainerType,
+
     /// The format to convert to
     pub target: QuantizationTarget,
+}
+
+#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+pub enum SaveContainerType {
+    /// GGML container.
+    Ggml,
+    /// GGJT v2 container.
+    GgjtV2,
+}
+impl fmt::Display for SaveContainerType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaveContainerType::Ggml => write!(f, "ggml"),
+            SaveContainerType::GgjtV2 => write!(f, "ggjt-v2"),
+        }
+    }
+}
+impl From<SaveContainerType> for ggml_format::SaveContainerType {
+    fn from(value: SaveContainerType) -> Self {
+        match value {
+            SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
+            SaveContainerType::GgjtV2 => ggml_format::SaveContainerType::GgjtV2,
+        }
+    }
 }
 
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]

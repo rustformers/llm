@@ -256,6 +256,9 @@ pub trait Hyperparameters: Sized + Default + Debug {
 
     /// Get the filetype of the model.
     fn file_type(&self) -> Option<FileType>;
+
+    /// Get mutable access to filetype of the model.
+    fn file_type_mut(&mut self) -> Option<&mut FileType>;
 }
 #[derive(Error, Debug)]
 /// Reported from functions that write
