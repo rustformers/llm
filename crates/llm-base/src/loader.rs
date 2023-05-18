@@ -395,18 +395,18 @@ pub fn load<M: KnownModel>(
     if let Some(lora_paths) = &params.lora_adapters {
         let adapters: Result<Vec<_>, _> = lora_paths
             .iter()
-            .map(|p| {
+            .map(|lora_path| {
                 // Read the LoRA file
-                let lora_file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
+                let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
                     source: e,
-                    path: p.to_owned(),
+                    path: lora_path.to_owned(),
                 })?;
                 let mut lora_reader = BufReader::new(&lora_file);
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
                 let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
-                    .map_err(|err| LoadError::from_format_error(err, p.to_owned()))?;
+                    .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
                 // Collect the names of the tensors that should be patched
                 let tensors_to_patch = lora_loader
@@ -421,7 +421,7 @@ pub fn load<M: KnownModel>(
                     tensors: lora_loader.tensors,
                     tensors_to_patch,
                     file: lora_file,
-                    path: path.to_owned(),
+                    path: lora_path.to_owned(),
                 })
             })
             .collect();
