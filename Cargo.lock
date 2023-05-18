@@ -648,6 +648,7 @@ dependencies = [
  "llm-gptj",
  "llm-gptneox",
  "llm-llama",
+ "llm-mpt",
  "log",
  "rand",
  "rustyline",
@@ -734,6 +735,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "llm-mpt"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "llm-base",
 ]
 
 [[package]]

@@ -35,6 +35,7 @@ Currently, the following models are supported:
 - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox):
   GPT-NeoX, StableLM, RedPajama, Dolly v2
 - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
+- [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
 ## Getting started
 

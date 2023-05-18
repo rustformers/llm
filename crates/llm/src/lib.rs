@@ -6,6 +6,7 @@
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)
 //! - [GPT-NeoX](llm_gptneox)
+//! - [MPT](llm_mpt)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -96,6 +97,8 @@ pub mod models {
     pub use llm_gptneox::{self as gptneox, GptNeoX};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
+    #[cfg(feature = "mpt")]
+    pub use llm_mpt::{self as mpt, Mpt};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -116,11 +119,14 @@ pub enum ModelArchitecture {
     #[cfg(feature = "gptneox")]
     /// [GPT-NeoX](llm_gptneox)
     GptNeoX,
+    #[cfg(feature = "mpt")]
+    /// [MPT](llm_mpt)
+    Mpt,
 }
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 5] = [
+    pub const ALL: &[Self] = &[
         #[cfg(feature = "bloom")]
         Self::Bloom,
         #[cfg(feature = "gpt2")]
@@ -131,6 +137,8 @@ impl ModelArchitecture {
         Self::Llama,
         #[cfg(feature = "gptneox")]
         Self::GptNeoX,
+        #[cfg(feature = "mpt")]
+        Self::Mpt,
     ];
 }
 
@@ -172,8 +180,11 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "gptneox")]
             "gptneox" => Ok(GptNeoX),
-            m => Err(UnsupportedModelArchitecture(format!(
-                "{m} is not a supported model architecture"
+            #[cfg(feature = "mpt")]
+            "mpt" => Ok(Mpt),
+
+            _ => Err(UnsupportedModelArchitecture(format!(
+                "{s} is not a supported model architecture"
             ))),
         }
     }
@@ -194,6 +205,8 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "gptneox")]
             GptNeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "mpt")]
+            Mpt => write!(f, "MPT"),
         }
     }
 }
@@ -240,6 +253,8 @@ pub fn load_dynamic(
         Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "gptneox")]
         GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
+        #[cfg(feature = "mpt")]
+        Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
     };
 
     Ok(model)
