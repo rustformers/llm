@@ -1144,7 +1144,7 @@ extern "C" {
     ) -> *mut ggml_tensor;
 }
 extern "C" {
-    pub fn gml_diag_mask_zero_inplace(
+    pub fn ggml_diag_mask_zero_inplace(
         ctx: *mut ggml_context,
         a: *mut ggml_tensor,
         n_past: ::std::os::raw::c_int,
