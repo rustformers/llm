@@ -1,10 +1,12 @@
 // Ref: https://github.com/saharNooby/rwkv.cpp/blob/5eb8f09/rwkv.cpp
 
-use ggml::{Context, Tensor};
+use std::cell::RefCell;
+
+use ggml::Tensor;
 use llm_base::{
     ggml, model::common, model::HyperparametersWriteError, util, FileType, InferenceParameters,
     InferenceSession, InferenceSessionConfig, KnownModel, LoadError, Mmap, ModelParameters,
-    OutputRequest, TokenId, Vocabulary,
+    OutputRequest, TokenId,
 };
 
 use tokenizers::Tokenizer;
@@ -34,11 +36,14 @@ pub struct Rwkv {
     _context: ggml::Context,
     inference_parameters: InferenceParameters,
 
-    graph: ggml::ComputationGraph,
+    // Must be kept alive to evaluate the graph
+    ctx: ggml::Context,
+
+    graph: RefCell<ggml::ComputationGraph>,
     token_index: ggml::Tensor,
-    state: ggml::Tensor,
+    state: RefCell<ggml::Tensor>,
     logits: ggml::Tensor,
-    state_parts: Vec<ggml::Tensor>,
+    state_parts: RefCell<Vec<ggml::Tensor>>,
 }
 unsafe impl Send for Rwkv {}
 unsafe impl Sync for Rwkv {}
@@ -175,14 +180,18 @@ impl KnownModel for Rwkv {
         );
 
         let state = ctx0.new_tensor_1d(ggml::Type::F32, n_layer * 5 * n_embd);
-        let token_index = ctx0.new_tensor_1d(ggml::Type::I32, 1);
 
+        let token_index = ctx0.new_tensor_1d(ggml::Type::I32, 1);
         let mut x = ctx0.op_get_rows(&emb, &token_index);
 
         x = rwkv_layer_norm(&ctx0, &x, &ln0_weight, &ln0_bias);
 
         let mut state_parts: Vec<ggml::Tensor> = Vec::with_capacity(n_layer * 5);
-        let mut gf = ggml::ComputationGraph::new(params.inference_parameters.n_threads);
+
+        for i in 0..n_layer * 5 {
+            let part = ctx0.new_tensor_1d(ggml::Type::F32, 0);
+            state_parts.push(part);
+        }
 
         for i in 0..n_layer {
             let layer = &layers[i];
@@ -269,7 +278,9 @@ impl KnownModel for Rwkv {
 
         x = rwkv_layer_norm(&ctx0, &x, &ln_out_weight, &ln_out_bias);
 
-        let mut logits = ctx0.op_mul_mat(&head, &x);
+        let logits = ctx0.op_mul_mat(&head, &x);
+
+        let mut gf = ggml::ComputationGraph::new(inference_parameters.n_threads);
         gf.build_forward_expand(&logits);
 
         for i in 0..(n_layer * 5) {
@@ -290,11 +301,12 @@ impl KnownModel for Rwkv {
             inference_parameters,
             _mmap,
             _context,
-            graph: gf,
-            token_index,
-            state,
+            ctx: ctx0,
+            graph: RefCell::new(gf),
+            token_index: token_index,
+            state: RefCell::new(state),
             logits,
-            state_parts,
+            state_parts: RefCell::new(state_parts),
         })
     }
 
@@ -316,51 +328,57 @@ impl KnownModel for Rwkv {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let token_index = session.n_past;
-        self.token_index.set(token_index as f32);
-
-        unsafe {
-            self.state
-                .data()
-                .copy_from(session.state.data(), self.state.nelements());
-        }
-
-        self._context.graph_compute(&mut self.graph);
-
-        // finish evaluation
-
-        for i in 0..(self.hyperparameters.n_layer * 5) {
-            let part = &self.state_parts[i];
+        for token in input_tokens {
+            self.token_index.set_i32_1d(0, *token);
 
             unsafe {
-                std::slice::from_raw_parts_mut(part.data() as *mut f32, part.nelements())
-                    .copy_from_slice(std::slice::from_raw_parts(
-                        part.data() as *mut f32,
-                        part.nelements(),
-                    ))
+                self.state
+                    .borrow_mut()
+                    .write_data(std::slice::from_raw_parts(
+                        session.state.data() as *mut u8,
+                        session.state.nbytes(),
+                    ));
             }
+
+            self.ctx.graph_compute(&mut self.graph.borrow_mut());
+
+            let mut start_index = 0;
+            let mut state_parts = self.state_parts.borrow_mut();
+
+            for i in 0..(self.hyperparameters.n_layer * 5) {
+                let part = &mut state_parts[i];
+
+                unsafe {
+                    let p = std::slice::from_raw_parts_mut(
+                        session.state.data() as *mut u8,
+                        session.state.nbytes(),
+                    );
+
+                    //start_index += i * self.hyperparameters.n_embd;
+                    let end_index = start_index + part.nbytes();
+
+                    part.read_data(0, &mut p[start_index..end_index]);
+                    start_index = end_index;
+                }
+            }
+
+            //common::read_last_token(session, &input_layer, n_vocab, n);
+            unsafe {
+                self.logits
+                    .read_data(0, bytemuck::cast_slice_mut(&mut session.last_logits));
+            }
+
+            //common::extract_logits(output_request, &input_layer, n_vocab, n);
+            output_request.all_logits = Some(session.last_logits.clone());
+
+            common::extract_embeddings(
+                output_request,
+                &self.token_index,
+                self.hyperparameters.n_embd,
+                input_tokens.len(),
+            );
+            common::update_session(session, &self.ctx, input_tokens.len(), input_tokens.len());
         }
-
-        //common::read_last_token(session, &input_layer, n_vocab, n);
-        session.last_logits = unsafe {
-            std::slice::from_raw_parts(self.logits.data() as *mut f32, self.logits.nbytes())
-                .to_vec()
-        };
-
-        //common::extract_logits(output_request, &input_layer, n_vocab, n);
-
-        common::extract_embeddings(
-            output_request,
-            &self.token_index,
-            self.hyperparameters.n_embd,
-            input_tokens.len(),
-        );
-        common::update_session(
-            session,
-            &self._context,
-            input_tokens.len(),
-            input_tokens.len(),
-        );
     }
 
     fn tokenizer(&self) -> &Tokenizer {

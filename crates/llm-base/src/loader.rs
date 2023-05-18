@@ -18,6 +18,7 @@ use ggml::{
 use memmap2::Mmap;
 use thiserror::Error;
 
+use tokenizers::models::bpe::BpeBuilder;
 use tokenizers::Tokenizer;
 
 /// How the tensors are stored in GGML LLM models.
@@ -311,7 +312,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    vocab_path: &Path,
+    vocab_path: Option<&Path>,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
@@ -340,11 +341,34 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let tokenizer = Tokenizer::from_file(vocab_path);
-    if tokenizer.is_err() {
-        return Err(LoadError::TokenizerLoadFailed {
-            path: vocab_path.to_owned(),
+    let mut tokenizer: Option<Tokenizer> = None;
+
+    if vocab_path.is_some() {
+        let path = vocab_path.unwrap();
+        let tok = Tokenizer::from_file(path);
+        if tok.is_err() {
+            return Err(LoadError::TokenizerLoadFailed {
+                path: path.to_owned(),
+            });
+        }
+
+        tokenizer = Some(tok.unwrap());
+    } else {
+        println!("Warning: No vocab file provided, trying to build vocabulary from ggml model.");
+
+        let mut vocab: HashMap<String, u32> = HashMap::new();
+
+        vocabulary.token_to_id.iter().for_each(|(k, v)| unsafe {
+            vocab.insert(String::from_utf8_unchecked(k.to_vec()), *v as u32);
         });
+
+        let builder = BpeBuilder::new()
+            .fuse_unk(true)
+            .byte_fallback(true)
+            .vocab_and_merges(vocab, Vec::new())
+            .unk_token("<unk>".to_string());
+
+        tokenizer = Some(Tokenizer::new(builder.build().unwrap()));
     }
 
     let use_mmap = params.prefer_mmap && container_type.support_mmap();

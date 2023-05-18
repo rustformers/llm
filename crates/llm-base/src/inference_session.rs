@@ -104,7 +104,9 @@ impl InferenceSession {
                 if should_call_callback {
                     // NOTE: No string ever tokenizes to the end of sentence. So we
                     // can just return the id here.
-                    if let Err(e) = callback(tokenizer.id_to_token(tk as u32).unwrap().as_bytes()) {
+                    if let Err(e) =
+                        callback(tokenizer.decode(vec![tk as u32], true).unwrap().as_bytes())
+                    {
                         return Err(InferenceError::UserCallback(Box::new(e)));
                     }
                 }
@@ -144,7 +146,7 @@ impl InferenceSession {
         } else {
             Ok(model
                 .tokenizer()
-                .id_to_token(next_token as u32)
+                .decode(vec![next_token as u32], true)
                 .unwrap()
                 .as_bytes()
                 .to_vec())
@@ -176,7 +178,7 @@ impl InferenceSession {
                 if let Some(tokens) = token_utf8_buf.push(
                     model
                         .tokenizer()
-                        .id_to_token(*token_id as u32)
+                        .decode(vec![*token_id as u32], true)
                         .unwrap()
                         .as_bytes(),
                 ) {
@@ -442,20 +444,14 @@ impl InferenceSession {
             if is_rwkv { n_layer * 5 * n_embd } else { 0 },
         );
 
-        //  ggml_set_f32(ctx->state, 0.0F);
-        state.set(0.0);
+        if is_rwkv {
+            state.set_f32(0.0);
 
-        for i in 0..n_layer {
-            /*
-             ggml_set_f32(
-                ggml_view_1d(ctx->ctx, ctx->state, n_embed, (5 * i + 4) * n_embed * sizeof(float)),
-                -1e30F
-            );
-            */
-
-            session_ctx
-                .op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4)
-                .set(-1e30);
+            for i in 0..n_layer {
+                session_ctx
+                    .op_view_1d(&state, n_embd, (5 * i + 4) * n_embd * 4)
+                    .set_f32(-1e30);
+            }
         }
 
         InferenceSession {

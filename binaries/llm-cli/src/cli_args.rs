@@ -293,7 +293,7 @@ pub struct ModelLoad {
     pub model_path: PathBuf,
 
     #[arg(long, short = 'v')]
-    pub vocab_path: PathBuf,
+    pub vocab_path: Option<PathBuf>,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -331,7 +331,7 @@ impl ModelLoad {
 
         let model = llm::load::<M>(
             &self.model_path,
-            &self.vocab_path,
+            self.vocab_path.as_ref().map(|p| p.as_path()),
             params,
             move |progress| match progress {
                 LoadProgress::HyperparametersLoaded => {

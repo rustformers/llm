@@ -61,7 +61,7 @@
           "kind": "example"
         }
       },
-      "args": ["llama", "${env:HOME}/.ggml-models/gpt4all-7b.bin"],
+      "args": ["llama", "${env:HOME}/.ggml-models/llama-13b-q4_0.bin", "${env:HOME}/llama-dl/tokenizer.json"],
       "cwd": "${workspaceFolder}"
     },
     {

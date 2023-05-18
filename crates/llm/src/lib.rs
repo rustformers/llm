@@ -204,7 +204,7 @@ impl Display for ModelArchitecture {
 pub fn load_dynamic(
     architecture: ModelArchitecture,
     path: &Path,
-    vocab_path: &Path,
+    vocab_path: Option<&Path>,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {

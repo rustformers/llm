@@ -30,7 +30,7 @@ pub trait KnownModel: Send + Sync {
     /// is a helper function on top of [llm_base::load](crate::load).
     fn load(
         path: &Path,
-        vocab_path: &Path,
+        vocab_path: Option<&Path>,
         params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Self, LoadError>

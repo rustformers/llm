@@ -22,7 +22,7 @@ fn main() {
     let model = llm::load_dynamic(
         architecture,
         model_path,
-        vocab_path,
+        Some(vocab_path),
         Default::default(),
         load_callback,
     )
