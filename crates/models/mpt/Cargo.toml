@@ -1,0 +1,13 @@
+[package]
+name = "llm-mpt"
+version = "0.1.1"
+license = { workspace = true }
+repository = { workspace = true }
+description = "An implementation of MosaicPretrainedTransformer (MPT) for the `llm` ecosystem."
+edition = "2021"
+readme = "../../../README.md"
+
+[dependencies]
+llm-base = { path = "../../llm-base", version = "0.1.1" }
+
+bytemuck = { workspace = true }

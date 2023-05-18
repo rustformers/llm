@@ -44,6 +44,7 @@ fn main() -> Result<()> {
                 use_parallel_residual: false,
             }),
         ),
+        Args::Mpt { args } => handle_args::<llm::models::Mpt>(args, None),
     }
 }
 
