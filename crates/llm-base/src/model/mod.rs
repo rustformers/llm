@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, LoadError, LoadProgress, Vocabulary,
+    InferenceSessionConfig, LoadError, LoadProgress,
 };
 
 use tokenizers::Tokenizer;

@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, TokenId,
 };
 
 use tokenizers::Tokenizer;

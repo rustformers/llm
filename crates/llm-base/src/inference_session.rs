@@ -80,7 +80,7 @@ impl InferenceSession {
         output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<(), E>,
     ) -> Result<(), InferenceError> {
-        let beginning_of_sentence = self.n_past == 0;
+        //let beginning_of_sentence = self.n_past == 0;
 
         let tokenizer = model.tokenizer();
         let prompt_tokens: Vec<TokenId> = tokenizer

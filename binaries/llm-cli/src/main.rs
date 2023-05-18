@@ -151,7 +151,7 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
         "{}",
         toks.get_ids()
             .iter()
-            .map(|(tid)| tid.to_string())
+            .map(|tid| tid.to_string())
             .collect::<Vec<_>>()
             .join(", ")
     );
@@ -159,7 +159,7 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
         "{}",
         toks.get_ids()
             .iter()
-            .map(|(tid)| format!("s:?:{tid}"))
+            .map(|tid| format!("s:?:{tid}"))
             .collect::<Vec<_>>()
             .join(", ")
     );

@@ -341,10 +341,7 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let mut tokenizer: Option<Tokenizer> = None;
-
-    if vocab_path.is_some() {
-        let path = vocab_path.unwrap();
+    let tokenizer = if let Some(path) = vocab_path {
         let tok = Tokenizer::from_file(path);
         if tok.is_err() {
             return Err(LoadError::TokenizerLoadFailed {
@@ -352,7 +349,7 @@ pub fn load<M: KnownModel>(
             });
         }
 
-        tokenizer = Some(tok.unwrap());
+        tok.unwrap()
     } else {
         println!("Warning: No vocab file provided, trying to build vocabulary from ggml model.");
 
@@ -368,8 +365,8 @@ pub fn load<M: KnownModel>(
             .vocab_and_merges(vocab, Vec::new())
             .unk_token("<unk>".to_string());
 
-        tokenizer = Some(Tokenizer::new(builder.build().unwrap()));
-    }
+        Tokenizer::new(builder.build().unwrap())
+    };
 
     let use_mmap = params.prefer_mmap && container_type.support_mmap();
 
@@ -490,7 +487,7 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, tokenizer.unwrap(), tl)?;
+    let model = KnownModel::new(hyperparameters, params, tokenizer, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,

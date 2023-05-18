@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
 };
 
 use tokenizers::Tokenizer;

@@ -17,18 +17,6 @@ pub struct Rwkv {
 
     tokenizer: Tokenizer,
 
-    emb: Tensor,
-
-    ln0_weight: Tensor,
-    ln0_bias: Tensor,
-
-    ln_out_weight: Tensor,
-    ln_out_bias: Tensor,
-
-    head: Tensor,
-
-    layers: Vec<Layer>,
-
     /// Needs to kept alive while the model is alive
     _mmap: Option<Mmap>,
 
@@ -188,7 +176,7 @@ impl KnownModel for Rwkv {
 
         let mut state_parts: Vec<ggml::Tensor> = Vec::with_capacity(n_layer * 5);
 
-        for i in 0..n_layer * 5 {
+        for _ in 0..n_layer * 5 {
             let part = ctx0.new_tensor_1d(ggml::Type::F32, 0);
             state_parts.push(part);
         }
@@ -291,13 +279,6 @@ impl KnownModel for Rwkv {
             hyperparameters,
             n_context_tokens,
             tokenizer,
-            emb,
-            ln0_weight,
-            ln0_bias,
-            ln_out_weight,
-            ln_out_bias,
-            head,
-            layers,
             inference_parameters,
             _mmap,
             _context,
@@ -324,7 +305,7 @@ impl KnownModel for Rwkv {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
+        _params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
@@ -354,9 +335,7 @@ impl KnownModel for Rwkv {
                         session.state.nbytes(),
                     );
 
-                    //start_index += i * self.hyperparameters.n_embd;
                     let end_index = start_index + part.nbytes();
-
                     part.read_data(0, &mut p[start_index..end_index]);
                     start_index = end_index;
                 }
