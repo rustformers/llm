@@ -6,9 +6,9 @@
 
 #ifdef __ARM_NEON
     // we use the built-in 16-bit float type
-    typedef __fp16 ggml_fp16_t;
+    typedef __fp16 qnt0_ggml_fp16_t;
 #else
-    typedef uint16_t ggml_fp16_t;
+    typedef uint16_t qnt0_ggml_fp16_t;
 #endif
 
 // __FMA__ and __F16C__ are not defined in MSVC, however they are implied with AVX2/AVX512
@@ -35,11 +35,11 @@
 //
 #include <arm_neon.h>
 
-#define GGML_COMPUTE_FP16_TO_FP32(x) ((float) (x))
-#define GGML_COMPUTE_FP32_TO_FP16(x) (x)
+#define QNT0_GGML_COMPUTE_FP16_TO_FP32(x) ((float) (x))
+#define QNT0_GGML_COMPUTE_FP32_TO_FP16(x) (x)
 
-#define GGML_FP16_TO_FP32(x) ((float) (x))
-#define GGML_FP32_TO_FP16(x) (x)
+#define QNT0_GGML_FP16_TO_FP32(x) ((float) (x))
+#define QNT0_GGML_FP32_TO_FP16(x) (x)
 
 #else
 
@@ -62,22 +62,22 @@
 #ifdef __F16C__
 
 #ifdef _MSC_VER
-#define GGML_COMPUTE_FP16_TO_FP32(x) _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(x)))
-#define GGML_COMPUTE_FP32_TO_FP16(x) _mm_extract_epi16(_mm_cvtps_ph(_mm_set_ss(x), 0), 0)
+#define QNT0_GGML_COMPUTE_FP16_TO_FP32(x) _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(x)))
+#define QNT0_GGML_COMPUTE_FP32_TO_FP16(x) _mm_extract_epi16(_mm_cvtps_ph(_mm_set_ss(x), 0), 0)
 #else
-#define GGML_COMPUTE_FP16_TO_FP32(x) _cvtsh_ss(x)
-#define GGML_COMPUTE_FP32_TO_FP16(x) _cvtss_sh(x, 0)
+#define QNT0_GGML_COMPUTE_FP16_TO_FP32(x) _cvtsh_ss(x)
+#define QNT0_GGML_COMPUTE_FP32_TO_FP16(x) _cvtss_sh(x, 0)
 #endif
 
 #elif defined(__POWER9_VECTOR__)
 
-#define GGML_COMPUTE_FP16_TO_FP32(x) ggml_compute_fp16_to_fp32(x)
-#define GGML_COMPUTE_FP32_TO_FP16(x) ggml_compute_fp32_to_fp16(x)
+#define QNT0_GGML_COMPUTE_FP16_TO_FP32(x) qnt0_ggml_compute_fp16_to_fp32(x)
+#define QNT0_GGML_COMPUTE_FP32_TO_FP16(x) qnt0_ggml_compute_fp32_to_fp16(x)
 /* the inline asm below is about 12% faster than the lookup method */
-#define GGML_FP16_TO_FP32(x) GGML_COMPUTE_FP16_TO_FP32(x)
-#define GGML_FP32_TO_FP16(x) GGML_COMPUTE_FP32_TO_FP16(x)
+#define QNT0_GGML_FP16_TO_FP32(x) QNT0_GGML_COMPUTE_FP16_TO_FP32(x)
+#define QNT0_GGML_FP32_TO_FP16(x) QNT0_GGML_COMPUTE_FP32_TO_FP16(x)
 
-static inline float ggml_compute_fp16_to_fp32(ggml_fp16_t h) {
+static inline float qnt0_ggml_compute_fp16_to_fp32(qnt0_ggml_fp16_t h) {
     register float f;
     register double d;
     __asm__(
@@ -90,9 +90,9 @@ static inline float ggml_compute_fp16_to_fp32(ggml_fp16_t h) {
     return f;
 }
 
-static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
+static inline qnt0_ggml_fp16_t qnt0_ggml_compute_fp32_to_fp16(float f) {
     register double d;
-    register ggml_fp16_t r;
+    register qnt0_ggml_fp16_t r;
     __asm__( /* xscvdphp can work on double or single precision */
         "xscvdphp %0,%2\n"
         "mffprd %1,%0\n" :
@@ -125,7 +125,7 @@ static inline uint32_t fp32_to_bits(float f) {
     return fp32.as_bits;
 }
 
-static inline float ggml_compute_fp16_to_fp32(ggml_fp16_t h) {
+static inline float qnt0_ggml_compute_fp16_to_fp32(qnt0_ggml_fp16_t h) {
     const uint32_t w = (uint32_t) h << 16;
     const uint32_t sign = w & UINT32_C(0x80000000);
     const uint32_t two_w = w + w;
@@ -148,7 +148,7 @@ static inline float ggml_compute_fp16_to_fp32(ggml_fp16_t h) {
     return fp32_from_bits(result);
 }
 
-static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
+static inline qnt0_ggml_fp16_t qnt0_ggml_compute_fp32_to_fp16(float f) {
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) || defined(__GNUC__) && !defined(__STRICT_ANSI__)
     const float scale_to_inf = 0x1.0p+112f;
     const float scale_to_zero = 0x1.0p-110f;
@@ -174,8 +174,8 @@ static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
     return (sign >> 16) | (shl1_w > UINT32_C(0xFF000000) ? UINT16_C(0x7E00) : nonsign);
 }
 
-#define GGML_COMPUTE_FP16_TO_FP32(x) ggml_compute_fp16_to_fp32(x)
-#define GGML_COMPUTE_FP32_TO_FP16(x) ggml_compute_fp32_to_fp16(x)
+#define QNT0_GGML_COMPUTE_FP16_TO_FP32(x) qnt0_ggml_compute_fp16_to_fp32(x)
+#define QNT0_GGML_COMPUTE_FP32_TO_FP16(x) qnt0_ggml_compute_fp32_to_fp16(x)
 
 #endif // __F16C__
 
@@ -186,13 +186,13 @@ static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
 //
 
 // precomputed gelu table for f16 (128 KB)
-static ggml_fp16_t table_gelu_f16[1 << 16];
+static qnt0_ggml_fp16_t table_gelu_f16[1 << 16];
 
 // precomputed silu table for f16 (128 KB)
-static ggml_fp16_t table_silu_f16[1 << 16];
+static qnt0_ggml_fp16_t table_silu_f16[1 << 16];
 
 // precomputed exp table for f16 (128 KB)
-static ggml_fp16_t table_exp_f16[1 << 16];
+static qnt0_ggml_fp16_t table_exp_f16[1 << 16];
 
 // precomputed f32 table for f16 (256 KB)
 static float table_f32_f16[1 << 16];
@@ -212,39 +212,39 @@ static const uint64_t table_b2b_0[1 << 8] = { B8(00, 10) }; // ( b) << 4
 static const uint64_t table_b2b_1[1 << 8] = { B8(10, 00) }; // (!b) << 4
 #endif
 
-// On ARM NEON, it's quicker to directly convert x -> x instead of calling into ggml_lookup_fp16_to_fp32,
-// so we define GGML_FP16_TO_FP32 and GGML_FP32_TO_FP16 elsewhere for NEON.
+// On ARM NEON, it's quicker to directly convert x -> x instead of calling into qnt0_ggml_lookup_fp16_to_fp32,
+// so we define QNT0_GGML_FP16_TO_FP32 and QNT0_GGML_FP32_TO_FP16 elsewhere for NEON.
 // This is also true for POWER9.
-#if !defined(GGML_FP16_TO_FP32) || !defined(GGML_FP32_TO_FP16)
+#if !defined(QNT0_GGML_FP16_TO_FP32) || !defined(QNT0_GGML_FP32_TO_FP16)
 
-inline static float ggml_lookup_fp16_to_fp32(ggml_fp16_t f) {
+inline static float qnt0_ggml_lookup_fp16_to_fp32(qnt0_ggml_fp16_t f) {
     uint16_t s;
     memcpy(&s, &f, sizeof(uint16_t));
     return table_f32_f16[s];
 }
 
-#define GGML_FP16_TO_FP32(x) ggml_lookup_fp16_to_fp32(x)
-#define GGML_FP32_TO_FP16(x) GGML_COMPUTE_FP32_TO_FP16(x)
+#define QNT0_GGML_FP16_TO_FP32(x) qnt0_ggml_lookup_fp16_to_fp32(x)
+#define QNT0_GGML_FP32_TO_FP16(x) QNT0_GGML_COMPUTE_FP32_TO_FP16(x)
 
 #endif
 
-// note: do not use these inside ggml.c
-// these are meant to be used via the ggml.h API
-float ggml_fp16_to_fp32(ggml_fp16_t x) {
-    return (float) GGML_FP16_TO_FP32(x);
+// note: do not use these inside qnt0_ggml.c
+// these are meant to be used via the qnt0_ggml.h API
+float qnt0_ggml_fp16_to_fp32(qnt0_ggml_fp16_t x) {
+    return (float) QNT0_GGML_FP16_TO_FP32(x);
 }
 
-ggml_fp16_t ggml_fp32_to_fp16(float x) {
-    return GGML_FP32_TO_FP16(x);
+qnt0_ggml_fp16_t qnt0_ggml_fp32_to_fp16(float x) {
+    return QNT0_GGML_FP32_TO_FP16(x);
 }
 
-void ggml_fp16_to_fp32_row(const ggml_fp16_t * x, float * y, size_t n) {
+void qnt0_ggml_fp16_to_fp32_row(const qnt0_ggml_fp16_t * x, float * y, size_t n) {
     for (size_t i = 0; i < n; i++) {
-        y[i] = GGML_FP16_TO_FP32(x[i]);
+        y[i] = QNT0_GGML_FP16_TO_FP32(x[i]);
     }
 }
 
-void ggml_fp32_to_fp16_row(const float * x, ggml_fp16_t * y, size_t n) {
+void qnt0_ggml_fp32_to_fp16_row(const float * x, qnt0_ggml_fp16_t * y, size_t n) {
     size_t i = 0;
 #if defined(__F16C__)
     for (; i + 7 < n; i += 8) {
@@ -259,7 +259,7 @@ void ggml_fp32_to_fp16_row(const float * x, ggml_fp16_t * y, size_t n) {
     }
 #endif
     for (; i < n; i++) {
-        y[i] = GGML_FP32_TO_FP16(x[i]);
+        y[i] = QNT0_GGML_FP32_TO_FP16(x[i]);
     }
 }
 
@@ -378,27 +378,27 @@ static_assert(sizeof(block_q4_1) == 2 * sizeof(float) + QK4_1 / 2, "wrong q4_1 b
 
 #define QK4_2 16
 typedef struct {
-    ggml_fp16_t d;         // delta
+    qnt0_ggml_fp16_t d;         // delta
     uint8_t qs[QK4_2 / 2]; // nibbles / quants
 } block_q4_2;
-static_assert(sizeof(block_q4_2) == sizeof(ggml_fp16_t) + QK4_2 / 2, "wrong q4_2 block size/padding");
+static_assert(sizeof(block_q4_2) == sizeof(qnt0_ggml_fp16_t) + QK4_2 / 2, "wrong q4_2 block size/padding");
 
 #define QK5_0 32
 typedef struct {
-    ggml_fp16_t d;         // delta
+    qnt0_ggml_fp16_t d;         // delta
     uint8_t qh[4];         // 5-th bit of quants
     uint8_t qs[QK5_0 / 2]; // nibbles / quants
 } block_q5_0;
-static_assert(sizeof(block_q5_0) == sizeof(ggml_fp16_t) + sizeof(uint32_t) + QK5_0 / 2, "wrong q5_0 block size/padding");
+static_assert(sizeof(block_q5_0) == sizeof(qnt0_ggml_fp16_t) + sizeof(uint32_t) + QK5_0 / 2, "wrong q5_0 block size/padding");
 
 #define QK5_1 32
 typedef struct {
-    ggml_fp16_t d;         // delta
-    ggml_fp16_t m;         // min
+    qnt0_ggml_fp16_t d;         // delta
+    qnt0_ggml_fp16_t m;         // min
     uint8_t qh[4];         // 5-th bit of quants
     uint8_t qs[QK5_1 / 2]; // nibbles / quants
 } block_q5_1;
-static_assert(sizeof(block_q5_1) == 2 * sizeof(ggml_fp16_t) + sizeof(uint32_t) + QK5_1 / 2, "wrong q5_1 block size/padding");
+static_assert(sizeof(block_q5_1) == 2 * sizeof(qnt0_ggml_fp16_t) + sizeof(uint32_t) + QK5_1 / 2, "wrong q5_1 block size/padding");
 
 #define QK8_0 32
 typedef struct {
@@ -647,7 +647,7 @@ void qnt0_ggml_dequantize_row_q4_2(const void * restrict vx, float * restrict y,
     const block_q4_2 * restrict x = vx;
 
     for (int i = 0; i < nb; i++) {
-        const float d = GGML_FP16_TO_FP32(x[i].d);
+        const float d = QNT0_GGML_FP16_TO_FP32(x[i].d);
 
         const uint8_t * restrict pp = x[i].qs;
 
@@ -676,7 +676,7 @@ void qnt0_ggml_dequantize_row_q5_0(const void * restrict vx, float * restrict y,
     const block_q5_0 * restrict x = vx;
 
     for (int i = 0; i < nb; i++) {
-        const float d = GGML_FP16_TO_FP32(x[i].d);
+        const float d = QNT0_GGML_FP16_TO_FP32(x[i].d);
 
         const uint8_t * restrict pp = x[i].qs;
 
@@ -712,8 +712,8 @@ void qnt0_ggml_dequantize_row_q5_1(const void * restrict vx, float * restrict y,
     const block_q5_1 * restrict x = vx;
 
     for (int i = 0; i < nb; i++) {
-        const float d = GGML_FP16_TO_FP32(x[i].d);
-        const float m = GGML_FP16_TO_FP32(x[i].m);
+        const float d = QNT0_GGML_FP16_TO_FP32(x[i].d);
+        const float m = QNT0_GGML_FP16_TO_FP32(x[i].m);
 
         const uint8_t * restrict pp = x[i].qs;
 
