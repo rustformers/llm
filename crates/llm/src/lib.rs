@@ -97,9 +97,8 @@ pub mod models {
     pub use llm_gptneox::{self as gptneox, GptNeoX, GptNeoXOverrides};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
+    #[cfg(feature = "mpt")]
     pub use llm_mpt::{self as mpt, Mpt};
-    #[cfg(feature = "neox")]
-    pub use llm_neox::{self as neox, NeoX, NeoXOverrides};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
