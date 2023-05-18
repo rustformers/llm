@@ -78,17 +78,27 @@ impl LoraAdapter {
         let a_info = self.get_info(&format!("{}.loraA", name))?;
         let b_info = self.get_info(&format!("{}.loraB", name))?;
 
+        let must_scale = self.scaling != 1.0;
         // Calculate the size of the patch context via the following steps:
         // 1. Calculate the size of the two `a` and `b` tensors
         // 2. Calculate the size of the original tensor
-        // 3. Calculate the  size of the `ba` and `scaling` tensors. These have the same dimensions as the original tensor, but are of the element type of the `a` or `b` tensor e.g. fp16
-        // 4. Add 20% as ggml overhead
+        // 3. Calculate the  size of the `ba` and tensors. It has the same dimensions as the original tensor, but is of the element type of the `a` or `b` tensor e.g. fp16
         let ba_size = ggml::format::tensor_size(a_info.element_type, info.dims().iter().product());
-        let patch_context_size = ((a_info.calc_absolute_size(false)
+        let mut patch_context_size = a_info.calc_absolute_size(false)
             + b_info.calc_absolute_size(false)
             + info.calc_absolute_size(false)
-            + ba_size * 2) as f32
-            * 1.2) as usize;
+            + ba_size;
+
+        // 3b. (Optional) If we need to scale the `ba` tensor, we need to allocate for a second `ba` and the `scaled` tensors which will be crated as an `f32` tensor.
+        if must_scale {
+            let scaled_size =
+                ggml::format::tensor_size(ggml::ElementType::F32, info.dims().iter().product());
+            patch_context_size += scaled_size + ba_size;
+        }
+
+        // 4. Add 5% as ggml overhead (I dont know why this is needed but the calculation is always a few 100-1000 bytes off)
+        patch_context_size = patch_context_size + (patch_context_size / 20);
+
         // Create a temporary context for the patching operations
         let patch_context = ggml::Context::init(patch_context_size, true);
         let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path, None);
@@ -103,7 +113,7 @@ impl LoraAdapter {
 
         // LoRA formula: w = w + ba*s
         let mut ba = patch_context.op_mul_mat(&a, &b);
-        if self.scaling != 1.0 {
+        if must_scale {
             let scaling_tensor = patch_context.new_f32(self.scaling);
             ba = patch_context.op_scale(&ba, &scaling_tensor);
         }
