@@ -299,6 +299,7 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
     llm::quantize::<M, _, _>(
         &mut source,
         &mut destination,
+        args.container_type.into(),
         args.target.into(),
         |progress| match progress {
             QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),

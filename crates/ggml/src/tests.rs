@@ -17,7 +17,19 @@ impl std::fmt::Display for DummyError {
 impl Error for DummyError {}
 
 #[test]
-fn can_roundtrip_loader_and_saver() {
+fn can_roundtrip_loader_and_saver_ggml() {
+    let vocabulary = vec![
+        ("blazingly".as_bytes().to_vec(), 0.0),
+        ("fast".as_bytes().to_vec(), 0.0),
+        ("memory".as_bytes().to_vec(), 0.0),
+        ("efficient".as_bytes().to_vec(), 0.0),
+    ];
+
+    roundtrip_test(format::SaveContainerType::Ggml, vocabulary).unwrap();
+}
+
+#[test]
+fn will_fail_on_scored_ggml_save() {
     let vocabulary = vec![
         ("blazingly".as_bytes().to_vec(), 0.1),
         ("fast".as_bytes().to_vec(), 0.2),
@@ -25,13 +37,37 @@ fn can_roundtrip_loader_and_saver() {
         ("efficient".as_bytes().to_vec(), 0.4),
     ];
 
+    assert_eq!(
+        roundtrip_test(format::SaveContainerType::Ggml, vocabulary)
+            .unwrap_err()
+            .to_string(),
+        format::SaveError::<std::io::Error>::VocabularyScoringNotSupported.to_string()
+    );
+}
+
+#[test]
+fn can_roundtrip_loader_and_saver_ggjt_v2() {
+    let vocabulary = vec![
+        ("blazingly".as_bytes().to_vec(), 0.1),
+        ("fast".as_bytes().to_vec(), 0.2),
+        ("memory".as_bytes().to_vec(), 0.3),
+        ("efficient".as_bytes().to_vec(), 0.4),
+    ];
+
+    roundtrip_test(format::SaveContainerType::GgjtV2, vocabulary).unwrap();
+}
+
+fn roundtrip_test(
+    save_container_type: format::SaveContainerType,
+    vocabulary: Vec<(Vec<u8>, f32)>,
+) -> anyhow::Result<()> {
     let mut rng = rand::thread_rng();
     let element_type = crate::Type::F16;
     let model = Model {
         hyperparameters: Hyperparameters {
             some_hyperparameter: random(),
             some_other_hyperparameter: random(),
-            vocabulary_size: vocabulary.len().try_into().unwrap(),
+            vocabulary_size: vocabulary.len().try_into()?,
         },
         vocabulary,
         tensors: (0..10)
@@ -67,19 +103,22 @@ fn can_roundtrip_loader_and_saver() {
     format::save(
         &mut cursor,
         &mut save_handler,
+        save_container_type,
         &model.vocabulary,
         &model.tensors.keys().cloned().collect::<Vec<String>>(),
-    )
-    .unwrap();
+    )?;
 
     // Load the model and confirm that it is the same as the original.
     let mut cursor = std::io::Cursor::new(&buffer);
     let mut load_handler = MockLoadHandler {
         data: &buffer,
         loaded_model: Model::default(),
+        expected_container_type: save_container_type.into(),
     };
-    format::load(&mut cursor, &mut load_handler).unwrap();
+    format::load(&mut cursor, &mut load_handler)?;
     assert_eq!(load_handler.loaded_model, model);
+
+    Ok(())
 }
 
 #[derive(Default, PartialEq, Debug)]
@@ -133,10 +172,11 @@ impl format::SaveHandler<DummyError> for MockSaveHandler<'_> {
 struct MockLoadHandler<'a> {
     data: &'a [u8],
     loaded_model: Model,
+    expected_container_type: ContainerType,
 }
 impl format::LoadHandler<DummyError> for MockLoadHandler<'_> {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), DummyError> {
-        assert_eq!(container_type, ContainerType::Ggjt(2));
+        assert_eq!(container_type, self.expected_container_type);
         Ok(())
     }
 

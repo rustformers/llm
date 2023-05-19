@@ -333,10 +333,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
             alibi_bias_max: util::read_f32(reader)?,
             clip_kqv: util::read_f32(reader)?,
-            file_type: {
-                let ftype = util::read_i32(reader)?;
-                FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))?
-            },
+            file_type: util::read_filetype(reader)?,
         };
 
         Ok(hyperparameters)
@@ -348,6 +345,8 @@ impl llm_base::Hyperparameters for Hyperparameters {
         util::write_i32(writer, self.n_head.try_into()?)?;
         util::write_i32(writer, self.n_layer.try_into()?)?;
         util::write_i32(writer, self.n_vocab.try_into()?)?;
+        util::write_f32(writer, self.alibi_bias_max)?;
+        util::write_f32(writer, self.clip_kqv)?;
         util::write_i32(writer, self.file_type.into())?;
         Ok(())
     }
@@ -358,6 +357,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn file_type(&self) -> Option<FileType> {
         Some(self.file_type)
+    }
+
+    fn file_type_mut(&mut self) -> Option<&mut FileType> {
+        Some(&mut self.file_type)
     }
 }
 

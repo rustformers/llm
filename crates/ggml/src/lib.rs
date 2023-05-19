@@ -80,7 +80,7 @@ impl ContainerType {
     pub fn write(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
         match self {
             ContainerType::Ggml => {
-                util::write_u32(writer, FILE_MAGIC_GGMF)?;
+                util::write_u32(writer, FILE_MAGIC_GGML)?;
             }
             ContainerType::Ggmf(version) => {
                 util::write_u32(writer, FILE_MAGIC_GGMF)?;

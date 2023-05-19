@@ -112,6 +112,10 @@ pub enum QuantizeError {
     /// An error was encountered while writing the hyperparameters.
     #[error("an error was encountered while writing the hyperparameters")]
     HyperparametersWriteError(#[source] HyperparametersWriteError),
+    /// An attempt was made to save a model with a container type that does not
+    /// support vocabulary scoring, despite the model having a scored vocabulary.
+    #[error("container type does not support vocabulary scoring")]
+    VocabularyScoringNotSupported,
 }
 impl QuantizeError {
     pub(crate) fn from_format_error(value: SaveError<QuantizeError>, path: PathBuf) -> Self {
@@ -122,6 +126,9 @@ impl QuantizeError {
             SaveError::InvariantBroken(invariant) => {
                 QuantizeError::InvariantBroken { path, invariant }
             }
+            SaveError::VocabularyScoringNotSupported => {
+                QuantizeError::VocabularyScoringNotSupported
+            }
         }
     }
 }
@@ -130,6 +137,7 @@ impl QuantizeError {
 pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     reader: &mut R,
     writer: &mut W,
+    save_container_type: ggml::format::SaveContainerType,
     desired_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
@@ -156,11 +164,18 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
 
     // Save the quantized model, quantizing as we go
     let Loader {
-        hyperparameters,
+        mut hyperparameters,
         vocabulary,
         tensors,
         ..
     } = loader;
+
+    if let Some(ft) = hyperparameters.file_type_mut() {
+        ft.quantization_version = ggml::QNT_VERSION;
+        ft.format = desired_type
+            .try_into()
+            .expect("format has no corresponding ftype");
+    }
 
     let vocabulary = vocabulary
         .id_to_token
@@ -175,6 +190,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     ggml::format::save(
         writer,
         &mut saver,
+        save_container_type,
         &vocabulary,
         &tensors.keys().cloned().collect::<Vec<_>>(),
     )
