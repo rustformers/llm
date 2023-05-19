@@ -93,7 +93,13 @@ fn infer<M: llm::KnownModel + 'static>(
     println!();
 
     match res {
-        Ok(_) => (),
+        Ok(stats) => {
+            if args.stats {
+                println!();
+                println!("{}", stats);
+                println!();
+            }
+        }
         Err(InferenceError::ContextFull) => {
             log::warn!("Context window full, stopping inference.")
         }

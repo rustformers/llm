@@ -118,9 +118,16 @@ pub struct Infer {
     #[arg(long, default_value = None)]
     pub persist_session: Option<PathBuf>,
 
-    /// Calculate and print perplexity of the model over the prompt.
+    /// Calculate perplexity of the model over the prompt.
+    ///
+    /// You will need to supply `--stats` to see the perplexity.
     #[arg(long, default_value_t = false)]
     pub perplexity: bool,
+
+    /// Output statistics about the time taken to perform inference, among other
+    /// things.
+    #[arg(long, default_value_t = false)]
+    pub stats: bool,
 }
 
 #[derive(Parser, Debug)]
