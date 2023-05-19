@@ -172,6 +172,9 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
 
     if let Some(ft) = hyperparameters.file_type_mut() {
         ft.quantization_version = ggml::QNT_VERSION;
+        ft.format = desired_type
+            .try_into()
+            .expect("format has no corresponding ftype");
     }
 
     let vocabulary = vocabulary
