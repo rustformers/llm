@@ -94,7 +94,7 @@ pub mod models {
     #[cfg(feature = "gptj")]
     pub use llm_gptj::{self as gptj, GptJ};
     #[cfg(feature = "gptneox")]
-    pub use llm_gptneox::{self as gptneox, GptNeoX, GptNeoXOverrides};
+    pub use llm_gptneox::{self as gptneox, GptNeoX};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
     #[cfg(feature = "mpt")]
@@ -119,9 +119,6 @@ pub enum ModelArchitecture {
     #[cfg(feature = "gptneox")]
     /// [GPT-NeoX](llm_gptneox)
     GptNeoX,
-    #[cfg(feature = "gptneox")]
-    /// RedPajama: [GPT-NeoX](llm_gptneox) with `use_parallel_residual` set to false
-    RedPajama,
     #[cfg(feature = "mpt")]
     /// [MPT](llm_mpt)
     Mpt,
@@ -129,7 +126,7 @@ pub enum ModelArchitecture {
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 7] = [
+    pub const ALL: &[Self] = &[
         #[cfg(feature = "bloom")]
         Self::Bloom,
         #[cfg(feature = "gpt2")]
@@ -140,8 +137,6 @@ impl ModelArchitecture {
         Self::Llama,
         #[cfg(feature = "gptneox")]
         Self::GptNeoX,
-        #[cfg(feature = "gptneox")]
-        Self::RedPajama,
         #[cfg(feature = "mpt")]
         Self::Mpt,
     ];
@@ -185,10 +180,9 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "gptneox")]
             "gptneox" => Ok(GptNeoX),
-            #[cfg(feature = "gptneox")]
-            "redpajama" => Ok(RedPajama),
             #[cfg(feature = "mpt")]
             "mpt" => Ok(Mpt),
+
             _ => Err(UnsupportedModelArchitecture(format!(
                 "{s} is not a supported model architecture"
             ))),
@@ -211,8 +205,6 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "gptneox")]
             GptNeoX => write!(f, "GPT-NeoX"),
-            #[cfg(feature = "gptneox")]
-            RedPajama => write!(f, "RedPajama"),
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
         }
@@ -261,19 +253,6 @@ pub fn load_dynamic(
         Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "gptneox")]
         GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "gptneox")]
-        RedPajama => load_model::<models::GptNeoX>(
-            path,
-            params,
-            {
-                let mut overrides = overrides.unwrap_or_default();
-                overrides.merge(models::GptNeoXOverrides {
-                    use_parallel_residual: false,
-                });
-                Some(overrides)
-            },
-            load_progress_callback,
-        )?,
         #[cfg(feature = "mpt")]
         Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
     };
@@ -287,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_model_architecture_from_str() {
-        for arch in &ModelArchitecture::ALL {
+        for arch in ModelArchitecture::ALL {
             assert_eq!(
                 arch,
                 &arch.to_string().parse::<ModelArchitecture>().unwrap()

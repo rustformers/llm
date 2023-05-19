@@ -29,21 +29,7 @@ fn main() -> Result<()> {
         Args::Bloom { args } => handle_args::<llm::models::Bloom>(args, None),
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args, None),
         Args::GptJ { args } => handle_args::<llm::models::GptJ>(args, None),
-        Args::NeoX {
-            args,
-            no_parallel_residual,
-        } => handle_args::<llm::models::GptNeoX>(
-            args,
-            Some(llm::models::GptNeoXOverrides {
-                use_parallel_residual: !*no_parallel_residual,
-            }),
-        ),
-        Args::RedPajama { args } => handle_args::<llm::models::GptNeoX>(
-            args,
-            Some(llm::models::GptNeoXOverrides {
-                use_parallel_residual: false,
-            }),
-        ),
+        Args::NeoX { args } => handle_args::<llm::models::GptNeoX>(args, None),
         Args::Mpt { args } => handle_args::<llm::models::Mpt>(args, None),
     }
 }

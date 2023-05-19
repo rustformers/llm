@@ -37,21 +37,6 @@ pub enum Args {
     NeoX {
         #[command(subcommand)]
         args: BaseArgs,
-
-        #[arg(long)]
-        /// By default, the GPT-NeoX architecture uses a parallel residual.
-        ///
-        /// This flag disables that, as some models out there are trained without it,
-        /// and the model format does not store this information.
-        no_parallel_residual: bool,
-    },
-    /// Use a model from the RedPajama GPT-NeoX family
-    ///
-    /// (GPT-NeoX with `use_parallel_residual` set to false)
-    #[clap(id = "redpajama")]
-    RedPajama {
-        #[command(subcommand)]
-        args: BaseArgs,
     },
     /// Use a MPT model
     #[clap(id = "mpt")]
