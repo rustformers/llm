@@ -67,6 +67,20 @@
     {
       "type": "lldb",
       "request": "launch",
+      "name": "Debug MPT Inference",
+      "cargo": {
+        "args": ["build", "--example=inference", "--package=llm"],
+        "filter": {
+          "name": "inference",
+          "kind": "example"
+        }
+      },
+      "args": ["mpt", "${env:HOME}/.ggml-models/mpt-7b.bin"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
       "name": "Debug GPT-NeoX Inference",
       "cargo": {
         "args": ["build", "--example=inference", "--package=llm"],

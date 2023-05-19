@@ -53,6 +53,12 @@ pub enum Args {
         #[command(subcommand)]
         args: BaseArgs,
     },
+    /// Use a MPT model
+    #[clap(id = "mpt")]
+    Mpt {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
 }
 
 #[derive(Subcommand, Debug)]

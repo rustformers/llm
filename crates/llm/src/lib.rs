@@ -6,6 +6,7 @@
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)
 //! - [GPT-NeoX](llm_gptneox)
+//! - [MPT](llm_mpt)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -96,6 +97,8 @@ pub mod models {
     pub use llm_gptneox::{self as gptneox, GptNeoX, GptNeoXOverrides};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
+    #[cfg(feature = "mpt")]
+    pub use llm_mpt::{self as mpt, Mpt};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -119,11 +122,14 @@ pub enum ModelArchitecture {
     #[cfg(feature = "gptneox")]
     /// RedPajama: [GPT-NeoX](llm_gptneox) with `use_parallel_residual` set to false
     RedPajama,
+    #[cfg(feature = "mpt")]
+    /// [MPT](llm_mpt)
+    Mpt,
 }
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         #[cfg(feature = "bloom")]
         Self::Bloom,
         #[cfg(feature = "gpt2")]
@@ -136,6 +142,8 @@ impl ModelArchitecture {
         Self::GptNeoX,
         #[cfg(feature = "gptneox")]
         Self::RedPajama,
+        #[cfg(feature = "mpt")]
+        Self::Mpt,
     ];
 }
 
@@ -179,8 +187,10 @@ impl FromStr for ModelArchitecture {
             "gptneox" => Ok(GptNeoX),
             #[cfg(feature = "gptneox")]
             "redpajama" => Ok(RedPajama),
-            m => Err(UnsupportedModelArchitecture(format!(
-                "{m} is not a supported model architecture"
+            #[cfg(feature = "mpt")]
+            "mpt" => Ok(Mpt),
+            _ => Err(UnsupportedModelArchitecture(format!(
+                "{s} is not a supported model architecture"
             ))),
         }
     }
@@ -203,6 +213,8 @@ impl Display for ModelArchitecture {
             GptNeoX => write!(f, "GPT-NeoX"),
             #[cfg(feature = "gptneox")]
             RedPajama => write!(f, "RedPajama"),
+            #[cfg(feature = "mpt")]
+            Mpt => write!(f, "MPT"),
         }
     }
 }
@@ -262,6 +274,8 @@ pub fn load_dynamic(
             },
             load_progress_callback,
         )?,
+        #[cfg(feature = "mpt")]
+        Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
     };
 
     Ok(model)
