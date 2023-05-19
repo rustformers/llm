@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_model_architecture_from_str() {
-        for arch in &ModelArchitecture::ALL {
+        for arch in ModelArchitecture::ALL {
             assert_eq!(
                 arch,
                 &arch.to_string().parse::<ModelArchitecture>().unwrap()
