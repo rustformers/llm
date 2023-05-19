@@ -126,6 +126,10 @@ pub struct Infer {
     /// but will not error if the path does not exist
     #[arg(long, default_value = None)]
     pub persist_session: Option<PathBuf>,
+
+    /// Calculate and print perplexity of the model over the prompt.
+    #[arg(long, default_value_t = false)]
+    pub perplexity: bool,
 }
 
 #[derive(Parser, Debug)]

@@ -85,6 +85,7 @@ fn infer<M: llm::KnownModel + 'static>(
             parameters: Some(&inference_params),
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
+            run_perplexity: args.perplexity,
         },
         // OutputRequest
         &mut Default::default(),
@@ -254,6 +255,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                         parameters: Some(&inference_params),
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
+                        run_perplexity: false,
                     },
                     // EvaluateOuputRequest
                     &mut Default::default(),
