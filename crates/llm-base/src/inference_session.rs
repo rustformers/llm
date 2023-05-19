@@ -247,7 +247,7 @@ impl InferenceSession {
             .collect::<Vec<_>>();
 
         let vocab_size = self.last_logits.len();
-        let mut nll: f32 = 0.0;
+        let mut nll = 0.0;
         let mut count_outer = 0;
 
         // Implementation borrowed from https://huggingface.co/docs/transformers/perplexity
@@ -266,15 +266,17 @@ impl InferenceSession {
 
             let logits = &output_request.all_logits.as_ref().unwrap();
 
-            // (start..context_end) contains the context for this window,
+            // (start..prev_end) contains the context for this window,
             // needs to be ignored in loss calculation.
-            let context_end = prev_end - start;
             let mut count_tokens = 0;
             let mut seq_nll = 0.0;
 
-            for num_token in context_end..(end - 1) {
-                let tok_start = num_token * vocab_size;
-                let tok_end = ((num_token + 1) * vocab_size).min(logits.len());
+            for num_token in prev_end..end {
+                if num_token + 1 == prompt_tokens.len() {
+                    break;
+                }
+                let tok_start = (num_token - start) * vocab_size;
+                let tok_end = ((num_token - start + 1) * vocab_size).min(logits.len());
                 // Slice logits for this token.
                 let logits_slice = &logits[tok_start..tok_end];
                 let prob = softmax(logits_slice)[prompt_tokens[num_token + 1] as usize];
@@ -283,8 +285,13 @@ impl InferenceSession {
             }
 
             prev_end = end;
-            nll += seq_nll / count_tokens as f32;
-            count_outer += 1;
+            if count_tokens != 0 {
+                nll += seq_nll / count_tokens as f32;
+                count_outer += 1;
+            }
+            if end == prompt_tokens.len() {
+                break;
+            }
         }
         let perplexity = (nll / count_outer as f32).exp();
         Ok(perplexity)
