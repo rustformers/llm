@@ -660,25 +660,26 @@ impl Default for InferenceStats {
 }
 impl Display for InferenceStats {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut stats = format!(
-            "feed_prompt_duration: {}ms\n\
-            prompt_tokens: {}\n\
-            predict_duration: {}ms\n\
-            predict_tokens: {}\n\
-            per_token_duration: {:.3}ms",
-            self.feed_prompt_duration.as_millis(),
-            self.prompt_tokens,
-            self.predict_duration.as_millis(),
-            self.predict_tokens,
-            (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64)
-        );
+        let Self {
+            feed_prompt_duration,
+            prompt_tokens,
+            predict_duration,
+            predict_tokens,
+        } = *self;
 
-        // Show perplexity if it was calculated.
-        if let Some(perplexity) = self.perplexity {
-            stats += &format!("\nperplexity: {:.4}", perplexity);
-        }
+        let feed_prompt_duration = feed_prompt_duration.as_millis();
+        let predict_duration = predict_duration.as_millis();
+        let per_token_duration = if predict_tokens == 0 {
+            0.0
+        } else {
+            predict_duration as f64 / predict_tokens as f64
+        };
 
-        write!(f, "{}", stats)
+        writeln!(f, "feed_prompt_duration: {}ms", feed_prompt_duration)?;
+        writeln!(f, "prompt_tokens: {}", prompt_tokens)?;
+        writeln!(f, "predict_duration: {}ms", predict_duration)?;
+        writeln!(f, "predict_tokens: {}", predict_tokens)?;
+        write!(f, "per_token_duration: {:.3}ms", per_token_duration)
     }
 }
 
