@@ -17,9 +17,9 @@ bytemuck = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+tokenizers = { workspace = true }
 
 partial_sort = "0.2.0"
 serde_bytes = "0.11"
 memmap2 = "0.5.10"
 half = "2.2.1"
-tokenizers = "0.13.3"

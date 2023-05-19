@@ -324,7 +324,7 @@ impl KnownModel for Rwkv {
 
             self.ctx.graph_compute(&mut self.graph.borrow_mut());
 
-            let mut start_index = 0;
+            //let mut start_index = 0;
             let mut state_parts = self.state_parts.borrow_mut();
 
             for i in 0..(self.hyperparameters.n_layer * 5) {
@@ -336,13 +336,15 @@ impl KnownModel for Rwkv {
                         session.state.nbytes(),
                     );
 
+                    let start_index = i * self.hyperparameters.n_embd;
                     let end_index = start_index + part.nbytes();
                     part.read_data(0, &mut p[start_index..end_index]);
-                    start_index = end_index;
+                    //start_index = end_index;
                 }
             }
 
             //common::read_last_token(session, &input_layer, n_vocab, n);
+            assert_eq!(session.last_logits.len(), self.hyperparameters.n_vocab);
             unsafe {
                 self.logits
                     .read_data(0, bytemuck::cast_slice_mut(&mut session.last_logits));
@@ -374,12 +376,7 @@ impl KnownModel for Rwkv {
     }
 
     fn eot_token_id(&self) -> llm_base::TokenId {
-        0
-        // self.vocabulary
-        //     .token_to_id
-        //     .get("<|endoftext|>".as_bytes())
-        //     .copied()
-        //     .unwrap() // pasted from neox cause it's using the same vocab but pretty sure it can be replaced by 0
+        self.tokenizer.token_to_id("<|endoftext|>").unwrap() as TokenId
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {

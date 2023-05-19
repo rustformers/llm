@@ -1,7 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt::Display, str::FromStr};
 
 use crate::InferenceError;
-use std::str;
 
 /// The identifier of a token in a vocabulary.
 pub type TokenId = i32;

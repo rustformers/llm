@@ -7,7 +7,7 @@ use std::{convert::Infallible, io::Write, path::PathBuf};
 
 #[derive(Parser)]
 struct Args {
-    model_architecture: String,
+    model_architecture: ModelArchitecture,
     model_path: PathBuf,
     prompt: Option<String>,
 
@@ -21,7 +21,7 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let model_architecture: ModelArchitecture = args.model_architecture.parse().unwrap();
+    let model_architecture: ModelArchitecture = args.model_architecture;
     let model_path = args.model_path;
     let prompt = args
         .prompt

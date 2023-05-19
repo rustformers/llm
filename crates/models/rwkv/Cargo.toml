@@ -12,4 +12,4 @@ llm-base = { path = "../../llm-base" }
 ggml = { path = "../../ggml" }
 
 bytemuck = { workspace = true }
-tokenizers = "0.13.3"
+tokenizers = { workspace = true }

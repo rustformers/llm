@@ -13,4 +13,4 @@ readme = "../../../README.md"
 llm-base = { path = "../../llm-base", version = "0.1.1" }
 
 bytemuck = { workspace = true }
-tokenizers = "0.13.3"
+tokenizers = { workspace = true }
