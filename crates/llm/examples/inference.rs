@@ -43,7 +43,7 @@ fn main() {
         model.as_ref(),
         &mut rand::thread_rng(),
         &InferenceRequest {
-            prompt,
+            prompt: prompt.into(),
             ..Default::default()
         },
         // OutputRequest

@@ -1,4 +1,4 @@
-use std::{fmt, path::PathBuf};
+use std::{fmt, ops::Deref, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
@@ -53,6 +53,10 @@ pub enum BaseArgs {
     Infer(Box<Infer>),
 
     #[command()]
+    /// Measure a model's perplexity for a given prompt.
+    Perplexity(Box<Perplexity>),
+
+    #[command()]
     /// Get information about a GGML model.
     Info(Box<Info>),
 
@@ -89,12 +93,8 @@ pub struct Infer {
     #[command(flatten)]
     pub generate: Generate,
 
-    /// The prompt to feed the generator.
-    ///
-    /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
-    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
-    #[arg(long, short = 'p', default_value = None)]
-    pub prompt: Option<String>,
+    #[command(flatten)]
+    pub prompt: Prompt,
 
     /// Hide the prompt in the generation.
     ///
@@ -118,16 +118,25 @@ pub struct Infer {
     #[arg(long, default_value = None)]
     pub persist_session: Option<PathBuf>,
 
-    /// Calculate perplexity of the model over the prompt.
-    ///
-    /// You will need to supply `--stats` to see the perplexity.
-    #[arg(long, default_value_t = false)]
-    pub perplexity: bool,
-
     /// Output statistics about the time taken to perform inference, among other
     /// things.
     #[arg(long, default_value_t = false)]
     pub stats: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct Perplexity {
+    #[command(flatten)]
+    pub model_load: ModelLoad,
+
+    #[command(flatten)]
+    pub prompt_file: PromptFile,
+
+    #[command(flatten)]
+    pub generate: Generate,
+
+    #[command(flatten)]
+    pub prompt: Prompt,
 }
 
 #[derive(Parser, Debug)]
@@ -149,12 +158,25 @@ pub struct PromptTokens {
     #[command(flatten)]
     pub prompt_file: PromptFile,
 
+    #[command(flatten)]
+    pub prompt: Prompt,
+}
+
+#[derive(Parser, Debug)]
+pub struct Prompt {
     /// The prompt to feed the generator.
     ///
     /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
     /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'p', default_value = None)]
-    pub prompt: Option<String>,
+    prompt: Option<String>,
+}
+impl Deref for Prompt {
+    type Target = Option<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.prompt
+    }
 }
 
 #[derive(Parser, Debug)]

@@ -70,7 +70,9 @@ fn main() {
                         model.as_ref(),
                         &mut rng,
                         &InferenceRequest {
-                            prompt: format!("{user_name}: {line}\n{character_name}:").as_str(),
+                            prompt: format!("{user_name}: {line}\n{character_name}:")
+                                .as_str()
+                                .into(),
                             ..Default::default()
                         },
                         &mut Default::default(),

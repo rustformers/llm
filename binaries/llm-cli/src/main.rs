@@ -40,6 +40,7 @@ fn handle_args<M: llm::KnownModel + 'static>(
 ) -> Result<()> {
     match args {
         BaseArgs::Infer(args) => infer::<M>(args, overrides),
+        BaseArgs::Perplexity(args) => perplexity::<M>(args, overrides),
         BaseArgs::Info(args) => info::<M>(args),
         BaseArgs::PromptTokens(args) => prompt_tokens::<M>(args),
         BaseArgs::Repl(args) => interactive::<M>(args, overrides, false),
@@ -68,11 +69,10 @@ fn infer<M: llm::KnownModel + 'static>(
         model.as_ref(),
         &mut rng,
         &llm::InferenceRequest {
-            prompt: &prompt,
+            prompt: prompt.as_str().into(),
             parameters: Some(&inference_params),
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
-            run_perplexity: args.perplexity,
         },
         // OutputRequest
         &mut Default::default(),
@@ -103,8 +103,8 @@ fn infer<M: llm::KnownModel + 'static>(
         Err(InferenceError::ContextFull) => {
             log::warn!("Context window full, stopping inference.")
         }
-        Err(InferenceError::TokenizationFailed) => {
-            log::error!("Failed to tokenize initial prompt.");
+        Err(InferenceError::TokenizationFailed(err)) => {
+            log::error!("A tokenization-related failure occurred: {}", err);
         }
         Err(InferenceError::UserCallback(_)) | Err(InferenceError::EndOfText) => {
             unreachable!("cannot fail")
@@ -115,6 +115,27 @@ fn infer<M: llm::KnownModel + 'static>(
         // Write the memory to the cache file
         snapshot::write_session(session, session_path);
     }
+
+    Ok(())
+}
+
+fn perplexity<M: llm::KnownModel + 'static>(
+    args: &cli_args::Perplexity,
+    overrides: Option<M::Overrides>,
+) -> Result<()> {
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let inference_session_config = args.generate.inference_session_config();
+    let model = args.model_load.load::<M>(overrides)?;
+    let (mut session, _) = snapshot::read_or_create_session(
+        model.as_ref(),
+        None,
+        args.generate.load_session.as_deref(),
+        inference_session_config,
+    );
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
+
+    let perplexity = session.perplexity(model.as_ref(), &parameters, prompt.as_str())?;
+    println!("Perplexity: {}", perplexity);
 
     Ok(())
 }
@@ -228,13 +249,13 @@ fn interactive<M: llm::KnownModel + 'static>(
                     .unwrap_or(line);
 
                 let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
-                if let Err(InferenceError::ContextFull) = session.feed_prompt::<Infallible>(
+                if let Err(InferenceError::ContextFull) = session.feed_prompt(
                     model.as_ref(),
                     &inference_params,
                     &prompt,
                     // OutputRequest
                     &mut Default::default(),
-                    |_| Ok(InferenceFeedback::Continue),
+                    |_| Ok::<_, Infallible>(InferenceFeedback::Continue),
                 ) {
                     log::error!("Prompt exceeds context window length.")
                 };
@@ -244,11 +265,10 @@ fn interactive<M: llm::KnownModel + 'static>(
                     model.as_ref(),
                     &mut rng,
                     &llm::InferenceRequest {
-                        prompt: "",
+                        prompt: "".into(),
                         parameters: Some(&inference_params),
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
-                        run_perplexity: false,
                     },
                     // EvaluateOuputRequest
                     &mut Default::default(),

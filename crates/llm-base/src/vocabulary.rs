@@ -1,11 +1,22 @@
 use std::{collections::HashMap, error::Error, fmt::Display, str::FromStr};
 
-use crate::InferenceError;
+use thiserror::Error;
 
 /// The identifier of a token in a vocabulary.
 pub type TokenId = i32;
 pub(crate) type Token = Vec<u8>;
 pub(crate) type TokenScore = f32;
+
+#[derive(Error, Debug)]
+/// Errors related to tokenization.
+pub enum TokenizationError {
+    #[error("an invalid token was encountered during tokenization")]
+    /// During tokenization, one of the produced tokens was invalid / zero.
+    TokenizationFailed,
+    #[error("the token ID {0} was invalid for this model")]
+    /// One of the tokens provided by the user was invalid, and did not belong to this model's vocabulary.
+    InvalidTokenId(TokenId),
+}
 
 /// The vocabulary used by a model.
 #[derive(Debug, Clone, Default)]
@@ -60,7 +71,7 @@ impl Vocabulary {
         &'a self,
         text: &str,
         bos: bool,
-    ) -> Result<Vec<(&'a [u8], TokenId)>, InferenceError> {
+    ) -> Result<Vec<(&'a [u8], TokenId)>, TokenizationError> {
         let len = text.len();
 
         let mut score = vec![0usize; len + 1];
@@ -91,7 +102,7 @@ impl Vocabulary {
         while i > 0 {
             let token_id = prev[i];
             if token_id == 0 {
-                return Err(InferenceError::TokenizationFailed);
+                return Err(TokenizationError::TokenizationFailed);
             }
             let token = self.id_to_token[token_id as usize].as_slice();
             res.push((token, token_id));
@@ -107,6 +118,77 @@ impl Vocabulary {
         res.reverse();
 
         Ok(res)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+/// Represents the prompt, which can be specified as either text or tokens.
+///
+/// This type implements [From] for the following types:
+/// - `&str`
+/// - `&String`
+/// - `&[TokenId]`
+/// - `&Vec<TokenId>`
+///
+/// This allows you to pass any of these types to where this type is expected.
+pub enum Prompt<'a> {
+    /// A prompt specified as text.
+    Text(&'a str),
+    /// A prompt specified as tokens for this model's vocabulary.
+    Tokens(&'a [TokenId]),
+}
+impl Prompt<'_> {
+    /// Converts this prompt to a list of tokens for this model's vocabulary.
+    ///
+    /// Can return an error if [Self::Tokens] is used and includes a token ID that is not
+    /// in this model's vocabulary.
+    pub fn to_tokens(
+        &self,
+        vocab: &Vocabulary,
+        beginning_of_sentence: bool,
+    ) -> Result<Vec<TokenId>, TokenizationError> {
+        Ok(match self {
+            Self::Text(text) => vocab
+                .tokenize(text, beginning_of_sentence)?
+                .iter()
+                .map(|(_, tok)| *tok)
+                .collect(),
+            Self::Tokens(tokens) => {
+                if let Some(t) = tokens
+                    .iter()
+                    .copied()
+                    .find(|t| vocab.id_to_token.get(*t as usize).is_none())
+                {
+                    return Err(TokenizationError::InvalidTokenId(t));
+                }
+                tokens.to_vec()
+            }
+        })
+    }
+}
+impl<'a> Default for Prompt<'a> {
+    fn default() -> Self {
+        Self::Text("")
+    }
+}
+impl<'a> From<&'a str> for Prompt<'a> {
+    fn from(v: &'a str) -> Self {
+        Self::Text(v)
+    }
+}
+impl<'a> From<&'a String> for Prompt<'a> {
+    fn from(v: &'a String) -> Self {
+        Self::from(v.as_str())
+    }
+}
+impl<'a> From<&'a [TokenId]> for Prompt<'a> {
+    fn from(v: &'a [TokenId]) -> Self {
+        Self::Tokens(v)
+    }
+}
+impl<'a> From<&'a Vec<TokenId>> for Prompt<'a> {
+    fn from(v: &'a Vec<TokenId>) -> Self {
+        Self::from(v.as_slice())
     }
 }
 

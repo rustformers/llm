@@ -5,8 +5,8 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    mulf, util::softmax, InferenceError, InferenceParameters, Model, OutputRequest, TokenId,
-    TokenUtf8Buffer,
+    mulf, util, InferenceParameters, Model, OutputRequest, Prompt, TokenId, TokenUtf8Buffer,
+    TokenizationError,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -69,22 +69,18 @@ pub struct InferenceSession {
 unsafe impl Send for InferenceSession {}
 impl InferenceSession {
     /// Feed a prompt to the model for this session.
-    pub fn feed_prompt<E: std::error::Error + 'static>(
+    pub fn feed_prompt<'a, E: std::error::Error + 'static, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
         params: &InferenceParameters,
-        prompt: &str,
+        prompt: P,
         output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
     ) -> Result<(), InferenceError> {
         let beginning_of_sentence = self.n_past == 0;
 
         let vocab = model.vocabulary();
-        let prompt_tokens: Vec<TokenId> = vocab
-            .tokenize(prompt, beginning_of_sentence)?
-            .iter()
-            .map(|(_, tok)| *tok)
-            .collect();
+        let prompt_tokens = prompt.into().to_tokens(vocab, beginning_of_sentence)?;
 
         if self.n_past + prompt_tokens.len() >= model.n_context_tokens() {
             return Err(InferenceError::ContextFull);
@@ -192,9 +188,6 @@ impl InferenceSession {
         )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
-        if request.run_perplexity {
-            stats.perplexity = Some(self.perplexity(model, parameters, request, output_request)?);
-        }
 
         // After the prompt is consumed, sample tokens by repeatedly calling
         // `infer_next_token`. We generate tokens until the model returns an
@@ -230,38 +223,42 @@ impl InferenceSession {
     }
 
     /// Calculate perplexity over a given prompt.
-    pub fn perplexity(
+    ///
+    /// This will behave similarly to [Self::feed_prompt], including altering
+    /// the state of the LM, but will not generate any tokens.
+    pub fn perplexity<'a, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
         parameters: &InferenceParameters,
-        request: &InferenceRequest,
-        output_request: &mut OutputRequest,
-    ) -> Result<f32, InferenceError> {
-        // Setup the output request to store logits.
-        output_request.all_logits = Some(Vec::new());
-        let mut prompt_tokens = model
-            .vocabulary()
-            .tokenize(request.prompt, true)?
-            .iter()
-            .map(|(_, tok)| *tok)
-            .collect::<Vec<_>>();
-
+        prompt: P,
+    ) -> Result<f32, TokenizationError> {
         let vocab_size = self.last_logits.len();
         let mut nll = 0.0;
         let mut count_outer = 0;
 
         // Implementation borrowed from https://huggingface.co/docs/transformers/perplexity
+        let mut prompt_tokens = prompt.into().to_tokens(model.vocabulary(), true)?;
 
         // Control the number of model evaluations by varying stride.
         let stride = model.n_context_tokens() / 4;
         let mut prev_end = 0;
 
+        let bos = model.bot_token_id().unwrap_or(1);
+        let mut output_request = OutputRequest {
+            all_logits: Some(vec![]),
+            ..Default::default()
+        };
         for start in (0..prompt_tokens.len()).step_by(stride) {
             let end = (start + model.n_context_tokens()).min(prompt_tokens.len());
             // Set first token to BOS, then restore it after model evaluation.
             let orig_token = prompt_tokens[start];
-            prompt_tokens[start] = 1; // 1 is BOS
-            model.evaluate(self, parameters, &prompt_tokens[start..end], output_request);
+            prompt_tokens[start] = bos;
+            model.evaluate(
+                self,
+                parameters,
+                &prompt_tokens[start..end],
+                &mut output_request,
+            );
             prompt_tokens[start] = orig_token;
 
             let logits = &output_request.all_logits.as_ref().unwrap();
@@ -279,7 +276,7 @@ impl InferenceSession {
                 let tok_end = ((num_token - start + 1) * vocab_size).min(logits.len());
                 // Slice logits for this token.
                 let logits_slice = &logits[tok_start..tok_end];
-                let prob = softmax(logits_slice)[prompt_tokens[num_token + 1] as usize];
+                let prob = util::softmax(logits_slice)[prompt_tokens[num_token + 1] as usize];
                 seq_nll += -prob.log2();
                 count_tokens += 1;
             }
@@ -516,6 +513,25 @@ impl Clone for InferenceSession {
 }
 
 #[derive(Error, Debug)]
+/// Errors encountered during the inference process.
+pub enum InferenceError {
+    #[error("a tokenization-related failure occurred")]
+    /// A tokenization-related failure occurred.
+    TokenizationFailed(#[from] TokenizationError),
+    #[error("the context window is full")]
+    /// The context window for the model is full.
+    ContextFull,
+    #[error("reached end of text")]
+    /// The model has produced an end of text token, signalling that it thinks that the text should end here.
+    ///
+    /// Note that this error *can* be ignored and inference can continue, but the results are not guaranteed to be sensical.
+    EndOfText,
+    #[error("the user-specified callback returned an error")]
+    /// The user-specified callback returned an error.
+    UserCallback(Option<Box<dyn std::error::Error>>),
+}
+
+#[derive(Error, Debug)]
 /// Errors encountered during the snapshot process.
 pub enum SnapshotError {
     /// Arbitrary I/O error.
@@ -616,7 +632,7 @@ impl Default for InferenceSessionConfig {
 /// Settings specific to [InferenceSession::infer].
 pub struct InferenceRequest<'a> {
     /// The prompt to feed to the model.
-    pub prompt: &'a str,
+    pub prompt: Prompt<'a>,
     /// The parameters to use during this inference attempt.
     /// If not specified, this will default to the parameters
     /// specified in the model.
@@ -629,8 +645,6 @@ pub struct InferenceRequest<'a> {
     pub play_back_previous_tokens: bool,
     /// The maximum number of tokens to generate.
     pub maximum_token_count: Option<usize>,
-    /// Run a perplexity calculation on the prompt.
-    pub run_perplexity: bool,
 }
 
 /// Statistics about the inference process.
@@ -644,8 +658,6 @@ pub struct InferenceStats {
     pub predict_duration: std::time::Duration,
     /// The number of predicted tokens.
     pub predict_tokens: usize,
-    /// Perplexity value (if enabled through args).
-    pub perplexity: Option<f32>,
 }
 impl Default for InferenceStats {
     fn default() -> Self {
@@ -654,7 +666,6 @@ impl Default for InferenceStats {
             prompt_tokens: 0,
             predict_duration: std::time::Duration::from_secs(0),
             predict_tokens: 0,
-            perplexity: None,
         }
     }
 }
