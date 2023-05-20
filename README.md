@@ -40,10 +40,16 @@ Currently, the following models are supported:
 - [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom)
 - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
 - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
-- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox):
-  GPT-NeoX, StableLM, RedPajama, Dolly v2
-- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA,
-  Alpaca, Vicuna, Koala, GPT4All, GPT4-X, Wizard
+- [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox)
+  (includes [StableLM](https://github.com/Stability-AI/StableLM),
+  [RedPajama](https://www.together.xyz/blog/redpajama), and
+  [Dolly 2.0](https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm))
+- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) (includes
+  [Alpaca](https://crfm.stanford.edu/2023/03/13/alpaca.html),
+  [Vicuna](https://lmsys.org/blog/2023-03-30-vicuna/),
+  [Koala](https://bair.berkeley.edu/blog/2023/04/03/koala/),
+  [GPT4All](https://gpt4all.io/index.html), and
+  [Wizard](https://github.com/nlpxucan/WizardLM))
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
 ## Getting Started
@@ -79,14 +85,17 @@ dependency from being built in debug mode:
 opt-level = 3
 ```
 
-### Building `llm-cli`
+### Getting Started with `llm-cli`
 
-Follow these steps to build the command-line application, which is named `llm`:
+The easiest way to get started with `llm-cli` is to download a pre-built
+executable from a [released](https://github.com/rustformers/llm/releases)
+version of `llm`, although this may not have all the features present on the
+`main` branch.
 
-#### Using `cargo`
+#### Installing with `cargo`
 
-To install `llm` to your Cargo `bin` directory, which `rustup` is likely to have
-added to your `PATH`, run:
+To install the most recently released version of `llm` to your Cargo `bin`
+directory, which `rustup` is likely to have added to your `PATH`, run:
 
 ```shell
 cargo install llm-cli
@@ -94,9 +103,10 @@ cargo install llm-cli
 
 The CLI application can then be run through `llm`.
 
-#### From Source
+#### Building from Source
 
-Clone the repository and then build it with
+To make use of the features on the `main` branch, clone the repository and then
+build it with
 
 ```shell
 git clone --recurse-submodules git@github.com:rustformers/llm.git
