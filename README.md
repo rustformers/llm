@@ -1,6 +1,10 @@
-# llm
+# `llm` - Large Language Models for Everyone, in Rust
 
-![A llama riding a crab, AI-generated](./doc/resources/logo2.png)
+`llm` is an ecosystem of Rust libraries for working with large language models -
+its built on top of the fast, efficient [GGML](./crates/ggml) library for
+machine learning.
+
+![A llama riding a crab, AI-generated](./doc/img/llm-crab-llama.png)
 
 > _Image by [@darthdeus](https://github.com/darthdeus/), using Stable Diffusion_
 
@@ -8,16 +12,19 @@
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
-`llm` is a Rust ecosystem of libraries for running inference on large language
-models, inspired by [llama.cpp](https://github.com/ggerganov/llama.cpp).
+The primary entrypoint [for developers](#getting-started) is
+[the `llm` crate](./crates/llm), which wraps [`llm-base`](./crates/llm-base) and
+the [supported model](./crates/models) crates.
 
-The primary crate is the `llm` crate, which wraps `llm-base` and supported model
-crates.
-
-On top of `llm`, there is a CLI application, `llm-cli`, which provides a
-convenient interface for running inference on supported models. Inferencing can
-be done as a one-off, or interactively, through REPL or chat modes. It can also
-print information about, or quantize, a GGML model. It can be downloaded from
+For end-users, there is [a CLI application](#building-llm-cli),
+[`llm-cli`](./binaries/llm-cli), which provides a convenient interface for
+interacting with supported models. [Text generation](#running) can be done as a
+one-off based on a prompt, or interactively, through
+[REPL or chat](#does-the-llm-cli-support-chat-mode) modes. The CLI can also be
+used to serialize (print) decoded models,
+[quantize](./crates/ggml/README.md#quantization) GGML files, or compute the
+[perplexity](https://huggingface.co/docs/transformers/perplexity) of a model. It
+can be downloaded from
 [the latest GitHub release](https://github.com/rustformers/llm/releases) or by
 installing it from `crates.io`.
 
@@ -28,51 +35,53 @@ to support GPU inference in the future through alternate backends.
 
 Currently, the following models are supported:
 
+- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom)
 - [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2)
 - [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj)
-- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA,
-  Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
 - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox):
   GPT-NeoX, StableLM, RedPajama, Dolly v2
-- [BLOOM](https://huggingface.co/docs/transformers/model_doc/bloom): BLOOMZ
+- [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA,
+  Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
-## Getting started
+## Getting Started
 
-Make sure you have a Rust 1.65.0 or above and C toolchain[^1] set up.
+This project depends on Rust v1.65.0 or above and a modern C toolchain.
 
-`llm` is a Rust library that re-exports `llm-base` and the model crates (e.g.
-`bloom`, `gpt2` `llama`).
+The `llm` crate exports `llm-base` and the model crates (e.g. `bloom`, `gpt2`
+`llama`).
 
 To use `llm`, add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-llm = "0.1"
+llm = "0.2"
 ```
 
-**NOTE**: For best results, make sure to build and run in release mode. Debug
-builds are going to be very slow.
+**NOTE**: To improve debug performance, exclude `llm` from being built in debug
+mode:
+
+```toml
+[profile.dev.package.llm]
+opt-level = 3
+```
 
 ### Building `llm-cli`
 
-`llm-cli` (binary name `llm`) is a basic application that provides a CLI
-interface to the library.
+Follow these steps to build the command line application, which is named `llm`:
 
 #### Using `cargo`
 
-Run
+To install `llm` to your Cargo `bin` directory, which `rustup` is likely to have
+added to your `PATH`, run:
 
 ```shell
 cargo install llm-cli
 ```
 
-to install `llm` to your Cargo `bin` directory, which `rustup` is likely to have
-added to your `PATH`.
-
 The CLI application can then be run through `llm`.
 
-#### From repository
+#### From Source
 
 Clone the repository and then build it with
 
@@ -83,18 +92,16 @@ cargo build --release
 
 The resulting binary will be at `target/release/llm[.exe]`.
 
-It can also be run directly through Cargo, using
+It can also be run directly through Cargo, with
 
 ```shell
-cargo run --release -- <ARGS>
+cargo run --release -- $ARGS
 ```
 
-This is useful for development.
-
-### Getting models
+### Getting Models
 
 GGML files are easy to acquire. For a list of models that have been tested, see
-the [known-good models](./known-good-models.md).
+the [known-good models](./doc/known-good-models.md).
 
 Certain older GGML formats are not supported by this project, but the goal is to
 maintain feature parity with the upstream GGML project. For problems relating to
@@ -116,25 +123,40 @@ models, including well organized lists of links for acquiring
 [GGML models](https://www.reddit.com/r/LocalLLaMA/wiki/models/) (mostly from
 Hugging Face 🤗).
 
-#### LLaMA original weights
+### Running
 
-Currently, the only legal source to get the original weights is
-[this repository](https://github.com/facebookresearch/llama/blob/main/README.md#llama).
-
-After acquiring the weights, it is necessary to convert them into a format that
-is compatible with ggml. To achieve this, follow the steps outlined below:
-
-> **Warning**
->
-> To run the Python scripts, a Python version of 3.9 or 3.10 is required. 3.11
-> is unsupported at the time of writing.
+Once the `llm` executable has been built or is in a `$PATH` directory, try
+running it. Here's an example that uses the open-source
+[GPT4All](https://gpt4all.io/models/ggml-gpt4all-j-v1.3-groovy.bin) language
+model:
 
 ```shell
-# Convert the model to f16 ggml format
-python3 scripts/convert-pth-to-ggml.py /path/to/your/models/7B/ 1
+llm llama infer -m ggml-gpt4all-j-v1.3-groovy.bin -p "Rust is a cool programming language because"
+```
 
-# Quantize the model to 4-bit ggml format
-cargo run --release llama quantize /path/to/your/models/7B/ggml-model-f16.bin /path/to/your/models/7B/ggml-model-q4_0.bin q4_0
+For more information about the `llm` CLI, use the `--help` parameter.
+
+There is also a [simple inference example](./crates/llm/examples/inference.rs)
+that is helpful for [debugging](./.vscode/launch.json):
+
+```shell
+cargo run --release --example inference llama ggml-gpt4all-j-v1.3-groovy.bin $OPTIONAL_PROMPT
+```
+
+## Working with Raw Models
+
+Python v3.9 or v3.10 is needed to convert a raw model to a GGML-compatible
+format (note that Python v3.11 is not supported):
+
+```shell
+python3 util/convert-pth-to-ggml.py $MODEL_HOME/$MODEL/7B/ 1
+```
+
+The output of the above command can be used by `llm` to create a
+[quantized](./crates/ggml/README.md#quantization) model:
+
+```shell
+cargo run --release llama quantize $MODEL_HOME/$MODEL/7B/ggml-model-f16.bin $MODEL_HOME/$MODEL/7B/ggml-model-q4_0.bin q4_0
 ```
 
 In future, we hope to provide
@@ -145,90 +167,44 @@ In future, we hope to provide
 > The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
 > additional information on how to obtain and run specific models.
 
-### Running
-
-For example, try the following prompt:
-
-```shell
-llm llama infer -m <path>/ggml-model-q4_0.bin -p "Tell me how cool the Rust programming language is:"
-```
-
-Some additional things to try:
-
-- Use `--help` to see a list of available options.
-- If you have the [alpaca-lora](https://github.com/tloen/alpaca-lora) weights,
-  try `repl` mode!
-
-  ```shell
-  llm llama repl -m <path>/ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
-  ```
-
-- Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file.
-  To automatically load and save the same session, use `--persist-session`. This
-  can be used to cache prompts to reduce load time, too:
-
-[^1]:
-    A modern-ish C toolchain is required to compile `ggml`. A C++ toolchain
-    should not be necessary.
-
-### Docker
-
-```shell
-# To build (This will take some time, go grab some coffee):
-docker build -t llm .
-
-# To run with prompt:
-docker run --rm --name llm -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llm llama infer -m data/gpt4all-lora-quantized-ggml.bin -p "Tell me how cool the Rust programming language is:"
-
-# To run with prompt file and repl (will wait for user input):
-docker run --rm --name llm -it -v ${PWD}/data:/data -v ${PWD}/examples:/examples llm llama repl -m data/gpt4all-lora-quantized-ggml.bin -f examples/alpaca_prompt.txt
-```
-
 ## Q&A
 
-### Why did you do this?
+### Does the `llm` CLI support chat mode?
 
-It was not my choice. Ferris appeared to me in my dreams and asked me to rewrite
-this in the name of the Holy crab.
+Yes, but certain fine-tuned models (e.g.
+[Alpaca](https://crfm.stanford.edu/2023/03/13/alpaca.html),
+[Vicuna](https://lmsys.org/blog/2023-03-30-vicuna/),
+[Pygmalion](https://docs.alpindale.dev/)) are more more suited to chat use-cases
+than so-called "base models". Here's an example of using the `llm` CLI in REPL
+(Read-Evaluate-Print Loop) mode with an Alpaca model - note that the
+[provided prompt format](./examples/alpaca_prompt.txt) is tailored to the model
+that is being used:
 
-### Seriously now.
+```shell
+llm llama repl -m ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
+```
 
-Come on! I don't want to get into a flame war. You know how it goes, _something
-something_ memory _something something_ cargo is nice, don't make me say it,
-everybody knows this already.
+There is also a [Vicuna chat example](./crates/llm/examples/vicuna-chat.rs) that
+demonstrates how to create a custom chatbot:
 
-### I insist.
+```shell
+cargo run --release --example vicuna-chat llama ggml-vicuna-7b-q4.bin
+```
 
-_Sheesh! Okaaay_. After seeing the huge potential for **llama.cpp**, the first
-thing I did was to see how hard would it be to turn it into a library to embed
-in my projects. I started digging into the code, and realized the heavy lifting
-is done by `ggml` (a C library, easy to bind to Rust) and the whole project was
-just around ~2k lines of C++ code (not so easy to bind). After a couple of
-(failed) attempts to build an HTTP server into the tool, I realized I'd be much
-more productive if I just ported the code to Rust, where I'm more comfortable.
+### Can `llm` sessions be persisted for later use?
 
-### Is this the real reason?
+Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file.
+To automatically load and save the same session, use `--persist-session`. This
+can be used to cache prompts to reduce load time, too.
 
-Haha. Of course _not_. I just like collecting imaginary internet points, in the
-form of little stars, that people seem to give to me whenever I embark on
-pointless quests for _rewriting X thing, but in Rust_.
+### Do you provide support for Docker and NixOS?
 
-### How is this different from `llama.cpp`?
+The `llm` [Dockerfile](./util/Dockerfile) is in the `util` directory, as is a
+[Flake](./util/flake) manifest and lockfile.
 
-This is a reimplementation of `llama.cpp` that does not share any code with it
-outside of `ggml`. This was done for a variety of reasons:
+### Do you accept contributions?
 
-- `llama.cpp` requires a C++ compiler, which can cause problems for
-  cross-compilation to more esoteric platforms. An example of such a platform is
-  WebAssembly, which can require a non-standard compiler SDK.
-- Rust is easier to work with from a development and open-source perspective; it
-  offers better tooling for writing "code in the large" with many other authors.
-  Additionally, we can benefit from the larger Rust ecosystem with ease.
-- We would like to make `ggml` an optional backend (see
-  [this issue](https://github.com/rustformers/llm/issues/31)).
-
-In general, we hope to build a solution for model inferencing that is as easy to
-use and deploy as any other Rust crate.
+Absolutely! Please see the [contributing guide](./doc/CONTRIBUTING.md).
 
 ### What applications and libraries use `llm`?
 
@@ -236,6 +212,8 @@ use and deploy as any other Rust crate.
 
 - [llmcord](https://github.com/rustformers/llmcord): Discord bot for generating
   messages using `llm`.
+- [local.ai](https://github.com/louisgv/local.ai): Desktop app for hosting an
+  inference API on your local machine using `llm`.
 
 #### Libraries
 
