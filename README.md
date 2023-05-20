@@ -1,7 +1,7 @@
 # `llm` - Large Language Models for Everyone, in Rust
 
 `llm` is an ecosystem of Rust libraries for working with large language models -
-its built on top of the fast, efficient [GGML](./crates/ggml) library for
+it's built on top of the fast, efficient [GGML](./crates/ggml) library for
 machine learning.
 
 ![A llama riding a crab, AI-generated](./doc/img/llm-crab-llama.png)
@@ -15,6 +15,8 @@ machine learning.
 The primary entrypoint [for developers](#getting-started) is
 [the `llm` crate](./crates/llm), which wraps [`llm-base`](./crates/llm-base) and
 the [supported model](./crates/models) crates.
+[Documentation](https://docs.rs/llm) for released version is available on
+Docs.rs.
 
 For end-users, there is [a CLI application](#building-llm-cli),
 [`llm-cli`](./binaries/llm-cli), which provides a convenient interface for
@@ -41,7 +43,7 @@ Currently, the following models are supported:
 - [GPT-NeoX](https://huggingface.co/docs/transformers/model_doc/gpt_neox):
   GPT-NeoX, StableLM, RedPajama, Dolly v2
 - [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama): LLaMA,
-  Alpaca, Vicuna, Koala, GPT4All v1, GPT4-X, Wizard
+  Alpaca, Vicuna, Koala, GPT4All, GPT4-X, Wizard
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
 ## Getting Started
@@ -51,24 +53,35 @@ This project depends on Rust v1.65.0 or above and a modern C toolchain.
 The `llm` crate exports `llm-base` and the model crates (e.g. `bloom`, `gpt2`
 `llama`).
 
-To use `llm`, add it to your `Cargo.toml`:
+Add `llm` to your project by listing it as a dependency in `Cargo.toml`. To use
+the version of `llm` you see in the `main` branch of this repository, add it
+from GitHub (although keep in mind this is pre-release software):
 
 ```toml
 [dependencies]
-llm = "0.2"
+llm = { git = "https://github.com/rustformers/llm" , branch = "main" }
 ```
 
-**NOTE**: To improve debug performance, exclude `llm` from being built in debug
-mode:
+To use a [released](https://github.com/rustformers/llm/releases) version, add it
+from [crates.io](https://crates.io/crates/llm) by specifying the desired
+version:
 
 ```toml
-[profile.dev.package.llm]
+[dependencies]
+llm = "0.1"
+```
+
+**NOTE**: To improve debug performance, exclude the transitive `ggml-sys`
+dependency from being built in debug mode:
+
+```toml
+[profile.dev.package.ggml-sys]
 opt-level = 3
 ```
 
 ### Building `llm-cli`
 
-Follow these steps to build the command line application, which is named `llm`:
+Follow these steps to build the command-line application, which is named `llm`:
 
 #### Using `cargo`
 
@@ -143,30 +156,6 @@ that is helpful for [debugging](./.vscode/launch.json):
 cargo run --release --example inference llama ggml-gpt4all-j-v1.3-groovy.bin $OPTIONAL_PROMPT
 ```
 
-## Working with Raw Models
-
-Python v3.9 or v3.10 is needed to convert a raw model to a GGML-compatible
-format (note that Python v3.11 is not supported):
-
-```shell
-python3 util/convert-pth-to-ggml.py $MODEL_HOME/$MODEL/7B/ 1
-```
-
-The output of the above command can be used by `llm` to create a
-[quantized](./crates/ggml/README.md#quantization) model:
-
-```shell
-cargo run --release llama quantize $MODEL_HOME/$MODEL/7B/ggml-model-f16.bin $MODEL_HOME/$MODEL/7B/ggml-model-q4_0.bin q4_0
-```
-
-In future, we hope to provide
-[a more streamlined way of converting models](https://github.com/rustformers/llm/issues/21).
-
-> **Note**
->
-> The [llama.cpp repository](https://github.com/ggerganov/llama.cpp) has
-> additional information on how to obtain and run specific models.
-
 ## Q&A
 
 ### Does the `llm` CLI support chat mode?
@@ -174,8 +163,8 @@ In future, we hope to provide
 Yes, but certain fine-tuned models (e.g.
 [Alpaca](https://crfm.stanford.edu/2023/03/13/alpaca.html),
 [Vicuna](https://lmsys.org/blog/2023-03-30-vicuna/),
-[Pygmalion](https://docs.alpindale.dev/)) are more more suited to chat use-cases
-than so-called "base models". Here's an example of using the `llm` CLI in REPL
+[Pygmalion](https://docs.alpindale.dev/)) are more suited to chat use-cases than
+so-called "base models". Here's an example of using the `llm` CLI in REPL
 (Read-Evaluate-Print Loop) mode with an Alpaca model - note that the
 [provided prompt format](./examples/alpaca_prompt.txt) is tailored to the model
 that is being used:
@@ -197,10 +186,20 @@ Sessions can be loaded (`--load-session`) or saved (`--save-session`) to file.
 To automatically load and save the same session, use `--persist-session`. This
 can be used to cache prompts to reduce load time, too.
 
+### How do I use `llm` to quantize a model?
+
+`llm` can produce a `q4_0`- or
+`q4_1`-[quantized](./crates/ggml/README.md#quantization) model from an
+`f16`-quantized GGML model
+
+```shell
+cargo run --release $MODEL_ARCHITECTURE quantize $MODEL_IN $MODEL_OUT {q4_0,q4_1}
+```
+
 ### Do you provide support for Docker and NixOS?
 
 The `llm` [Dockerfile](./util/Dockerfile) is in the `util` directory, as is a
-[Flake](./util/flake) manifest and lockfile.
+[NixOS flake](./util/flake) manifest and lockfile.
 
 ### Do you accept contributions?
 
