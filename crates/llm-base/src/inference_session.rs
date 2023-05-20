@@ -222,7 +222,8 @@ impl InferenceSession {
         Ok(stats)
     }
 
-    /// Calculate perplexity over a given prompt.
+    /// Calculate perplexity over a given prompt, with a value reported for each
+    /// chunk that has been processed.
     ///
     /// This will behave similarly to [Self::feed_prompt], including altering
     /// the state of the LM, but will not generate any tokens.
@@ -231,67 +232,73 @@ impl InferenceSession {
         model: &dyn Model,
         parameters: &InferenceParameters,
         prompt: P,
-    ) -> Result<f32, TokenizationError> {
-        let vocab_size = self.last_logits.len();
+        mut perplexity_callback: impl FnMut(usize, f32),
+    ) -> Result<(), TokenizationError> {
+        // Implementation based on perplexity example of llama.cpp:
+        // https://github.com/ggerganov/llama.cpp/blob/2d5db48371052087a83974abda3767d1aedec598/examples/perplexity/perplexity.cpp#L24
+        let mut tokens = prompt.into().to_tokens(model.vocabulary(), true)?;
+
+        let mut count = 0;
+
+        // TODO: make this handle <n_ctx tokens
+        let n_ctx = model.n_context_tokens();
+        let n_chunk = tokens.len() / n_ctx;
+        let n_vocab = model.vocabulary().len();
+        let n_batch = parameters.n_batch;
+
         let mut nll = 0.0;
-        let mut count_outer = 0;
 
-        // Implementation borrowed from https://huggingface.co/docs/transformers/perplexity
-        let mut prompt_tokens = prompt.into().to_tokens(model.vocabulary(), true)?;
+        for i in 0..n_chunk {
+            let start = i * n_ctx;
+            let end = (i + 1) * n_ctx;
 
-        // Control the number of model evaluations by varying stride.
-        let stride = model.n_context_tokens() / 4;
-        let mut prev_end = 0;
+            let num_batches = (n_ctx + n_batch - 1) / n_batch;
 
-        let bos = model.bot_token_id().unwrap_or(1);
-        let mut output_request = OutputRequest {
-            all_logits: Some(vec![]),
-            ..Default::default()
-        };
-        for start in (0..prompt_tokens.len()).step_by(stride) {
-            let end = (start + model.n_context_tokens()).min(prompt_tokens.len());
-            // Set first token to BOS, then restore it after model evaluation.
-            let orig_token = prompt_tokens[start];
-            prompt_tokens[start] = bos;
-            model.evaluate(
-                self,
-                parameters,
-                &prompt_tokens[start..end],
-                &mut output_request,
-            );
-            prompt_tokens[start] = orig_token;
+            let mut logits = vec![];
 
-            let logits = &output_request.all_logits.as_ref().unwrap();
+            for j in 0..num_batches {
+                let mut output_request = OutputRequest {
+                    all_logits: Some(vec![]),
+                    ..Default::default()
+                };
 
-            // (start..prev_end) contains the context for this window,
-            // needs to be ignored in loss calculation.
-            let mut count_tokens = 0;
-            let mut seq_nll = 0.0;
+                let batch_start = start + j * n_batch;
+                let batch_size = (end - batch_start).min(n_batch);
 
-            for num_token in prev_end..end {
-                if num_token + 1 == prompt_tokens.len() {
-                    break;
+                // Save the original token at the start of the batch.
+                let token_org = tokens[batch_start];
+
+                // Replace the first token with the BOS token, if necessary.
+                if j == 0 {
+                    tokens[batch_start] = model.bot_token_id().unwrap_or(1);
                 }
-                let tok_start = (num_token - start) * vocab_size;
-                let tok_end = ((num_token - start + 1) * vocab_size).min(logits.len());
-                // Slice logits for this token.
-                let logits_slice = &logits[tok_start..tok_end];
-                let prob = util::softmax(logits_slice)[prompt_tokens[num_token + 1] as usize];
-                seq_nll += -prob.log2();
-                count_tokens += 1;
+
+                model.evaluate(
+                    self,
+                    parameters,
+                    &tokens[batch_start..batch_start + batch_size],
+                    &mut output_request,
+                );
+
+                // Restore the original token.
+                tokens[batch_start] = token_org;
+
+                // Append the logits to the list.
+                logits.extend(output_request.all_logits.unwrap());
             }
 
-            prev_end = end;
-            if count_tokens != 0 {
-                nll += seq_nll / count_tokens as f32;
-                count_outer += 1;
+            for j in 512.min(n_ctx / 2)..(n_ctx - 1) {
+                let logits = &logits[j * n_vocab..(j + 1) * n_vocab];
+                let probability = util::softmax(logits)[tokens[start + j + 1] as usize];
+                nll += -probability.ln();
+
+                count += 1;
             }
-            if end == prompt_tokens.len() {
-                break;
-            }
+
+            perplexity_callback(i, (nll / count as f32).exp());
         }
-        let perplexity = (nll / count_outer as f32).exp();
-        Ok(perplexity)
+
+        Ok(())
     }
 
     /// Sample a token using Top-P/Top-K sampling and the last logits from this session.

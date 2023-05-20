@@ -134,8 +134,14 @@ fn perplexity<M: llm::KnownModel + 'static>(
     );
     let parameters = args.generate.inference_parameters(model.eot_token_id());
 
-    let perplexity = session.perplexity(model.as_ref(), &parameters, prompt.as_str())?;
-    println!("Perplexity: {}", perplexity);
+    session.perplexity(
+        model.as_ref(),
+        &parameters,
+        prompt.as_str(),
+        |chunk, perplexity| {
+            println!("Perplexity[{chunk}]: {perplexity}");
+        },
+    )?;
 
     Ok(())
 }

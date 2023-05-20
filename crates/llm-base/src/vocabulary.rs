@@ -21,6 +21,7 @@ pub enum TokenizationError {
 /// The vocabulary used by a model.
 #[derive(Debug, Clone, Default)]
 pub struct Vocabulary {
+    // TODO: make these private
     /// Maps every integer (index) token ID to its corresponding token.
     pub id_to_token: Vec<Token>,
 
@@ -61,6 +62,16 @@ impl Vocabulary {
     /// Converts a token index to the token it represents in this vocabulary.
     pub fn token(&self, idx: usize) -> &[u8] {
         &self.id_to_token[idx]
+    }
+
+    /// Returns the number of tokens in the vocabulary.
+    pub fn len(&self) -> usize {
+        self.id_to_token.len()
+    }
+
+    /// Returns whether the vocabulary is empty.
+    pub fn is_empty(&self) -> bool {
+        self.id_to_token.is_empty()
     }
 
     // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
