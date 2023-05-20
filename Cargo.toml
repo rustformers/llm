@@ -27,6 +27,7 @@ spinoff = { version = "0.7.0", default-features = false, features = ["dots2"] }
 thiserror = "1.0"
 clap = { version = "4.1.8", features = ["derive"] }
 tokenizers = "0.13.3"
+anyhow = "1.0"
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]

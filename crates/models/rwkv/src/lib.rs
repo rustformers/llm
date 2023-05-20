@@ -375,7 +375,7 @@ impl KnownModel for Rwkv {
         None
     }
 
-    fn eot_token_id(&self) -> llm_base::TokenId {
+    fn eot_token_id(&self) -> TokenId {
         self.tokenizer.token_to_id("<|endoftext|>").unwrap() as TokenId
     }
 
@@ -421,6 +421,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn file_type(&self) -> Option<FileType> {
         Some(self.file_type)
+    }
+
+    fn file_type_mut(&mut self) -> Option<&mut FileType> {
+        Some(&mut self.file_type)
     }
 }
 

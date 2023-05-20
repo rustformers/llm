@@ -266,7 +266,7 @@ impl KnownModel for Bloom {
 
                 //alibi
                 // KQ_scaled_alibi = KQ_scaled + alibi_bias
-                let k_q_scaled_alibi = ctx0.op_alibi(&k_q_scaled, n_past, n_head);
+                let k_q_scaled_alibi = ctx0.op_alibi(&k_q_scaled, n_past, n_head, 8f32);
 
                 // KQ_masked = mask_past(KQ_scaled)
                 let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled_alibi, n_past);
@@ -456,6 +456,10 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn file_type(&self) -> Option<FileType> {
         Some(self.file_type)
+    }
+
+    fn file_type_mut(&mut self) -> Option<&mut FileType> {
+        Some(&mut self.file_type)
     }
 }
 

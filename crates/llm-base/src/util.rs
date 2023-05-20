@@ -141,6 +141,17 @@ pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> 
     unsafe { MmapOptions::new().populate().map(file) }
 }
 
+/// Calculate softmax for a slice
+pub fn softmax(logits: &[f32]) -> Vec<f32> {
+    let mut probs = logits.to_vec();
+    let max_logit = probs.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+    let sum: f32 = logits.iter().map(|v| (v - max_logit).exp()).sum();
+    for v in probs.iter_mut() {
+        *v = (*v - max_logit).exp() / sum;
+    }
+    probs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

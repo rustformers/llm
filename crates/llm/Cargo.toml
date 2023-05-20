@@ -14,6 +14,7 @@ llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.1.1" }
 llm-gptj = { path = "../models/gptj", optional = true, version = "0.1.1" }
 llm-bloom = { path = "../models/bloom", optional = true, version = "0.1.1" }
 llm-gptneox = { path = "../models/gptneox", optional = true, version = "0.1.1" }
+llm-mpt = { path = "../models/mpt", optional = true, version = "0.1.1" }
 llm-rwkv = { path = "../models/rwkv", optional = true, version = "0.1.1" }
 
 serde = { workspace = true }
@@ -28,10 +29,11 @@ serde_json = { workspace = true }
 clap = { workspace = true }
 
 [features]
-default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "rwkv"]
+default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt", "rwkv"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
 bloom = ["dep:llm-bloom"]
 gptneox = ["dep:llm-gptneox"]
+mpt = ["dep:llm-mpt"]
 rwkv = ["dep:llm-rwkv"]

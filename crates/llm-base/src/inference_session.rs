@@ -5,7 +5,8 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
-    mulf, InferenceError, InferenceParameters, Model, OutputRequest, TokenId, TokenUtf8Buffer,
+    mulf, util::softmax, InferenceError, InferenceParameters, Model, OutputRequest, TokenId,
+    TokenUtf8Buffer,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -207,6 +208,9 @@ impl InferenceSession {
         )?;
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
+        if request.run_perplexity {
+            stats.perplexity = Some(self.perplexity(model, parameters, request, output_request)?);
+        }
 
         // After the prompt is consumed, sample tokens by repeatedly calling
         // `infer_next_token`. We generate tokens until the model returns an
@@ -239,6 +243,70 @@ impl InferenceSession {
         stats.predict_tokens = self.n_past;
 
         Ok(stats)
+    }
+
+    /// Calculate perplexity over a given prompt.
+    pub fn perplexity(
+        &mut self,
+        model: &dyn Model,
+        parameters: &InferenceParameters,
+        request: &InferenceRequest,
+        output_request: &mut OutputRequest,
+    ) -> Result<f32, InferenceError> {
+        // Setup the output request to store logits.
+        output_request.all_logits = Some(Vec::new());
+        let mut prompt_tokens: Vec<_> = model
+            .tokenizer()
+            .encode(request.prompt, false)
+            .unwrap()
+            .get_ids()
+            .to_vec()
+            .iter()
+            .map(|&id| id as TokenId)
+            .collect();
+
+        let vocab_size = self.last_logits.len();
+        let mut nll: f32 = 0.0;
+        let mut count_outer = 0;
+
+        // Implementation borrowed from https://huggingface.co/docs/transformers/perplexity
+
+        // Control the number of model evaluations by varying stride.
+        let stride = model.n_context_tokens() / 4;
+        let mut prev_end = 0;
+
+        for start in (0..prompt_tokens.len()).step_by(stride) {
+            let end = (start + model.n_context_tokens()).min(prompt_tokens.len());
+            // Set first token to BOS, then restore it after model evaluation.
+            let orig_token = prompt_tokens[start];
+            prompt_tokens[start] = 1; // 1 is BOS
+            model.evaluate(self, parameters, &prompt_tokens[start..end], output_request);
+            prompt_tokens[start] = orig_token;
+
+            let logits = &output_request.all_logits.as_ref().unwrap();
+
+            // (start..context_end) contains the context for this window,
+            // needs to be ignored in loss calculation.
+            let context_end = prev_end - start;
+            let mut count_tokens = 0;
+            let mut seq_nll = 0.0;
+
+            for num_token in context_end..(end - 1) {
+                let tok_start = num_token * vocab_size;
+                let tok_end = ((num_token + 1) * vocab_size).min(logits.len());
+                // Slice logits for this token.
+                let logits_slice = &logits[tok_start..tok_end];
+                let prob = softmax(logits_slice)[prompt_tokens[num_token + 1] as usize];
+                seq_nll += -prob.log2();
+                count_tokens += 1;
+            }
+
+            prev_end = end;
+            nll += seq_nll / count_tokens as f32;
+            count_outer += 1;
+        }
+        let perplexity = (nll / count_outer as f32).exp();
+        Ok(perplexity)
     }
 
     /// Sample a token using Top-P/Top-K sampling and the last logits from this session.
@@ -619,6 +687,8 @@ pub struct InferenceRequest<'a> {
     pub play_back_previous_tokens: bool,
     /// The maximum number of tokens to generate.
     pub maximum_token_count: Option<usize>,
+    /// Run a perplexity calculation on the prompt.
+    pub run_perplexity: bool,
 }
 
 /// Statistics about the inference process.
@@ -632,6 +702,8 @@ pub struct InferenceStats {
     pub predict_duration: std::time::Duration,
     /// The number of predicted tokens.
     pub predict_tokens: usize,
+    /// Perplexity value (if enabled through args).
+    pub perplexity: Option<f32>,
 }
 impl Default for InferenceStats {
     fn default() -> Self {
@@ -640,20 +712,31 @@ impl Default for InferenceStats {
             prompt_tokens: 0,
             predict_duration: std::time::Duration::from_secs(0),
             predict_tokens: 0,
+            perplexity: None,
         }
     }
 }
 impl Display for InferenceStats {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "feed_prompt_duration: {}ms\nprompt_tokens: {}\npredict_duration: {}ms\npredict_tokens: {}\nper_token_duration: {:.3}ms",
+        let mut stats = format!(
+            "feed_prompt_duration: {}ms\n\
+            prompt_tokens: {}\n\
+            predict_duration: {}ms\n\
+            predict_tokens: {}\n\
+            per_token_duration: {:.3}ms",
             self.feed_prompt_duration.as_millis(),
             self.prompt_tokens,
             self.predict_duration.as_millis(),
             self.predict_tokens,
-            (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64),
-        )
+            (self.predict_duration.as_millis() as f64) / (self.predict_tokens as f64)
+        );
+
+        // Show perplexity if it was calculated.
+        if let Some(perplexity) = self.perplexity {
+            stats += &format!("\nperplexity: {:.4}", perplexity);
+        }
+
+        write!(f, "{}", stats)
     }
 }
 

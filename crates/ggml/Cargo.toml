@@ -12,3 +12,5 @@ ggml-sys = { path = "sys", version = "0.1.1" }
 
 [dev-dependencies]
 rand = { workspace = true }
+anyhow = { workspace = true }
+

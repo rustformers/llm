@@ -29,21 +29,8 @@ fn main() -> Result<()> {
         Args::Bloom { args } => handle_args::<llm::models::Bloom>(args, None),
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args, None),
         Args::GptJ { args } => handle_args::<llm::models::GptJ>(args, None),
-        Args::NeoX {
-            args,
-            no_parallel_residual,
-        } => handle_args::<llm::models::GptNeoX>(
-            args,
-            Some(llm::models::GptNeoXOverrides {
-                use_parallel_residual: !*no_parallel_residual,
-            }),
-        ),
-        Args::RedPajama { args } => handle_args::<llm::models::GptNeoX>(
-            args,
-            Some(llm::models::GptNeoXOverrides {
-                use_parallel_residual: false,
-            }),
-        ),
+        Args::NeoX { args } => handle_args::<llm::models::GptNeoX>(args, None),
+        Args::Mpt { args } => handle_args::<llm::models::Mpt>(args, None),
         Args::Rwkv { args } => handle_args::<llm::models::Rwkv>(args, None),
     }
 }
@@ -86,6 +73,7 @@ fn infer<M: llm::KnownModel + 'static>(
             parameters: Some(&inference_params),
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
+            run_perplexity: args.perplexity,
         },
         // OutputRequest
         &mut Default::default(),
@@ -260,6 +248,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                         parameters: Some(&inference_params),
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
+                        run_perplexity: false,
                     },
                     // EvaluateOuputRequest
                     &mut Default::default(),
@@ -304,6 +293,7 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
     llm::quantize::<M, _, _>(
         &mut source,
         &mut destination,
+        args.container_type.into(),
         args.target.into(),
         |progress| match progress {
             QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),

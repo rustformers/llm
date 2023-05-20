@@ -440,13 +440,14 @@ impl Context {
     }
 
     /// Attention with LInear BIases (Ref: <https://arxiv.org/pdf/2108.12409.pdf>)
-    pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize) -> Tensor {
+    pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize, bias_max: f32) -> Tensor {
         let tensor = unsafe {
             sys::ggml_alibi(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i32(n_past),
                 usize_to_i32(n_head),
+                bias_max,
             )
         };
 

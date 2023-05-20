@@ -102,6 +102,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.71"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c7d0618f0e0b7e8ff11427422b64564d5fb0be1940354bfe2e0529b18a9d9b8"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +908,7 @@ dependencies = [
 name = "ggml"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "ggml-sys",
  "rand",
  "thiserror",
@@ -1277,6 +1284,7 @@ dependencies = [
  "llm-gptj",
  "llm-gptneox",
  "llm-llama",
+ "llm-mpt",
  "llm-rwkv",
  "log",
  "rand",
@@ -1369,6 +1377,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokenizers",
+]
+
+[[package]]
+name = "llm-mpt"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "llm-base",
  "tokenizers",
 ]
 

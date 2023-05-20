@@ -112,6 +112,24 @@ pub enum FileTypeFormat {
     /// All tensors are mostly stored as `Q5_1`, except for the 1D tensors (32-bit).
     MostlyQ5_1,
 }
+impl TryFrom<ggml::Type> for FileTypeFormat {
+    type Error = ();
+
+    fn try_from(value: ggml::Type) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ggml::Type::Q4_0 => Self::MostlyQ4_0,
+            ggml::Type::Q4_1 => Self::MostlyQ4_1,
+            ggml::Type::Q5_0 => Self::MostlyQ5_0,
+            ggml::Type::Q5_1 => Self::MostlyQ5_1,
+            ggml::Type::Q8_0 => Self::MostlyQ8_0,
+            ggml::Type::Q8_1 => return Err(()),
+            ggml::Type::I32 => return Err(()),
+            ggml::Type::F16 => Self::MostlyF16,
+            ggml::Type::F32 => Self::F32,
+            ggml::Type::LegacyQ4_2 => Self::MostlyQ4_2,
+        })
+    }
+}
 
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.

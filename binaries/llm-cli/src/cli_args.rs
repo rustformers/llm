@@ -1,10 +1,10 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{fmt, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
-    ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias, LoadProgress,
-    Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
 };
 use rand::SeedableRng;
 
@@ -37,19 +37,10 @@ pub enum Args {
     NeoX {
         #[command(subcommand)]
         args: BaseArgs,
-
-        #[arg(long)]
-        /// By default, the GPT-NeoX architecture uses a parallel residual.
-        ///
-        /// This flag disables that, as some models out there are trained without it,
-        /// and the model format does not store this information.
-        no_parallel_residual: bool,
     },
-    /// Use a model from the RedPajama GPT-NeoX family
-    ///
-    /// (GPT-NeoX with `use_parallel_residual` set to false)
-    #[clap(id = "redpajama")]
-    RedPajama {
+    /// Use a MPT model
+    #[clap(id = "mpt")]
+    Mpt {
         #[command(subcommand)]
         args: BaseArgs,
     },
@@ -132,6 +123,10 @@ pub struct Infer {
     /// but will not error if the path does not exist
     #[arg(long, default_value = None)]
     pub persist_session: Option<PathBuf>,
+
+    /// Calculate and print perplexity of the model over the prompt.
+    #[arg(long, default_value_t = false)]
+    pub perplexity: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -507,8 +502,39 @@ pub struct Quantize {
     #[arg()]
     pub destination: PathBuf,
 
+    /// The GGML container type to target.
+    ///
+    /// Note that using GGML requires the original model to have
+    /// an unscored vocabulary, which is not the case for newer models.
+    #[arg(short, long, default_value_t = SaveContainerType::GgjtV2)]
+    pub container_type: SaveContainerType,
+
     /// The format to convert to
     pub target: QuantizationTarget,
+}
+
+#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+pub enum SaveContainerType {
+    /// GGML container.
+    Ggml,
+    /// GGJT v2 container.
+    GgjtV2,
+}
+impl fmt::Display for SaveContainerType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaveContainerType::Ggml => write!(f, "ggml"),
+            SaveContainerType::GgjtV2 => write!(f, "ggjt-v2"),
+        }
+    }
+}
+impl From<SaveContainerType> for ggml_format::SaveContainerType {
+    fn from(value: SaveContainerType) -> Self {
+        match value {
+            SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
+            SaveContainerType::GgjtV2 => ggml_format::SaveContainerType::GgjtV2,
+        }
+    }
 }
 
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]

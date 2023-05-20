@@ -6,6 +6,7 @@
 //! - [GPT-J](llm_gptj)
 //! - [LLaMA](llm_llama)
 //! - [GPT-NeoX](llm_gptneox)
+//! - [MPT](llm_mpt)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -95,9 +96,11 @@ pub mod models {
     #[cfg(feature = "gptj")]
     pub use llm_gptj::{self as gptj, GptJ};
     #[cfg(feature = "gptneox")]
-    pub use llm_gptneox::{self as gptneox, GptNeoX, GptNeoXOverrides};
+    pub use llm_gptneox::{self as gptneox, GptNeoX};
     #[cfg(feature = "llama")]
     pub use llm_llama::{self as llama, Llama};
+    #[cfg(feature = "mpt")]
+    pub use llm_mpt::{self as mpt, Mpt};
     #[cfg(feature = "rwkv")]
     pub use llm_rwkv::{self as rwkv, Rwkv};
 }
@@ -120,9 +123,9 @@ pub enum ModelArchitecture {
     #[cfg(feature = "gptneox")]
     /// [GPT-NeoX](llm_gptneox)
     GptNeoX,
-    #[cfg(feature = "gptneox")]
-    /// RedPajama: [GPT-NeoX](llm_gptneox) with `use_parallel_residual` set to false
-    RedPajama,
+    #[cfg(feature = "mpt")]
+    /// [MPT](llm_mpt)
+    Mpt,
     #[cfg(feature = "rwkv")]
     /// [RWKV](llm_rwkv)
     Rwkv,
@@ -130,7 +133,7 @@ pub enum ModelArchitecture {
 
 impl ModelArchitecture {
     /// All available model architectures
-    pub const ALL: [Self; 7] = [
+    pub const ALL: &[Self] = &[
         #[cfg(feature = "bloom")]
         Self::Bloom,
         #[cfg(feature = "gpt2")]
@@ -141,8 +144,8 @@ impl ModelArchitecture {
         Self::Llama,
         #[cfg(feature = "gptneox")]
         Self::GptNeoX,
-        #[cfg(feature = "gptneox")]
-        Self::RedPajama,
+        #[cfg(feature = "mpt")]
+        Self::Mpt,
         #[cfg(feature = "rwkv")]
         Self::Rwkv,
     ];
@@ -186,12 +189,13 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "gptneox")]
             "gptneox" => Ok(GptNeoX),
-            #[cfg(feature = "gptneox")]
-            "redpajama" => Ok(RedPajama),
+            #[cfg(feature = "mpt")]
+            "mpt" => Ok(Mpt),
             #[cfg(feature = "rwkv")]
             "rwkv" => Ok(Rwkv),
-            m => Err(UnsupportedModelArchitecture(format!(
-                "{m} is not a supported model architecture"
+
+            _ => Err(UnsupportedModelArchitecture(format!(
+                "{s} is not a supported model architecture"
             ))),
         }
     }
@@ -212,8 +216,8 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "gptneox")]
             GptNeoX => write!(f, "GPT-NeoX"),
-            #[cfg(feature = "gptneox")]
-            RedPajama => write!(f, "RedPajama"),
+            #[cfg(feature = "mpt")]
+            Mpt => write!(f, "MPT"),
             #[cfg(feature = "rwkv")]
             Rwkv => write!(f, "RWKV"),
         }
@@ -295,18 +299,12 @@ pub fn load_dynamic(
             overrides,
             load_progress_callback,
         )?,
-        #[cfg(feature = "gptneox")]
-        RedPajama => load_model::<models::GptNeoX>(
+        #[cfg(feature = "mpt")]
+        Mpt => load_model::<models::Mpt>(
             path,
             vocabulary_path,
             params,
-            {
-                let mut overrides = overrides.unwrap_or_default();
-                overrides.merge(models::GptNeoXOverrides {
-                    use_parallel_residual: false,
-                });
-                Some(overrides)
-            },
+            overrides,
             load_progress_callback,
         )?,
         #[cfg(feature = "rwkv")]
@@ -328,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_model_architecture_from_str() {
-        for arch in &ModelArchitecture::ALL {
+        for arch in ModelArchitecture::ALL {
             assert_eq!(
                 arch,
                 &arch.to_string().parse::<ModelArchitecture>().unwrap()
