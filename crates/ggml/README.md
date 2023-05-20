@@ -1,12 +1,13 @@
 # GGML - Large Language Models for Everyone
 
-[GGML](https://github.com/ggerganov/ggml) is a format for distributing large
-language models (LLMs); the name is a portmanteau of the initials of its
-originator ([Georgi Gerganov](https://ggerganov.com/)) and the acronym ML, which
-stands for machine learning. This crate provides Rust [bindings](sys) into the
-reference implementation of GGML (written in C), as well as a collection of
-[native](src) Rust helpers to provide safe, idiomatic access to those bindings.
-GGML makes use of a technique called
+[GGML](https://github.com/ggerganov/ggml) is a C library for machine learning
+(ML) - the "GG" refers to the initials of its originator
+([Georgi Gerganov](https://ggerganov.com/)). In addition to defining low-level
+machine learning primitives (like a [tensor](#weights) type), GGML defines a
+binary format for distributing large language models (LLMs) This crate provides
+Rust [bindings](sys) into the reference implementation of GGML, as well as a
+collection of [native](src) Rust helpers to provide safe, idiomatic access to
+those bindings. GGML makes use of a technique called
 "[quantization](<https://en.wikipedia.org/wiki/Quantization_(signal_processing)>)"
 that allows for large language models to run on consumer hardware. This
 documents describes the basics of the GGML format, including how
@@ -19,8 +20,9 @@ specified format. The format specifies what kind of data is present in the file,
 how it is represented, and the order in which it appears. The first piece of
 information present in a valid GGML file is a GGML version number, followed by
 three components that define a large language model: the model's
-hyperparameters, its vocabulary, and its weights. Continue reading to learn more
-about GGML versions and the components of a GGML model.
+[hyperparameters](#hyperparameters), its [vocabulary](#vocabulary), and its
+[weights](#weights). Continue reading to learn more about GGML versions and the
+components of a GGML model.
 
 ### GGML Versions
 
@@ -34,7 +36,7 @@ performance through memory-mapping. The first value that is present in a valid
 GGML file is a "magic number" that indicates the GGML version that was used to
 encode the model.
 
-### Hyperparamaters
+### Hyperparameters
 
 The term
 "[hyperparameter](<https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning)>)"
@@ -69,11 +71,11 @@ and "leach". How would the behavior change if the model contained the following
 tokens: `wh`, `ich`, `ile`, `o`, and `leach`? Choices such as these allow
 model-creators to tune the behavior and performance of their models.
 
-As described above, the model's [hyperparameters](#hyperparamaters) typically
+As described above, the model's [hyperparameters](#hyperparameters) typically
 contains a value that specifies the number of tokens in the vocabulary. The
-vocabulary is encoded as a list of tokens, each of which includes an unsigned
-32-bit integer that specifies the length of the token. Depending on the GGML
-version, the token may also include a 32-bit floating point score.
+vocabulary is encoded as a list of tokens, each of which includes a 32-bit
+integer that specifies the length of the token. Depending on the GGML version,
+the token may also include a 32-bit floating point score.
 
 [comment]: <> (I need help describing token-scoring)
 
@@ -90,7 +92,7 @@ as the "size" of that model. For example, the
 [GPT-NeoX](https://github.com/EleutherAI/gpt-neox) language model architecture
 is available in a number of sizes, like 3B and 7B, which stands for 3-billion
 and 7-billion, respectively. These numbers refer to the total number of weights
-in that model. As described in the [hyperparameters](#hyperparamaters) section,
+in that model. As described in the [hyperparameters](#hyperparameters) section,
 weights are grouped together in sets called "layers", which, like
 hyperparameters, have structures that are uniquely defined by the model
 architecture; within a layer, weights are grouped together in structures called
@@ -137,3 +139,8 @@ with which weights are represented in order to reduce the resources required to
 use the model. GGML supports a number of different quantization strategies (e.g.
 4-bit, 5-bit, and 8-bit quantization), each of which offers different trade-offs
 between efficiency and performance.
+[More information](https://github.com/ggerganov/llama.cpp#quantization) about
+these trade-offs can be found in the documentation for llama.cpp, which is
+another project by the maintainer of GGML. Technical details about quantization
+are described in [this video](https://www.youtube.com/watch?v=mii-xFaPCrA) by
+@Aemon-Algiz.
