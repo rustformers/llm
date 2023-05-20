@@ -40,7 +40,7 @@
 //!     // the prompt to use for text generation, as well as other
 //!     // inference parameters
 //!     &llm::InferenceRequest {
-//!         prompt: "Rust is a cool programming language because",
+//!         prompt: "Rust is a cool programming language because".into(),
 //!         ..Default::default()
 //!     },
 //!     // llm::OutputRequest
@@ -79,8 +79,8 @@ pub use llm_base::{
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
     LoadError, LoadProgress, Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
-    ModelKVMemoryType, ModelParameters, OutputRequest, QuantizeError, QuantizeProgress,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, Vocabulary,
+    ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
 };
 
 use serde::Serialize;

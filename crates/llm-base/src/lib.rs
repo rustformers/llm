@@ -7,8 +7,6 @@
 //! As a user, you probably want to use the [llm](https://crates.io/crates/llm) crate instead.
 #![deny(missing_docs)]
 
-use thiserror::Error;
-
 mod inference_session;
 mod loader;
 mod lora;
@@ -22,8 +20,9 @@ pub use ggml;
 pub use ggml::Type as ElementType;
 
 pub use inference_session::{
-    feed_prompt_callback, InferenceFeedback, InferenceRequest, InferenceResponse, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, InferenceStats, ModelKVMemoryType, SnapshotError,
+    feed_prompt_callback, InferenceError, InferenceFeedback, InferenceRequest, InferenceResponse,
+    InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats, ModelKVMemoryType,
+    SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, LoadError,
@@ -37,7 +36,7 @@ pub use model::{
 };
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
-pub use vocabulary::{InvalidTokenBias, TokenBias, TokenId, Vocabulary};
+pub use vocabulary::{InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Vocabulary};
 
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters for text generation.
@@ -78,23 +77,4 @@ impl Default for InferenceParameters {
             repetition_penalty_last_n: 512,
         }
     }
-}
-
-#[derive(Error, Debug)]
-/// Errors encountered during the inference process.
-pub enum InferenceError {
-    #[error("an invalid token was encountered during tokenization")]
-    /// During tokenization, one of the produced tokens was invalid / zero.
-    TokenizationFailed,
-    #[error("the context window is full")]
-    /// The context window for the model is full.
-    ContextFull,
-    #[error("reached end of text")]
-    /// The model has produced an end of text token, signalling that it thinks that the text should end here.
-    ///
-    /// Note that this error *can* be ignored and inference can continue, but the results are not guaranteed to be sensical.
-    EndOfText,
-    #[error("the user-specified callback returned an error")]
-    /// The user-specified callback returned an error.
-    UserCallback(Option<Box<dyn std::error::Error>>),
 }
