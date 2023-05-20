@@ -392,7 +392,16 @@ pub fn load<M: KnownModel>(
     } = loader;
 
     let tokenizer = if let Some(path) = vocab_path {
-        let tok = Tokenizer::from_file(path);
+        let tok = if !path.exists() && path.to_str().unwrap().matches("/").count() == 1 {
+            Tokenizer::from_pretrained(path.to_str().unwrap(), None)
+        } else if path.exists() && path.is_file() {
+            Tokenizer::from_file(path)
+        } else {
+            return Err(LoadError::TokenizerLoadFailed {
+                path: path.to_owned(),
+            });
+        };
+
         if tok.is_err() {
             return Err(LoadError::TokenizerLoadFailed {
                 path: path.to_owned(),

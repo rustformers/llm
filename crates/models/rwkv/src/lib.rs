@@ -324,7 +324,6 @@ impl KnownModel for Rwkv {
 
             self.ctx.graph_compute(&mut self.graph.borrow_mut());
 
-            //let mut start_index = 0;
             let mut state_parts = self.state_parts.borrow_mut();
 
             for i in 0..(self.hyperparameters.n_layer * 5) {
@@ -339,18 +338,15 @@ impl KnownModel for Rwkv {
                     let start_index = i * self.hyperparameters.n_embd;
                     let end_index = start_index + part.nbytes();
                     part.read_data(0, &mut p[start_index..end_index]);
-                    //start_index = end_index;
                 }
             }
 
-            //common::read_last_token(session, &input_layer, n_vocab, n);
             assert_eq!(session.last_logits.len(), self.hyperparameters.n_vocab);
             unsafe {
                 self.logits
                     .read_data(0, bytemuck::cast_slice_mut(&mut session.last_logits));
             }
 
-            //common::extract_logits(output_request, &input_layer, n_vocab, n);
             output_request.all_logits = Some(session.last_logits.clone());
 
             common::extract_embeddings(
