@@ -361,7 +361,7 @@ impl ModelLoad {
     ) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
-            n_context_tokens: self.num_ctx_tokens,
+            context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
             ..Default::default()
         };
