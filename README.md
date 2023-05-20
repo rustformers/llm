@@ -211,6 +211,12 @@ cargo run --release $MODEL_ARCHITECTURE quantize $MODEL_IN $MODEL_OUT {q4_0,q4_1
 The `llm` [Dockerfile](./utils/Dockerfile) is in the `utils` directory, as is a
 [NixOS flake](./utils/flake) manifest and lockfile.
 
+### What's the best way to get in touch with the `llm` community?
+
+GitHub [Issues](https://github.com/rustformers/llm/issues/new) and
+[Discussions](https://github.com/rustformers/llm/discussions/new) are welcome,
+or come chat on [Discord](https://discord.gg/YB9WaXYAWU)!
+
 ### Do you accept contributions?
 
 Absolutely! Please see the [contributing guide](./doc/CONTRIBUTING.md).

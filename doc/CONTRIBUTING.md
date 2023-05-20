@@ -1,30 +1,59 @@
-# Contributors guide
+# Contributors Guide
 
-This document contains a few things that contributors should know about how the
-project is managed. It will be expanded over time with more information.
+The purpose of this document is to make it easy for open-source community
+members to contribute to this project. We'd love to discuss your contributions
+with you via a GitHub [Issue](https://github.com/rustformers/llm/issues/new) or
+[Discussion](https://github.com/rustformers/llm/discussions/new?category=ideas),
+or on [Discord](https://discord.gg/YB9WaXYAWU)!
 
-## Where do I learn more about how LLMs work?
+## Checking Changes
 
-We recommend the following links to begin with:
+This project uses a [GitHub workflow](../.github/workflows/rust.yml) to enforce
+code standards - it will execute the following commands, which can be performed
+locally for faster turnaround and a better developer experience:
 
-- [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
-- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/)
-- [Andrej Karpathy's "Let's build GPT: from scratch, in code, spelled out."](https://www.youtube.com/watch?v=kCc8FmEb1nY)
-- [Understanding Deep Learning](https://udlbook.github.io/udlbook/) (Chapter 12 specifically)
+```shell
+cargo check
+cargo test
+cargo fmt --all
+cargo doc --workspace --exclude llm-cli
+cargo clippy --fix --allow-dirty -- -Dclippy::all
+```
 
-## Regenerating the GGML Bindings
+## Regenerating GGML Bindings
 
-When new GGML versions are pushed to llama.cpp (or one of the other repos
-hosting a copy of it) and we want to update our copy, the process should be as
-follows:
+Follow these steps to update the GGML submodule and regenerate the Rust bindings
+(this is only necessary if your changes depend on new GGML features):
 
-- Update the submodule to the latest version of GGML:
-  ```shell
-  $ git submodule update --remote
-  ```
-- Run the bindgen script:
-  ```shell
-  $ cargo run --bin generate-ggml-bindings ggml-sys
-  ```
-- Fix any compiler errors that pop up due to the new version of the bindings and
-  test the changes.
+```shell
+git submodule update --remote
+cargo run --release --package generate-ggml-bindings
+```
+
+## Debugging
+
+This repository includes a [`launch.json` file](../.vscode/launch.json) that can
+be used for
+[debugging with Visual Studio Code](https://code.visualstudio.com/docs/editor/debugging) -
+this file will need to be updated to reflect where models are stored on your
+system. Debugging with Visual Studio Code requires a
+[language extension](https://code.visualstudio.com/docs/languages/rust#_install-debugging-support)
+that depends on your operating system. Keep in mind that debugging text
+generation is extremely slow, but debugging model loading is not.
+
+## LLM References
+
+Here are some tried-and-true references for learning more about large language
+models:
+
+- [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/) - an
+  excellent technical description of how this seminal language model generates
+  text
+- [Andrej Karpathy's "Neural Networks: Zero to Hero"](https://karpathy.ai/zero-to-hero.html) -
+  a series of in-depth YouTube videos that guide the viewer through creating a
+  neural network, a large language model, and a fully functioning chatbot, from
+  scratch (in Python)
+- [rustygrad](https://github.com/Mathemmagician/rustygrad) - a native Rust
+  implementation of Andrej Karpathy's micrograd
+- [Understanding Deep Learning](https://udlbook.github.io/udlbook/) (Chapter 12
+  specifically)
