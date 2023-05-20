@@ -29,7 +29,7 @@ fn main() -> Result<()> {
         Args::Bloom { args } => handle_args::<llm::models::Bloom>(args, None),
         Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args, None),
         Args::GptJ { args } => handle_args::<llm::models::GptJ>(args, None),
-        Args::NeoX { args } => handle_args::<llm::models::GptNeoX>(args, None),
+        Args::GptNeoX { args } => handle_args::<llm::models::GptNeoX>(args, None),
         Args::Mpt { args } => handle_args::<llm::models::Mpt>(args, None),
     }
 }
