@@ -176,11 +176,11 @@ Yes, but certain fine-tuned models (e.g.
 [Pygmalion](https://docs.alpindale.dev/)) are more suited to chat use-cases than
 so-called "base models". Here's an example of using the `llm` CLI in REPL
 (Read-Evaluate-Print Loop) mode with an Alpaca model - note that the
-[provided prompt format](./examples/alpaca_prompt.txt) is tailored to the model
+[provided prompt format](./utils/prompts/alpaca.txt) is tailored to the model
 that is being used:
 
 ```shell
-llm llama repl -m ggml-alpaca-7b-q4.bin -f examples/alpaca_prompt.txt
+llm llama repl -m ggml-alpaca-7b-q4.bin -f utils/prompts/alpaca.txt
 ```
 
 There is also a [Vicuna chat example](./crates/llm/examples/vicuna-chat.rs) that
@@ -208,8 +208,8 @@ cargo run --release $MODEL_ARCHITECTURE quantize $MODEL_IN $MODEL_OUT {q4_0,q4_1
 
 ### Do you provide support for Docker and NixOS?
 
-The `llm` [Dockerfile](./util/Dockerfile) is in the `util` directory, as is a
-[NixOS flake](./util/flake) manifest and lockfile.
+The `llm` [Dockerfile](./utils/Dockerfile) is in the `utils` directory, as is a
+[NixOS flake](./utils/flake) manifest and lockfile.
 
 ### Do you accept contributions?
 

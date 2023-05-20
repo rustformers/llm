@@ -1,0 +1,4 @@
+A chat between a human ("User") and an AI assistant ("Assistant"). The assistant gives helpful, detailed, and polite answers to the human's questions.
+
+Assistant: How may I help you?
+User: {{PROMPT}}
