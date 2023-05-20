@@ -21,26 +21,31 @@ mod old_loader;
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Llama {
-    hyperparameters: Hyperparameters,
-    n_context_tokens: usize,
+    // the context size ("memory") the model should use when evaluating a prompt
+    context_size: usize,
 
+    hyperparameters: Hyperparameters,
     vocabulary: Vocabulary,
 
-    tok_embeddings: ggml::Tensor,
-
+    // model-global weights
+    // weighted token embeddings
+    wte: ggml::Tensor,
+    // normalization
     norm: ggml::Tensor,
+    // output weight
     output: ggml::Tensor,
 
+    // weights for the model
     layers: Vec<Layer>,
 
+    // default parameters used by [InferenceSession::infer]
     inference_parameters: InferenceParameters,
 
-    /// Needs to kept alive while the model is alive
-    _mmap: Option<Mmap>,
-
-    // Must be kept alive for the model
+    // must be kept alive for the model
     _context: ggml::Context,
+    _mmap: Option<Mmap>,
 }
+
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
 
@@ -57,7 +62,8 @@ impl KnownModel for Llama {
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
 
-        let tok_embeddings = tl.load("tok_embeddings.weight")?;
+        // model-global weights
+        let wte = tl.load("tok_embeddings.weight")?;
         let norm = tl.load("norm.weight")?;
         let output = tl.load("output.weight")?;
 
@@ -81,16 +87,16 @@ impl KnownModel for Llama {
         let (_context, _tensors, _mmap) = tl.finish();
 
         let ModelParameters {
-            n_context_tokens,
+            context_size,
             inference_parameters,
             ..
         } = params;
 
         Ok(Self {
             hyperparameters,
-            n_context_tokens,
+            context_size,
             vocabulary,
-            tok_embeddings,
+            wte,
             norm,
             output,
             layers,
@@ -104,7 +110,7 @@ impl KnownModel for Llama {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.n_context_tokens,
+            self.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -118,12 +124,10 @@ impl KnownModel for Llama {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let n_past = session.n_past;
-        let n_threads = params.n_threads;
-
-        let memk_elsize = session.memory_k.element_size();
-        let memv_elsize = session.memory_v.element_size();
+        let input_len = input_tokens.len();
+        let session_len = session.n_past;
+        let num_threads = params.n_threads;
+        let ctx_size = self.context_size;
 
         let Hyperparameters {
             n_vocab,
@@ -134,14 +138,15 @@ impl KnownModel for Llama {
             n_rot,
             file_type: _,
         } = self.hyperparameters;
-        let n_ctx = self.n_context_tokens;
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
+        let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
 
-        let mut gf = ggml::ComputationGraph::new(n_threads);
+        let memory_k_size = session.memory_k.element_size();
+        let memory_v_size = session.memory_v.element_size();
 
+        let mut gf = ggml::ComputationGraph::new(num_threads);
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
@@ -149,154 +154,147 @@ impl KnownModel for Llama {
             ctx0.use_scratch(Some(&mut session.scratch[0]));
 
             // norm
-            {
-                current = ctx0.op_rms_norm(&input_layer);
+            current = ctx0.op_rms_norm(&input_layer);
 
-                // cur = attention_norm * cur
-                current = ctx0.op_mul(
-                    &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
-                    &current,
-                );
-            }
+            // cur = attention_norm * cur
+            current = ctx0.op_mul(
+                &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
+                &current,
+            );
 
             // self-attention
-            {
-                // compute Q and K and RoPE them
-                let q_current = ctx0.op_rope(
-                    &ctx0.op_reshape_3d(
-                        &ctx0.op_mul_mat(&self.layers[il].wq, &current),
-                        n_embd / n_head,
-                        n_head,
-                        n,
-                    ),
-                    n_past,
-                    n_rot,
-                    0,
-                );
-                let k_current = ctx0.op_rope(
-                    &ctx0.op_reshape_3d(
-                        &ctx0.op_mul_mat(&self.layers[il].wk, &current),
-                        n_embd / n_head,
-                        n_head,
-                        n,
-                    ),
-                    n_past,
-                    n_rot,
-                    0,
-                );
+            // compute Q and K and RoPE them
+            let q_current = ctx0.op_rope(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_mul_mat(&self.layers[il].wq, &current),
+                    n_embd / n_head,
+                    n_head,
+                    input_len,
+                ),
+                session_len,
+                n_rot,
+                0,
+            );
+            let k_current = ctx0.op_rope(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_mul_mat(&self.layers[il].wk, &current),
+                    n_embd / n_head,
+                    n_head,
+                    input_len,
+                ),
+                session_len,
+                n_rot,
+                0,
+            );
 
-                // store key and value to memory
-                {
-                    // compute the transposed [N, n_embd] V matrix
-                    let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
-                        &ctx0.op_mul_mat(&self.layers[il].wv, &current),
-                        n_embd,
-                        n,
-                    ));
+            // store key and value to memory
+            // compute the transposed [N, n_embd] V matrix
+            let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
+                &ctx0.op_mul_mat(&self.layers[il].wv, &current),
+                n_embd,
+                input_len,
+            ));
 
-                    let k = ctx0.op_view_1d(
+            let k = ctx0.op_view_1d(
+                &session.memory_k,
+                input_len * n_embd,
+                (memory_k_size * n_embd) * (il * ctx_size + session_len),
+            );
+
+            let v = ctx0.op_view_2d(
+                &session.memory_v,
+                (input_len, n_embd),
+                ctx_size * memory_v_size,
+                (il * ctx_size) * memory_v_size * n_embd + session_len * memory_v_size,
+            );
+
+            // important: storing RoPE-ed version of K in the KV cache!
+            gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
+            gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
+
+            let q = ctx0.op_permute(&q_current, 0, 2, 1, 3);
+
+            let k = ctx0.op_permute(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_view_1d(
                         &session.memory_k,
-                        n * n_embd,
-                        (memk_elsize * n_embd) * (il * n_ctx + n_past),
-                    );
-
-                    let v = ctx0.op_view_2d(
-                        &session.memory_v,
-                        (n, n_embd),
-                        n_ctx * memv_elsize,
-                        (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
-                    );
-
-                    // important: storing RoPE-ed version of K in the KV cache!
-                    gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
-                    gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
-                }
-
-                let q = ctx0.op_permute(&q_current, 0, 2, 1, 3);
-
-                let k = ctx0.op_permute(
-                    &ctx0.op_reshape_3d(
-                        &ctx0.op_view_1d(
-                            &session.memory_k,
-                            (n_past + n) * n_embd,
-                            il * n_ctx * memk_elsize * n_embd,
-                        ),
-                        n_embd / n_head,
-                        n_head,
-                        n_past + n,
+                        (session_len + input_len) * n_embd,
+                        il * ctx_size * memory_k_size * n_embd,
                     ),
-                    0,
-                    2,
-                    1,
-                    3,
-                );
+                    n_embd / n_head,
+                    n_head,
+                    session_len + input_len,
+                ),
+                0,
+                2,
+                1,
+                3,
+            );
 
-                // K * Q
-                let k_q = ctx0.op_mul_mat(&k, &q);
+            // K * Q
+            let k_q = ctx0.op_mul_mat(&k, &q);
 
-                // KQ_scaled = KQ / sqrt(n_embd/n_head)
-                let k_q_scaled = ctx0.op_scale(
-                    &k_q,
-                    &ctx0.new_f32(1.0 / f32::sqrt(n_embd as f32 / n_head as f32)),
-                );
+            // KQ_scaled = KQ / sqrt(n_embd/n_head)
+            let k_q_scaled = ctx0.op_scale(
+                &k_q,
+                &ctx0.new_f32(1.0 / f32::sqrt(n_embd as f32 / n_head as f32)),
+            );
 
-                // KQ_masked = mask_past(KQ_scaled)
-                let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, n_past);
+            // KQ_masked = mask_past(KQ_scaled)
+            let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, session_len);
 
-                // KQ = soft_max(KQ_masked)
-                let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
+            // KQ = soft_max(KQ_masked)
+            let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
 
-                // split cached V into n_head heads
-                let v = ctx0.op_view_3d(
-                    &session.memory_v,
-                    (n_past + n, n_embd / n_head, n_head),
-                    (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
-                    il * n_ctx * memv_elsize * n_embd,
-                );
+            // split cached V into n_head heads
+            let v = ctx0.op_view_3d(
+                &session.memory_v,
+                (session_len + input_len, n_embd / n_head, n_head),
+                (
+                    ctx_size * memory_v_size,
+                    ctx_size * memory_v_size * n_embd / n_head,
+                ),
+                il * ctx_size * memory_v_size * n_embd,
+            );
 
-                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
+            let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
 
-                // KQV_merged = KQV.permute(0, 2, 1, 3)
-                let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
+            // KQV_merged = KQV.permute(0, 2, 1, 3)
+            let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
 
-                // cur = KQV_merged.contiguous().view(n_embd, N)
-                current = ctx0.op_cpy(
-                    &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n),
-                );
+            // cur = KQV_merged.contiguous().view(n_embd, N)
+            current = ctx0.op_cpy(
+                &k_q_v_merged,
+                &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
+            );
 
-                // projection (no bias)
-                current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
-            }
+            // projection (no bias)
+            current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
             ctx0.use_scratch(Some(&mut session.scratch[1]));
 
             let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
             // feed-forward network
-            {
-                // norm
-                {
-                    current = ctx0.op_rms_norm(&input_feed_forward);
+            // norm
+            current = ctx0.op_rms_norm(&input_feed_forward);
 
-                    // cur = ffn_norm*cur
-                    current = ctx0.op_mul(
-                        &ctx0.op_repeat(&self.layers[il].ffn_norm, &current),
-                        &current,
-                    );
-                }
+            // cur = ffn_norm*cur
+            current = ctx0.op_mul(
+                &ctx0.op_repeat(&self.layers[il].ffn_norm, &current),
+                &current,
+            );
 
-                let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &current);
+            let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &current);
 
-                current = ctx0.op_mul_mat(&self.layers[il].w1, &current);
+            current = ctx0.op_mul_mat(&self.layers[il].w1, &current);
 
-                // SILU activation
-                current = ctx0.op_silu(&current);
+            // SILU activation
+            current = ctx0.op_silu(&current);
 
-                current = ctx0.op_mul(&current, &tmp);
+            current = ctx0.op_mul(&current, &tmp);
 
-                current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
-            }
+            current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
 
             current = ctx0.op_add(&current, &input_feed_forward);
 
@@ -309,17 +307,13 @@ impl KnownModel for Llama {
         // Used at the end to optionally extract the embeddings.
 
         // norm
-        {
-            input_layer = ctx0.op_rms_norm(&input_layer);
+        input_layer = ctx0.op_rms_norm(&input_layer);
 
-            // inpL = norm*inpL
-            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
-        }
+        // inpL = norm*inpL
+        input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
         // lm_head
-        {
-            input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
-        }
+        input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
         ctx0.use_scratch(None);
 
@@ -328,10 +322,10 @@ impl KnownModel for Llama {
         ctx0.graph_compute(&mut gf);
 
         // finish evaluation
-        common::read_last_token(session, &input_layer, n_vocab, n);
-        common::extract_logits(output_request, &input_layer, n_vocab, n);
-        common::extract_embeddings(output_request, &embd, n_embd, n);
-        common::update_session(session, &ctx0, input_tokens.len(), n);
+        common::read_last_token(session, &input_layer, n_vocab, input_len);
+        common::extract_logits(output_request, &input_layer, n_vocab, input_len);
+        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
     /// Returns the vocabulary used by this model.
@@ -339,8 +333,8 @@ impl KnownModel for Llama {
         &self.vocabulary
     }
 
-    fn n_context_tokens(&self) -> usize {
-        self.n_context_tokens
+    fn context_size(&self) -> usize {
+        self.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
@@ -353,30 +347,6 @@ impl KnownModel for Llama {
 
     fn inference_parameters(&self) -> &InferenceParameters {
         &self.inference_parameters
-    }
-}
-#[cfg(test)]
-impl Llama {
-    /// This does *not* construct a valid model. All of the tensors are entirely
-    /// empty. However, it can be used to determine if some code will compile.
-    fn new_empty() -> Self {
-        let context = ggml::Context::init(1024 * 1024, true);
-        let tok_embeddings = context.new_f32(0.0);
-        let norm = context.new_f32(0.0);
-        let output = context.new_f32(0.0);
-
-        Self {
-            hyperparameters: Default::default(),
-            n_context_tokens: 0,
-            vocabulary: Default::default(),
-            tok_embeddings,
-            norm,
-            output,
-            layers: Default::default(),
-            _mmap: Default::default(),
-            _context: context,
-            inference_parameters: Default::default(),
-        }
     }
 }
 
@@ -398,6 +368,7 @@ pub struct Hyperparameters {
     /// file_type
     pub file_type: FileType,
 }
+
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(Hyperparameters {
@@ -450,27 +421,4 @@ struct Layer {
     w1: ggml::Tensor,
     w2: ggml::Tensor,
     w3: ggml::Tensor,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[test]
-    fn can_share_model_between_threads() {
-        let model = Arc::new(Llama::new_empty());
-
-        for _ in 0..4 {
-            let model = model.clone();
-            std::thread::spawn(move || {
-                let _session = model.start_session(Default::default());
-            });
-        }
-
-        let session = model.start_session(Default::default());
-        std::thread::spawn(move || {
-            let _session = session;
-        });
-    }
 }

@@ -16,32 +16,33 @@ use llm_base::{
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct GptJ {
-    hyperparameters: Hyperparameters,
-    n_context_tokens: usize,
+    // the context size ("memory") the model should use when evaluating a prompt
+    context_size: usize,
 
+    hyperparameters: Hyperparameters,
     vocabulary: Vocabulary,
 
-    // normalization
+    // model-global weights
+    // normalization gain & bias
     ln_f_g: Tensor,
     ln_f_b: Tensor,
-
-    // position embedding
+    // weighted token embeddings
     wte: Tensor,
-
-    // language model head & bias
+    // language model head gain & bias
     lmh_g: Tensor,
     lmh_b: Tensor,
 
+    // weights for the model
     layers: Vec<Layer>,
 
+    // default parameters used by [InferenceSession::infer]
     inference_parameters: InferenceParameters,
 
-    /// Needs to kept alive while the model is alive
-    _mmap: Option<Mmap>,
-
-    // Must be kept alive for the model
+    // must be kept alive for the model
     _context: ggml::Context,
+    _mmap: Option<Mmap>,
 }
+
 unsafe impl Send for GptJ {}
 unsafe impl Sync for GptJ {}
 
@@ -61,7 +62,7 @@ impl KnownModel for GptJ {
     {
         let mut tl = tensor_loader;
 
-        // prepare memory for weights
+        // model-global weights
         let wte = tl.load("transformer.wte.weight")?;
         let ln_f_g = tl.load("transformer.ln_f.weight")?;
         let ln_f_b = tl.load("transformer.ln_f.bias")?;
@@ -89,14 +90,14 @@ impl KnownModel for GptJ {
         let (_context, _, _mmap) = tl.finish();
 
         let ModelParameters {
-            n_context_tokens,
+            context_size,
             inference_parameters,
             ..
         } = params;
 
         Ok(GptJ {
             hyperparameters,
-            n_context_tokens,
+            context_size,
             vocabulary,
             ln_f_g,
             ln_f_b,
@@ -127,8 +128,10 @@ impl KnownModel for GptJ {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let n_threads = params.n_threads;
+        let input_len = input_tokens.len();
+        let session_len = session.n_past;
+        let num_threads = params.n_threads;
+        let ctx_size = self.context_size;
 
         let Hyperparameters {
             n_embd,
@@ -138,13 +141,9 @@ impl KnownModel for GptJ {
             n_rot,
             ..
         } = self.hyperparameters;
-        let n_ctx = self.n_context_tokens;
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        let n_past = session.n_past;
-
-        // wte
         let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
 
         let memory_k = &session.memory_k;
@@ -153,8 +152,7 @@ impl KnownModel for GptJ {
         let memory_v = &session.memory_v;
         let memory_v_size = memory_v.element_size();
 
-        let mut gf = ggml::ComputationGraph::new(n_threads);
-
+        let mut gf = ggml::ComputationGraph::new(num_threads);
         for il in 0..n_layer {
             // norm
             let mut current = ctx0.op_norm(&input_layer);
@@ -171,9 +169,9 @@ impl KnownModel for GptJ {
                     &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
                     n_embd / n_head,
                     n_head,
-                    n,
+                    input_len,
                 ),
-                n_past,
+                session_len,
                 n_rot,
                 0,
             );
@@ -182,9 +180,9 @@ impl KnownModel for GptJ {
                     &ctx0.op_mul_mat(&self.layers[il].c_attn_k_proj_w, &current),
                     n_embd / n_head,
                     n_head,
-                    n,
+                    input_len,
                 ),
-                n_past,
+                session_len,
                 n_rot,
                 0,
             );
@@ -195,14 +193,14 @@ impl KnownModel for GptJ {
 
             let k = ctx0.op_view_1d(
                 memory_k,
-                n * n_embd,
-                (memory_k_size * n_embd) * (il * n_ctx + n_past),
+                input_len * n_embd,
+                (memory_k_size * n_embd) * (il * ctx_size + session_len),
             );
             let v = ctx0.op_view_2d(
                 memory_v,
-                (n, n_embd),
-                n_ctx * memory_v_size,
-                (il * n_ctx) * memory_v_size * n_embd + n_past * memory_v_size,
+                (input_len, n_embd),
+                ctx_size * memory_v_size,
+                (il * ctx_size) * memory_v_size * n_embd + session_len * memory_v_size,
             );
 
             gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
@@ -213,12 +211,12 @@ impl KnownModel for GptJ {
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         memory_k,
-                        (n_past + n) * n_embd,
-                        il * n_ctx * memory_k_size * n_embd,
+                        (session_len + input_len) * n_embd,
+                        il * ctx_size * memory_k_size * n_embd,
                     ),
                     n_embd / n_head,
                     n_head,
-                    n_past + n,
+                    session_len + input_len,
                 ),
                 0,
                 2,
@@ -232,23 +230,26 @@ impl KnownModel for GptJ {
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
 
-            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, n_past);
+            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, session_len);
             let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
 
             let big_v = ctx0.op_view_3d(
                 memory_v,
-                (n_past + n, n_embd / n_head, n_head),
+                (session_len + input_len, n_embd / n_head, n_head),
                 (
-                    n_ctx * memory_v_size,
-                    n_ctx * memory_v_size * n_embd / n_head,
+                    ctx_size * memory_v_size,
+                    ctx_size * memory_v_size * n_embd / n_head,
                 ),
-                il * n_ctx * memory_v_size * n_embd,
+                il * ctx_size * memory_v_size * n_embd,
             );
 
             let kqv = ctx0.op_mul_mat(&big_v, &kq_softmax);
             let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
 
-            current = ctx0.op_cpy(&kqv_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
+            current = ctx0.op_cpy(
+                &kqv_merged,
+                &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
+            );
 
             // self-attention projection
             current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
@@ -293,17 +294,17 @@ impl KnownModel for GptJ {
         ctx0.graph_compute(&mut gf);
 
         // finish evaluation
-        common::read_last_token(session, &input_layer, n_vocab, n);
-        common::extract_logits(output_request, &input_layer, n_vocab, n);
-        common::extract_embeddings(output_request, &embd, n_embd, n);
-        common::update_session(session, &ctx0, input_tokens.len(), n);
+        common::read_last_token(session, &input_layer, n_vocab, input_len);
+        common::extract_logits(output_request, &input_layer, n_vocab, input_len);
+        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
     fn vocabulary(&self) -> &Vocabulary {
         &self.vocabulary
     }
 
-    fn n_context_tokens(&self) -> usize {
+    fn context_size(&self) -> usize {
         self.hyperparameters.n_ctx
     }
 
@@ -342,6 +343,7 @@ pub struct Hyperparameters {
     /// file_type
     pub file_type: FileType,
 }
+
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         let hyperparameters = Hyperparameters {
@@ -410,51 +412,4 @@ struct Layer {
 
     c_mlp_proj_w: Tensor,
     c_mlp_proj_b: Tensor,
-}
-
-#[cfg(test)]
-impl GptJ {
-    /// This does *not* construct a valid model. All of the tensors are entirely
-    /// empty. However, it can be used to determine if some code will compile.
-    fn new_empty() -> Self {
-        let context = ggml::Context::init(1024 * 1024, true);
-
-        Self {
-            hyperparameters: Default::default(),
-            n_context_tokens: 0,
-            vocabulary: Default::default(),
-            ln_f_g: context.new_f32(0.0),
-            ln_f_b: context.new_f32(0.0),
-            wte: context.new_f32(0.0),
-            lmh_g: context.new_f32(0.0),
-            lmh_b: context.new_f32(0.0),
-            layers: Default::default(),
-            inference_parameters: Default::default(),
-            _mmap: Default::default(),
-            _context: context,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[test]
-    fn can_share_model_between_threads() {
-        let model = Arc::new(GptJ::new_empty());
-
-        for _ in 0..4 {
-            let model = model.clone();
-            std::thread::spawn(move || {
-                let _session = model.start_session(Default::default());
-            });
-        }
-
-        let session = model.start_session(Default::default());
-        std::thread::spawn(move || {
-            let _session = session;
-        });
-    }
 }

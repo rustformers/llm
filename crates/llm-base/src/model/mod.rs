@@ -154,9 +154,9 @@ pub trait KnownModel: Send + Sync {
     /// Get the vocabulary (loaded from the GGML file) for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
-    /// Get the context size (configured with [ModelParameters::n_context_tokens]) used by
+    /// Get the context size (configured with [ModelParameters::context_size]) used by
     /// this model.
-    fn n_context_tokens(&self) -> usize;
+    fn context_size(&self) -> usize;
 
     /// Get the beginning of text/beginning of string token ID, if available. This value is defined by model implementers.
     fn bot_token_id(&self) -> Option<TokenId>;
@@ -191,7 +191,7 @@ pub trait Model: Send + Sync {
     /// Get the vocabulary (loaded from the GGML file) for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
-    /// Get the context size (configured with [ModelParameters::n_context_tokens]) used by
+    /// Get the context size (configured with [ModelParameters::context_size]) used by
     /// this model.
     fn n_context_tokens(&self) -> usize;
 
@@ -226,7 +226,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     }
 
     fn n_context_tokens(&self) -> usize {
-        KnownModel::n_context_tokens(self)
+        KnownModel::context_size(self)
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
@@ -279,7 +279,7 @@ pub struct ModelParameters {
     pub prefer_mmap: bool,
     /// The context size ("memory") the model should use when evaluating a prompt. A larger context
     /// consumes more resources, but produces more consistent and coherent responses.
-    pub n_context_tokens: usize,
+    pub context_size: usize,
     /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
     pub inference_parameters: InferenceParameters,
     /// The [LoRA](https://arxiv.org/abs/2106.09685) adapters to use when loading the model. If `None`, no adapters will be used.
@@ -290,7 +290,7 @@ impl Default for ModelParameters {
     fn default() -> Self {
         Self {
             prefer_mmap: true,
-            n_context_tokens: 2048,
+            context_size: 2048,
             inference_parameters: Default::default(),
             lora_adapters: None,
         }
