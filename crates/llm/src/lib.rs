@@ -40,7 +40,7 @@
 //!     // the prompt to use for text generation, as well as other
 //!     // inference parameters
 //!     &llm::InferenceRequest {
-//!         prompt: "Rust is a cool programming language because",
+//!         prompt: "Rust is a cool programming language because".into(),
 //!         ..Default::default()
 //!     },
 //!     // llm::OutputRequest
