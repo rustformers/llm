@@ -193,7 +193,7 @@ pub trait Model: Send + Sync {
 
     /// Get the context size (configured with [ModelParameters::context_size]) used by
     /// this model.
-    fn n_context_tokens(&self) -> usize;
+    fn context_size(&self) -> usize;
 
     /// Get the beginning of text/beginning of string token ID, if available. This value is defined by model implementers.
     fn bot_token_id(&self) -> Option<TokenId>;
@@ -225,7 +225,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         KnownModel::vocabulary(self)
     }
 
-    fn n_context_tokens(&self) -> usize {
+    fn context_size(&self) -> usize {
         KnownModel::context_size(self)
     }
 

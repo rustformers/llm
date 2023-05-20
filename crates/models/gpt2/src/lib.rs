@@ -335,7 +335,7 @@ impl KnownModel for Gpt2 {
     }
 
     fn context_size(&self) -> usize {
-        self.hyperparameters.n_ctx
+        self.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
