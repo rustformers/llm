@@ -4,8 +4,8 @@
 //! - [BLOOM](llm_bloom)
 //! - [GPT-2](llm_gpt2)
 //! - [GPT-J](llm_gptj)
-//! - [LLaMA](llm_llama)
 //! - [GPT-NeoX](llm_gptneox)
+//! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
@@ -113,12 +113,12 @@ pub enum ModelArchitecture {
     #[cfg(feature = "gptj")]
     /// [GPT-J](llm_gptj)
     GptJ,
-    #[cfg(feature = "llama")]
-    /// [LLaMA](llm_llama)
-    Llama,
     #[cfg(feature = "gptneox")]
     /// [GPT-NeoX](llm_gptneox)
     GptNeoX,
+    #[cfg(feature = "llama")]
+    /// [LLaMA](llm_llama)
+    Llama,
     #[cfg(feature = "mpt")]
     /// [MPT](llm_mpt)
     Mpt,
@@ -133,10 +133,10 @@ impl ModelArchitecture {
         Self::Gpt2,
         #[cfg(feature = "gptj")]
         Self::GptJ,
-        #[cfg(feature = "llama")]
-        Self::Llama,
         #[cfg(feature = "gptneox")]
         Self::GptNeoX,
+        #[cfg(feature = "llama")]
+        Self::Llama,
         #[cfg(feature = "mpt")]
         Self::Mpt,
     ];
@@ -176,10 +176,10 @@ impl FromStr for ModelArchitecture {
             "gpt2" => Ok(Gpt2),
             #[cfg(feature = "gptj")]
             "gptj" => Ok(GptJ),
-            #[cfg(feature = "llama")]
-            "llama" => Ok(Llama),
             #[cfg(feature = "gptneox")]
             "gptneox" => Ok(GptNeoX),
+            #[cfg(feature = "llama")]
+            "llama" => Ok(Llama),
             #[cfg(feature = "mpt")]
             "mpt" => Ok(Mpt),
 
@@ -201,10 +201,10 @@ impl Display for ModelArchitecture {
             Gpt2 => write!(f, "GPT-2"),
             #[cfg(feature = "gptj")]
             GptJ => write!(f, "GPT-J"),
-            #[cfg(feature = "llama")]
-            Llama => write!(f, "LLaMA"),
             #[cfg(feature = "gptneox")]
             GptNeoX => write!(f, "GPT-NeoX"),
+            #[cfg(feature = "llama")]
+            Llama => write!(f, "LLaMA"),
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
         }
@@ -249,10 +249,10 @@ pub fn load_dynamic(
         Gpt2 => load_model::<models::Gpt2>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "gptj")]
         GptJ => load_model::<models::GptJ>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "llama")]
-        Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "gptneox")]
         GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
+        #[cfg(feature = "llama")]
+        Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
         #[cfg(feature = "mpt")]
         Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
     };

@@ -11,11 +11,6 @@ use rand::SeedableRng;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub enum Args {
-    /// Use a LLaMA model
-    Llama {
-        #[command(subcommand)]
-        args: BaseArgs,
-    },
     /// Use a BLOOM model
     Bloom {
         #[command(subcommand)]
@@ -35,6 +30,11 @@ pub enum Args {
     /// Use a GPT-NeoX model
     #[clap(id = "gptneox")]
     GptNeoX {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
+    /// Use a LLaMA model
+    Llama {
         #[command(subcommand)]
         args: BaseArgs,
     },
