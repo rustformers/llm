@@ -75,9 +75,8 @@ As described above, the model's [hyperparameters](#hyperparameters) typically
 contains a value that specifies the number of tokens in the vocabulary. The
 vocabulary is encoded as a list of tokens, each of which includes a 32-bit
 integer that specifies the length of the token. Depending on the GGML version,
-the token may also include a 32-bit floating point score.
-
-[comment]: <> (I need help describing token-scoring)
+the token may also include a 32-bit floating point score, which represents the
+frequency of that token in the model's training data.
 
 ### Weights
 
