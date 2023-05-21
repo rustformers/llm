@@ -12,13 +12,13 @@ machine learning.
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
-The primary entrypoint [for developers](#getting-started) is
+The primary entrypoint [for developers](#using-llm-in-a-rust-project) is
 [the `llm` crate](./crates/llm), which wraps [`llm-base`](./crates/llm-base) and
 the [supported model](./crates/models) crates.
 [Documentation](https://docs.rs/llm) for released version is available on
 Docs.rs.
 
-For end-users, there is [a CLI application](#building-llm-cli),
+For end-users, there is [a CLI application](#using-the-llm-cli),
 [`llm-cli`](./binaries/llm-cli), which provides a convenient interface for
 interacting with supported models. [Text generation](#running) can be done as a
 one-off based on a prompt, or interactively, through
@@ -52,7 +52,7 @@ Currently, the following models are supported:
   [Wizard](https://github.com/nlpxucan/WizardLM))
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
-## Getting Started
+## Using `llm` in a Rust Project
 
 This project depends on Rust v1.65.0 or above and a modern C toolchain.
 
@@ -85,14 +85,15 @@ dependency from being built in debug mode:
 opt-level = 3
 ```
 
-### Getting Started with `llm-cli`
+## Using the `llm` CLI
 
 The easiest way to get started with `llm-cli` is to download a pre-built
 executable from a [released](https://github.com/rustformers/llm/releases)
 version of `llm`, although this may not have all the features present on the
-`main` branch.
+`main` branch. The following methods involve building `llm`, which requires Rust
+v1.65.0 or above and a modern C toolchain.
 
-#### Installing with `cargo`
+### Installing with `cargo`
 
 To install the most recently released version of `llm` to your Cargo `bin`
 directory, which `rustup` is likely to have added to your `PATH`, run:
@@ -103,7 +104,7 @@ cargo install llm-cli
 
 The CLI application can then be run through `llm`.
 
-#### Building from Source
+### Building from Source
 
 To make use of the features on the `main` branch, clone the repository and then
 build it with
@@ -121,7 +122,7 @@ It can also be run directly through Cargo, with
 cargo run --release -- $ARGS
 ```
 
-### Getting Models
+## Getting Models
 
 GGML files are easy to acquire. For a list of models that have been tested, see
 the [known-good models](./doc/known-good-models.md).
@@ -132,13 +133,13 @@ loading models, or requesting support for
 [supported GGML model types](https://github.com/ggerganov/ggml#roadmap), please
 [open an Issue](https://github.com/rustformers/llm/issues/new).
 
-#### From Hugging Face
+### From Hugging Face
 
 Hugging Face 🤗 is a leader in open-source machine learning and hosts hundreds
 of GGML models.
 [Search for GGML models on Hugging Face 🤗](https://huggingface.co/models?search=ggml).
 
-#### r/LocalLLaMA
+### r/LocalLLaMA
 
 This Reddit community maintains
 [a wiki](https://www.reddit.com/r/LocalLLaMA/wiki/index/) related to GGML
@@ -146,7 +147,7 @@ models, including well organized lists of links for acquiring
 [GGML models](https://www.reddit.com/r/LocalLLaMA/wiki/models/) (mostly from
 Hugging Face 🤗).
 
-### Running
+## Usage
 
 Once the `llm` executable has been built or is in a `$PATH` directory, try
 running it. Here's an example that uses the open-source
