@@ -82,7 +82,7 @@ impl InferenceSession {
         let vocab = model.vocabulary();
         let prompt_tokens = prompt.into().to_tokens(vocab, beginning_of_sentence)?;
 
-        if self.n_past + prompt_tokens.len() >= model.n_context_tokens() {
+        if self.n_past + prompt_tokens.len() >= model.context_size() {
             return Err(InferenceError::ContextFull);
         }
 
@@ -119,7 +119,7 @@ impl InferenceSession {
         output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
     ) -> Result<&'v [u8], InferenceError> {
-        if self.n_past + 1 >= model.n_context_tokens() {
+        if self.n_past + 1 >= model.context_size() {
             return Err(InferenceError::ContextFull);
         }
 
@@ -241,7 +241,7 @@ impl InferenceSession {
         let mut count = 0;
 
         // TODO: make this handle <n_ctx tokens
-        let n_ctx = model.n_context_tokens();
+        let n_ctx = model.context_size();
         let n_chunk = tokens.len() / n_ctx;
         let n_vocab = model.vocabulary().len();
         let n_batch = parameters.n_batch;
