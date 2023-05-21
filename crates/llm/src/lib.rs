@@ -228,7 +228,7 @@ pub fn load_dynamic(
 ) -> Result<Box<dyn Model>, LoadError> {
     use ModelArchitecture::*;
 
-    fn load_model<M: KnownModel + 'static>(
+    fn load_model<M: KnownModel + Clone + 'static>(
         path: &Path,
         params: ModelParameters,
         overrides: Option<ModelDynamicOverrides>,

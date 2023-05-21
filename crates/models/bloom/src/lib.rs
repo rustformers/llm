@@ -45,6 +45,15 @@ pub struct Bloom {
 
 unsafe impl Send for Bloom {}
 unsafe impl Sync for Bloom {}
+impl Clone for Bloom {
+    fn clone(&self) -> Bloom {
+        // Clone the fields here
+        Bloom {
+            // field1: self.field1,
+            // field2: self.field2.clone(),
+        }
+    }
+}
 
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
