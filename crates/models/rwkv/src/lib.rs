@@ -30,7 +30,7 @@ pub struct Rwkv {
     graph: RefCell<ggml::ComputationGraph>,
     token_index: ggml::Tensor,
     state: RefCell<ggml::Tensor>,
-    logits: ggml::Tensor,
+    logits: RefCell<ggml::Tensor>,
     state_parts: RefCell<Vec<ggml::Tensor>>,
 }
 unsafe impl Send for Rwkv {}
@@ -287,7 +287,7 @@ impl KnownModel for Rwkv {
             graph: RefCell::new(gf),
             token_index,
             state: RefCell::new(state),
-            logits,
+            logits: RefCell::new(logits),
             state_parts: RefCell::new(state_parts),
         })
     }
@@ -314,37 +314,45 @@ impl KnownModel for Rwkv {
             self.token_index.set_i32_1d(0, *token);
 
             unsafe {
-                self.state
-                    .borrow_mut()
-                    .write_data(std::slice::from_raw_parts(
-                        session.state.data() as *mut u8,
-                        session.state.nbytes(),
-                    ));
+                /*self.state
+                .borrow_mut()
+                .write_data(std::slice::from_raw_parts(
+                    session.state.data() as *const u8,
+                    session.state.nbytes(),
+                ));*/
+
+                //self.state.borrow_mut().set_data(session.state.data());
+
+                std::ptr::copy_nonoverlapping(
+                    session.state.data() as *mut f32,
+                    self.state.borrow_mut().data() as *mut f32,
+                    session.state.get_ne()[0] as usize,
+                );
+
+                // idk wich one I should use they give me different results
             }
 
             self.ctx.graph_compute(&mut self.graph.borrow_mut());
 
-            let mut state_parts = self.state_parts.borrow_mut();
-
             for i in 0..(self.hyperparameters.n_layer * 5) {
-                let part = &mut state_parts[i];
-
+                let part = &mut self.state_parts.borrow_mut()[i];
                 unsafe {
-                    let p = std::slice::from_raw_parts_mut(
-                        session.state.data() as *mut u8,
-                        session.state.nbytes(),
+                    std::ptr::copy_nonoverlapping(
+                        part.data() as *mut f32,
+                        (session.state.data() as *mut f32).add(i * self.hyperparameters.n_embd),
+                        part.get_ne()[0] as usize,
                     );
-
-                    let start_index = i * self.hyperparameters.n_embd;
-                    let end_index = start_index + part.nbytes();
-                    part.read_data(0, &mut p[start_index..end_index]);
                 }
             }
 
             assert_eq!(session.last_logits.len(), self.hyperparameters.n_vocab);
             unsafe {
-                self.logits
-                    .read_data(0, bytemuck::cast_slice_mut(&mut session.last_logits));
+                //self.logits.read_data(0, bytemuck::cast_slice_mut(&mut session.last_logits));
+                std::ptr::copy_nonoverlapping(
+                    self.logits.borrow_mut().data() as *mut f32,
+                    session.last_logits.as_mut_slice().as_ptr() as *mut f32,
+                    self.hyperparameters.n_vocab,
+                );
             }
 
             output_request.all_logits = Some(session.last_logits.clone());
