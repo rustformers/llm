@@ -268,11 +268,13 @@ impl VocabularyTrait for TokenizerVocabulary {
 
     /// Converts a token index to the token it represents in this vocabulary.
     fn token(&self, idx: usize) -> Vec<u8> {
-        self.tokenizer
-            .decode(vec![idx as u32], true)
-            .unwrap()
-            .as_bytes()
-            .to_vec()
+        let res = self.tokenizer.decode(vec![idx as u32], true);
+
+        if res.is_err() {
+            panic!("Cannot decode token from tokenizer vocabulary.");
+        } else {
+            res.unwrap().as_bytes().to_vec()
+        }
     }
 
     /// Returns the number of tokens in the vocabulary.
@@ -298,9 +300,13 @@ impl VocabularyTrait for TokenizerVocabulary {
         if res.is_err() {
             return Err(TokenizationError::TokenizationFailed);
         } else {
-            Ok(self
-                .tokenizer
-                .encode(text, bos)
+            let res = self.tokenizer.encode(text, bos);
+
+            if res.is_err() {
+                return Err(TokenizationError::TokenizationFailed);
+            }
+
+            Ok(res
                 .unwrap()
                 .get_ids()
                 .iter()
