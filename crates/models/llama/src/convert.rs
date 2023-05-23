@@ -55,7 +55,7 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
         let word = piece.get_piece().as_bytes();
         max_token_length = max_token_length.max(word.len());
         id_to_token.push(word.to_owned());
-        token_to_id.insert(word.to_owned(), idx as i32);
+        token_to_id.insert(word.to_owned(), idx as u32);
         id_to_token_score.push(piece.get_score());
     }
     Vocabulary {
@@ -63,6 +63,7 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
         id_to_token_score,
         token_to_id,
         max_token_length,
+        tokenizer: None,
     }
 }
 

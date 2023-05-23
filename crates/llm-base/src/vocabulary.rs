@@ -1,9 +1,10 @@
 use std::{collections::HashMap, error::Error, fmt::Display, str::FromStr};
 
 use thiserror::Error;
+use tokenizers::Tokenizer;
 
 /// The identifier of a token in a vocabulary.
-pub type TokenId = i32;
+pub type TokenId = u32;
 pub(crate) type Token = Vec<u8>;
 pub(crate) type TokenScore = f32;
 
@@ -34,9 +35,19 @@ pub struct Vocabulary {
 
     /// The longest token in this vocabulary.
     pub max_token_length: usize,
+
+    /// The tokenizer
+    pub tokenizer: Option<Tokenizer>,
 }
 
 impl Vocabulary {
+    /// Intialize a new vocabulary.
+    pub fn new(tokenizer: Option<Tokenizer>) -> Vocabulary {
+        let mut vocab = Vocabulary::default();
+        vocab.tokenizer = tokenizer;
+
+        vocab
+    }
     /// Add a token to the vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
@@ -45,6 +56,10 @@ impl Vocabulary {
     /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
     ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
     pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
+        if self.tokenizer.is_some() {
+            return;
+        }
+
         // These are loader invariants. If this is broken, then the loader is broken and this is a bug,
         // not an issue with the model itself.
         assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
@@ -60,17 +75,33 @@ impl Vocabulary {
     }
 
     /// Converts a token index to the token it represents in this vocabulary.
-    pub fn token(&self, idx: usize) -> &[u8] {
-        &self.id_to_token[idx]
+    pub fn token(&self, idx: usize) -> Vec<u8> {
+        if let Some(tokenizer) = &self.tokenizer {
+            return tokenizer
+                .decode(vec![idx as u32], true)
+                .unwrap()
+                .as_bytes()
+                .to_vec();
+        }
+
+        (&self.id_to_token[idx]).clone()
     }
 
     /// Returns the number of tokens in the vocabulary.
     pub fn len(&self) -> usize {
+        if let Some(tokenizer) = &self.tokenizer {
+            return tokenizer.get_vocab_size(false) as usize;
+        }
+
         self.id_to_token.len()
     }
 
     /// Returns whether the vocabulary is empty.
     pub fn is_empty(&self) -> bool {
+        if let Some(tokenizer) = &self.tokenizer {
+            return tokenizer.get_vocab_size(false) == 0;
+        }
+
         self.id_to_token.is_empty()
     }
 
@@ -82,53 +113,68 @@ impl Vocabulary {
         &'a self,
         text: &str,
         bos: bool,
-    ) -> Result<Vec<(&'a [u8], TokenId)>, TokenizationError> {
-        let len = text.len();
+    ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
+        if let Some(tokenizer) = &self.tokenizer {
+            let res = tokenizer.encode(text, bos);
+            if res.is_err() {
+                return Err(TokenizationError::TokenizationFailed);
+            } else {
+                Ok(tokenizer
+                    .encode(text, bos)
+                    .unwrap()
+                    .get_ids()
+                    .iter()
+                    .map(|id| (self.token(*id as usize), *id))
+                    .collect::<Vec<(Vec<u8>, TokenId)>>())
+            }
+        } else {
+            let len = text.len();
 
-        let mut score = vec![0usize; len + 1];
-        let mut prev = vec![TokenId::default(); len + 1];
+            let mut score = vec![0usize; len + 1];
+            let mut prev = vec![TokenId::default(); len + 1];
 
-        for i in 0..len {
-            let max_len = (len - i).min(self.max_token_length);
-            for sub_len in 1..=max_len {
-                let sub = &text.as_bytes()[i..i + sub_len];
-                let token = self.token_to_id.get(sub);
+            for i in 0..len {
+                let max_len = (len - i).min(self.max_token_length);
+                for sub_len in 1..=max_len {
+                    let sub = &text.as_bytes()[i..i + sub_len];
+                    let token = self.token_to_id.get(sub);
 
-                if let Some(token) = token {
-                    let token_score = sub.len() * sub.len();
-                    let local_score = score[i] + token_score;
-                    let next = i + sub_len;
+                    if let Some(token) = token {
+                        let token_score = sub.len() * sub.len();
+                        let local_score = score[i] + token_score;
+                        let next = i + sub_len;
 
-                    if score[next] < local_score {
-                        score[next] = local_score;
-                        prev[next] = *token;
+                        if score[next] < local_score {
+                            score[next] = local_score;
+                            prev[next] = *token;
+                        }
                     }
                 }
             }
-        }
 
-        // Backward pass
-        let mut res = vec![];
-        let mut i = len;
-        while i > 0 {
-            let token_id = prev[i];
-            if token_id == 0 {
-                return Err(TokenizationError::TokenizationFailed);
+            // Backward pass
+            let mut res = vec![];
+            let mut i = len;
+            while i > 0 {
+                let token_id = prev[i];
+                if token_id == 0 {
+                    return Err(TokenizationError::TokenizationFailed);
+                }
+                let token = self.id_to_token[token_id as usize].as_slice();
+                res.push((token.to_vec(), token_id));
+                i -= token.len();
             }
-            let token = self.id_to_token[token_id as usize].as_slice();
-            res.push((token, token_id));
-            i -= token.len();
+
+            if bos {
+                // TODO: replace with vocab.bos
+                res.push((vec![], 1));
+            }
+
+            // Pieces are in reverse order so correct that
+            res.reverse();
+
+            Ok(res)
         }
-
-        if bos {
-            // TODO: replace with vocab.bos
-            res.push((&[], 1));
-        }
-
-        // Pieces are in reverse order so correct that
-        res.reverse();
-
-        Ok(res)
     }
 }
 

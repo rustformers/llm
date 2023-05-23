@@ -332,6 +332,10 @@ pub struct ModelLoad {
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
+    /// Where to save the model from
+    #[arg(long, short = 'v')]
+    pub vocab_path: Option<PathBuf>,
+
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
     ///
@@ -376,6 +380,7 @@ impl ModelLoad {
 
         let model = llm::load::<M>(
             &self.model_path,
+            self.vocab_path.as_deref(),
             params,
             overrides,
             |progress| match progress {

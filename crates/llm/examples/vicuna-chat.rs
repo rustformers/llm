@@ -24,6 +24,7 @@ fn main() {
     let model = llm::load_dynamic(
         model_architecture,
         model_path,
+        None,
         Default::default(),
         overrides,
         load_progress_callback(sp, now, prev_load_time),

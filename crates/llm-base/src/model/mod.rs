@@ -114,6 +114,7 @@ pub trait KnownModel: Send + Sync {
     /// is a helper function on top of [llm_base::load](crate::load).
     fn load(
         path: &Path,
+        vocab_path: Option<&Path>,
         params: ModelParameters,
         overrides: Option<Self::Overrides>,
         load_progress_callback: impl FnMut(LoadProgress),
@@ -121,7 +122,7 @@ pub trait KnownModel: Send + Sync {
     where
         Self: Sized,
     {
-        crate::load(path, params, overrides, load_progress_callback)
+        crate::load(path, vocab_path, params, overrides, load_progress_callback)
     }
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
@@ -151,7 +152,7 @@ pub trait KnownModel: Send + Sync {
         output_request: &mut OutputRequest,
     );
 
-    /// Get the vocabulary (loaded from the GGML file) for this model.
+    /// Get the vocabulary for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
     /// Get the context size (configured with [ModelParameters::context_size]) used by
@@ -188,7 +189,7 @@ pub trait Model: Send + Sync {
         output_request: &mut OutputRequest,
     );
 
-    /// Get the vocabulary (loaded from the GGML file) for this model.
+    /// Get the vocabulary for this model.
     fn vocabulary(&self) -> &Vocabulary;
 
     /// Get the context size (configured with [ModelParameters::context_size]) used by

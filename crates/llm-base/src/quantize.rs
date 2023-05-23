@@ -151,7 +151,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let mut loader = Loader::<M::Hyperparameters, _>::new({
+    let mut loader = Loader::<M::Hyperparameters, _>::new(None, {
         let progress_callback = progress_callback.clone();
         move |p| {
             if let LoadProgress::HyperparametersLoaded = p {

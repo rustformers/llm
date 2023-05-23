@@ -18,6 +18,8 @@ use ggml::{
 use memmap2::Mmap;
 use thiserror::Error;
 
+use tokenizers::Tokenizer;
+
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
 /// Information about the file.
 pub struct FileType {
@@ -280,6 +282,15 @@ pub enum LoadError {
         /// The paths that were found.
         paths: Vec<PathBuf>,
     },
+
+    /// The vocab file for the tokenizer could not be loaded.
+    ///
+    ///
+    #[error("could not load vocab file {path:?}")]
+    VocabLoadError {
+        /// The path that failed.
+        path: PathBuf,
+    },
 }
 impl From<util::FindAllModelFilesError> for LoadError {
     fn from(value: util::FindAllModelFilesError) -> Self {
@@ -343,6 +354,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
+    vocab_path: Option<&Path>,
     params: ModelParameters,
     overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
@@ -364,7 +376,29 @@ pub fn load<M: KnownModel>(
     })?;
     let mut reader = BufReader::new(&file);
 
-    let mut loader = Loader::new(load_progress_callback);
+    let tokenizer = if let Some(path) = vocab_path {
+        let tok = if !path.exists() && path.to_str().unwrap().matches("/").count() == 1 {
+            Tokenizer::from_pretrained(path.to_str().unwrap(), None)
+        } else if path.exists() && path.is_file() {
+            Tokenizer::from_file(path)
+        } else {
+            return Err(LoadError::VocabLoadError {
+                path: path.to_owned(),
+            });
+        };
+
+        if tok.is_err() {
+            return Err(LoadError::VocabLoadError {
+                path: path.to_owned(),
+            });
+        }
+
+        Some(tok.unwrap())
+    } else {
+        None
+    };
+
+    let mut loader = Loader::new(tokenizer, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
@@ -422,7 +456,7 @@ pub fn load<M: KnownModel>(
                 let mut lora_reader = BufReader::new(&lora_file);
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-                let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
+                let mut lora_loader: Loader<LoraParameters, _> = Loader::new(None, |_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
@@ -498,13 +532,13 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
-    pub fn new(load_progress_callback: F) -> Self {
+    pub fn new(tokenizer: Option<Tokenizer>, load_progress_callback: F) -> Self {
         Self {
             load_progress_callback,
 
             container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
-            vocabulary: Vocabulary::default(),
+            vocabulary: Vocabulary::new(tokenizer),
             tensors: HashMap::default(),
         }
     }

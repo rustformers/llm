@@ -149,7 +149,7 @@ fn perplexity<M: llm::KnownModel + 'static>(
 fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     let file = File::open(&args.model_path)?;
     let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(|_| {
+    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(None, |_| {
         // We purposely do not print progress here, as we are only interested in the metadata
     });
 

@@ -222,6 +222,7 @@ impl Display for ModelArchitecture {
 pub fn load_dynamic(
     architecture: ModelArchitecture,
     path: &Path,
+    vocab_path: Option<&Path>,
     params: ModelParameters,
     overrides: Option<ModelDynamicOverrides>,
     load_progress_callback: impl FnMut(LoadProgress),
@@ -230,12 +231,14 @@ pub fn load_dynamic(
 
     fn load_model<M: KnownModel + 'static>(
         path: &Path,
+        vocab_path: Option<&Path>,
         params: ModelParameters,
         overrides: Option<ModelDynamicOverrides>,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Box<dyn Model>, LoadError> {
         Ok(Box::new(load::<M>(
             path,
+            vocab_path,
             params,
             overrides.map(|o| o.into()),
             load_progress_callback,
@@ -244,17 +247,41 @@ pub fn load_dynamic(
 
     let model: Box<dyn Model> = match architecture {
         #[cfg(feature = "bloom")]
-        Bloom => load_model::<models::Bloom>(path, params, overrides, load_progress_callback)?,
+        Bloom => load_model::<models::Bloom>(
+            path,
+            vocab_path,
+            params,
+            overrides,
+            load_progress_callback,
+        )?,
         #[cfg(feature = "gpt2")]
-        Gpt2 => load_model::<models::Gpt2>(path, params, overrides, load_progress_callback)?,
+        Gpt2 => {
+            load_model::<models::Gpt2>(path, vocab_path, params, overrides, load_progress_callback)?
+        }
         #[cfg(feature = "gptj")]
-        GptJ => load_model::<models::GptJ>(path, params, overrides, load_progress_callback)?,
+        GptJ => {
+            load_model::<models::GptJ>(path, vocab_path, params, overrides, load_progress_callback)?
+        }
         #[cfg(feature = "gptneox")]
-        GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
+        GptNeoX => load_model::<models::GptNeoX>(
+            path,
+            vocab_path,
+            params,
+            overrides,
+            load_progress_callback,
+        )?,
         #[cfg(feature = "llama")]
-        Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
+        Llama => load_model::<models::Llama>(
+            path,
+            vocab_path,
+            params,
+            overrides,
+            load_progress_callback,
+        )?,
         #[cfg(feature = "mpt")]
-        Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
+        Mpt => {
+            load_model::<models::Mpt>(path, vocab_path, params, overrides, load_progress_callback)?
+        }
     };
 
     Ok(model)

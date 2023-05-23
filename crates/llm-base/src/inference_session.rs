@@ -94,7 +94,7 @@ impl InferenceSession {
                 if should_call_callback {
                     // NOTE: No string ever tokenizes to the end of sentence. So we
                     // can just return the id here.
-                    match callback(vocab.token(tk as usize)) {
+                    match callback(&vocab.token(tk as usize)) {
                         Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
                         Ok(f) => match f {
                             InferenceFeedback::Continue => (),
@@ -118,7 +118,7 @@ impl InferenceSession {
         params: &InferenceParameters,
         output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
-    ) -> Result<&'v [u8], InferenceError> {
+    ) -> Result<Vec<u8>, InferenceError> {
         if self.n_past + 1 >= model.context_size() {
             return Err(InferenceError::ContextFull);
         }
@@ -163,7 +163,7 @@ impl InferenceSession {
             for token_id in &self.tokens {
                 // Buffer the token until it's valid UTF-8, then call the callback.
                 if let Some(tokens) =
-                    token_utf8_buf.push(model.vocabulary().token(*token_id as usize))
+                    token_utf8_buf.push(&model.vocabulary().token(*token_id as usize))
                 {
                     if let Err(e) = callback(InferenceResponse::SnapshotToken(tokens)) {
                         return Err(InferenceError::UserCallback(Some(Box::new(e))));
@@ -204,7 +204,7 @@ impl InferenceSession {
             };
 
             // Buffer the token until it's valid UTF-8, then call the callback.
-            if let Some(tokens) = token_utf8_buf.push(token) {
+            if let Some(tokens) = token_utf8_buf.push(&token) {
                 match callback(InferenceResponse::InferredToken(tokens)) {
                     Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
                     Ok(f) => match f {
