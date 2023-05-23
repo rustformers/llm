@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    error::Error,
     fmt::{Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
@@ -284,12 +285,13 @@ pub enum LoadError {
     },
 
     /// The vocab file for the tokenizer could not be loaded.
-    ///
-    ///
     #[error("could not load vocab file {path:?}")]
-    VocabLoadError {
+    VocabularyLoadError {
         /// The path that failed.
         path: PathBuf,
+
+        /// The error that occurred.
+        error: Box<dyn Error + Send + Sync>,
     },
 }
 impl From<util::FindAllModelFilesError> for LoadError {
@@ -354,7 +356,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    vocab_path: Option<&Path>,
+    vocabulary_path: Option<&Path>,
     params: ModelParameters,
     overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
@@ -376,29 +378,34 @@ pub fn load<M: KnownModel>(
     })?;
     let mut reader = BufReader::new(&file);
 
-    let tokenizer = if let Some(path) = vocab_path {
-        let tok = if !path.exists() && path.to_str().unwrap().matches("/").count() == 1 {
+    let vocabulary = if let Some(path) = vocabulary_path {
+        let tok = if !path.exists() && path.to_string_lossy().matches("/").count() == 1 {
             Tokenizer::from_pretrained(path.to_str().unwrap(), None)
         } else if path.exists() && path.is_file() {
             Tokenizer::from_file(path)
         } else {
-            return Err(LoadError::VocabLoadError {
+            return Err(LoadError::VocabularyLoadError {
                 path: path.to_owned(),
+                error: Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Vocabulary file not found",
+                )),
             });
         };
 
         if tok.is_err() {
-            return Err(LoadError::VocabLoadError {
+            return Err(LoadError::VocabularyLoadError {
                 path: path.to_owned(),
+                error: tok.unwrap_err(),
             });
         }
 
-        Some(tok.unwrap())
+        Vocabulary::new_tokenizer(tok.unwrap())
     } else {
-        None
+        Vocabulary::new_ggml()
     };
 
-    let mut loader = Loader::new(tokenizer, load_progress_callback);
+    let mut loader = Loader::new(vocabulary, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
@@ -456,7 +463,8 @@ pub fn load<M: KnownModel>(
                 let mut lora_reader = BufReader::new(&lora_file);
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-                let mut lora_loader: Loader<LoraParameters, _> = Loader::new(None, |_| {});
+                let mut lora_loader: Loader<LoraParameters, _> =
+                    Loader::new(Vocabulary::new_ggml(), |_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
@@ -532,13 +540,13 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
-    pub fn new(tokenizer: Option<Tokenizer>, load_progress_callback: F) -> Self {
+    pub fn new(vocabulary: Vocabulary, load_progress_callback: F) -> Self {
         Self {
             load_progress_callback,
 
             container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
-            vocabulary: Vocabulary::new(tokenizer),
+            vocabulary: vocabulary,
             tensors: HashMap::default(),
         }
     }
@@ -552,11 +560,14 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
     }
 
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
-        let id = match TokenId::try_from(i) {
-            Ok(id) => id,
-            Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
-        };
-        self.vocabulary.push_token(id, token, score);
+        if let Vocabulary::Ggml(_) = &self.vocabulary {
+            let id = match TokenId::try_from(i) {
+                Ok(id) => id,
+                Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
+            };
+
+            self.vocabulary.push_token(id, token, score);
+        }
 
         Ok(())
     }

@@ -36,7 +36,10 @@ pub use model::{
 };
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
-pub use vocabulary::{InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Vocabulary};
+pub use vocabulary::{
+    GgmlVocabulary, InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError,
+    TokenizerVocabulary, Vocabulary,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 /// The parameters for text generation.

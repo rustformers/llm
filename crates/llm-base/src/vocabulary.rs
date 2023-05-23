@@ -19,9 +19,103 @@ pub enum TokenizationError {
     InvalidTokenId(TokenId),
 }
 
-/// The vocabulary used by a model.
+pub trait VocabularyTrait {
+    fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore);
+    fn token_to_id(&self, token: &[u8]) -> Option<TokenId>;
+    fn token(&self, idx: usize) -> Vec<u8>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn tokenize<'a>(
+        &'a self,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError>;
+}
+
+/// Vocabulary enum
+pub enum Vocabulary {
+    /// The vocabulary built-in to the model.
+    Ggml(GgmlVocabulary),
+
+    /// A custom vocabulary provided by the user.
+    Tokenizer(TokenizerVocabulary),
+}
+
+impl Vocabulary {
+    /// Create a new vocabulary with the default GGML vocabulary.
+    pub fn new_ggml() -> Self {
+        Vocabulary::Ggml(GgmlVocabulary::default())
+    }
+
+    /// Create a new vocabulary with a custom tokenizer.
+    pub fn new_tokenizer(tokenizer: Tokenizer) -> Self {
+        Vocabulary::Tokenizer(TokenizerVocabulary::new(tokenizer))
+    }
+
+    /// Add a token to the vocabulary.
+    ///
+    /// The token added must have `id` directly after the last token in the vocabulary.
+    ///
+    /// # Panics
+    /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
+    ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
+    pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
+        match self {
+            Vocabulary::Ggml(v) => v.push_token(id, content, score),
+            Vocabulary::Tokenizer(v) => v.push_token(id, content, score),
+        }
+    }
+
+    /// Converts a token to the token ID it represents in this vocabulary.
+    pub fn token_to_id(&self, token: &[u8]) -> Option<TokenId> {
+        match self {
+            Vocabulary::Ggml(v) => v.token_to_id(token),
+            Vocabulary::Tokenizer(v) => v.token_to_id(token),
+        }
+    }
+
+    /// Converts a token index to the token it represents in this vocabulary.
+    pub fn token(&self, idx: usize) -> Vec<u8> {
+        match self {
+            Vocabulary::Ggml(v) => v.token(idx),
+            Vocabulary::Tokenizer(v) => v.token(idx),
+        }
+    }
+
+    /// Returns the number of tokens in the vocabulary.
+    pub fn len(&self) -> usize {
+        match self {
+            Vocabulary::Ggml(v) => v.len(),
+            Vocabulary::Tokenizer(v) => v.len(),
+        }
+    }
+
+    /// Returns whether the vocabulary is empty.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Vocabulary::Ggml(v) => v.is_empty(),
+            Vocabulary::Tokenizer(v) => v.is_empty(),
+        }
+    }
+
+    /// Tokenize a `text` with this vocabulary.
+    ///
+    /// `bos` controls whether a beginning-of-string token should be inserted.
+    pub fn tokenize<'a>(
+        &'a self,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
+        match self {
+            Vocabulary::Ggml(v) => v.tokenize(text, bos),
+            Vocabulary::Tokenizer(v) => v.tokenize(text, bos),
+        }
+    }
+}
+
+/// The built-in GGML vocabulary.
 #[derive(Debug, Clone, Default)]
-pub struct Vocabulary {
+pub struct GgmlVocabulary {
     // TODO: make these private
     /// Maps every integer (index) token ID to its corresponding token.
     pub id_to_token: Vec<Token>,
@@ -35,19 +129,9 @@ pub struct Vocabulary {
 
     /// The longest token in this vocabulary.
     pub max_token_length: usize,
-
-    /// The tokenizer
-    pub tokenizer: Option<Tokenizer>,
 }
 
-impl Vocabulary {
-    /// Intialize a new vocabulary.
-    pub fn new(tokenizer: Option<Tokenizer>) -> Vocabulary {
-        let mut vocab = Vocabulary::default();
-        vocab.tokenizer = tokenizer;
-
-        vocab
-    }
+impl VocabularyTrait for GgmlVocabulary {
     /// Add a token to the vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
@@ -55,11 +139,7 @@ impl Vocabulary {
     /// # Panics
     /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
     ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
-    pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
-        if self.tokenizer.is_some() {
-            return;
-        }
-
+    fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
         // These are loader invariants. If this is broken, then the loader is broken and this is a bug,
         // not an issue with the model itself.
         assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
@@ -74,34 +154,22 @@ impl Vocabulary {
         self.token_to_id.insert(content, id);
     }
 
-    /// Converts a token index to the token it represents in this vocabulary.
-    pub fn token(&self, idx: usize) -> Vec<u8> {
-        if let Some(tokenizer) = &self.tokenizer {
-            return tokenizer
-                .decode(vec![idx as u32], true)
-                .unwrap()
-                .as_bytes()
-                .to_vec();
-        }
+    fn token_to_id(&self, token: &[u8]) -> Option<TokenId> {
+        self.token_to_id.get(token).copied()
+    }
 
+    /// Converts a token index to the token it represents in this vocabulary.
+    fn token(&self, idx: usize) -> Vec<u8> {
         (&self.id_to_token[idx]).clone()
     }
 
     /// Returns the number of tokens in the vocabulary.
-    pub fn len(&self) -> usize {
-        if let Some(tokenizer) = &self.tokenizer {
-            return tokenizer.get_vocab_size(false) as usize;
-        }
-
+    fn len(&self) -> usize {
         self.id_to_token.len()
     }
 
     /// Returns whether the vocabulary is empty.
-    pub fn is_empty(&self) -> bool {
-        if let Some(tokenizer) = &self.tokenizer {
-            return tokenizer.get_vocab_size(false) == 0;
-        }
-
+    fn is_empty(&self) -> bool {
         self.id_to_token.is_empty()
     }
 
@@ -109,71 +177,123 @@ impl Vocabulary {
     /// Tokenize a `text` with this vocabulary.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
-    pub fn tokenize<'a>(
+    fn tokenize<'a>(
         &'a self,
         text: &str,
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
-        if let Some(tokenizer) = &self.tokenizer {
-            let res = tokenizer.encode(text, bos);
-            if res.is_err() {
-                return Err(TokenizationError::TokenizationFailed);
-            } else {
-                Ok(tokenizer
-                    .encode(text, bos)
-                    .unwrap()
-                    .get_ids()
-                    .iter()
-                    .map(|id| (self.token(*id as usize), *id))
-                    .collect::<Vec<(Vec<u8>, TokenId)>>())
-            }
-        } else {
-            let len = text.len();
+        let len = text.len();
 
-            let mut score = vec![0usize; len + 1];
-            let mut prev = vec![TokenId::default(); len + 1];
+        let mut score = vec![0usize; len + 1];
+        let mut prev = vec![TokenId::default(); len + 1];
 
-            for i in 0..len {
-                let max_len = (len - i).min(self.max_token_length);
-                for sub_len in 1..=max_len {
-                    let sub = &text.as_bytes()[i..i + sub_len];
-                    let token = self.token_to_id.get(sub);
+        for i in 0..len {
+            let max_len = (len - i).min(self.max_token_length);
+            for sub_len in 1..=max_len {
+                let sub = &text.as_bytes()[i..i + sub_len];
+                let token = self.token_to_id.get(sub);
 
-                    if let Some(token) = token {
-                        let token_score = sub.len() * sub.len();
-                        let local_score = score[i] + token_score;
-                        let next = i + sub_len;
+                if let Some(token) = token {
+                    let token_score = sub.len() * sub.len();
+                    let local_score = score[i] + token_score;
+                    let next = i + sub_len;
 
-                        if score[next] < local_score {
-                            score[next] = local_score;
-                            prev[next] = *token;
-                        }
+                    if score[next] < local_score {
+                        score[next] = local_score;
+                        prev[next] = *token;
                     }
                 }
             }
+        }
 
-            // Backward pass
-            let mut res = vec![];
-            let mut i = len;
-            while i > 0 {
-                let token_id = prev[i];
-                if token_id == 0 {
-                    return Err(TokenizationError::TokenizationFailed);
-                }
-                let token = self.id_to_token[token_id as usize].as_slice();
-                res.push((token.to_vec(), token_id));
-                i -= token.len();
+        // Backward pass
+        let mut res = vec![];
+        let mut i = len;
+        while i > 0 {
+            let token_id = prev[i];
+            if token_id == 0 {
+                return Err(TokenizationError::TokenizationFailed);
             }
+            let token = self.id_to_token[token_id as usize].as_slice();
+            res.push((token.to_vec(), token_id));
+            i -= token.len();
+        }
 
-            if bos {
-                // TODO: replace with vocab.bos
-                res.push((vec![], 1));
-            }
+        if bos {
+            // TODO: replace with vocab.bos
+            res.push((vec![], 1));
+        }
 
-            // Pieces are in reverse order so correct that
-            res.reverse();
+        // Pieces are in reverse order so correct that
+        res.reverse();
 
-            Ok(res)
+        Ok(res)
+    }
+}
+
+/// A vocabulary provided by the user.
+#[derive(Debug, Clone)]
+pub struct TokenizerVocabulary {
+    tokenizer: Tokenizer,
+}
+
+impl TokenizerVocabulary {
+    /// Create a new `TokenizerVocabulary`.
+    pub fn new(tokenizer: Tokenizer) -> Self {
+        Self { tokenizer }
+    }
+}
+
+impl VocabularyTrait for TokenizerVocabulary {
+    fn push_token(&mut self, _id: TokenId, _content: Token, _score: TokenScore) {
+        panic!("Cannot push token to tokenizer vocabulary.");
+    }
+
+    fn token_to_id(&self, token: &[u8]) -> Option<TokenId> {
+        self.tokenizer
+            .token_to_id(std::str::from_utf8(token).unwrap())
+    }
+
+    /// Converts a token index to the token it represents in this vocabulary.
+    fn token(&self, idx: usize) -> Vec<u8> {
+        self.tokenizer
+            .decode(vec![idx as u32], true)
+            .unwrap()
+            .as_bytes()
+            .to_vec()
+    }
+
+    /// Returns the number of tokens in the vocabulary.
+    fn len(&self) -> usize {
+        self.tokenizer.get_vocab_size(false) as usize
+    }
+
+    /// Returns whether the vocabulary is empty.
+    fn is_empty(&self) -> bool {
+        self.tokenizer.get_vocab_size(false) == 0
+    }
+
+    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
+    /// Tokenize a `text` with this vocabulary.
+    ///
+    /// `bos` controls whether a beginning-of-string token should be inserted.
+    fn tokenize<'a>(
+        &'a self,
+        text: &str,
+        bos: bool,
+    ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
+        let res = self.tokenizer.encode(text, bos);
+        if res.is_err() {
+            return Err(TokenizationError::TokenizationFailed);
+        } else {
+            Ok(self
+                .tokenizer
+                .encode(text, bos)
+                .unwrap()
+                .get_ids()
+                .iter()
+                .map(|id| (self.token(*id as usize), *id))
+                .collect::<Vec<(Vec<u8>, TokenId)>>())
         }
     }
 }
@@ -214,7 +334,7 @@ impl Prompt<'_> {
                 if let Some(t) = tokens
                     .iter()
                     .copied()
-                    .find(|t| vocab.id_to_token.get(*t as usize).is_none())
+                    .find(|t| vocab.token(*t as usize).is_empty())
                 {
                     return Err(TokenizationError::InvalidTokenId(t));
                 }

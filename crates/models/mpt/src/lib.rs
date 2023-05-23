@@ -285,17 +285,12 @@ impl KnownModel for Mpt {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary
-            .token_to_id
-            .get("<|padding|>".as_bytes())
-            .copied()
+        self.vocabulary.token_to_id("<|padding|>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary
-            .token_to_id
-            .get("<|endoftext|>".as_bytes())
-            .copied()
+            .token_to_id("<|endoftext|>".as_bytes())
             .unwrap()
     }
 

@@ -395,9 +395,7 @@ impl KnownModel for GptNeoX {
 
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary
-            .token_to_id
-            .get("<|endoftext|>".as_bytes())
-            .copied()
+            .token_to_id("<|endoftext|>".as_bytes())
             .unwrap()
     }
 

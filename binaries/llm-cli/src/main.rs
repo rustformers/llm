@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
-use llm::{InferenceError, InferenceFeedback, InferenceResponse};
+use llm::{InferenceError, InferenceFeedback, InferenceResponse, Vocabulary};
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
@@ -149,9 +149,10 @@ fn perplexity<M: llm::KnownModel + 'static>(
 fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     let file = File::open(&args.model_path)?;
     let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(None, |_| {
-        // We purposely do not print progress here, as we are only interested in the metadata
-    });
+    let mut loader: llm::Loader<M::Hyperparameters, _> =
+        llm::Loader::new(Vocabulary::new_ggml(), |_| {
+            // We purposely do not print progress here, as we are only interested in the metadata
+        });
 
     llm::ggml_format::load(&mut reader, &mut loader)?;
 
@@ -165,12 +166,12 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
             .map(|(name, tensor)| format!("{} ({:?})", name, tensor.element_type))
             .collect::<Vec<_>>()
     );
-    log::info!("Vocabulary size: {}", loader.vocabulary.id_to_token.len());
+    log::info!("Vocabulary size: {}", loader.vocabulary.len());
 
     if args.dump_vocabulary {
         log::info!("Dumping vocabulary:");
-        for (tid, token) in loader.vocabulary.id_to_token.iter().enumerate() {
-            log::info!("{}: {}", tid, utf8_or_array(token));
+        for i in 0..loader.vocabulary.len() {
+            log::info!("{}: {}", i, utf8_or_array(&loader.vocabulary.token(i)));
         }
     }
 

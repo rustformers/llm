@@ -383,15 +383,11 @@ impl KnownModel for Bloom {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary.token_to_id.get("<s>".as_bytes()).copied()
+        self.vocabulary.token_to_id("<s>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("</s>".as_bytes())
-            .copied()
-            .unwrap()
+        self.vocabulary.token_to_id("</s>".as_bytes()).unwrap()
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {

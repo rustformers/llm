@@ -3,7 +3,7 @@
 //! This is *incomplete* and does not convert the weights. It only converts the
 //! vocabulary and hyperparameters. It is included as a preliminary step to
 //! full conversion.
-use llm_base::FileType;
+use llm_base::{FileType, GgmlVocabulary};
 ///
 /// For reference, see [the PR](https://github.com/rustformers/llm/pull/83).
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
@@ -17,7 +17,7 @@ use std::{
     vec,
 };
 
-use crate::{Hyperparameters, Vocabulary};
+use crate::Hyperparameters;
 
 /// Converts a `pth` file to a `ggml` file.
 pub fn convert_pth_to_ggml(model_directory: &Path, file_type: FileType) {
@@ -39,7 +39,7 @@ pub fn convert_pth_to_ggml(model_directory: &Path, file_type: FileType) {
     }
 }
 
-fn load_vocabulary(path: &Path) -> Vocabulary {
+fn load_vocabulary(path: &Path) -> GgmlVocabulary {
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
@@ -58,16 +58,20 @@ fn load_vocabulary(path: &Path) -> Vocabulary {
         token_to_id.insert(word.to_owned(), idx as u32);
         id_to_token_score.push(piece.get_score());
     }
-    Vocabulary {
+
+    GgmlVocabulary {
         id_to_token,
         id_to_token_score,
         token_to_id,
         max_token_length,
-        tokenizer: None,
     }
 }
 
-fn load_hyperparameters(path: &Path, file_type: FileType, vocab: &Vocabulary) -> Hyperparameters {
+fn load_hyperparameters(
+    path: &Path,
+    file_type: FileType,
+    vocab: &GgmlVocabulary,
+) -> Hyperparameters {
     #[derive(Deserialize)]
     struct HyperparametersJson {
         dim: usize,
@@ -117,7 +121,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
     Ok(())
 }
 
-fn write_tokens(file: &mut File, vocab: &Vocabulary) -> Result<(), String> {
+fn write_tokens(file: &mut File, vocab: &GgmlVocabulary) -> Result<(), String> {
     let mut values: Vec<u8> = vec![];
     for (i, token) in vocab.id_to_token.iter().enumerate() {
         let text = if let Ok(token) = std::str::from_utf8(token) {

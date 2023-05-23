@@ -2,6 +2,7 @@
 
 use crate::{
     model::HyperparametersWriteError, Hyperparameters, KnownModel, LoadError, LoadProgress, Loader,
+    Vocabulary,
 };
 use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
@@ -151,7 +152,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let mut loader = Loader::<M::Hyperparameters, _>::new(None, {
+    let mut loader = Loader::<M::Hyperparameters, _>::new(Vocabulary::new_ggml(), {
         let progress_callback = progress_callback.clone();
         move |p| {
             if let LoadProgress::HyperparametersLoaded = p {
@@ -177,12 +178,15 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
             .expect("format has no corresponding ftype");
     }
 
-    let vocabulary = vocabulary
-        .id_to_token
-        .iter()
-        .cloned()
-        .zip(vocabulary.id_to_token_score)
-        .collect::<Vec<_>>();
+    let vocabulary = match vocabulary {
+        Vocabulary::Ggml(v) => v
+            .id_to_token
+            .iter()
+            .cloned()
+            .zip(v.id_to_token_score)
+            .collect::<Vec<_>>(),
+        Vocabulary::Tokenizer(_) => vec![],
+    };
 
     let mut saver = QuantizeSaver::new(desired_type, &hyperparameters, &tensors, reader, |p| {
         progress_callback(p)
