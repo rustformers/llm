@@ -1,6 +1,6 @@
 use llm::{
-    load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceRequest,
-    InferenceResponse, ModelArchitecture,
+    load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceParameters,
+    InferenceRequest, InferenceResponse, ModelArchitecture,
 };
 use std::{convert::Infallible, io::Write, path::Path};
 
@@ -44,7 +44,9 @@ fn main() {
         &mut rand::thread_rng(),
         &InferenceRequest {
             prompt: prompt.into(),
-            ..Default::default()
+            parameters: &InferenceParameters::reasonable_default(),
+            play_back_previous_tokens: false,
+            maximum_token_count: None,
         },
         // OutputRequest
         &mut Default::default(),

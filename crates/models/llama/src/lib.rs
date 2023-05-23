@@ -32,9 +32,6 @@ pub struct Llama {
     // weights for the model
     layers: Vec<Layer>,
 
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
-
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -80,11 +77,7 @@ impl KnownModel for Llama {
 
         let (_context, _tensors, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(Self {
             hyperparameters,
@@ -94,7 +87,6 @@ impl KnownModel for Llama {
             norm,
             output,
             layers,
-            inference_parameters,
             _context,
             _mmap,
         })
@@ -337,10 +329,6 @@ impl KnownModel for Llama {
 
     fn eot_token_id(&self) -> TokenId {
         2
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 

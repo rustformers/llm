@@ -64,8 +64,16 @@ pub struct InferenceParameters {
     /// The number of tokens to consider for the repetition penalty.
     pub repetition_penalty_last_n: usize,
 }
-impl Default for InferenceParameters {
-    fn default() -> Self {
+impl InferenceParameters {
+    /// Returns a reasonable default for the parameters.
+    ///
+    /// Note that these parameters are not necessarily optimal for all models, and that
+    /// you may want to tweak them for your use case.
+    ///
+    /// This is intentionally not a `Default` implementation. The values specified here may change
+    /// in the future, and we want to make sure that users are aware of this and do not accidentally
+    /// rely on the values.
+    pub const fn reasonable_default() -> Self {
         Self {
             n_threads: 8,
             n_batch: 8,
@@ -73,7 +81,7 @@ impl Default for InferenceParameters {
             top_p: 0.95,
             repeat_penalty: 1.30,
             temperature: 0.80,
-            bias_tokens: TokenBias::default(),
+            bias_tokens: TokenBias::empty(),
             repetition_penalty_last_n: 512,
         }
     }

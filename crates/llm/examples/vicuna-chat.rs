@@ -1,6 +1,6 @@
 use llm::{
-    InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats, LoadProgress,
-    ModelArchitecture,
+    InferenceFeedback, InferenceParameters, InferenceRequest, InferenceResponse, InferenceStats,
+    LoadProgress, ModelArchitecture,
 };
 use rustyline::error::ReadlineError;
 use spinoff::{spinners::Dots2, Spinner};
@@ -43,10 +43,12 @@ fn main() {
          {character_name}:  Paris is the capital of France."
     );
 
+    let inference_parameters = InferenceParameters::reasonable_default();
+
     session
         .feed_prompt(
             model.as_ref(),
-            &Default::default(),
+            &inference_parameters,
             format!("{persona}\n{history}").as_str(),
             &mut Default::default(),
             llm::feed_prompt_callback(prompt_callback),
@@ -73,7 +75,9 @@ fn main() {
                             prompt: format!("{user_name}: {line}\n{character_name}:")
                                 .as_str()
                                 .into(),
-                            ..Default::default()
+                            parameters: &inference_parameters,
+                            play_back_previous_tokens: false,
+                            maximum_token_count: None,
                         },
                         &mut Default::default(),
                         inference_callback(String::from(user_name), &mut buf),

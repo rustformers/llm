@@ -175,7 +175,7 @@ impl InferenceSession {
         let mut stats = InferenceStats::default();
         let start_at = std::time::SystemTime::now();
 
-        let parameters = request.parameters.unwrap_or(model.inference_parameters());
+        let parameters = request.parameters;
 
         // Feed the initial prompt through the transformer, to update its
         // context window with new data.
@@ -635,15 +635,13 @@ impl Default for InferenceSessionConfig {
     }
 }
 
-#[derive(Debug, PartialEq, Default, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 /// Settings specific to [InferenceSession::infer].
 pub struct InferenceRequest<'a> {
     /// The prompt to feed to the model.
     pub prompt: Prompt<'a>,
     /// The parameters to use during this inference attempt.
-    /// If not specified, this will default to the parameters
-    /// specified in the model.
-    pub parameters: Option<&'a InferenceParameters>,
+    pub parameters: &'a InferenceParameters,
     /// Whether or not to call the callback with the previous tokens
     /// that were encountered in this session.
     ///

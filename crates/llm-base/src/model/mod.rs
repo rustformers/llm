@@ -163,11 +163,6 @@ pub trait KnownModel: Send + Sync {
 
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
-
-    /// Get the default [InferenceParameters] for this model (used by
-    /// [InferenceSession::infer]). This value is configured through
-    /// [ModelParameters::inference_parameters].
-    fn inference_parameters(&self) -> &InferenceParameters;
 }
 
 /// A type-erased model to allow for interacting with a model without knowing
@@ -200,11 +195,6 @@ pub trait Model: Send + Sync {
 
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
-
-    /// Get the default [InferenceParameters] for this model (used by
-    /// [InferenceSession::infer]). This value is configured through
-    /// [ModelParameters::inference_parameters].
-    fn inference_parameters(&self) -> &InferenceParameters;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
@@ -235,10 +225,6 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
     fn eot_token_id(&self) -> TokenId {
         KnownModel::eot_token_id(self)
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        KnownModel::inference_parameters(self)
     }
 }
 
@@ -280,8 +266,6 @@ pub struct ModelParameters {
     /// The context size ("memory") the model should use when evaluating a prompt. A larger context
     /// consumes more resources, but produces more consistent and coherent responses.
     pub context_size: usize,
-    /// Default InferenceParameters to use when [evaluating](Model::evaluate) a prompt with this model.
-    pub inference_parameters: InferenceParameters,
     /// The [LoRA](https://arxiv.org/abs/2106.09685) adapters to use when loading the model. If `None`, no adapters will be used.
     pub lora_adapters: Option<Vec<PathBuf>>,
 }
@@ -291,7 +275,6 @@ impl Default for ModelParameters {
         Self {
             prefer_mmap: true,
             context_size: 2048,
-            inference_parameters: Default::default(),
             lora_adapters: None,
         }
     }
