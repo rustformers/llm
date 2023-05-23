@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 fn main() {
     let bindings = bindgen::Builder::default()
-        .header("crates/ggml/sys/bindings.h")
+        .header("crates/ggml/sys/ggml/include/ggml/ggml.h")
         // Suppress some warnings
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_camel_case_types)]")

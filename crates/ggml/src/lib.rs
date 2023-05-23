@@ -13,7 +13,6 @@ mod context;
 mod tensor;
 
 pub mod format;
-pub mod legacy;
 pub mod util;
 
 pub use context::Context;
