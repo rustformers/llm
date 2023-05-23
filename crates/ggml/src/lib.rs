@@ -139,7 +139,7 @@ pub enum Type {
     F32,
 
     /// Legacy: Quantized 4-bit (type 2).
-    /// This is not supported by modern `ggml` and is only here for use with [legacy].
+    /// This is not supported by modern `ggml` versions.
     LegacyQ4_2,
 }
 impl From<Type> for sys::ggml_type {
