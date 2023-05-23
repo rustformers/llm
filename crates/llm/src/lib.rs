@@ -81,6 +81,7 @@ pub use llm_base::{
     LoadError, LoadProgress, Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
     ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
     SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
+    VocabularySource,
 };
 
 use serde::Serialize;
@@ -222,7 +223,7 @@ impl Display for ModelArchitecture {
 pub fn load_dynamic(
     architecture: ModelArchitecture,
     path: &Path,
-    vocab_path: Option<&Path>,
+    vocabulary_source: VocabularySource,
     params: ModelParameters,
     overrides: Option<ModelDynamicOverrides>,
     load_progress_callback: impl FnMut(LoadProgress),
@@ -231,14 +232,14 @@ pub fn load_dynamic(
 
     fn load_model<M: KnownModel + 'static>(
         path: &Path,
-        vocab_path: Option<&Path>,
+        vocabulary_source: VocabularySource,
         params: ModelParameters,
         overrides: Option<ModelDynamicOverrides>,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Box<dyn Model>, LoadError> {
         Ok(Box::new(load::<M>(
             path,
-            vocab_path,
+            vocabulary_source,
             params,
             overrides.map(|o| o.into()),
             load_progress_callback,
@@ -249,23 +250,31 @@ pub fn load_dynamic(
         #[cfg(feature = "bloom")]
         Bloom => load_model::<models::Bloom>(
             path,
-            vocab_path,
+            vocabulary_source,
             params,
             overrides,
             load_progress_callback,
         )?,
         #[cfg(feature = "gpt2")]
-        Gpt2 => {
-            load_model::<models::Gpt2>(path, vocab_path, params, overrides, load_progress_callback)?
-        }
+        Gpt2 => load_model::<models::Gpt2>(
+            path,
+            vocabulary_source,
+            params,
+            overrides,
+            load_progress_callback,
+        )?,
         #[cfg(feature = "gptj")]
-        GptJ => {
-            load_model::<models::GptJ>(path, vocab_path, params, overrides, load_progress_callback)?
-        }
+        GptJ => load_model::<models::GptJ>(
+            path,
+            vocabulary_source,
+            params,
+            overrides,
+            load_progress_callback,
+        )?,
         #[cfg(feature = "gptneox")]
         GptNeoX => load_model::<models::GptNeoX>(
             path,
-            vocab_path,
+            vocabulary_source,
             params,
             overrides,
             load_progress_callback,
@@ -273,15 +282,19 @@ pub fn load_dynamic(
         #[cfg(feature = "llama")]
         Llama => load_model::<models::Llama>(
             path,
-            vocab_path,
+            vocabulary_source,
             params,
             overrides,
             load_progress_callback,
         )?,
         #[cfg(feature = "mpt")]
-        Mpt => {
-            load_model::<models::Mpt>(path, vocab_path, params, overrides, load_progress_callback)?
-        }
+        Mpt => load_model::<models::Mpt>(
+            path,
+            vocabulary_source,
+            params,
+            overrides,
+            load_progress_callback,
+        )?,
     };
 
     Ok(model)

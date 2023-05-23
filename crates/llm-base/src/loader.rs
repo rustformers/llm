@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
-    Vocabulary,
+    Vocabulary, VocabularySource,
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -288,7 +288,7 @@ pub enum LoadError {
     #[error("could not load vocab file {path:?}")]
     VocabularyLoadError {
         /// The path that failed.
-        path: PathBuf,
+        path: String,
 
         /// The error that occurred.
         error: Box<dyn Error + Send + Sync>,
@@ -356,7 +356,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    vocabulary_path: Option<&Path>,
+    vocabulary_source: VocabularySource,
     params: ModelParameters,
     overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
@@ -378,31 +378,44 @@ pub fn load<M: KnownModel>(
     })?;
     let mut reader = BufReader::new(&file);
 
-    let vocabulary = if let Some(path) = vocabulary_path {
-        let tok = if !path.exists() && path.to_string_lossy().matches("/").count() == 1 {
-            Tokenizer::from_pretrained(path.to_str().unwrap(), None)
-        } else if path.exists() && path.is_file() {
-            Tokenizer::from_file(path)
-        } else {
-            return Err(LoadError::VocabularyLoadError {
-                path: path.to_owned(),
-                error: Box::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Vocabulary file not found",
-                )),
-            });
-        };
+    let vocabulary = match vocabulary_source {
+        VocabularySource::TokenizerHfPretrained(identifier) => {
+            let tokenizer = Tokenizer::from_pretrained(&identifier, None);
 
-        if tok.is_err() {
-            return Err(LoadError::VocabularyLoadError {
-                path: path.to_owned(),
-                error: tok.unwrap_err(),
-            });
+            if tokenizer.is_err() {
+                return Err(LoadError::VocabularyLoadError {
+                    path: identifier,
+                    error: tokenizer.unwrap_err(),
+                });
+            }
+
+            Vocabulary::new_tokenizer(tokenizer.unwrap())
         }
 
-        Vocabulary::new_tokenizer(tok.unwrap())
-    } else {
-        Vocabulary::new_ggml()
+        VocabularySource::TokenizerFile(path) => {
+            if path.exists() && path.is_file() {
+                let tokenizer = Tokenizer::from_file(&path);
+
+                if tokenizer.is_err() {
+                    return Err(LoadError::VocabularyLoadError {
+                        path: path.to_string_lossy().to_string(),
+                        error: tokenizer.unwrap_err(),
+                    });
+                }
+
+                Vocabulary::new_tokenizer(tokenizer.unwrap())
+            } else {
+                return Err(LoadError::VocabularyLoadError {
+                    path: path.to_string_lossy().to_string(),
+                    error: Box::new(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Vocabulary file not found",
+                    )),
+                });
+            }
+        }
+
+        VocabularySource::ModelEmbedded => Vocabulary::new_ggml(),
     };
 
     let mut loader = Loader::new(vocabulary, load_progress_callback);

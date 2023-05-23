@@ -1,6 +1,6 @@
 use llm::{
     InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats, LoadProgress,
-    ModelArchitecture,
+    ModelArchitecture, VocabularySource,
 };
 use rustyline::error::ReadlineError;
 use spinoff::{spinners::Dots2, Spinner};
@@ -24,7 +24,7 @@ fn main() {
     let model = llm::load_dynamic(
         model_architecture,
         model_path,
-        None,
+        VocabularySource::ModelEmbedded,
         Default::default(),
         overrides,
         load_progress_callback(sp, now, prev_load_time),

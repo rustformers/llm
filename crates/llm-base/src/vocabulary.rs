@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, fmt::Display, str::FromStr};
+use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, str::FromStr};
 
 use thiserror::Error;
 use tokenizers::Tokenizer;
@@ -17,6 +17,18 @@ pub enum TokenizationError {
     #[error("the token ID {0} was invalid for this model")]
     /// One of the tokens provided by the user was invalid, and did not belong to this model's vocabulary.
     InvalidTokenId(TokenId),
+}
+
+/// The source of a vocabulary.
+pub enum VocabularySource {
+    /// The vocabulary is built-in to the model if available.
+    ModelEmbedded,
+
+    /// The vocabulary is loaded from a file.
+    TokenizerFile(PathBuf),
+
+    /// The vocabulary is loaded from a huggingface repository.
+    TokenizerHfPretrained(String),
 }
 
 pub trait VocabularyTrait {

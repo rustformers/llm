@@ -38,7 +38,7 @@ pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use util::TokenUtf8Buffer;
 pub use vocabulary::{
     GgmlVocabulary, InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError,
-    TokenizerVocabulary, Vocabulary,
+    TokenizerVocabulary, Vocabulary, VocabularySource,
 };
 
 #[derive(Clone, Debug, PartialEq)]

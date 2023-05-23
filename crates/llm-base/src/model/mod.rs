@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::{
     loader::TensorLoader, vocabulary::TokenId, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, LoadError, LoadProgress, Vocabulary,
+    InferenceSessionConfig, LoadError, LoadProgress, Vocabulary, VocabularySource,
 };
 
 /// Common functions for model evaluation
@@ -114,7 +114,7 @@ pub trait KnownModel: Send + Sync {
     /// is a helper function on top of [llm_base::load](crate::load).
     fn load(
         path: &Path,
-        vocab_path: Option<&Path>,
+        vocabulary_source: VocabularySource,
         params: ModelParameters,
         overrides: Option<Self::Overrides>,
         load_progress_callback: impl FnMut(LoadProgress),
@@ -122,7 +122,13 @@ pub trait KnownModel: Send + Sync {
     where
         Self: Sized,
     {
-        crate::load(path, vocab_path, params, overrides, load_progress_callback)
+        crate::load(
+            path,
+            vocabulary_source,
+            params,
+            overrides,
+            load_progress_callback,
+        )
     }
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.

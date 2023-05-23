@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, VocabularySource,
 };
 use rand::SeedableRng;
 
@@ -332,9 +332,13 @@ pub struct ModelLoad {
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
-    /// Where to save the model from
+    /// Where to load the vocabulary from
     #[arg(long, short = 'v')]
     pub vocabulary_path: Option<PathBuf>,
+
+    /// Where to load the vocabulary from
+    #[arg(long, short = 'r')]
+    pub vocabulary_repo: Option<String>,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -378,9 +382,16 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
+        let mut vocabulary_source = VocabularySource::ModelEmbedded;
+        if let Some(path) = &self.vocabulary_path {
+            vocabulary_source = VocabularySource::TokenizerFile(path.clone());
+        } else if let Some(repo) = &self.vocabulary_repo {
+            vocabulary_source = VocabularySource::TokenizerHfPretrained(repo.clone());
+        }
+
         let model = llm::load::<M>(
             &self.model_path,
-            self.vocabulary_path.as_deref(),
+            vocabulary_source,
             params,
             overrides,
             |progress| match progress {

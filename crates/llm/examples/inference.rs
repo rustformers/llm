@@ -1,6 +1,6 @@
 use llm::{
     load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceRequest,
-    InferenceResponse, ModelArchitecture,
+    InferenceResponse, ModelArchitecture, VocabularySource,
 };
 use std::{convert::Infallible, io::Write, path::Path};
 
@@ -24,7 +24,7 @@ fn main() {
     let model = llm::load_dynamic(
         model_architecture,
         model_path,
-        None,
+        VocabularySource::ModelEmbedded,
         Default::default(),
         overrides,
         load_callback,
