@@ -6,7 +6,7 @@ use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
-    ggml::{self},
+    ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
     LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
@@ -41,34 +41,6 @@ pub struct GptNeoX {
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
-}
-
-// feed-forward network
-fn _gpt_neox_ff(layer: &Layer, context: &ggml::Context, input: &Tensor) -> Tensor {
-    let mut current = context.op_norm(input);
-
-    //gain and bias
-    current = context.op_add(
-        &context.op_mul(&context.op_repeat(&layer.ln_2_g, &current), &current),
-        &context.op_repeat(&layer.ln_2_b, &current),
-    );
-
-    //apply weights
-    current = context.op_mul_mat(&layer.c_mlp_fc_w, &current);
-
-    //apply bias
-    current = context.op_add(&context.op_repeat(&layer.c_mlp_fc_b, &current), &current);
-
-    // GELU activation
-    current = context.op_gelu(&current);
-
-    // projection
-    // cur = proj_w*cur + proj_b
-    current = context.op_mul_mat(&layer.c_mlp_proj_w, &current);
-
-    current = context.op_add(&context.op_repeat(&layer.c_mlp_proj_b, &current), &current);
-
-    current
 }
 
 unsafe impl Send for GptNeoX {}
@@ -162,7 +134,7 @@ impl KnownModel for GptNeoX {
         )
     }
 
-    //allow snake case here as its a one-to-one mapping of the original names
+    // allow snake case here as its a one-to-one mapping of the original names
     #[allow(non_snake_case)]
     fn evaluate(
         &self,
@@ -328,7 +300,7 @@ impl KnownModel for GptNeoX {
             let feedforward_input: Tensor;
             if !use_parallel_residual {
                 feedforward_input = ctx0.op_add(&current, &input_layer);
-                current = _gpt_neox_ff(&self.layers[il], &ctx0, &feedforward_input);
+                current = feed_forward_network(&ctx0, &self.layers[il], &feedforward_input);
                 // input for next layer
                 input_layer = ctx0.op_add(&current, &feedforward_input);
             } else {
@@ -337,7 +309,7 @@ impl KnownModel for GptNeoX {
 
                 // this is independent of the self-attention result, so it could be done in parallel to the self-attention
                 // note here we pass inpL instead of cur
-                current = _gpt_neox_ff(&self.layers[il], &ctx0, &input_layer);
+                current = feed_forward_network(&ctx0, &self.layers[il], &input_layer);
 
                 // layer input + FF
                 current = ctx0.op_add(&current, &feedforward_input);
@@ -358,7 +330,7 @@ impl KnownModel for GptNeoX {
             &ctx0.op_repeat(&self.ln_f_b, &input_layer),
         );
 
-        //Disable the scratchbuffer
+        // Disable the scratchbuffer
         ctx0.use_scratch(None);
 
         // apply language model head
@@ -498,4 +470,31 @@ struct Layer {
 
     c_mlp_proj_w: Tensor,
     c_mlp_proj_b: Tensor,
+}
+
+fn feed_forward_network(context: &ggml::Context, layer: &Layer, input: &Tensor) -> Tensor {
+    let mut current = context.op_norm(input);
+
+    //gain and bias
+    current = context.op_add(
+        &context.op_mul(&context.op_repeat(&layer.ln_2_g, &current), &current),
+        &context.op_repeat(&layer.ln_2_b, &current),
+    );
+
+    // apply weights
+    current = context.op_mul_mat(&layer.c_mlp_fc_w, &current);
+
+    // apply bias
+    current = context.op_add(&context.op_repeat(&layer.c_mlp_fc_b, &current), &current);
+
+    // GELU activation
+    current = context.op_gelu(&current);
+
+    // projection
+    // cur = proj_w*cur + proj_b
+    current = context.op_mul_mat(&layer.c_mlp_proj_w, &current);
+
+    current = context.op_add(&context.op_repeat(&layer.c_mlp_proj_b, &current), &current);
+
+    current
 }
