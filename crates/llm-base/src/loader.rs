@@ -389,7 +389,7 @@ pub fn load<M: KnownModel>(
                 });
             }
 
-            Vocabulary::new_tokenizer(tokenizer.unwrap())
+            Vocabulary::new_external(tokenizer.unwrap())
         }
 
         VocabularySource::TokenizerFile(path) => {
@@ -403,7 +403,7 @@ pub fn load<M: KnownModel>(
                     });
                 }
 
-                Vocabulary::new_tokenizer(tokenizer.unwrap())
+                Vocabulary::new_external(tokenizer.unwrap())
             } else {
                 return Err(LoadError::VocabularyLoadError {
                     path: path.to_string_lossy().to_string(),
@@ -415,7 +415,7 @@ pub fn load<M: KnownModel>(
             }
         }
 
-        VocabularySource::ModelFile => Vocabulary::new_ggml(),
+        VocabularySource::ModelFile => Vocabulary::new_model(),
     };
 
     let mut loader = Loader::new(vocabulary, load_progress_callback);
@@ -477,7 +477,7 @@ pub fn load<M: KnownModel>(
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
                 let mut lora_loader: Loader<LoraParameters, _> =
-                    Loader::new(Vocabulary::new_ggml(), |_| {});
+                    Loader::new(Vocabulary::new_model(), |_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
@@ -573,7 +573,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
     }
 
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
-        if let Vocabulary::Ggml(_) = &self.vocabulary {
+        if let Vocabulary::Model(_) = &self.vocabulary {
             let id = match TokenId::try_from(i) {
                 Ok(id) => id,
                 Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),

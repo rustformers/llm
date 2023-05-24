@@ -47,21 +47,21 @@ pub trait VocabularyTrait {
 /// Vocabulary enum
 pub enum Vocabulary {
     /// The vocabulary built-in to the model.
-    Ggml(GgmlVocabulary),
+    Model(ModelVocabulary),
 
     /// A custom vocabulary provided by the user.
-    Tokenizer(TokenizerVocabulary),
+    External(ExternalVocabulary),
 }
 
 impl Vocabulary {
     /// Create a new vocabulary with the default GGML vocabulary.
-    pub fn new_ggml() -> Self {
-        Vocabulary::Ggml(GgmlVocabulary::default())
+    pub fn new_model() -> Self {
+        Vocabulary::Model(ModelVocabulary::default())
     }
 
     /// Create a new vocabulary with a custom tokenizer.
-    pub fn new_tokenizer(tokenizer: Tokenizer) -> Self {
-        Vocabulary::Tokenizer(TokenizerVocabulary::new(tokenizer))
+    pub fn new_external(tokenizer: Tokenizer) -> Self {
+        Vocabulary::External(ExternalVocabulary::new(tokenizer))
     }
 
     /// Add a token to the vocabulary.
@@ -73,40 +73,40 @@ impl Vocabulary {
     ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
     pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
         match self {
-            Vocabulary::Ggml(v) => v.push_token(id, content, score),
-            Vocabulary::Tokenizer(v) => v.push_token(id, content, score),
+            Vocabulary::Model(v) => v.push_token(id, content, score),
+            Vocabulary::External(v) => v.push_token(id, content, score),
         }
     }
 
     /// Converts a token to the token ID it represents in this vocabulary.
     pub fn id(&self, token: &[u8]) -> Option<TokenId> {
         match self {
-            Vocabulary::Ggml(v) => v.id(token),
-            Vocabulary::Tokenizer(v) => v.id(token),
+            Vocabulary::Model(v) => v.id(token),
+            Vocabulary::External(v) => v.id(token),
         }
     }
 
     /// Converts a token index to the token it represents in this vocabulary.
     pub fn token(&self, idx: usize) -> Vec<u8> {
         match self {
-            Vocabulary::Ggml(v) => v.token(idx),
-            Vocabulary::Tokenizer(v) => v.token(idx),
+            Vocabulary::Model(v) => v.token(idx),
+            Vocabulary::External(v) => v.token(idx),
         }
     }
 
     /// Returns the number of tokens in the vocabulary.
     pub fn len(&self) -> usize {
         match self {
-            Vocabulary::Ggml(v) => v.len(),
-            Vocabulary::Tokenizer(v) => v.len(),
+            Vocabulary::Model(v) => v.len(),
+            Vocabulary::External(v) => v.len(),
         }
     }
 
     /// Returns whether the vocabulary is empty.
     pub fn is_empty(&self) -> bool {
         match self {
-            Vocabulary::Ggml(v) => v.is_empty(),
-            Vocabulary::Tokenizer(v) => v.is_empty(),
+            Vocabulary::Model(v) => v.is_empty(),
+            Vocabulary::External(v) => v.is_empty(),
         }
     }
 
@@ -119,15 +119,15 @@ impl Vocabulary {
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
         match self {
-            Vocabulary::Ggml(v) => v.tokenize(text, bos),
-            Vocabulary::Tokenizer(v) => v.tokenize(text, bos),
+            Vocabulary::Model(v) => v.tokenize(text, bos),
+            Vocabulary::External(v) => v.tokenize(text, bos),
         }
     }
 }
 
 /// The built-in GGML vocabulary.
 #[derive(Debug, Clone, Default)]
-pub struct GgmlVocabulary {
+pub struct ModelVocabulary {
     // TODO: make these private
     /// Maps every integer (index) token ID to its corresponding token.
     pub id_to_token: Vec<Token>,
@@ -143,7 +143,7 @@ pub struct GgmlVocabulary {
     pub max_token_length: usize,
 }
 
-impl VocabularyTrait for GgmlVocabulary {
+impl VocabularyTrait for ModelVocabulary {
     /// Add a token to the vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
@@ -245,18 +245,18 @@ impl VocabularyTrait for GgmlVocabulary {
 
 /// A vocabulary that does not originate from the model file.
 #[derive(Debug, Clone)]
-pub struct TokenizerVocabulary {
+pub struct ExternalVocabulary {
     tokenizer: Tokenizer,
 }
 
-impl TokenizerVocabulary {
+impl ExternalVocabulary {
     /// Create a new `TokenizerVocabulary`.
     pub fn new(tokenizer: Tokenizer) -> Self {
         Self { tokenizer }
     }
 }
 
-impl VocabularyTrait for TokenizerVocabulary {
+impl VocabularyTrait for ExternalVocabulary {
     fn push_token(&mut self, _id: TokenId, _content: Token, _score: TokenScore) {
         panic!("Cannot push token to tokenizer vocabulary.");
     }

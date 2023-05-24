@@ -152,7 +152,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let mut loader = Loader::<M::Hyperparameters, _>::new(Vocabulary::new_ggml(), {
+    let mut loader = Loader::<M::Hyperparameters, _>::new(Vocabulary::new_model(), {
         let progress_callback = progress_callback.clone();
         move |p| {
             if let LoadProgress::HyperparametersLoaded = p {
@@ -179,13 +179,13 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     }
 
     let vocabulary = match vocabulary {
-        Vocabulary::Ggml(v) => v
+        Vocabulary::Model(v) => v
             .id_to_token
             .iter()
             .cloned()
             .zip(v.id_to_token_score)
             .collect::<Vec<_>>(),
-        Vocabulary::Tokenizer(_) => vec![],
+        Vocabulary::External(_) => vec![],
     };
 
     let mut saver = QuantizeSaver::new(desired_type, &hyperparameters, &tensors, reader, |p| {

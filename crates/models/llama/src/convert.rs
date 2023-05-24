@@ -3,7 +3,7 @@
 //! This is *incomplete* and does not convert the weights. It only converts the
 //! vocabulary and hyperparameters. It is included as a preliminary step to
 //! full conversion.
-use llm_base::{FileType, GgmlVocabulary};
+use llm_base::{FileType, ModelVocabulary};
 ///
 /// For reference, see [the PR](https://github.com/rustformers/llm/pull/83).
 use rust_tokenizers::preprocessing::vocab::sentencepiece_proto::sentencepiece_model::ModelProto;
@@ -39,7 +39,7 @@ pub fn convert_pth_to_ggml(model_directory: &Path, file_type: FileType) {
     }
 }
 
-fn load_vocabulary(path: &Path) -> GgmlVocabulary {
+fn load_vocabulary(path: &Path) -> ModelVocabulary {
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
@@ -59,7 +59,7 @@ fn load_vocabulary(path: &Path) -> GgmlVocabulary {
         id_to_token_score.push(piece.get_score());
     }
 
-    GgmlVocabulary {
+    ModelVocabulary {
         id_to_token,
         id_to_token_score,
         token_to_id,
@@ -70,7 +70,7 @@ fn load_vocabulary(path: &Path) -> GgmlVocabulary {
 fn load_hyperparameters(
     path: &Path,
     file_type: FileType,
-    vocab: &GgmlVocabulary,
+    vocab: &ModelVocabulary,
 ) -> Hyperparameters {
     #[derive(Deserialize)]
     struct HyperparametersJson {
@@ -121,7 +121,7 @@ fn write_header(fout: &mut File, hparams: &Hyperparameters) -> Result<(), String
     Ok(())
 }
 
-fn write_tokens(file: &mut File, vocab: &GgmlVocabulary) -> Result<(), String> {
+fn write_tokens(file: &mut File, vocab: &ModelVocabulary) -> Result<(), String> {
     let mut values: Vec<u8> = vec![];
     for (i, token) in vocab.id_to_token.iter().enumerate() {
         let text = if let Ok(token) = std::str::from_utf8(token) {
