@@ -380,30 +380,22 @@ pub fn load<M: KnownModel>(
 
     let vocabulary = match vocabulary_source {
         VocabularySource::HuggingFaceRemote(identifier) => {
-            let tokenizer = Tokenizer::from_pretrained(&identifier, None);
-
-            if tokenizer.is_err() {
-                return Err(LoadError::VocabularyLoadError {
-                    path: identifier,
-                    error: tokenizer.unwrap_err(),
-                });
-            }
-
-            Vocabulary::new_external(tokenizer.unwrap())
+            Vocabulary::new_external(Tokenizer::from_pretrained(&identifier, None).map_err(
+                |error| LoadError::VocabularyLoadError {
+                    path: path.to_string_lossy().to_string(),
+                    error,
+                },
+            )?)
         }
 
         VocabularySource::TokenizerFile(path) => {
             if path.exists() && path.is_file() {
-                let tokenizer = Tokenizer::from_file(&path);
-
-                if tokenizer.is_err() {
-                    return Err(LoadError::VocabularyLoadError {
+                Vocabulary::new_external(Tokenizer::from_file(&path).map_err(|error| {
+                    LoadError::VocabularyLoadError {
                         path: path.to_string_lossy().to_string(),
-                        error: tokenizer.unwrap_err(),
-                    });
-                }
-
-                Vocabulary::new_external(tokenizer.unwrap())
+                        error,
+                    }
+                })?)
             } else {
                 return Err(LoadError::VocabularyLoadError {
                     path: path.to_string_lossy().to_string(),

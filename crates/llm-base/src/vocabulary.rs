@@ -13,7 +13,11 @@ pub(crate) type TokenScore = f32;
 pub enum TokenizationError {
     #[error("an invalid token was encountered during tokenization")]
     /// During tokenization, one of the produced tokens was invalid / zero.
-    TokenizationFailed,
+    TokenizationFailed {
+        #[source]
+        /// The error that occurred during tokenization.
+        error: Box<dyn Error + Send + Sync>,
+    },
     #[error("the token ID {0} was invalid for this model")]
     /// One of the tokens provided by the user was invalid, and did not belong to this model's vocabulary.
     InvalidTokenId(TokenId),
@@ -37,11 +41,8 @@ pub trait VocabularyTrait {
     fn token(&self, idx: usize) -> Vec<u8>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
-    fn tokenize<'a>(
-        &'a self,
-        text: &str,
-        bos: bool,
-    ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError>;
+    fn tokenize(&self, text: &str, bos: bool)
+        -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError>;
 }
 
 /// Vocabulary enum
@@ -113,8 +114,8 @@ impl Vocabulary {
     /// Tokenize a `text` with this vocabulary.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
-    pub fn tokenize<'a>(
-        &'a self,
+    pub fn tokenize(
+        &self,
         text: &str,
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
@@ -123,6 +124,14 @@ impl Vocabulary {
             Vocabulary::External(v) => v.tokenize(text, bos),
         }
     }
+}
+
+#[derive(Debug, Error)]
+/// Errors that can occur when using a model vocabulary.
+pub enum ModelVocabularyError {
+    /// Arbitrary error that occurred during use of the model vocabulary.
+    #[error("Arbitrary error: {0:?}")]
+    Arbitrary(String),
 }
 
 /// The built-in GGML vocabulary.
@@ -172,7 +181,7 @@ impl VocabularyTrait for ModelVocabulary {
 
     /// Converts a token index to the token it represents in this vocabulary.
     fn token(&self, idx: usize) -> Vec<u8> {
-        (&self.id_to_token[idx]).clone()
+        self.id_to_token[idx].clone()
     }
 
     /// Returns the number of tokens in the vocabulary.
@@ -189,8 +198,8 @@ impl VocabularyTrait for ModelVocabulary {
     /// Tokenize a `text` with this vocabulary.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
-    fn tokenize<'a>(
-        &'a self,
+    fn tokenize(
+        &self,
         text: &str,
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
@@ -224,7 +233,12 @@ impl VocabularyTrait for ModelVocabulary {
         while i > 0 {
             let token_id = prev[i];
             if token_id == 0 {
-                return Err(TokenizationError::TokenizationFailed);
+                return Err(TokenizationError::TokenizationFailed {
+                    error: Box::new(ModelVocabularyError::Arbitrary(
+                        "the backward pass for the tokenizer encountered a non-set token"
+                            .to_string(),
+                    )),
+                });
             }
             let token = self.id_to_token[token_id as usize].as_slice();
             res.push((token.to_vec(), token_id));
@@ -268,18 +282,16 @@ impl VocabularyTrait for ExternalVocabulary {
 
     /// Converts a token index to the token it represents in this vocabulary.
     fn token(&self, idx: usize) -> Vec<u8> {
-        let res = self.tokenizer.decode(vec![idx as u32], true);
-
-        if res.is_err() {
-            panic!("Cannot decode token from tokenizer vocabulary.");
-        } else {
-            res.unwrap().as_bytes().to_vec()
-        }
+        self.tokenizer
+            .decode(vec![idx as u32], true)
+            .expect("Cannot decode token from tokenizer vocabulary.")
+            .as_bytes()
+            .to_vec()
     }
 
     /// Returns the number of tokens in the vocabulary.
     fn len(&self) -> usize {
-        self.tokenizer.get_vocab_size(false) as usize
+        self.tokenizer.get_vocab_size(false)
     }
 
     /// Returns whether the vocabulary is empty.
@@ -291,28 +303,19 @@ impl VocabularyTrait for ExternalVocabulary {
     /// Tokenize a `text` with this vocabulary.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
-    fn tokenize<'a>(
-        &'a self,
+    fn tokenize(
+        &self,
         text: &str,
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
-        let res = self.tokenizer.encode(text, bos);
-        if res.is_err() {
-            return Err(TokenizationError::TokenizationFailed);
-        } else {
-            let res = self.tokenizer.encode(text, bos);
-
-            if res.is_err() {
-                return Err(TokenizationError::TokenizationFailed);
-            }
-
-            Ok(res
-                .unwrap()
-                .get_ids()
-                .iter()
-                .map(|id| (self.token(*id as usize), *id))
-                .collect::<Vec<(Vec<u8>, TokenId)>>())
-        }
+        Ok(self
+            .tokenizer
+            .encode(text, bos)
+            .map_err(|e| TokenizationError::TokenizationFailed { error: e })?
+            .get_ids()
+            .iter()
+            .map(|id| (self.token(*id as usize), *id))
+            .collect::<Vec<(Vec<u8>, TokenId)>>())
     }
 }
 

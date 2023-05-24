@@ -112,9 +112,9 @@ impl InferenceSession {
     }
 
     /// Infer the next token for this session.
-    pub fn infer_next_token<'v>(
+    pub fn infer_next_token(
         &mut self,
-        model: &'v dyn Model,
+        model: &dyn Model,
         params: &InferenceParameters,
         output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
