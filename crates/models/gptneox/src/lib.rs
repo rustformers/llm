@@ -35,9 +35,6 @@ pub struct GptNeoX {
     // weights for the model
     layers: Vec<Layer>,
 
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
-
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -103,11 +100,7 @@ impl KnownModel for GptNeoX {
 
         let (_context, _, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(GptNeoX {
             hyperparameters,
@@ -118,7 +111,6 @@ impl KnownModel for GptNeoX {
             wte,
             lmh_g,
             layers,
-            inference_parameters,
             _context,
             _mmap,
         })
@@ -399,10 +391,6 @@ impl KnownModel for GptNeoX {
             .get("<|endoftext|>".as_bytes())
             .copied()
             .unwrap()
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 

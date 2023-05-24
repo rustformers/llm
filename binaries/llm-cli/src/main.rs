@@ -70,7 +70,7 @@ fn infer<M: llm::KnownModel + 'static>(
         &mut rng,
         &llm::InferenceRequest {
             prompt: prompt.as_str().into(),
-            parameters: Some(&inference_params),
+            parameters: &inference_params,
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
@@ -277,7 +277,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                     &mut rng,
                     &llm::InferenceRequest {
                         prompt: "".into(),
-                        parameters: Some(&inference_params),
+                        parameters: &inference_params,
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
                     },
