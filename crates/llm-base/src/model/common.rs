@@ -74,18 +74,21 @@ pub fn extract_logits(
 /// Extract embeddings from [OutputRequest] evaluation
 pub fn extract_embeddings(
     output_request: &mut OutputRequest,
-    embd: &Tensor,
+    embeddings_tensor: &Tensor,
     n_embd: usize,
     n: usize,
 ) {
     // Extract embeddings
     if let Some(embeddings) = &mut output_request.embeddings {
-        embeddings.resize(n_embd * n, 0.0);
+        embeddings.resize(n_embd, 0.0);
+        // Create a new vector to hold all embeddings
+        let mut all_embeddings = vec![0.0; n_embd * n];
         // SAFETY: Same rationale as for the "Extract logits" section applies.
-        assert_eq!(embd.nelements(), n_embd * n);
+        assert_eq!(embeddings_tensor.nelements(), n_embd * n);
         unsafe {
-            embd.read_data(0, bytemuck::cast_slice_mut(embeddings));
+            embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(&mut all_embeddings));
         }
+        embeddings.copy_from_slice(&all_embeddings[n_embd * (n - 1)..]);
     }
 }
 
