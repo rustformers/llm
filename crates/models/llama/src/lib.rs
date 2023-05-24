@@ -299,7 +299,6 @@ impl KnownModel for Llama {
         ctx0.use_scratch(Some(&mut session.scratch[0]));
 
         // Used at the end to optionally extract the embeddings.
-        let embeddings_tensor: ggml::Tensor;
 
         // norm
         input_layer = ctx0.op_rms_norm(&input_layer);
@@ -307,7 +306,7 @@ impl KnownModel for Llama {
         // inpL = norm*inpL
         input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
-        embeddings_tensor = input_layer.share();
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
 
         // lm_head
         input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
