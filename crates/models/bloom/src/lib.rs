@@ -35,9 +35,6 @@ pub struct Bloom {
     // weights for the model
     layers: Vec<Layer>,
 
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
-
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -95,11 +92,7 @@ impl KnownModel for Bloom {
 
         let (_context, _, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(Bloom {
             hyperparameters,
@@ -112,7 +105,6 @@ impl KnownModel for Bloom {
             out_norm_bias,
             output,
             layers,
-            inference_parameters,
             _context,
             _mmap,
         })
@@ -392,10 +384,6 @@ impl KnownModel for Bloom {
             .get("</s>".as_bytes())
             .copied()
             .unwrap()
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 

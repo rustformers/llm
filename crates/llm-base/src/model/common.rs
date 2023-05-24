@@ -5,7 +5,7 @@ use crate::{InferenceSession, OutputRequest, TokenId};
 /// Common code to prepare a model to evaluate input
 pub fn prepare_for_evaluate(
     n_layer: usize,
-    session: &mut InferenceSession,
+    session: &InferenceSession,
     input_tokens: &[TokenId],
 ) -> (Context, Tensor) {
     // For the first run, we need to guess a maximum buffer size so we can measure

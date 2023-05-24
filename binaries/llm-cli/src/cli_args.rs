@@ -367,7 +367,6 @@ impl ModelLoad {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
-            ..Default::default()
         };
 
         let mut sp = Some(spinoff::Spinner::new(

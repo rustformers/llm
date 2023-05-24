@@ -34,9 +34,6 @@ pub struct Gpt2 {
     // weights for the model
     layers: Vec<Layer>,
 
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
-
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -87,11 +84,7 @@ impl KnownModel for Gpt2 {
 
         let (_context, _, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(Gpt2 {
             hyperparameters,
@@ -103,7 +96,6 @@ impl KnownModel for Gpt2 {
             wte,
             wpe,
             lm_head,
-            inference_parameters,
             _context,
             _mmap,
         })
@@ -348,10 +340,6 @@ impl KnownModel for Gpt2 {
             .get("<|endoftext|>".as_bytes())
             .copied()
             .unwrap()
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 
