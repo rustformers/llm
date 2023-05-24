@@ -53,8 +53,9 @@ impl VocabularyLoadError {
 pub enum VocabularySource {
     /// Read the vocabulary from the model if available, and use a simplistic tokenizer.
     ///
-    /// This is easy to use, but may not be the best choice for your use case.
-    ModelFile,
+    /// This is easy to use, but may not be the best choice for your use case, and is not
+    /// guaranteed to be available for all models.
+    Model,
 
     /// Read the vocabulary from a local HuggingFace-format tokenizer file, and use the
     /// HuggingFace tokenizer.
@@ -96,7 +97,7 @@ impl VocabularySource {
                 .into()
             }
 
-            Self::ModelFile => ModelVocabulary::default().into(),
+            Self::Model => ModelVocabulary::default().into(),
         })
     }
 }
@@ -305,7 +306,7 @@ pub struct ExternalVocabulary {
 }
 
 impl ExternalVocabulary {
-    /// Create a new `TokenizerVocabulary`.
+    /// Create a new `ExternalVocabulary`.
     pub fn new(tokenizer: Tokenizer) -> Self {
         Self { tokenizer }
     }
@@ -336,7 +337,6 @@ impl ExternalVocabulary {
         self.tokenizer.get_vocab_size(false) == 0
     }
 
-    // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
     /// Tokenize a `text` with this vocabulary.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
@@ -345,14 +345,22 @@ impl ExternalVocabulary {
         text: &str,
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
-        Ok(self
+        let encoding = self
             .tokenizer
-            .encode(text, bos)
-            .map_err(|e| TokenizationError::TokenizationFailed { error: e })?
-            .get_ids()
+            .encode(text, false)
+            .map_err(|e| TokenizationError::TokenizationFailed { error: e })?;
+
+        let encoding = self
+            .tokenizer
+            .post_process(encoding, None, bos)
+            .map_err(|e| TokenizationError::TokenizationFailed { error: e })?;
+
+        Ok(encoding
+            .get_tokens()
             .iter()
-            .map(|id| (self.token(*id as usize), *id))
-            .collect::<Vec<(Vec<u8>, TokenId)>>())
+            .map(|t| t.as_bytes().to_vec())
+            .zip(encoding.get_ids().iter().copied())
+            .collect())
     }
 }
 

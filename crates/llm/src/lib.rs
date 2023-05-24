@@ -21,6 +21,8 @@
 //! let llama = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
+//!     // llm::VocabularySource
+//!     llm::VocabularySource::Model,
 //!     // llm::ModelParameters
 //!     Default::default(),
 //!     // llm::KnownModel::Overrides

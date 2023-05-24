@@ -35,7 +35,7 @@ fn main() {
     let model = llm::load_dynamic(
         model_architecture,
         model_path,
-        llm::VocabularySource::ModelFile,
+        llm::VocabularySource::Model,
         model_params,
         overrides,
         llm::load_progress_callback_stdout,

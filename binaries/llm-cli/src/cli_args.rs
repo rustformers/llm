@@ -353,7 +353,7 @@ impl ModelVocabulary {
             }
             (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
             (None, Some(repo)) => VocabularySource::HuggingFaceRemote(repo.to_owned()),
-            (None, None) => VocabularySource::ModelFile,
+            (None, None) => VocabularySource::Model,
         })
     }
 }
