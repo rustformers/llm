@@ -1,4 +1,10 @@
-use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt::Display,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use thiserror::Error;
 use tokenizers::Tokenizer;
@@ -23,26 +29,76 @@ pub enum TokenizationError {
     InvalidTokenId(TokenId),
 }
 
-/// The source of a vocabulary.
-pub enum VocabularySource {
-    /// Fetch vocabulary from model file
-    ModelFile,
-
-    /// Fetch vocabulary from a vocabulary file
-    TokenizerFile(PathBuf),
-
-    /// Fetch vocabulary from remote HuggingFace repository
-    HuggingFaceRemote(String),
+#[derive(Error, Debug)]
+/// Errors related to loading the vocabulary.
+#[error("error loading vocabulary from {path}: {error}")]
+pub struct VocabularyLoadError {
+    /// The path to the vocabulary.
+    pub path: PathBuf,
+    /// The error that occurred during loading.
+    pub error: Box<dyn Error + Send + Sync>,
 }
 
-pub trait VocabularyTrait {
-    fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore);
-    fn id(&self, token: &[u8]) -> Option<TokenId>;
-    fn token(&self, idx: usize) -> Vec<u8>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool;
-    fn tokenize(&self, text: &str, bos: bool)
-        -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError>;
+impl VocabularyLoadError {
+    fn new(path: impl Into<PathBuf>, error: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
+        Self {
+            path: path.into(),
+            error: error.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+/// The source of a vocabulary.
+pub enum VocabularySource {
+    /// Read the vocabulary from the model if available, and use a simplistic tokenizer.
+    ///
+    /// This is easy to use, but may not be the best choice for your use case.
+    ModelFile,
+
+    /// Read the vocabulary from a local HuggingFace-format tokenizer file, and use the
+    /// HuggingFace tokenizer.
+    HuggingFaceTokenizerFile(PathBuf),
+
+    /// Fetch the vocabulary from a remote HuggingFace repository. This will make a blocking
+    /// HTTP request to HuggingFace to retrieve the vocabulary and may store files locally,
+    /// so it is not recommended for production use. This will use the HuggingFace tokenizer.
+    HuggingFaceRemote(String),
+}
+impl VocabularySource {
+    /// Retrieve the vocabulary from the source.
+    ///
+    /// Note that this may make a blocking HTTP request to HuggingFace to retrieve the vocabulary
+    /// if `self` is [`Self::HuggingFaceRemote`].
+    pub fn retrieve(self, model_path: &Path) -> Result<Vocabulary, VocabularyLoadError> {
+        Ok(match self {
+            Self::HuggingFaceRemote(identifier) => ExternalVocabulary::new(
+                Tokenizer::from_pretrained(&identifier, None)
+                    .map_err(|error| VocabularyLoadError::new(model_path, error))?,
+            )
+            .into(),
+
+            Self::HuggingFaceTokenizerFile(path) => {
+                if !path.is_file() {
+                    return Err(VocabularyLoadError::new(
+                        path,
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "Vocabulary file not found",
+                        ),
+                    ));
+                }
+
+                ExternalVocabulary::new(
+                    Tokenizer::from_file(&path)
+                        .map_err(|error| VocabularyLoadError::new(path, error))?,
+                )
+                .into()
+            }
+
+            Self::ModelFile => ModelVocabulary::default().into(),
+        })
+    }
 }
 
 /// Vocabulary enum
@@ -53,32 +109,17 @@ pub enum Vocabulary {
     /// A custom vocabulary provided by the user.
     External(ExternalVocabulary),
 }
-
+impl From<ModelVocabulary> for Vocabulary {
+    fn from(v: ModelVocabulary) -> Self {
+        Self::Model(v)
+    }
+}
+impl From<ExternalVocabulary> for Vocabulary {
+    fn from(v: ExternalVocabulary) -> Self {
+        Self::External(v)
+    }
+}
 impl Vocabulary {
-    /// Create a new vocabulary with the default GGML vocabulary.
-    pub fn new_model() -> Self {
-        Vocabulary::Model(ModelVocabulary::default())
-    }
-
-    /// Create a new vocabulary with a custom tokenizer.
-    pub fn new_external(tokenizer: Tokenizer) -> Self {
-        Vocabulary::External(ExternalVocabulary::new(tokenizer))
-    }
-
-    /// Add a token to the vocabulary.
-    ///
-    /// The token added must have `id` directly after the last token in the vocabulary.
-    ///
-    /// # Panics
-    /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
-    ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
-    pub fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
-        match self {
-            Vocabulary::Model(v) => v.push_token(id, content, score),
-            Vocabulary::External(v) => v.push_token(id, content, score),
-        }
-    }
-
     /// Converts a token to the token ID it represents in this vocabulary.
     pub fn id(&self, token: &[u8]) -> Option<TokenId> {
         match self {
@@ -152,7 +193,7 @@ pub struct ModelVocabulary {
     pub max_token_length: usize,
 }
 
-impl VocabularyTrait for ModelVocabulary {
+impl ModelVocabulary {
     /// Add a token to the vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
@@ -160,7 +201,7 @@ impl VocabularyTrait for ModelVocabulary {
     /// # Panics
     /// - This function can panic if `id` does not correspond to the next token in the vocabulary.
     ///   That is, if there are already `n` tokens in the vocabulary, then `id` must be `n`.
-    fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
+    pub(crate) fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore) {
         // These are loader invariants. If this is broken, then the loader is broken and this is a bug,
         // not an issue with the model itself.
         assert_eq!(self.id_to_token.len(), self.id_to_token_score.len());
@@ -270,11 +311,7 @@ impl ExternalVocabulary {
     }
 }
 
-impl VocabularyTrait for ExternalVocabulary {
-    fn push_token(&mut self, _id: TokenId, _content: Token, _score: TokenScore) {
-        panic!("Cannot push token to tokenizer vocabulary.");
-    }
-
+impl ExternalVocabulary {
     fn id(&self, token: &[u8]) -> Option<TokenId> {
         self.tokenizer
             .token_to_id(std::str::from_utf8(token).unwrap())

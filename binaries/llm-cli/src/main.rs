@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
-use llm::{InferenceError, InferenceFeedback, InferenceResponse, Vocabulary};
+use llm::{InferenceError, InferenceFeedback, InferenceResponse};
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
@@ -148,12 +148,17 @@ fn perplexity<M: llm::KnownModel + 'static>(
 }
 
 fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
-    let file = File::open(&args.model_path)?;
+    let model_path = &args.model_and_vocabulary.model_path;
+    let vocabulary = args
+        .model_and_vocabulary
+        .to_source(&mut None)?
+        .retrieve(model_path)?;
+
+    let file = File::open(model_path)?;
     let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> =
-        llm::Loader::new(Vocabulary::new_model(), |_| {
-            // We purposely do not print progress here, as we are only interested in the metadata
-        });
+    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(vocabulary, |_| {
+        // We purposely do not print progress here, as we are only interested in the metadata
+    });
 
     llm::ggml_format::load(&mut reader, &mut loader)?;
 
@@ -316,10 +321,15 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
 
     let mut source = BufReader::new(std::fs::File::open(&args.source)?);
     let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
+    let vocabulary = args
+        .vocabulary
+        .to_source(&mut None)?
+        .retrieve(&args.source)?;
 
     llm::quantize::<M, _, _>(
         &mut source,
         &mut destination,
+        vocabulary,
         args.container_type.into(),
         args.target.into(),
         |progress| match progress {

@@ -1,7 +1,7 @@
 use std::{fmt, ops::Deref, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::{eyre, Result, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
     LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, VocabularySource,
@@ -141,9 +141,8 @@ pub struct Perplexity {
 
 #[derive(Parser, Debug)]
 pub struct Info {
-    /// The model to inspect.
-    #[arg(long, short = 'm')]
-    pub model_path: PathBuf,
+    #[command(flatten)]
+    pub model_and_vocabulary: ModelAndVocabulary,
 
     /// Show all of the tensors in the model, including their names, formats and shapes.
     #[arg(long, short = 't')]
@@ -331,10 +330,42 @@ fn parse_bias(s: &str) -> Result<TokenBias, InvalidTokenBias> {
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelLoad {
+pub struct ModelVocabulary {
+    /// Local path to vocabulary
+    #[arg(long, short = 'v')]
+    pub vocabulary_path: Option<PathBuf>,
+
+    /// Remote HuggingFace repository containing vocabulary
+    #[arg(long, short = 'r')]
+    pub vocabulary_repository: Option<String>,
+}
+impl ModelVocabulary {
+    pub fn to_source(&self, sp: &mut Option<spinoff::Spinner>) -> Result<VocabularySource> {
+        Ok(match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                if let Some(sp) = sp.take() {
+                    sp.fail("Invalid arguments");
+                };
+
+                return Err(eyre!(
+                    "Cannot specify both --vocabulary-path and --vocabulary-repo"
+                ));
+            }
+            (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => VocabularySource::ModelFile,
+        })
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelAndVocabulary {
     /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
+
+    #[command(flatten)]
+    pub vocabulary: ModelVocabulary,
 
     /// Local path to vocabulary
     #[arg(long, short = 'v')]
@@ -342,7 +373,18 @@ pub struct ModelLoad {
 
     /// Remote HuggingFace repository containing vocabulary
     #[arg(long, short = 'r')]
-    pub vocabulary_repo: Option<String>,
+    pub vocabulary_repository: Option<String>,
+}
+impl ModelAndVocabulary {
+    pub fn to_source(&self, sp: &mut Option<spinoff::Spinner>) -> Result<VocabularySource> {
+        self.vocabulary.to_source(sp)
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelLoad {
+    #[command(flatten)]
+    pub model_and_vocabulary: ModelAndVocabulary,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -385,22 +427,10 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let mut vocabulary_source = VocabularySource::ModelFile;
-
-        if self.vocabulary_path.is_some() && self.vocabulary_repo.is_some() {
-            if let Some(sp) = sp.take() {
-                sp.fail("Invalid arguments");
-            };
-
-            panic!("Cannot specify both --vocabulary-path and --vocabulary-repo");
-        } else if let Some(path) = &self.vocabulary_path {
-            vocabulary_source = VocabularySource::TokenizerFile(path.clone());
-        } else if let Some(repo) = &self.vocabulary_repo {
-            vocabulary_source = VocabularySource::HuggingFaceRemote(repo.clone());
-        }
+        let vocabulary_source = self.model_and_vocabulary.to_source(&mut sp)?;
 
         let model = llm::load::<M>(
-            &self.model_path,
+            &self.model_and_vocabulary.model_path,
             vocabulary_source,
             params,
             overrides,
@@ -546,6 +576,9 @@ pub struct Quantize {
     /// The path to save the quantized model to
     #[arg()]
     pub destination: PathBuf,
+
+    #[command(flatten)]
+    pub vocabulary: ModelVocabulary,
 
     /// The GGML container type to target.
     ///

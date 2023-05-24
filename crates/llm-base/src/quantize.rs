@@ -138,6 +138,7 @@ impl QuantizeError {
 pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     reader: &mut R,
     writer: &mut W,
+    vocabulary: Vocabulary,
     save_container_type: ggml::format::SaveContainerType,
     desired_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
@@ -152,7 +153,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let mut loader = Loader::<M::Hyperparameters, _>::new(Vocabulary::new_model(), {
+    let mut loader = Loader::<M::Hyperparameters, _>::new(vocabulary, {
         let progress_callback = progress_callback.clone();
         move |p| {
             if let LoadProgress::HyperparametersLoaded = p {
