@@ -157,20 +157,25 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 
     log::info!("Container type: {:?}", loader.container_type);
     log::info!("Hyperparameters: {:?}", loader.hyperparameters);
-    log::info!(
-        "Tensors: {:?}",
-        loader
-            .tensors
-            .iter()
-            .map(|(name, tensor)| format!("{} ({:?})", name, tensor.element_type))
-            .collect::<Vec<_>>()
-    );
     log::info!("Vocabulary size: {}", loader.vocabulary.id_to_token.len());
 
-    if args.dump_vocabulary {
-        log::info!("Dumping vocabulary:");
-        for (tid, token) in loader.vocabulary.id_to_token.iter().enumerate() {
-            log::info!("{}: {}", tid, utf8_or_array(token));
+    if args.vocabulary {
+        log::info!("Vocabulary:");
+        for (tid, (token, score)) in loader
+            .vocabulary
+            .id_to_token
+            .iter()
+            .zip(loader.vocabulary.id_to_token_score.iter())
+            .enumerate()
+        {
+            log::info!("- {}: {} ({})", tid, utf8_or_array(token), score);
+        }
+    }
+
+    if args.tensors {
+        log::info!("Tensors:");
+        for (name, tensor) in &loader.tensors {
+            log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
         }
     }
 
