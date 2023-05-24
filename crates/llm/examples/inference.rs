@@ -44,7 +44,7 @@ fn main() {
         &mut rand::thread_rng(),
         &InferenceRequest {
             prompt: prompt.into(),
-            parameters: &InferenceParameters::reasonable_default(),
+            parameters: &InferenceParameters::default(),
             play_back_previous_tokens: false,
             maximum_token_count: None,
         },

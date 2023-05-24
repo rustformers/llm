@@ -43,7 +43,7 @@ fn main() {
          {character_name}:  Paris is the capital of France."
     );
 
-    let inference_parameters = InferenceParameters::reasonable_default();
+    let inference_parameters = InferenceParameters::default();
 
     session
         .feed_prompt(
