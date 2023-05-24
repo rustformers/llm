@@ -24,7 +24,7 @@ fn main() {
     let model = llm::load_dynamic(
         model_architecture,
         model_path,
-        VocabularySource::ModelEmbedded,
+        VocabularySource::ModelFile,
         Default::default(),
         overrides,
         load_callback,

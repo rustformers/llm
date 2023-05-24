@@ -287,7 +287,7 @@ pub enum LoadError {
     /// The vocab file for the tokenizer could not be loaded.
     #[error("could not load vocab file {path:?}")]
     VocabularyLoadError {
-        /// The path that failed.
+        /// The invalid vocabulary path
         path: String,
 
         /// The error that occurred.
@@ -379,7 +379,7 @@ pub fn load<M: KnownModel>(
     let mut reader = BufReader::new(&file);
 
     let vocabulary = match vocabulary_source {
-        VocabularySource::TokenizerHfPretrained(identifier) => {
+        VocabularySource::HuggingFaceRemote(identifier) => {
             let tokenizer = Tokenizer::from_pretrained(&identifier, None);
 
             if tokenizer.is_err() {
@@ -415,7 +415,7 @@ pub fn load<M: KnownModel>(
             }
         }
 
-        VocabularySource::ModelEmbedded => Vocabulary::new_ggml(),
+        VocabularySource::ModelFile => Vocabulary::new_ggml(),
     };
 
     let mut loader = Loader::new(vocabulary, load_progress_callback);
@@ -559,7 +559,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
 
             container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
-            vocabulary: vocabulary,
+            vocabulary,
             tensors: HashMap::default(),
         }
     }

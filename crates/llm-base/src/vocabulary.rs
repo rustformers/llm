@@ -21,19 +21,19 @@ pub enum TokenizationError {
 
 /// The source of a vocabulary.
 pub enum VocabularySource {
-    /// The vocabulary is built-in to the model if available.
-    ModelEmbedded,
+    /// Fetch vocabulary from model file
+    ModelFile,
 
-    /// The vocabulary is loaded from a file.
+    /// Fetch vocabulary from a vocabulary file
     TokenizerFile(PathBuf),
 
-    /// The vocabulary is loaded from a huggingface repository.
-    TokenizerHfPretrained(String),
+    /// Fetch vocabulary from remote HuggingFace repository
+    HuggingFaceRemote(String),
 }
 
 pub trait VocabularyTrait {
     fn push_token(&mut self, id: TokenId, content: Token, score: TokenScore);
-    fn token_to_id(&self, token: &[u8]) -> Option<TokenId>;
+    fn id(&self, token: &[u8]) -> Option<TokenId>;
     fn token(&self, idx: usize) -> Vec<u8>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
@@ -79,10 +79,10 @@ impl Vocabulary {
     }
 
     /// Converts a token to the token ID it represents in this vocabulary.
-    pub fn token_to_id(&self, token: &[u8]) -> Option<TokenId> {
+    pub fn id(&self, token: &[u8]) -> Option<TokenId> {
         match self {
-            Vocabulary::Ggml(v) => v.token_to_id(token),
-            Vocabulary::Tokenizer(v) => v.token_to_id(token),
+            Vocabulary::Ggml(v) => v.id(token),
+            Vocabulary::Tokenizer(v) => v.id(token),
         }
     }
 
@@ -166,7 +166,7 @@ impl VocabularyTrait for GgmlVocabulary {
         self.token_to_id.insert(content, id);
     }
 
-    fn token_to_id(&self, token: &[u8]) -> Option<TokenId> {
+    fn id(&self, token: &[u8]) -> Option<TokenId> {
         self.token_to_id.get(token).copied()
     }
 
@@ -243,7 +243,7 @@ impl VocabularyTrait for GgmlVocabulary {
     }
 }
 
-/// A vocabulary provided by the user.
+/// A vocabulary that does not originate from the model file.
 #[derive(Debug, Clone)]
 pub struct TokenizerVocabulary {
     tokenizer: Tokenizer,
@@ -261,7 +261,7 @@ impl VocabularyTrait for TokenizerVocabulary {
         panic!("Cannot push token to tokenizer vocabulary.");
     }
 
-    fn token_to_id(&self, token: &[u8]) -> Option<TokenId> {
+    fn id(&self, token: &[u8]) -> Option<TokenId> {
         self.tokenizer
             .token_to_id(std::str::from_utf8(token).unwrap())
     }

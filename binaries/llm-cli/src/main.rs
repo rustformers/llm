@@ -56,6 +56,7 @@ fn infer<M: llm::KnownModel + 'static>(
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load::<M>(overrides)?;
+
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),

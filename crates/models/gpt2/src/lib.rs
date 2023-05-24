@@ -343,9 +343,7 @@ impl KnownModel for Gpt2 {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id("<|endoftext|>".as_bytes())
-            .unwrap()
+        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn inference_parameters(&self) -> &InferenceParameters {

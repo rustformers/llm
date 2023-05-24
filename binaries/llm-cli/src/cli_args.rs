@@ -332,11 +332,11 @@ pub struct ModelLoad {
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
-    /// Where to load the vocabulary from
+    /// Local path to vocabulary
     #[arg(long, short = 'v')]
     pub vocabulary_path: Option<PathBuf>,
 
-    /// Where to load the vocabulary from
+    /// Remote HuggingFace repository containing vocabulary
     #[arg(long, short = 'r')]
     pub vocabulary_repo: Option<String>,
 
@@ -382,11 +382,18 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let mut vocabulary_source = VocabularySource::ModelEmbedded;
-        if let Some(path) = &self.vocabulary_path {
+        let mut vocabulary_source = VocabularySource::ModelFile;
+
+        if self.vocabulary_path.is_some() && self.vocabulary_repo.is_some() {
+            if let Some(sp) = sp.take() {
+                sp.fail("Invalid arguments");
+            };
+
+            panic!("Cannot specify both --vocabulary-path and --vocabulary-repo");
+        } else if let Some(path) = &self.vocabulary_path {
             vocabulary_source = VocabularySource::TokenizerFile(path.clone());
         } else if let Some(repo) = &self.vocabulary_repo {
-            vocabulary_source = VocabularySource::TokenizerHfPretrained(repo.clone());
+            vocabulary_source = VocabularySource::HuggingFaceRemote(repo.clone());
         }
 
         let model = llm::load::<M>(
