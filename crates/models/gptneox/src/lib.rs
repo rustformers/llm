@@ -6,7 +6,7 @@ use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
-    ggml::{self, ElementType},
+    ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
     LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
@@ -126,6 +126,8 @@ impl KnownModel for GptNeoX {
         )
     }
 
+    // allow snake case here as its a one-to-one mapping of the original names
+    #[allow(non_snake_case)]
     fn evaluate(
         &self,
         session: &mut InferenceSession,
@@ -159,7 +161,11 @@ impl KnownModel for GptNeoX {
         let memory_v_size = memory_v.element_size();
 
         let mut gf = ggml::ComputationGraph::new(n_threads);
+
         for il in 0..n_layer {
+            // attention uses first scratch buffer
+            ctx0.use_scratch(Some(&mut session.scratch[0]));
+
             // self-attention
             let mut current = ctx0.op_norm(&input_layer);
             current = ctx0.op_add(
@@ -174,95 +180,55 @@ impl KnownModel for GptNeoX {
                 &current,
             );
 
-            let mut qcur: Tensor;
-            let mut kcur: Tensor;
-            let mut vcur: Tensor;
+            let nb = current.get_nb()[1];
+            let f32_size = std::mem::size_of::<f32>();
 
-            if use_parallel_residual {
-                let nb = current.get_nb()[1];
-                let f32_size = std::mem::size_of::<f32>();
-                qcur = ctx0.op_cont(&ctx0.op_view_3d(
-                    &current,
-                    (n_embd / n_head, n_head, n),
-                    (nb / n_head, nb),
-                    0,
-                ));
-                kcur = ctx0.op_cont(&ctx0.op_view_3d(
-                    &current,
-                    (n_embd / n_head, n_head, n),
-                    (nb / n_head, nb),
-                    f32_size * n_embd / n_head,
-                ));
-                vcur = ctx0.op_cont(&ctx0.op_view_3d(
-                    &current,
-                    (n_embd / n_head, n_head, n),
-                    (nb / n_head, nb),
-                    2 * f32_size * n_embd / n_head,
-                ));
-            } else {
-                let cur_size = current.element_size();
-                qcur = ctx0.op_view_3d(
-                    &current,
-                    (n_embd / n_head, n_head, n),
-                    (cur_size * 3 * n_embd / n_head, cur_size * 3 * n_embd),
-                    0,
-                );
-                kcur = ctx0.op_view_3d(
-                    &current,
-                    (n_embd / n_head, n_head, n),
-                    (cur_size * 3 * n_embd / n_head, cur_size * 3 * n_embd),
-                    cur_size * n_embd / n_head,
-                );
-                vcur = ctx0.op_view_3d(
-                    &current,
-                    (n_embd / n_head, n_head, n),
-                    (cur_size * 3 * n_embd / n_head, cur_size * 3 * n_embd),
-                    cur_size * n_embd / n_head * 2,
-                );
-
-                qcur = ctx0.op_cpy(
-                    &qcur,
-                    &ctx0.new_tensor_3d(ElementType::F32, n_embd / n_head, n_head, n),
-                );
-                kcur = ctx0.op_cpy(
-                    &kcur,
-                    &ctx0.new_tensor_3d(ElementType::F32, n_embd / n_head, n_head, n),
-                );
-                vcur = ctx0.op_cpy(
-                    &vcur,
-                    &ctx0.new_tensor_3d(ElementType::F32, n_embd / n_head, n_head, n),
-                );
-            }
+            let mut qcur = ctx0.op_cont(&ctx0.op_view_3d(
+                &current,
+                (n_embd / n_head, n_head, n),
+                (nb / n_head, nb),
+                0,
+            ));
+            let mut kcur = ctx0.op_cont(&ctx0.op_view_3d(
+                &current,
+                (n_embd / n_head, n_head, n),
+                (nb / n_head, nb),
+                f32_size * n_embd / n_head,
+            ));
+            let mut vcur = ctx0.op_cont(&ctx0.op_view_3d(
+                &current,
+                (n_embd / n_head, n_head, n),
+                (nb / n_head, nb),
+                2 * f32_size * n_embd / n_head,
+            ));
 
             // self-attention using mode = 2 for GPT-NeoX mode
             qcur = ctx0.op_rope_inplace(&qcur, n_past, n_rot, 2);
             kcur = ctx0.op_rope_inplace(&kcur, n_past, n_rot, 2);
 
-            // self-attention store key and value to memory
-            if use_parallel_residual {
-                vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, n_embd, n));
-            } else {
-                vcur = ctx0.op_view_2d(&vcur, (n_embd, n), vcur.element_size() * n_embd, 0);
-                vcur = ctx0.op_transpose(&vcur);
-            }
+            // store key and value to memory
+            vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, n_embd, n));
 
-            let little_k = ctx0.op_view_1d(
+            let k = ctx0.op_view_1d(
                 memory_k,
                 n * n_embd,
                 (memory_k_size * n_embd) * (il * n_ctx + n_past),
             );
-            let little_v = ctx0.op_view_2d(
+
+            let v = ctx0.op_view_2d(
                 memory_v,
                 (n, n_embd),
                 n_ctx * memory_v_size,
                 (il * n_ctx) * memory_v_size * n_embd + n_past * memory_v_size,
             );
 
-            gf.build_forward_expand(&ctx0.op_cpy(&kcur, &little_k));
-            gf.build_forward_expand(&ctx0.op_cpy(&vcur, &little_v));
+            gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
+            gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
 
-            let q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
-            let big_k = ctx0.op_permute(
+            // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
+            let Q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
+            // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
+            let K = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         memory_k,
@@ -279,16 +245,23 @@ impl KnownModel for GptNeoX {
                 3,
             );
 
-            let kq = ctx0.op_mul_mat(&big_k, &q);
-            let kq_scale_inplaced = ctx0.op_scale_inplace(
-                &kq,
+            // K * Q
+            let KQ = ctx0.op_mul_mat(&K, &Q);
+
+            // KQ_scaled = KQ / sqrt(n_embd/n_head)
+            let KQ_scaled = ctx0.op_scale_inplace(
+                &KQ,
                 &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
             );
 
-            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scale_inplaced, n_past);
-            let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
+            // KQ_masked = mask_past(KQ_scaled)
+            let KQ_masked = ctx0.op_diag_mask_inf_inplace(&KQ_scaled, n_past);
 
-            let big_v = ctx0.op_view_3d(
+            // KQ = soft_max(KQ_masked)
+            let KQ_softmax = ctx0.op_soft_max_inplace(&KQ_masked);
+
+            // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
+            let V = ctx0.op_view_3d(
                 memory_v,
                 (n_past + n, n_embd / n_head, n_head),
                 (
@@ -298,10 +271,13 @@ impl KnownModel for GptNeoX {
                 il * n_ctx * memory_v_size * n_embd,
             );
 
-            let kqv = ctx0.op_mul_mat(&big_v, &kq_softmax);
-            let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
+            // KQV = transpose(V) * KQ_soft_max
+            let KQV = ctx0.op_mul_mat(&V, &KQ_softmax);
+            // KQV_merged = KQV.permute(0, 2, 1, 3)
+            let KQV_merged = ctx0.op_permute(&KQV, 0, 2, 1, 3);
 
-            current = ctx0.op_cpy(&kqv_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
+            // cur = KQV_merged.contiguous().view(n_embd, N)
+            current = ctx0.op_cpy(&KQV_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
 
             // self-attention projection
             current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
@@ -310,56 +286,46 @@ impl KnownModel for GptNeoX {
                 &current,
             );
 
-            // feed-forward
-            let ff_in = if use_parallel_residual {
-                current.share()
+            // use the second scratch for the feed forward
+            ctx0.use_scratch(Some(&mut session.scratch[1]));
+
+            let feedforward_input: Tensor;
+            if !use_parallel_residual {
+                feedforward_input = ctx0.op_add(&current, &input_layer);
+                current = feed_forward_network(&ctx0, &self.layers[il], &feedforward_input);
+                // input for next layer
+                input_layer = ctx0.op_add(&current, &feedforward_input);
             } else {
-                let out_attn = current.share();
-                ctx0.op_add(&out_attn, &input_layer)
-            };
+                // calculate with parallel residual
+                feedforward_input = current.share();
 
-            // feed-forward post attention layer norm
-            if use_parallel_residual {
-                current = ctx0.op_norm(&input_layer);
-            } else {
-                current = ctx0.op_norm(&ff_in);
-            }
-            current = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_2_g, &current), &current),
-                &ctx0.op_repeat(&self.layers[il].ln_2_b, &current),
-            );
+                // this is independent of the self-attention result, so it could be done in parallel to the self-attention
+                // note here we pass inpL instead of cur
+                current = feed_forward_network(&ctx0, &self.layers[il], &input_layer);
 
-            current = ctx0.op_mul_mat(&self.layers[il].c_mlp_fc_w, &current);
-            current = ctx0.op_add(
-                &ctx0.op_repeat(&self.layers[il].c_mlp_fc_b, &current),
-                &current,
-            );
+                // layer input + FF
+                current = ctx0.op_add(&current, &feedforward_input);
 
-            current = ctx0.op_gelu(&current);
-
-            // feed-forward projection
-            current = ctx0.op_mul_mat(&self.layers[il].c_mlp_proj_w, &current);
-            current = ctx0.op_add(
-                &ctx0.op_repeat(&self.layers[il].c_mlp_proj_b, &current),
-                &current,
-            );
-
-            if use_parallel_residual {
-                current = ctx0.op_add(&current, &ff_in);
                 // input for next layer
                 input_layer = ctx0.op_add(&current, &input_layer);
-            } else {
-                // input for next layer
-                input_layer = ctx0.op_add(&ff_in, &current);
             }
         }
 
+        // use the first scratch for the norm
+        ctx0.use_scratch(Some(&mut session.scratch[1]));
+
+        // normalize the output
         input_layer = ctx0.op_norm(&input_layer);
+        // inpL = ln_f_g*inpL + ln_f_b
         input_layer = ctx0.op_add(
             &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
             &ctx0.op_repeat(&self.ln_f_b, &input_layer),
         );
 
+        // Disable the scratchbuffer
+        ctx0.use_scratch(None);
+
+        // apply language model head
         input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
 
         // run the computation
@@ -492,4 +458,31 @@ struct Layer {
 
     c_mlp_proj_w: Tensor,
     c_mlp_proj_b: Tensor,
+}
+
+fn feed_forward_network(context: &ggml::Context, layer: &Layer, input: &Tensor) -> Tensor {
+    let mut current = context.op_norm(input);
+
+    //gain and bias
+    current = context.op_add(
+        &context.op_mul(&context.op_repeat(&layer.ln_2_g, &current), &current),
+        &context.op_repeat(&layer.ln_2_b, &current),
+    );
+
+    // apply weights
+    current = context.op_mul_mat(&layer.c_mlp_fc_w, &current);
+
+    // apply bias
+    current = context.op_add(&context.op_repeat(&layer.c_mlp_fc_b, &current), &current);
+
+    // GELU activation
+    current = context.op_gelu(&current);
+
+    // projection
+    // cur = proj_w*cur + proj_b
+    current = context.op_mul_mat(&layer.c_mlp_proj_w, &current);
+
+    current = context.op_add(&context.op_repeat(&layer.c_mlp_proj_b, &current), &current);
+
+    current
 }
