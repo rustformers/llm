@@ -399,6 +399,11 @@ impl<'a> From<&'a Vec<TokenId>> for Prompt<'a> {
 pub struct TokenBias(Vec<(TokenId, f32)>);
 
 impl TokenBias {
+    /// Create an empty [TokenBias].
+    pub const fn empty() -> Self {
+        Self(Vec::new())
+    }
+
     /// Create a [TokenBias] from an existing `Vec`.
     pub fn new(mut v: Vec<(TokenId, f32)>) -> Self {
         v.sort_by_cached_key(|(tid, _)| *tid);

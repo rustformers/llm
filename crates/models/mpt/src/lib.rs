@@ -29,9 +29,6 @@ pub struct Mpt {
     // weights for the model
     layers: Vec<Layer>,
 
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
-
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -76,11 +73,7 @@ impl KnownModel for Mpt {
 
         let (_context, _, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(Mpt {
             hyperparameters,
@@ -89,7 +82,6 @@ impl KnownModel for Mpt {
             wte,
             norm,
             layers,
-            inference_parameters,
             _context,
             _mmap,
         })
@@ -290,10 +282,6 @@ impl KnownModel for Mpt {
 
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 

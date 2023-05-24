@@ -9,8 +9,8 @@ fn main() {
     let mut builder = cc::Build::new();
 
     let build = builder
-        .files(["ggml/src/ggml.c", "legacy/qnt0.c"])
-        .includes(["ggml/include/ggml", "legacy"]);
+        .files(["ggml/src/ggml.c"])
+        .includes(["ggml/include/ggml"]);
 
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.

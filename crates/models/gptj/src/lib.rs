@@ -35,9 +35,6 @@ pub struct GptJ {
     // weights for the model
     layers: Vec<Layer>,
 
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
-
     // must be kept alive for the model
     _context: ggml::Context,
     _mmap: Option<Mmap>,
@@ -89,11 +86,7 @@ impl KnownModel for GptJ {
 
         let (_context, _, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(GptJ {
             hyperparameters,
@@ -105,7 +98,6 @@ impl KnownModel for GptJ {
             lmh_g,
             lmh_b,
             layers,
-            inference_parameters,
             _mmap,
             _context,
         })
@@ -314,10 +306,6 @@ impl KnownModel for GptJ {
 
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 

@@ -71,7 +71,7 @@ fn infer<M: llm::KnownModel + 'static>(
         &mut rng,
         &llm::InferenceRequest {
             prompt: prompt.as_str().into(),
-            parameters: Some(&inference_params),
+            parameters: &inference_params,
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
@@ -159,20 +159,19 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 
     log::info!("Container type: {:?}", loader.container_type);
     log::info!("Hyperparameters: {:?}", loader.hyperparameters);
-    log::info!(
-        "Tensors: {:?}",
-        loader
-            .tensors
-            .iter()
-            .map(|(name, tensor)| format!("{} ({:?})", name, tensor.element_type))
-            .collect::<Vec<_>>()
-    );
     log::info!("Vocabulary size: {}", loader.vocabulary.len());
 
-    if args.dump_vocabulary {
-        log::info!("Dumping vocabulary:");
+    if args.vocabulary {
+        log::info!("Vocabulary:");
         for i in 0..loader.vocabulary.len() {
-            log::info!("{}: {}", i, utf8_or_array(&loader.vocabulary.token(i)));
+            log::info!("- {}: {}", i, utf8_or_array(&loader.vocabulary.token(i)));
+        }
+    }
+
+    if args.tensors {
+        log::info!("Tensors:");
+        for (name, tensor) in &loader.tensors {
+            log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
         }
     }
 
@@ -274,7 +273,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                     &mut rng,
                     &llm::InferenceRequest {
                         prompt: "".into(),
-                        parameters: Some(&inference_params),
+                        parameters: &inference_params,
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
                     },

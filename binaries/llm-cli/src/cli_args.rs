@@ -141,13 +141,17 @@ pub struct Perplexity {
 
 #[derive(Parser, Debug)]
 pub struct Info {
-    /// The model to inspect
+    /// The model to inspect.
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
-    /// Whether or not to dump the entire vocabulary
+    /// Show all of the tensors in the model, including their names, formats and shapes.
+    #[arg(long, short = 't')]
+    pub tensors: bool,
+
+    /// Show all of the tokens in the vocabulary.
     #[arg(long, short = 'v')]
-    pub dump_vocabulary: bool,
+    pub vocabulary: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -371,7 +375,6 @@ impl ModelLoad {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
-            ..Default::default()
         };
 
         let mut sp = Some(spinoff::Spinner::new(

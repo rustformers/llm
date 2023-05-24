@@ -10,9 +10,6 @@ use llm_base::{
     LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
 };
 
-#[cfg(feature = "convert")]
-pub mod convert;
-
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
 ///
 /// # Safety
@@ -34,9 +31,6 @@ pub struct Llama {
 
     // weights for the model
     layers: Vec<Layer>,
-
-    // default parameters used by [InferenceSession::infer]
-    inference_parameters: InferenceParameters,
 
     // must be kept alive for the model
     _context: ggml::Context,
@@ -83,11 +77,7 @@ impl KnownModel for Llama {
 
         let (_context, _tensors, _mmap) = tl.finish();
 
-        let ModelParameters {
-            context_size,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(Self {
             hyperparameters,
@@ -97,7 +87,6 @@ impl KnownModel for Llama {
             norm,
             output,
             layers,
-            inference_parameters,
             _context,
             _mmap,
         })
@@ -309,6 +298,8 @@ impl KnownModel for Llama {
         // inpL = norm*inpL
         input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
+
         // lm_head
         input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
@@ -321,7 +312,7 @@ impl KnownModel for Llama {
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
         common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
@@ -340,10 +331,6 @@ impl KnownModel for Llama {
 
     fn eot_token_id(&self) -> TokenId {
         2
-    }
-
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
     }
 }
 
