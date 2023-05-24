@@ -1,9 +1,6 @@
-use std::{path::Path, time::Instant};
-use llm::{
-    ModelArchitecture, LoadProgress, ModelParameters, OutputRequest, Model,
-};
+use llm::{LoadProgress, Model, ModelArchitecture, ModelParameters, OutputRequest};
 use spinoff::{spinners::Dots2, Spinner};
-
+use std::{path::Path, time::Instant};
 
 fn main() {
     let model_path = Path::new(r"./models/ggml-vicuna-7B-1.1-q5_0.bin");
@@ -34,7 +31,6 @@ fn main() {
     let query = "My favourite animal is the dog";
     //let query = "What is your favourite animal";
 
-
     let sentences = vec![
         //"My favourite animal is the dog",
         "I have just adopted a cute dog",
@@ -49,8 +45,11 @@ fn main() {
         let vocab = model.vocabulary();
         let beginning_of_sentence = true;
         let query_token_ids = vocab
-            .tokenize(&format!(" {}", query), beginning_of_sentence).unwrap()
-            .iter().map(|(_, tok)| *tok).collect::<Vec<_>>();
+            .tokenize(&format!(" {}", query), beginning_of_sentence)
+            .unwrap()
+            .iter()
+            .map(|(_, tok)| *tok)
+            .collect::<Vec<_>>();
         let _ = model.evaluate(
             &mut session,
             //&inference_params,
@@ -60,16 +59,24 @@ fn main() {
         );
         output_request.embeddings
     }
-    
     let query_embeddings = get_embeddings(&model, query).unwrap();
-    println!("Text: {:?} Embeddings length: {:?}\nThe first 10 elements of embeddings: \n{:?}\n", query, query_embeddings.len(), query_embeddings.get(0..10));
-    
+    println!(
+        "Text: {:?} Embeddings length: {:?}\nThe first 10 elements of embeddings: \n{:?}\n",
+        query,
+        query_embeddings.len(),
+        query_embeddings.get(0..10)
+    );
     let mut sentences_similarity = sentences
         .iter()
         .enumerate()
         .map(|(_idx, &s)| {
             let embeddings = get_embeddings(&model, s).unwrap();
-            println!("Text: {:?} Embeddings length: {:?}\nThe first 10 elements of embeddings: \n{:?}\n", s, embeddings.len(), embeddings.get(0..10));
+            println!(
+                "Text: {:?} Embeddings length: {:?}\nThe first 10 elements of embeddings: \n{:?}\n",
+                s,
+                embeddings.len(),
+                embeddings.get(0..10)
+            );
             let value = cosine_similarity(&query_embeddings, &embeddings);
             TextSimilrity {
                 text: s.to_owned(),
@@ -77,12 +84,10 @@ fn main() {
             }
         })
         .collect::<Vec<_>>();
-    sentences_similarity.sort_by(|a, b| {
-        b.similarity
-            .partial_cmp(&a.similarity)
-            .unwrap()
-    });
-    sentences_similarity.iter().for_each(|i| println!("Cosine Similrity: {:#?}\n", i));
+    sentences_similarity.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap());
+    sentences_similarity
+        .iter()
+        .for_each(|i| println!("Cosine Similrity: {:#?}\n", i));
 }
 
 #[derive(Debug)]
@@ -90,8 +95,6 @@ pub struct TextSimilrity {
     pub text: String,
     pub similarity: f32,
 }
-
-
 
 fn cosine_similarity(v1: &[f32], v2: &[f32]) -> f32 {
     let dot_product = dot(&v1, &v2);
@@ -145,7 +148,11 @@ fn load_progress_callback(
         }
         LoadProgress::LoraApplied { name, source } => {
             if let Some(sp) = sp.as_mut() {
-                sp.update_text(format!("Applied LoRA: {} Source: {}", name, source.to_string_lossy()));
+                sp.update_text(format!(
+                    "Applied LoRA: {} Source: {}",
+                    name,
+                    source.to_string_lossy()
+                ));
             };
         }
         LoadProgress::Loaded {
