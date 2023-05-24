@@ -1,7 +1,3 @@
-use llm::{
-    load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceParameters,
-    InferenceRequest, InferenceResponse, ModelArchitecture,
-};
 use std::{convert::Infallible, io::Write, path::Path};
 
 fn main() {
@@ -11,7 +7,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let model_architecture: ModelArchitecture = raw_args[0].parse().unwrap();
+    let model_architecture: llm::ModelArchitecture = raw_args[0].parse().unwrap();
     let model_path = Path::new(&raw_args[1]);
     let prompt = raw_args
         .get(2)
@@ -26,7 +22,7 @@ fn main() {
         model_path,
         Default::default(),
         overrides,
-        load_callback,
+        llm::load_progress_callback_stdout,
     )
     .unwrap_or_else(|err| {
         panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
@@ -42,22 +38,22 @@ fn main() {
     let res = session.infer::<Infallible>(
         model.as_ref(),
         &mut rand::thread_rng(),
-        &InferenceRequest {
+        &llm::InferenceRequest {
             prompt: prompt.into(),
-            parameters: &InferenceParameters::default(),
+            parameters: &llm::InferenceParameters::default(),
             play_back_previous_tokens: false,
             maximum_token_count: None,
         },
         // OutputRequest
         &mut Default::default(),
         |r| match r {
-            InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+            llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
                 print!("{t}");
                 std::io::stdout().flush().unwrap();
 
-                Ok(InferenceFeedback::Continue)
+                Ok(llm::InferenceFeedback::Continue)
             }
-            _ => Ok(InferenceFeedback::Continue),
+            _ => Ok(llm::InferenceFeedback::Continue),
         },
     );
 
