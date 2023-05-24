@@ -88,7 +88,7 @@ pub fn extract_embeddings(
         unsafe {
             embeddings_tensor.read_data(0, bytemuck::cast_slice_mut(&mut all_embeddings));
         }
-        embeddings.copy_from_slice(&all_embeddings[n_embd * (n-1)..]);
+        embeddings.copy_from_slice(&all_embeddings[n_embd * (n - 1)..]);
     }
 }
 
