@@ -299,12 +299,15 @@ impl KnownModel for Llama {
         ctx0.use_scratch(Some(&mut session.scratch[0]));
 
         // Used at the end to optionally extract the embeddings.
+        let embeddings_tensor: ggml::Tensor;
 
         // norm
         input_layer = ctx0.op_rms_norm(&input_layer);
 
         // inpL = norm*inpL
         input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+
+        embeddings_tensor = input_layer.share();
 
         // lm_head
         input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
@@ -318,7 +321,7 @@ impl KnownModel for Llama {
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
         common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
