@@ -123,8 +123,22 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        // First, sample the next token, using the stored last_logits;
-        let next_token = self.sample_top_p_top_k(params, rng);
+        // Customize logits can take functions to modify the logits and the sampling
+        // Example:
+        // fn modify_logits(logits: &mut Vec<f32>) {
+        //    // Set the logits to 0
+        //    logits.iter_mut().for_each(|x| *x = 0.0);
+        // }
+        //
+        // Can be called as -> self.customize_logits(Some(&modify_logits), None);
+
+        let (_, custom_token) = self.customize_logits(None, None);
+
+        // Default next token sampled through sample_top_p_top_k
+        let next_token = match custom_token {
+            Some(t) => t,
+            None => self.sample_top_p_top_k(params, rng),
+        };
 
         // Update the tokens for this session
         self.tokens.push(next_token);
@@ -138,6 +152,22 @@ impl InferenceSession {
         } else {
             Ok(model.vocabulary().token(next_token as usize))
         }
+    }
+
+    /// Customize logits and sampling before obtaining the next token.
+    pub fn customize_logits(
+        &mut self,
+        modifier: Option<&dyn Fn(&mut Vec<f32>)>,
+        sampler: Option<&dyn Fn(&Vec<f32>) -> TokenId>,
+    ) -> (&Vec<f32>, Option<TokenId>) {
+        if let Some(f) = modifier {
+            f(&mut self.last_logits);
+        }
+        let token = match sampler {
+            Some(f) => Some(f(&self.last_logits)),
+            None => None,
+        };
+        (&self.last_logits, token)
     }
 
     /// Generate text by using the provided [Model] to evaluate the `prompt`.
