@@ -528,7 +528,7 @@ pub struct Quantize {
     ///
     /// Note that using GGML requires the original model to have
     /// an unscored vocabulary, which is not the case for newer models.
-    #[arg(short, long, default_value_t = SaveContainerType::GgjtV2)]
+    #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
     pub container_type: SaveContainerType,
 
     /// The format to convert to
@@ -539,14 +539,14 @@ pub struct Quantize {
 pub enum SaveContainerType {
     /// GGML container.
     Ggml,
-    /// GGJT v2 container.
-    GgjtV2,
+    /// GGJT v3 container.
+    GgjtV3,
 }
 impl fmt::Display for SaveContainerType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SaveContainerType::Ggml => write!(f, "ggml"),
-            SaveContainerType::GgjtV2 => write!(f, "ggjt-v2"),
+            SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
         }
     }
 }
@@ -554,7 +554,7 @@ impl From<SaveContainerType> for ggml_format::SaveContainerType {
     fn from(value: SaveContainerType) -> Self {
         match value {
             SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
-            SaveContainerType::GgjtV2 => ggml_format::SaveContainerType::GgjtV2,
+            SaveContainerType::GgjtV3 => ggml_format::SaveContainerType::GgjtV3,
         }
     }
 }

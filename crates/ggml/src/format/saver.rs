@@ -68,13 +68,13 @@ pub enum SaveContainerType {
     /// The GGML container.
     Ggml,
     /// The GGJT container.
-    GgjtV2,
+    GgjtV3,
 }
 impl From<SaveContainerType> for ContainerType {
     fn from(value: SaveContainerType) -> Self {
         match value {
             SaveContainerType::Ggml => ContainerType::Ggml,
-            SaveContainerType::GgjtV2 => ContainerType::Ggjt(2),
+            SaveContainerType::GgjtV3 => ContainerType::Ggjt(3),
         }
     }
 }
@@ -91,10 +91,7 @@ pub fn save<E: Error, W: Write + Seek>(
     tensor_names: &[String],
 ) -> Result<(), SaveError<E>> {
     // Write header and hyperparameters
-    match container_type {
-        SaveContainerType::Ggml => ContainerType::Ggml.write(writer)?,
-        SaveContainerType::GgjtV2 => ContainerType::Ggjt(2).write(writer)?,
-    }
+    ContainerType::from(container_type).write(writer)?;
 
     if container_type == SaveContainerType::Ggml
         && vocabulary.iter().any(|(_, score)| *score != 0.0)
