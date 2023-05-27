@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
 };
 
 /// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
@@ -310,6 +310,14 @@ impl KnownModel for GptJ {
             .get("<|endoftext|>".as_bytes())
             .copied()
             .unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        vec![Regex::new(".*weight").unwrap()]
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 

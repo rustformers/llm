@@ -5,6 +5,7 @@ use crate::{
 };
 use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
+use regex::Regex;
 use std::{
     collections::HashMap,
     io::{BufRead, Seek, Write},
@@ -184,10 +185,14 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
         .zip(vocabulary.id_to_token_score)
         .collect::<Vec<_>>();
 
+    let to_quantize = M::quantize_tensors();
+    let to_skip = M::skip_quantize_tensors();
     let mut saver = QuantizeSaver::new(
         quantization_target,
         &hyperparameters,
         &tensors,
+        &to_quantize,
+        &to_skip,
         reader,
         |p| progress_callback(p),
     );
@@ -254,6 +259,8 @@ struct QuantizeSaver<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead
     quantization_target: QuantizationTarget,
     hyperparameters: &'a H,
     tensors: &'a HashMap<String, TensorLoadInfo>,
+    to_quantize: &'a [Regex],
+    to_skip: &'a [Regex],
     source_reader: &'a mut R,
     progress_callback: F,
 
@@ -269,6 +276,8 @@ impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
         quantization_target: QuantizationTarget,
         hyperparameters: &'a H,
         tensors: &'a HashMap<String, TensorLoadInfo>,
+        to_quantize: &'a [Regex],
+        to_skip: &'a [Regex],
         source_reader: &'a mut R,
         progress_callback: F,
     ) -> Self {
@@ -276,6 +285,8 @@ impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
             quantization_target,
             hyperparameters,
             tensors,
+            to_quantize,
+            to_skip,
             source_reader,
             progress_callback,
 
@@ -308,7 +319,9 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
         });
 
         // Quantize only 2D tensors
-        let quantize = tensor.n_dims == 2;
+        let quantize = tensor.n_dims == 2
+            && self.to_quantize.iter().any(|re| re.is_match(tensor_name))
+            && !self.to_skip.iter().any(|re| re.is_match(tensor_name));
         let raw_data = tensor.read_data(self.source_reader)?;
 
         if quantize && !matches!(tensor.element_type, ggml::Type::F32 | ggml::Type::F16) {

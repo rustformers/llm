@@ -579,6 +579,7 @@ dependencies = [
  "memmap2",
  "partial_sort",
  "rand",
+ "regex",
  "serde",
  "serde_bytes",
  "thiserror",

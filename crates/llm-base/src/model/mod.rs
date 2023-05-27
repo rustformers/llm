@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use regex::Regex;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
@@ -163,6 +164,12 @@ pub trait KnownModel: Send + Sync {
 
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
+
+    /// Get the list of regexes to use to determine if a tensor in this model should be quantized.
+    fn quantize_tensors() -> Vec<Regex>;
+
+    /// Get the list of regexes to use to determine if a tensor in this model should not be quantized.
+    fn skip_quantize_tensors() -> Vec<Regex>;
 }
 
 /// A type-erased model to allow for interacting with a model without knowing

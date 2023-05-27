@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -300,6 +300,14 @@ impl KnownModel for Mpt {
             .get("<|endoftext|>".as_bytes())
             .copied()
             .unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        vec![Regex::new(".*weight").unwrap()]
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 

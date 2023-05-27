@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -340,6 +340,24 @@ impl KnownModel for Gpt2 {
             .get("<|endoftext|>".as_bytes())
             .copied()
             .unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        [
+            "model/wte",
+            "model/lm_head",
+            "model/h.*/attn/c_attn/w",
+            "model/h.*/attn/c_proj/w",
+            "model/h.*/mlp/c_fc/w",
+            "model/h.*/mlp/c_proj/w",
+        ]
+        .into_iter()
+        .map(|s| Regex::new(s).unwrap())
+        .collect()
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 

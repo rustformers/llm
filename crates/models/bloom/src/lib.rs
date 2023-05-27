@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -384,6 +384,14 @@ impl KnownModel for Bloom {
             .get("</s>".as_bytes())
             .copied()
             .unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        vec![Regex::new(".*weight").unwrap()]
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 
