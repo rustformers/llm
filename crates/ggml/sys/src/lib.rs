@@ -14,6 +14,7 @@ pub const GGML_MAX_NODES: u32 = 4096;
 pub const GGML_MAX_PARAMS: u32 = 256;
 pub const GGML_MAX_CONTEXTS: u32 = 64;
 pub const GGML_MAX_OPT: u32 = 4;
+pub const GGML_MAX_NAME: u32 = 32;
 pub const GGML_DEFAULT_N_THREADS: u32 = 4;
 pub type ggml_fp16_t = u16;
 extern "C" {
@@ -48,6 +49,7 @@ pub const ggml_type_GGML_TYPE_COUNT: ggml_type = 13;
 pub type ggml_type = ::std::os::raw::c_uint;
 pub const ggml_backend_GGML_BACKEND_CPU: ggml_backend = 0;
 pub const ggml_backend_GGML_BACKEND_CUDA: ggml_backend = 1;
+pub const ggml_backend_GGML_BACKEND_CL: ggml_backend = 2;
 pub type ggml_backend = ::std::os::raw::c_uint;
 pub const ggml_ftype_GGML_FTYPE_UNKNOWN: ggml_ftype = -1;
 pub const ggml_ftype_GGML_FTYPE_ALL_F32: ggml_ftype = 0;
@@ -393,6 +395,7 @@ fn bindgen_test_layout_ggml_tensor() {
         )
     );
 }
+pub const GGML_TENSOR_SIZE: usize = 224;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_cgraph {
@@ -677,6 +680,9 @@ extern "C" {
     pub fn ggml_type_name(type_: ggml_type) -> *const ::std::os::raw::c_char;
 }
 extern "C" {
+    pub fn ggml_op_name(op: ggml_op) -> *const ::std::os::raw::c_char;
+}
+extern "C" {
     pub fn ggml_element_size(tensor: *const ggml_tensor) -> usize;
 }
 extern "C" {
@@ -684,6 +690,9 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_ftype_to_ggml_type(ftype: ggml_ftype) -> ggml_type;
+}
+extern "C" {
+    pub fn ggml_tensor_overhead() -> usize;
 }
 extern "C" {
     pub fn ggml_init(params: ggml_init_params) -> *mut ggml_context;
@@ -696,6 +705,9 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_set_scratch(ctx: *mut ggml_context, scratch: ggml_scratch) -> usize;
+}
+extern "C" {
+    pub fn ggml_set_no_alloc(ctx: *mut ggml_context, no_alloc: bool);
 }
 extern "C" {
     pub fn ggml_new_tensor(
@@ -1281,6 +1293,12 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_graph_reset(cgraph: *mut ggml_cgraph);
+}
+extern "C" {
+    pub fn ggml_get_tensor_by_name(
+        cgraph: *mut ggml_cgraph,
+        name: *const ::std::os::raw::c_char,
+    ) -> *mut ggml_tensor;
 }
 extern "C" {
     pub fn ggml_graph_print(cgraph: *const ggml_cgraph);
