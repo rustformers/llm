@@ -77,12 +77,12 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     feed_prompt_callback, ggml::format as ggml_format, load, load_progress_callback_stdout,
-    quantize, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
+    quantize, samplers, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
     LoadError, LoadProgress, Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
     ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
+    Sampler, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
 };
 
 use serde::Serialize;
