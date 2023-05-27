@@ -318,6 +318,30 @@ pub fn quantize_q4_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> Qua
     quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q4_1)
 }
 
+/// Quantizes `src` into `dst` using `q5_0` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q5_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_0)
+}
+
+/// Quantizes `src` into `dst` using `q5_1` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q5_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_1)
+}
+
+/// Quantizes `src` into `dst` using `q8_0` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q8_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q8_0)
+}
+
 fn quantize_impl(
     src: &[f32],
     n_elements: usize,
@@ -342,4 +366,20 @@ fn quantize_impl(
 
     output.resize(output_size, 0u8);
     QuantizationResult { output, history }
+}
+
+/// Returns true if the current system has BLAS support.
+pub fn cpu_has_blas() -> bool {
+    unsafe { sys::ggml_cpu_has_blas() != 0 }
+}
+
+/// Returns true if the current system has GPU BLAS support.
+pub fn cpu_has_gpublas() -> bool {
+    unsafe { sys::ggml_cpu_has_gpublas() != 0 }
+}
+
+/// Sets the name of a tensor.
+pub fn set_name(tensor: &Tensor, name: &str) {
+    let c_name = std::ffi::CString::new(name).unwrap();
+    unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) }
 }

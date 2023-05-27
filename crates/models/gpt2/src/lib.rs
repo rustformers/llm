@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -133,10 +133,7 @@ impl KnownModel for Gpt2 {
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        let mut position_buf = vec![];
-        for position_idx in 0..input_len {
-            position_buf.push(session_len + position_idx);
-        }
+        let position_buf: Vec<usize> = (0..input_len).map(|i| session_len + i).collect();
 
         let mut position = ctx0.new_tensor_1d(ggml::Type::I32, input_len);
         unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
@@ -196,10 +193,7 @@ impl KnownModel for Gpt2 {
                     &qcur,
                     &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let k = ctx0.op_permute(
@@ -213,10 +207,7 @@ impl KnownModel for Gpt2 {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let kq = ctx0.op_mul_mat(&k, &q);
@@ -240,10 +231,7 @@ impl KnownModel for Gpt2 {
                         n_head,
                         session_len + input_len,
                     ),
-                    1,
-                    2,
-                    0,
-                    3,
+                    (1, 2, 0, 3),
                 ),
                 &ctx0.new_tensor_3d(
                     memory_v.get_type(),
@@ -254,7 +242,7 @@ impl KnownModel for Gpt2 {
             );
 
             let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
-            let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
+            let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
 
             current = ctx0.op_cpy(
                 &kqv_merged,
@@ -340,6 +328,24 @@ impl KnownModel for Gpt2 {
             .get("<|endoftext|>".as_bytes())
             .copied()
             .unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        [
+            "model/wte",
+            "model/lm_head",
+            "model/h.*/attn/c_attn/w",
+            "model/h.*/attn/c_proj/w",
+            "model/h.*/mlp/c_fc/w",
+            "model/h.*/mlp/c_proj/w",
+        ]
+        .into_iter()
+        .map(|s| Regex::new(s).unwrap())
+        .collect()
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 

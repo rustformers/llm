@@ -292,22 +292,15 @@ impl Context {
     }
 
     /// Creates a new tensor with the axes of `a` permuted as described by the parameters.
-    pub fn op_permute(
-        &self,
-        a: &Tensor,
-        axis0: usize,
-        axis1: usize,
-        axis2: usize,
-        axis3: usize,
-    ) -> Tensor {
+    pub fn op_permute(&self, a: &Tensor, axes: (usize, usize, usize, usize)) -> Tensor {
         let tensor = unsafe {
             sys::ggml_permute(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
-                usize_to_i32(axis0),
-                usize_to_i32(axis1),
-                usize_to_i32(axis2),
-                usize_to_i32(axis3),
+                usize_to_i32(axes.0),
+                usize_to_i32(axes.1),
+                usize_to_i32(axes.2),
+                usize_to_i32(axes.3),
             )
         };
         self.new_tensor_raw(tensor)
