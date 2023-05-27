@@ -198,7 +198,7 @@ impl KnownModel for GptJ {
             gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
             gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
 
-            let q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
+            let q = ctx0.op_permute(&qcur, (0, 2, 1, 3));
             let big_k = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
@@ -210,10 +210,7 @@ impl KnownModel for GptJ {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let kq = ctx0.op_mul_mat(&big_k, &q);
@@ -236,7 +233,7 @@ impl KnownModel for GptJ {
             );
 
             let kqv = ctx0.op_mul_mat(&big_v, &kq_softmax);
-            let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
+            let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
 
             current = ctx0.op_cpy(
                 &kqv_merged,

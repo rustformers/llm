@@ -193,10 +193,7 @@ impl KnownModel for Gpt2 {
                     &qcur,
                     &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let k = ctx0.op_permute(
@@ -210,10 +207,7 @@ impl KnownModel for Gpt2 {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let kq = ctx0.op_mul_mat(&k, &q);
@@ -237,10 +231,7 @@ impl KnownModel for Gpt2 {
                         n_head,
                         session_len + input_len,
                     ),
-                    1,
-                    2,
-                    0,
-                    3,
+                    (1, 2, 0, 3),
                 ),
                 &ctx0.new_tensor_3d(
                     memory_v.get_type(),
@@ -251,7 +242,7 @@ impl KnownModel for Gpt2 {
             );
 
             let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
-            let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
+            let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
 
             current = ctx0.op_cpy(
                 &kqv_merged,

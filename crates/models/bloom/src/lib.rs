@@ -221,10 +221,7 @@ impl KnownModel for Bloom {
                     &q_current,
                     &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
@@ -239,10 +236,7 @@ impl KnownModel for Bloom {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             // K * Q
@@ -278,10 +272,7 @@ impl KnownModel for Bloom {
                         n_head,
                         session_len + input_len,
                     ),
-                    1,
-                    2,
-                    0,
-                    3,
+                    (1, 2, 0, 3),
                 ),
                 &ctx0.new_tensor_3d(
                     session.memory_v.get_type(),
@@ -294,7 +285,7 @@ impl KnownModel for Bloom {
             let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
 
             // KQV_merged = KQV.permute(0, 2, 1, 3)
-            let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
+            let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
 
             // cur = KQV_merged.contiguous().view(n_embd, N)
             current = ctx0.op_cpy(

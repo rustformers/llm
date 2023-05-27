@@ -198,7 +198,7 @@ impl KnownModel for Llama {
             gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
             gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
 
-            let q = ctx0.op_permute(&q_current, 0, 2, 1, 3);
+            let q = ctx0.op_permute(&q_current, (0, 2, 1, 3));
 
             let k = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
@@ -211,10 +211,7 @@ impl KnownModel for Llama {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             // K * Q
@@ -246,7 +243,7 @@ impl KnownModel for Llama {
             let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
 
             // KQV_merged = KQV.permute(0, 2, 1, 3)
-            let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
+            let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
 
             // cur = KQV_merged.contiguous().view(n_embd, N)
             current = ctx0.op_cpy(

@@ -226,7 +226,7 @@ impl KnownModel for GptNeoX {
             gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
 
             // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
-            let Q = ctx0.op_permute(&qcur, 0, 2, 1, 3);
+            let Q = ctx0.op_permute(&qcur, (0, 2, 1, 3));
             // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
             let K = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
@@ -239,10 +239,7 @@ impl KnownModel for GptNeoX {
                     n_head,
                     n_past + n,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             // K * Q
@@ -274,7 +271,7 @@ impl KnownModel for GptNeoX {
             // KQV = transpose(V) * KQ_soft_max
             let KQV = ctx0.op_mul_mat(&V, &KQ_softmax);
             // KQV_merged = KQV.permute(0, 2, 1, 3)
-            let KQV_merged = ctx0.op_permute(&KQV, 0, 2, 1, 3);
+            let KQV_merged = ctx0.op_permute(&KQV, (0, 2, 1, 3));
 
             // cur = KQV_merged.contiguous().view(n_embd, N)
             current = ctx0.op_cpy(&KQV_merged, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
