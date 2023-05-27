@@ -32,6 +32,7 @@ pub fn prepare_for_evaluate(
 
     let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
     unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
+    ggml::set_name(&embd, "embd");
 
     (ctx0, embd)
 }

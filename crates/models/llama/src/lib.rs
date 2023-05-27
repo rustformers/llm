@@ -132,7 +132,15 @@ impl KnownModel for Llama {
         let memory_k_size = session.memory_k.element_size();
         let memory_v_size = session.memory_v.element_size();
 
-        let mut gf = ggml::ComputationGraph::new(num_threads);
+        // for big prompts, if BLAS is enabled, it is better to use only one thread
+        // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
+        let mut gf = ggml::ComputationGraph::new(
+            if input_len >= 32 && ggml::cpu_has_blas() && !ggml::cpu_has_gpublas() {
+                1
+            } else {
+                num_threads
+            },
+        );
         for il in 0..n_layer {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
@@ -143,14 +151,11 @@ impl KnownModel for Llama {
             current = ctx0.op_rms_norm(&input_layer);
 
             // cur = attention_norm * cur
-            current = ctx0.op_mul(
-                &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
-                &current,
-            );
+            current = ctx0.op_mul(&current, &self.layers[il].attention_norm);
 
             // self-attention
             // compute Q and K and RoPE them
-            let q_current = ctx0.op_rope(
+            let q_current = ctx0.op_rope_inplace(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_mul_mat(&self.layers[il].wq, &current),
                     n_embd / n_head,
@@ -161,7 +166,8 @@ impl KnownModel for Llama {
                 n_rot,
                 0,
             );
-            let k_current = ctx0.op_rope(
+            ggml::set_name(&q_current, "Qcur");
+            let k_current = ctx0.op_rope_inplace(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_mul_mat(&self.layers[il].wk, &current),
                     n_embd / n_head,
@@ -172,6 +178,7 @@ impl KnownModel for Llama {
                 n_rot,
                 0,
             );
+            ggml::set_name(&k_current, "Kcur");
 
             // store key and value to memory
             // compute the transposed [N, n_embd] V matrix
@@ -199,6 +206,7 @@ impl KnownModel for Llama {
             gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
 
             let q = ctx0.op_permute(&q_current, (0, 2, 1, 3));
+            ggml::set_name(&q, "Q");
 
             let k = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
@@ -213,21 +221,25 @@ impl KnownModel for Llama {
                 ),
                 (0, 2, 1, 3),
             );
+            ggml::set_name(&k, "K");
 
             // K * Q
             let k_q = ctx0.op_mul_mat(&k, &q);
+            ggml::set_name(&k_q, "KQ");
 
             // KQ_scaled = KQ / sqrt(n_embd/n_head)
-            let k_q_scaled = ctx0.op_scale(
-                &k_q,
-                &ctx0.new_f32(1.0 / f32::sqrt(n_embd as f32 / n_head as f32)),
-            );
+            let kq_scale = ctx0.new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()));
+            ggml::set_name(&kq_scale, "1/sqrt(n_embd/n_head)");
+            let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale);
+            ggml::set_name(&k_q_scaled, "KQ_scaled");
 
             // KQ_masked = mask_past(KQ_scaled)
-            let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, session_len);
+            let k_q_masked = ctx0.op_diag_mask_inf_inplace(&k_q_scaled, session_len);
+            ggml::set_name(&k_q_masked, "KQ_masked");
 
             // KQ = soft_max(KQ_masked)
-            let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
+            let k_q_soft_max = ctx0.op_soft_max_inplace(&k_q_masked);
+            ggml::set_name(&k_q_soft_max, "KQ_soft_max");
 
             // split cached V into n_head heads
             let v = ctx0.op_view_3d(
@@ -239,17 +251,21 @@ impl KnownModel for Llama {
                 ),
                 il * ctx_size * memory_v_size * n_embd,
             );
+            ggml::set_name(&v, "V");
 
             let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
+            ggml::set_name(&k_q_v, "KQV");
 
             // KQV_merged = KQV.permute(0, 2, 1, 3)
             let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
+            ggml::set_name(&k_q_v_merged, "KQV_merged");
 
             // cur = KQV_merged.contiguous().view(n_embd, N)
             current = ctx0.op_cpy(
                 &k_q_v_merged,
                 &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
             );
+            ggml::set_name(&current, "KQV_merged_contiguous");
 
             // projection (no bias)
             current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
@@ -262,11 +278,8 @@ impl KnownModel for Llama {
             // norm
             current = ctx0.op_rms_norm(&input_feed_forward);
 
-            // cur = ffn_norm*cur
-            current = ctx0.op_mul(
-                &ctx0.op_repeat(&self.layers[il].ffn_norm, &current),
-                &current,
-            );
+            // cur = cur*ffn_norm(broadcasted)
+            current = ctx0.op_mul(&current, &self.layers[il].ffn_norm);
 
             let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &current);
 
@@ -287,13 +300,11 @@ impl KnownModel for Llama {
 
         ctx0.use_scratch(Some(&mut session.scratch[0]));
 
-        // Used at the end to optionally extract the embeddings.
-
         // norm
         input_layer = ctx0.op_rms_norm(&input_layer);
 
-        // inpL = norm*inpL
-        input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+        // inpL = inpL*norm(broadcasted)
+        input_layer = ctx0.op_mul(&input_layer, &self.norm);
 
         let embeddings_tensor: ggml::Tensor = input_layer.share();
 

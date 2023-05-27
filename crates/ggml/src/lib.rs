@@ -367,3 +367,19 @@ fn quantize_impl(
     output.resize(output_size, 0u8);
     QuantizationResult { output, history }
 }
+
+/// Returns true if the current system has BLAS support.
+pub fn cpu_has_blas() -> bool {
+    unsafe { sys::ggml_cpu_has_blas() != 0 }
+}
+
+/// Returns true if the current system has GPU BLAS support.
+pub fn cpu_has_gpublas() -> bool {
+    unsafe { sys::ggml_cpu_has_gpublas() != 0 }
+}
+
+/// Sets the name of a tensor.
+pub fn set_name(tensor: &Tensor, name: &str) {
+    let c_name = std::ffi::CString::new(name).unwrap();
+    unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) }
+}
