@@ -318,6 +318,30 @@ pub fn quantize_q4_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> Qua
     quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q4_1)
 }
 
+/// Quantizes `src` into `dst` using `q5_0` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q5_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_0)
+}
+
+/// Quantizes `src` into `dst` using `q5_1` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q5_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_1)
+}
+
+/// Quantizes `src` into `dst` using `q8_0` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q8_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q8_0)
+}
+
 fn quantize_impl(
     src: &[f32],
     n_elements: usize,
