@@ -133,10 +133,7 @@ impl KnownModel for Gpt2 {
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        let mut position_buf = vec![];
-        for position_idx in 0..input_len {
-            position_buf.push(session_len + position_idx);
-        }
+        let position_buf: Vec<usize> = (0..input_len).map(|i| session_len + i).collect();
 
         let mut position = ctx0.new_tensor_1d(ggml::Type::I32, input_len);
         unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
