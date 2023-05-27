@@ -27,8 +27,8 @@ pub struct Bloom {
     norm: ggml::Tensor,
     norm_bias: ggml::Tensor,
     // output normalization weight & bias
-    out_norm: ggml::Tensor,
-    out_norm_bias: ggml::Tensor,
+    output_norm: ggml::Tensor,
+    output_norm_bias: ggml::Tensor,
     // output weight
     output: ggml::Tensor,
 
@@ -60,8 +60,8 @@ impl KnownModel for Bloom {
         let wte = tl.load("tok_embeddings.weight")?;
         let norm = tl.load("norm.weight")?;
         let norm_bias = tl.load("norm.bias")?;
-        let out_norm = tl.load("output_norm.weight")?;
-        let out_norm_bias = tl.load("output_norm.bias")?;
+        let output_norm = tl.load("output_norm.weight")?;
+        let output_norm_bias = tl.load("output_norm.bias")?;
         let output = tl.load("output.weight")?;
 
         let mut layers = Vec::new();
@@ -101,8 +101,8 @@ impl KnownModel for Bloom {
             wte,
             norm,
             norm_bias,
-            out_norm,
-            out_norm_bias,
+            output_norm,
+            output_norm_bias,
             output,
             layers,
             _context,
@@ -336,10 +336,13 @@ impl KnownModel for Bloom {
         input_layer = ctx0.op_norm(&input_layer);
 
         // inpL = norm*inpL
-        input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.out_norm, &input_layer), &input_layer);
+        input_layer = ctx0.op_mul(
+            &ctx0.op_repeat(&self.output_norm, &input_layer),
+            &input_layer,
+        );
 
         input_layer = ctx0.op_add(
-            &ctx0.op_repeat(&self.out_norm_bias, &input_layer),
+            &ctx0.op_repeat(&self.output_norm_bias, &input_layer),
             &input_layer,
         );
 
