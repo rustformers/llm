@@ -309,9 +309,6 @@ impl ModelVocabulary {
     /// decode a list `tokens` with this vocabulary.
     fn decode(&self, tokens: Vec<TokenId>, skip_special_tokens: bool) -> Vec<u8> {
         for token in tokens {
-            if skip_special_tokens && token == 1 {
-                continue;
-            }
             let token = self.id_to_token[token as usize].as_slice();
 
             return token.to_vec();
