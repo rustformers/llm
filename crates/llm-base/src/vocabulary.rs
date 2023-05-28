@@ -311,6 +311,10 @@ impl ModelVocabulary {
         let mut vec = vec![];
 
         for token in tokens {
+            if skip_special_tokens && token == 1 {
+                continue;
+            }
+
             vec.append(&mut self.id_to_token[token as usize].to_vec());
         }
 
