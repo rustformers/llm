@@ -23,3 +23,7 @@ serde_bytes = "0.11"
 memmap2 = "0.5.10"
 half = "2.2.1"
 regex = "1.8"
+
+[features]
+cublas = ["ggml/cublas"]
+clblast = ["ggml/clblast"]

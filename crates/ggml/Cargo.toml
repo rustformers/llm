@@ -14,3 +14,6 @@ ggml-sys = { path = "sys", version = "0.1.1" }
 rand = { workspace = true }
 anyhow = { workspace = true }
 
+[features]
+cublas = ["ggml-sys/cublas"]
+clblast = ["ggml-sys/clblast"]

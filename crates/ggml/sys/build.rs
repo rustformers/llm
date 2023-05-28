@@ -19,6 +19,12 @@ fn main() {
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();
 
+    #[cfg(feature = "cublas")]
+    enable_cublas(build);
+
+    #[cfg(feature = "clblast")]
+    enable_clblast(build);
+
     match target_arch.as_str() {
         "x86" | "x86_64" => {
             let features = x86::Features::get();
@@ -87,6 +93,70 @@ fn main() {
     }
     build.warnings(false);
     build.compile("ggml");
+}
+
+#[cfg(feature = "clblast")]
+fn enable_clblast(build: &mut cc::Build) {
+    println!("cargo:rustc-link-lib=clblast");
+    println!("cargo:rustc-link-lib=OpenCL");
+    println!("cargo:rustc-link-lib=openblas");
+
+    build.file("ggml/src/ggml-opencl.c");
+    build.flag("-DGGML_USE_CLBLAST");
+}
+
+#[cfg(feature = "cublas")]
+fn enable_cublas(build: &mut cc::Build) {
+    let targets_include = concat!(env!("CUDA_PATH"), "/targets/x86_64-linux/include");
+    let targets_lib = concat!(env!("CUDA_PATH"), "/targets/x86_64-linux/lib");
+
+    let out_dir = env::var("OUT_DIR").unwrap();
+
+    let object_file = format!("{}/ggml/src/ggml-cuda.o", &out_dir);
+
+    let path = std::path::Path::new(&object_file);
+    let parent_dir = path.parent().unwrap();
+
+    std::fs::create_dir_all(parent_dir).unwrap();
+
+    let parameters = [
+        "--forward-unknown-to-host-compiler",
+        "-O3",
+        "-std=c++11",
+        "-fPIC",
+        "-Iggml/include/ggml",
+        "-mtune=native",
+        "-pthread",
+        "-DGGML_USE_CUBLAS",
+        "-I/usr/local/cuda/include",
+        "-I/opt/cuda/include",
+        "-I",
+        targets_include,
+        "-c",
+        "ggml/src/ggml-cuda.cu",
+        "-o",
+        &object_file,
+    ];
+
+    std::process::Command::new("nvcc")
+        .args(parameters)
+        .status()
+        .unwrap();
+
+    println!("cargo:rustc-link-search=native={}", targets_lib);
+    println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
+    println!("cargo:rustc-link-search=native=/opt/cuda/lib64");
+    println!("cargo:rustc-link-lib=cublas");
+    println!("cargo:rustc-link-lib=culibos");
+    println!("cargo:rustc-link-lib=cudart");
+    println!("cargo:rustc-link-lib=cublasLt");
+    println!("cargo:rustc-link-lib=dylib=stdc++");
+
+    build.object(object_file);
+    build.flag("-DGGML_USE_CUBLAS");
+    build.include("/usr/local/cuda/include");
+    build.include("/opt/cuda/include");
+    build.include(targets_include);
 }
 
 fn get_supported_target_features() -> std::collections::HashSet<String> {

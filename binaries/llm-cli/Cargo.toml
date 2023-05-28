@@ -27,3 +27,7 @@ num_cpus = "1.15.0"
 clap = { version = "4.1.8", features = ["derive"] }
 color-eyre = { version = "0.6.2", default-features = false }
 zstd = { version = "0.12", default-features = false }
+
+[features]
+cublas = ["llm/cublas"]
+clblast = ["llm/clblast"]
