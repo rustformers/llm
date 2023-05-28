@@ -166,6 +166,14 @@ impl Vocabulary {
             Vocabulary::External(v) => v.tokenize(text, bos),
         }
     }
+
+    /// decode a list `tokens` with this vocabulary.
+    pub fn decode(&self, tokens: Vec<TokenId>, bos: bool) -> Vec<u8> {
+        match self {
+            Vocabulary::Model(v) => v.decode(tokens, bos),
+            Vocabulary::External(v) => v.decode(tokens, bos),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -297,6 +305,20 @@ impl ModelVocabulary {
 
         Ok(res)
     }
+
+    /// decode a list `tokens` with this vocabulary.
+    fn decode(&self, tokens: Vec<TokenId>, skip_special_tokens: bool) -> Vec<u8> {
+        for token in tokens {
+            if skip_special_tokens && token == 1 {
+                continue;
+            }
+            let token = self.id_to_token[token as usize].as_slice();
+
+            return token.to_vec();
+        }
+
+        vec![]
+    }
 }
 
 /// A vocabulary that does not originate from the model file.
@@ -361,6 +383,15 @@ impl ExternalVocabulary {
             .map(|t| t.as_bytes().to_vec())
             .zip(encoding.get_ids().iter().copied())
             .collect())
+    }
+
+    /// decode a list `tokens` with this vocabulary.
+    fn decode(&self, tokens: Vec<TokenId>, skip_special_tokens: bool) -> Vec<u8> {
+        self.tokenizer
+            .decode(tokens, skip_special_tokens)
+            .expect("Cannot decode token from tokenizer vocabulary.")
+            .as_bytes()
+            .to_vec()
     }
 }
 
