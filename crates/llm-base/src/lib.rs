@@ -17,8 +17,6 @@ pub mod model;
 pub mod samplers;
 pub mod util;
 
-use std::sync::Arc;
-
 pub use ggml;
 pub use ggml::Type as ElementType;
 
@@ -48,25 +46,39 @@ pub use vocabulary::{InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationE
 ///
 /// This needs to be provided during all inference calls,
 /// but can be changed between calls.
-pub struct InferenceParameters {
-    /// The number of threads to use.
+pub struct InferenceParameters<'a> {
+    /// The number of threads to use. This is dependent on your user's system,
+    /// and should be selected accordingly.
+    ///
+    /// Note that you should aim for a value close to the number of physical cores
+    /// on the system, as this will give the best performance. This means that, for
+    /// example, on a 16-core system with hyperthreading, you should set this to 16.
+    ///
+    /// Also note that not all cores on a system are equal, and that you may need to
+    /// experiment with this value to find the optimal value for your use case. For example,
+    /// Apple Silicon and modern Intel processors have "performance" and "efficiency" cores,
+    /// and you may want to only use the performance cores.
+    ///
+    /// A reasonable default value is 8, as most modern high-performance computers have
+    /// 8 physical cores. Adjust to your needs.
     pub n_threads: usize,
-    /// Controls batch/chunk size for prompt ingestion in
-    /// [InferenceSession::feed_prompt].
+    /// Controls batch/chunk size for prompt ingestion in [InferenceSession::feed_prompt].
+    ///
+    /// This is the number of tokens that will be ingested at once. This is useful for
+    /// trying to speed up the ingestion of prompts, as it allows for parallelization.
+    /// However, you will be fundamentally limited by your machine's ability to evaluate
+    /// the transformer model, so increasing the batch size will not always help.
+    ///
+    /// A reasonable default value is 8.
     pub n_batch: usize,
     /// The sampler to use for sampling tokens from the model's probabilities.
-    pub sampler: Arc<dyn Sampler>,
-}
-impl Default for InferenceParameters {
-    /// Returns a reasonable default for the parameters.
     ///
-    /// Note that these parameters are not necessarily optimal for all models, and that
-    /// you may want to tweak them for your use case.
-    fn default() -> Self {
-        Self {
-            n_threads: 8,
-            n_batch: 8,
-            sampler: Arc::new(samplers::TopPTopK::default()),
-        }
-    }
+    /// Each time the model runs, it generates a distribution of probabilities; each token
+    /// has a probability of being the next token. The sampler is responsible for sampling
+    /// from this distribution to generate the next token. Using a different sampler may
+    /// change the output of the model, or control how deterministic the generated text is.
+    ///
+    /// A recommended default sampler is [TopPTopK](samplers::TopPTopK), which is a standard
+    /// sampler that offers a [Default](samplers::TopPTopK::default) implementation.
+    pub sampler: &'a dyn Sampler,
 }

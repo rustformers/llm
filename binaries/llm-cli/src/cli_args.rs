@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref, path::PathBuf, sync::Arc};
+use std::{fmt, ops::Deref, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{Result, WrapErr};
@@ -307,24 +307,31 @@ impl Generate {
         }
     }
 
-    pub fn inference_parameters(&self, eot: llm::TokenId) -> InferenceParameters {
+    pub fn sampler(&self, eot: llm::TokenId) -> llm::samplers::TopPTopK {
+        llm::samplers::TopPTopK {
+            top_k: self.top_k,
+            top_p: self.top_p,
+            repeat_penalty: self.repeat_penalty,
+            temperature: self.temperature,
+            bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
+                if self.ignore_eos {
+                    TokenBias::new(vec![(eot, -1.0)])
+                } else {
+                    TokenBias::default()
+                }
+            }),
+            repetition_penalty_last_n: self.repeat_last_n,
+        }
+    }
+
+    pub fn inference_parameters<'a>(
+        &self,
+        sampler: &'a dyn llm::Sampler,
+    ) -> InferenceParameters<'a> {
         InferenceParameters {
             n_threads: self.num_threads(),
             n_batch: self.batch_size,
-            sampler: Arc::new(llm::samplers::TopPTopK {
-                top_k: self.top_k,
-                top_p: self.top_p,
-                repeat_penalty: self.repeat_penalty,
-                temperature: self.temperature,
-                bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
-                    if self.ignore_eos {
-                        TokenBias::new(vec![(eot, -1.0)])
-                    } else {
-                        TokenBias::default()
-                    }
-                }),
-                repetition_penalty_last_n: self.repeat_last_n,
-            }),
+            sampler,
         }
     }
 }

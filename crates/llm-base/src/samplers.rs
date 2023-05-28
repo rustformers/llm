@@ -22,6 +22,13 @@ pub trait Sampler: Debug {
 }
 
 /// Top-P Top-K sampling.
+///
+/// A standard sampler that uses top-K sampling (the top-K tokens with the highest
+/// probability are considered) and top-P sampling (only tokens with a cumulative
+/// probability of `P` are considered).
+///
+/// It also implements [CTRL](https://arxiv.org/abs/1909.05858)'s repetition penalty,
+/// and the ability to bias the generation of individual tokens.
 #[derive(Clone, Debug)]
 pub struct TopPTopK {
     /// The top K words by score are kept during sampling.
@@ -71,6 +78,8 @@ impl Sampler for TopPTopK {
         let n_logits = logits.len();
         let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
 
+        // TODO: consider if this can be modularized and this sampler can be composed out of multiple pieces,
+        // instead of having this monolithic function that embeds the repetition penalty and token bias
         {
             let scale = 1.0 / temperature;
             for (i, &logit) in logits.iter().enumerate() {

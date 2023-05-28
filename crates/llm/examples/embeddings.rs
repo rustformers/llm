@@ -42,7 +42,11 @@ fn main() {
     .unwrap_or_else(|err| {
         panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
     });
-    let inference_parameters = llm::InferenceParameters::default();
+    let inference_parameters = llm::InferenceParameters {
+        n_threads: 8,
+        n_batch: 8,
+        sampler: &llm::samplers::TopPTopK::default(),
+    };
 
     // Generate embeddings for query and comparands
     let query_embeddings = get_embeddings(model.as_ref(), &inference_parameters, query);
