@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "ggml"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "anyhow",
  "ggml-sys",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "ggml-sys"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "cc",
 ]
@@ -551,7 +551,7 @@ checksum = "ece97ea872ece730aed82664c424eb4c8291e1ff2480247ccf7409044bc6479f"
 
 [[package]]
 name = "llm"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytesize",
  "llm-base",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "llm-base"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "ggml",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "llm-bloom"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "llm-base",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "llm-cli"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bincode",
  "bytesize",
@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "llm-gpt2"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "llm-base",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "llm-gptj"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "llm-base",
@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "llm-gptneox"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "llm-base",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "llm-llama"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "llm-base",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "llm-mpt"
-version = "0.1.1"
+version = "0.2.0-dev"
 dependencies = [
  "bytemuck",
  "llm-base",
