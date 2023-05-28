@@ -95,7 +95,7 @@ impl InferenceSession {
                     // NOTE: No string ever tokenizes to the end of sentence. So we
                     // can just return the id here.
                     match callback(vocab.token(tk as usize)) {
-                        Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
+                        Err(e) => return Err(InferenceError::UserCallback(Box::new(e))),
                         Ok(f) => match f {
                             InferenceFeedback::Continue => (),
                             InferenceFeedback::Halt => break,
@@ -166,7 +166,7 @@ impl InferenceSession {
                     token_utf8_buf.push(model.vocabulary().token(*token_id as usize))
                 {
                     if let Err(e) = callback(InferenceResponse::SnapshotToken(tokens)) {
-                        return Err(InferenceError::UserCallback(Some(Box::new(e))));
+                        return Err(InferenceError::UserCallback(Box::new(e)));
                     }
                 }
             }
@@ -206,7 +206,7 @@ impl InferenceSession {
             // Buffer the token until it's valid UTF-8, then call the callback.
             if let Some(tokens) = token_utf8_buf.push(token) {
                 match callback(InferenceResponse::InferredToken(tokens)) {
-                    Err(e) => return Err(InferenceError::UserCallback(Some(Box::new(e)))),
+                    Err(e) => return Err(InferenceError::UserCallback(Box::new(e))),
                     Ok(f) => match f {
                         InferenceFeedback::Continue => (),
                         InferenceFeedback::Halt => break,
@@ -535,7 +535,7 @@ pub enum InferenceError {
     EndOfText,
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
-    UserCallback(Option<Box<dyn std::error::Error>>),
+    UserCallback(Box<dyn std::error::Error>),
 }
 
 #[derive(Error, Debug)]
