@@ -35,6 +35,7 @@ pub use model::{
     ModelParameters, OutputRequest,
 };
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
+pub use regex::Regex;
 pub use util::TokenUtf8Buffer;
 pub(crate) use vocabulary::ModelVocabulary;
 pub use vocabulary::{

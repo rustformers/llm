@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -27,8 +27,8 @@ pub struct Bloom {
     norm: ggml::Tensor,
     norm_bias: ggml::Tensor,
     // output normalization weight & bias
-    out_norm: ggml::Tensor,
-    out_norm_bias: ggml::Tensor,
+    output_norm: ggml::Tensor,
+    output_norm_bias: ggml::Tensor,
     // output weight
     output: ggml::Tensor,
 
@@ -60,8 +60,8 @@ impl KnownModel for Bloom {
         let wte = tl.load("tok_embeddings.weight")?;
         let norm = tl.load("norm.weight")?;
         let norm_bias = tl.load("norm.bias")?;
-        let out_norm = tl.load("output_norm.weight")?;
-        let out_norm_bias = tl.load("output_norm.bias")?;
+        let output_norm = tl.load("output_norm.weight")?;
+        let output_norm_bias = tl.load("output_norm.bias")?;
         let output = tl.load("output.weight")?;
 
         let mut layers = Vec::new();
@@ -101,8 +101,8 @@ impl KnownModel for Bloom {
             wte,
             norm,
             norm_bias,
-            out_norm,
-            out_norm_bias,
+            output_norm,
+            output_norm_bias,
             output,
             layers,
             _context,
@@ -221,10 +221,7 @@ impl KnownModel for Bloom {
                     &q_current,
                     &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             // K = Kmem.view(n_embd/n_head, n_head, n_past + N).permute(0, 2, 1, 3)
@@ -239,10 +236,7 @@ impl KnownModel for Bloom {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             // K * Q
@@ -278,10 +272,7 @@ impl KnownModel for Bloom {
                         n_head,
                         session_len + input_len,
                     ),
-                    1,
-                    2,
-                    0,
-                    3,
+                    (1, 2, 0, 3),
                 ),
                 &ctx0.new_tensor_3d(
                     session.memory_v.get_type(),
@@ -294,7 +285,7 @@ impl KnownModel for Bloom {
             let k_q_v = ctx0.op_mul_mat(&v_trans, &k_q_soft_max);
 
             // KQV_merged = KQV.permute(0, 2, 1, 3)
-            let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
+            let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
 
             // cur = KQV_merged.contiguous().view(n_embd, N)
             current = ctx0.op_cpy(
@@ -345,10 +336,13 @@ impl KnownModel for Bloom {
         input_layer = ctx0.op_norm(&input_layer);
 
         // inpL = norm*inpL
-        input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.out_norm, &input_layer), &input_layer);
+        input_layer = ctx0.op_mul(
+            &ctx0.op_repeat(&self.output_norm, &input_layer),
+            &input_layer,
+        );
 
         input_layer = ctx0.op_add(
-            &ctx0.op_repeat(&self.out_norm_bias, &input_layer),
+            &ctx0.op_repeat(&self.output_norm_bias, &input_layer),
             &input_layer,
         );
 
@@ -380,6 +374,14 @@ impl KnownModel for Bloom {
 
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary.id("</s>".as_bytes()).unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        vec![Regex::new(".*weight").unwrap()]
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 

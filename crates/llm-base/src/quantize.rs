@@ -6,6 +6,7 @@ use crate::{
 };
 use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
+use regex::Regex;
 use std::{
     collections::HashMap,
     io::{BufRead, Seek, Write},
@@ -140,15 +141,15 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     writer: &mut W,
     vocabulary: Vocabulary,
     save_container_type: ggml::format::SaveContainerType,
-    desired_type: ggml::Type,
+    quantization_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
     // Sanity check
-    if !matches!(desired_type, ggml::Type::Q4_0 | ggml::Type::Q4_1) {
-        return Err(QuantizeError::InvalidQuantizationTarget {
-            element_type: desired_type,
-        });
-    }
+    let quantization_target = QuantizationTarget::try_from(quantization_type).map_err(|_| {
+        QuantizeError::InvalidQuantizationTarget {
+            element_type: quantization_type,
+        }
+    })?;
 
     // Load the model
     let progress_callback = Arc::new(progress_callback);
@@ -174,7 +175,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
 
     if let Some(ft) = hyperparameters.file_type_mut() {
         ft.quantization_version = ggml::QNT_VERSION;
-        ft.format = desired_type
+        ft.format = quantization_type
             .try_into()
             .expect("format has no corresponding ftype");
     }
@@ -189,9 +190,17 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
         Vocabulary::External(_) => vec![],
     };
 
-    let mut saver = QuantizeSaver::new(desired_type, &hyperparameters, &tensors, reader, |p| {
-        progress_callback(p)
-    });
+    let to_quantize = M::quantize_tensors();
+    let to_skip = M::skip_quantize_tensors();
+    let mut saver = QuantizeSaver::new(
+        quantization_target,
+        &hyperparameters,
+        &tensors,
+        &to_quantize,
+        &to_skip,
+        reader,
+        |p| progress_callback(p),
+    );
     ggml::format::save(
         writer,
         &mut saver,
@@ -216,11 +225,47 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum QuantizationTarget {
+    Q4_0,
+    Q4_1,
+    Q5_0,
+    Q5_1,
+    Q8_0,
+}
+impl TryFrom<ggml::Type> for QuantizationTarget {
+    type Error = ();
+
+    fn try_from(value: ggml::Type) -> Result<Self, Self::Error> {
+        match value {
+            ggml::Type::Q4_0 => Ok(QuantizationTarget::Q4_0),
+            ggml::Type::Q4_1 => Ok(QuantizationTarget::Q4_1),
+            ggml::Type::Q5_0 => Ok(QuantizationTarget::Q5_0),
+            ggml::Type::Q5_1 => Ok(QuantizationTarget::Q5_1),
+            ggml::Type::Q8_0 => Ok(QuantizationTarget::Q8_0),
+            _ => Err(()),
+        }
+    }
+}
+impl From<QuantizationTarget> for ggml::Type {
+    fn from(value: QuantizationTarget) -> Self {
+        match value {
+            QuantizationTarget::Q4_0 => ggml::Type::Q4_0,
+            QuantizationTarget::Q4_1 => ggml::Type::Q4_1,
+            QuantizationTarget::Q5_0 => ggml::Type::Q5_0,
+            QuantizationTarget::Q5_1 => ggml::Type::Q5_1,
+            QuantizationTarget::Q8_0 => ggml::Type::Q8_0,
+        }
+    }
+}
+
 struct QuantizeSaver<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> {
     // Input
-    quantization_type: ggml::Type,
+    quantization_target: QuantizationTarget,
     hyperparameters: &'a H,
     tensors: &'a HashMap<String, TensorLoadInfo>,
+    to_quantize: &'a [Regex],
+    to_skip: &'a [Regex],
     source_reader: &'a mut R,
     progress_callback: F,
 
@@ -233,16 +278,20 @@ impl<'a, F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek>
     QuantizeSaver<'a, F, H, R>
 {
     fn new(
-        quantization_type: ggml::Type,
+        quantization_target: QuantizationTarget,
         hyperparameters: &'a H,
         tensors: &'a HashMap<String, TensorLoadInfo>,
+        to_quantize: &'a [Regex],
+        to_skip: &'a [Regex],
         source_reader: &'a mut R,
         progress_callback: F,
     ) -> Self {
         Self {
-            quantization_type,
+            quantization_target,
             hyperparameters,
             tensors,
+            to_quantize,
+            to_skip,
             source_reader,
             progress_callback,
 
@@ -275,7 +324,9 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
         });
 
         // Quantize only 2D tensors
-        let quantize = tensor_name.contains("weight") && tensor.n_dims == 2;
+        let quantize = tensor.n_dims == 2
+            && self.to_quantize.iter().any(|re| re.is_match(tensor_name))
+            && !self.to_skip.iter().any(|re| re.is_match(tensor_name));
         let raw_data = tensor.read_data(self.source_reader)?;
 
         if quantize && !matches!(tensor.element_type, ggml::Type::F32 | ggml::Type::F16) {
@@ -303,14 +354,22 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
                 _ => unreachable!(),
             };
 
-            let result = match self.quantization_type {
-                ggml::Type::Q4_0 => {
+            let result = match self.quantization_target {
+                QuantizationTarget::Q4_0 => {
                     ggml::quantize_q4_0(&data_f32, tensor.n_elements, tensor.dims[0])
                 }
-                ggml::Type::Q4_1 => {
+                QuantizationTarget::Q4_1 => {
                     ggml::quantize_q4_1(&data_f32, tensor.n_elements, tensor.dims[0])
                 }
-                _ => unreachable!(),
+                QuantizationTarget::Q5_0 => {
+                    ggml::quantize_q5_0(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q5_1 => {
+                    ggml::quantize_q5_1(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q8_0 => {
+                    ggml::quantize_q8_0(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
             };
             let new_data = result.output;
 
@@ -329,7 +388,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
 
             self.total_size_new += new_data.len();
 
-            (self.quantization_type, new_data)
+            (self.quantization_target.into(), new_data)
         } else {
             (self.progress_callback)(QuantizeProgress::TensorSkipped {
                 name: tensor_name,

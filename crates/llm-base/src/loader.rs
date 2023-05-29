@@ -403,12 +403,12 @@ pub fn load<M: KnownModel>(
         .map(|ft| ft.quantization_version)
         .unwrap_or_default();
     let quantization_version = if quantization_version == 0 {
-        // HACK: version 2 of the GGJT format changed the quantization algorithm,
-        // but two days after version 2, the quantization version mechanism was
-        // added. To work around this, we assume the quantization version if
-        // it's a version 2 model with a quantization version of 0.
+        // HACK: I think llama.cpp does not actually write the quantization version correctly,
+        // so we need to guess it from the container type.
         if container_type == ggml::ContainerType::Ggjt(2) {
             1
+        } else if container_type == ggml::ContainerType::Ggjt(3) {
+            2
         } else {
             quantization_version
         }
@@ -418,7 +418,7 @@ pub fn load<M: KnownModel>(
 
     // TODO: this is temporary while we figure out how to handle this
     if tensors.values().any(|t| t.element_type.is_quantized()) {
-        assert_eq!(quantization_version, 1, "quantization version must be 1");
+        assert_eq!(quantization_version, 2, "quantization version must be 2");
     }
 
     let use_mmap =

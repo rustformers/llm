@@ -6,7 +6,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, TokenId, Vocabulary,
+    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -132,6 +132,9 @@ impl KnownModel for Mpt {
 
         let mut gf = ggml::ComputationGraph::new(num_threads);
         for il in 0..n_layer {
+            // attention uses first scratch buffer
+            ctx0.use_scratch(Some(&mut session.scratch[0]));
+
             let mut current = ctx0.op_norm(&input_layer);
             current = ctx0.op_mul(
                 &ctx0.op_repeat(&self.layers[il].norm_1_weight, &current),
@@ -164,10 +167,7 @@ impl KnownModel for Mpt {
                     &qcur,
                     &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let bigk = ctx0.op_permute(
@@ -181,10 +181,7 @@ impl KnownModel for Mpt {
                     n_head,
                     session_len + input_len,
                 ),
-                0,
-                2,
-                1,
-                3,
+                (0, 2, 1, 3),
             );
 
             let kq = ctx0.op_mul_mat(&bigk, &q);
@@ -208,10 +205,7 @@ impl KnownModel for Mpt {
                         n_head,
                         session_len + input_len,
                     ),
-                    1,
-                    2,
-                    0,
-                    3,
+                    (1, 2, 0, 3),
                 ),
                 &ctx0.new_tensor_3d(
                     session.memory_v.get_type(),
@@ -222,7 +216,7 @@ impl KnownModel for Mpt {
             );
 
             let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
-            let kqv_merged = ctx0.op_permute(&kqv, 0, 2, 1, 3);
+            let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
 
             current = ctx0.op_cpy(
                 &kqv_merged,
@@ -232,6 +226,9 @@ impl KnownModel for Mpt {
             current = ctx0.op_mul_mat(&self.layers[il].c_attn_out_proj_weight, &current);
 
             input_layer = ctx0.op_add(&input_layer, &current);
+
+            // feed forward uses second scratch buffer
+            ctx0.use_scratch(Some(&mut session.scratch[1]));
 
             current = ctx0.op_norm(&input_layer);
             current = ctx0.op_mul(
@@ -249,10 +246,15 @@ impl KnownModel for Mpt {
             input_layer = ctx0.op_add(&input_layer, &current);
         }
 
+        //use scratch buffer 0 for the rest
+        ctx0.use_scratch(Some(&mut session.scratch[0]));
+
         // norm
         input_layer = ctx0.op_norm(&input_layer);
         input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
+        // disable scratch buffer for last layer
+        ctx0.use_scratch(None);
         // output embedding weight tied to input embedding
         input_layer = ctx0.op_mul_mat(&self.wte, &input_layer);
 
@@ -282,6 +284,14 @@ impl KnownModel for Mpt {
 
     fn eot_token_id(&self) -> TokenId {
         self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
+    }
+
+    fn quantize_tensors() -> Vec<Regex> {
+        vec![Regex::new(".*weight").unwrap()]
+    }
+
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 

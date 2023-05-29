@@ -46,7 +46,7 @@ fn will_fail_on_scored_ggml_save() {
 }
 
 #[test]
-fn can_roundtrip_loader_and_saver_ggjt_v2() {
+fn can_roundtrip_loader_and_saver_ggjt_v3() {
     let vocabulary = vec![
         ("blazingly".as_bytes().to_vec(), 0.1),
         ("fast".as_bytes().to_vec(), 0.2),
@@ -54,7 +54,7 @@ fn can_roundtrip_loader_and_saver_ggjt_v2() {
         ("efficient".as_bytes().to_vec(), 0.4),
     ];
 
-    roundtrip_test(format::SaveContainerType::GgjtV2, vocabulary).unwrap();
+    roundtrip_test(format::SaveContainerType::GgjtV3, vocabulary).unwrap();
 }
 
 fn roundtrip_test(

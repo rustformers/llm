@@ -536,38 +536,6 @@ impl PromptFile {
 }
 
 #[derive(Parser, Debug)]
-pub struct Convert {
-    /// Path to model directory
-    #[arg(long, short = 'd')]
-    pub directory: PathBuf,
-
-    /// File type to convert to
-    #[arg(long, short = 't', value_enum, default_value_t = FileType::Q4_0)]
-    pub file_type: FileType,
-}
-#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
-pub enum FileType {
-    /// Quantized 4-bit (type 0).
-    Q4_0,
-    /// Quantized 4-bit (type 1); used by GPTQ.
-    Q4_1,
-    /// Float 16-bit.
-    F16,
-    /// Float 32-bit.
-    F32,
-}
-impl From<FileType> for llm::FileTypeFormat {
-    fn from(t: FileType) -> Self {
-        match t {
-            FileType::Q4_0 => llm::FileTypeFormat::MostlyQ4_0,
-            FileType::Q4_1 => llm::FileTypeFormat::MostlyQ4_1,
-            FileType::F16 => llm::FileTypeFormat::MostlyF16,
-            FileType::F32 => llm::FileTypeFormat::F32,
-        }
-    }
-}
-
-#[derive(Parser, Debug)]
 pub struct Quantize {
     /// The path to the model to quantize
     #[arg()]
@@ -584,7 +552,7 @@ pub struct Quantize {
     ///
     /// Note that using GGML requires the original model to have
     /// an unscored vocabulary, which is not the case for newer models.
-    #[arg(short, long, default_value_t = SaveContainerType::GgjtV2)]
+    #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
     pub container_type: SaveContainerType,
 
     /// The format to convert to
@@ -595,14 +563,14 @@ pub struct Quantize {
 pub enum SaveContainerType {
     /// GGML container.
     Ggml,
-    /// GGJT v2 container.
-    GgjtV2,
+    /// GGJT v3 container.
+    GgjtV3,
 }
 impl fmt::Display for SaveContainerType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SaveContainerType::Ggml => write!(f, "ggml"),
-            SaveContainerType::GgjtV2 => write!(f, "ggjt-v2"),
+            SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
         }
     }
 }
@@ -610,7 +578,7 @@ impl From<SaveContainerType> for ggml_format::SaveContainerType {
     fn from(value: SaveContainerType) -> Self {
         match value {
             SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
-            SaveContainerType::GgjtV2 => ggml_format::SaveContainerType::GgjtV2,
+            SaveContainerType::GgjtV3 => ggml_format::SaveContainerType::GgjtV3,
         }
     }
 }
@@ -622,12 +590,21 @@ pub enum QuantizationTarget {
     Q4_0,
     /// Quantized 4-bit (type 1).
     Q4_1,
+    /// Quantized 5-bit (type 0).
+    Q5_0,
+    /// Quantized 5-bit (type 1).
+    Q5_1,
+    /// Quantized 8-bit (type 0).
+    Q8_0,
 }
 impl From<QuantizationTarget> for ElementType {
     fn from(t: QuantizationTarget) -> Self {
         match t {
             QuantizationTarget::Q4_0 => ElementType::Q4_0,
             QuantizationTarget::Q4_1 => ElementType::Q4_1,
+            QuantizationTarget::Q5_0 => ElementType::Q5_0,
+            QuantizationTarget::Q5_1 => ElementType::Q5_1,
+            QuantizationTarget::Q8_0 => ElementType::Q8_0,
         }
     }
 }
