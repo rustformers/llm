@@ -25,8 +25,6 @@
 //!     llm::VocabularySource::Model,
 //!     // llm::ModelParameters
 //!     Default::default(),
-//!     // llm::KnownModel::Overrides
-//!     None,
 //!     // load progress callback
 //!     llm::load_progress_callback_stdout
 //! )
