@@ -354,7 +354,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             return Err(LoadError::InvariantBroken {
                 path: None,
                 invariant: format!(
-                    "GPT2 model expected n_vocab {} found {}",
+                    "GPTJ model expected n_vocab {} found {}",
                     hyperparameters.n_vocab, n_vocab
                 ),
             });
@@ -371,6 +371,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         util::write_i32(writer, self.n_layer.try_into()?)?;
         util::write_i32(writer, self.n_rot.try_into()?)?;
         util::write_i32(writer, self.file_type.into())?;
+        util::write_i32(writer, self.n_vocab.try_into()?)?;
         Ok(())
     }
 
