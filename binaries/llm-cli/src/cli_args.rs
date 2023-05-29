@@ -348,7 +348,7 @@ impl ModelVocabulary {
                 };
 
                 return Err(eyre!(
-                    "Cannot specify both --vocabulary-path and --vocabulary-repo"
+                    "Cannot specify both --vocabulary-path and --vocabulary-repository"
                 ));
             }
             (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
