@@ -1,33 +1,52 @@
-use std::{convert::Infallible, io::Write, path::Path};
+use clap::Parser;
+use std::{convert::Infallible, io::Write, path::PathBuf};
+
+#[derive(Parser)]
+struct Args {
+    architecture: String,
+    path: PathBuf,
+    #[arg(long, short = 'p')]
+    prompt: Option<String>,
+    #[arg(long, short = 'v')]
+    vocabulary_path: Option<PathBuf>,
+    #[arg(long, short = 'r')]
+    vocabulary_repository: Option<String>,
+}
+impl Args {
+    pub fn to_vocabulary_source(&self) -> llm::VocabularySource {
+        match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                panic!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => llm::VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => llm::VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => llm::VocabularySource::Model,
+        }
+    }
+}
 
 fn main() {
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
-    if raw_args.len() < 2 {
-        println!("Usage: cargo run --release --example inference <model_architecture> <model_path> [prompt] [overrides, json]");
-        std::process::exit(1);
-    }
+    let args = Args::parse();
 
-    let model_architecture: llm::ModelArchitecture = raw_args[0].parse().unwrap();
-    let model_path = Path::new(&raw_args[1]);
-    let prompt = raw_args
-        .get(2)
-        .map(|s| s.as_str())
+    let vocabulary_source = args.to_vocabulary_source();
+    let architecture = args.architecture.parse().unwrap();
+    let path = args.path;
+    let prompt = args
+        .prompt
+        .as_deref()
         .unwrap_or("Rust is a cool programming language because");
-    let overrides = raw_args.get(3).map(|s| serde_json::from_str(s).unwrap());
 
     let now = std::time::Instant::now();
 
     let model = llm::load_dynamic(
-        model_architecture,
-        model_path,
-        llm::VocabularySource::Model,
+        architecture,
+        &path,
+        vocabulary_source,
         Default::default(),
-        overrides,
+        None,
         llm::load_progress_callback_stdout,
     )
-    .unwrap_or_else(|err| {
-        panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
-    });
+    .unwrap_or_else(|err| panic!("Failed to load {architecture} model from {path:?}: {err}"));
 
     println!(
         "Model fully loaded! Elapsed: {}ms",

@@ -1,30 +1,52 @@
-use std::path::Path;
+use std::path::PathBuf;
+
+use clap::Parser;
+
+#[derive(Parser)]
+struct Args {
+    architecture: String,
+    path: PathBuf,
+    #[arg(long, short = 'v')]
+    pub vocabulary_path: Option<PathBuf>,
+    #[arg(long, short = 'r')]
+    pub vocabulary_repository: Option<String>,
+    #[arg(long, short = 'q')]
+    pub query: Option<String>,
+    #[arg(long, short = 'c')]
+    pub comparands: Vec<String>,
+}
+impl Args {
+    pub fn to_vocabulary_source(&self) -> llm::VocabularySource {
+        match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                panic!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => llm::VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => llm::VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => llm::VocabularySource::Model,
+        }
+    }
+}
 
 fn main() {
-    // Get arguments from command line
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
-    if raw_args.len() < 2 {
-        println!("Usage: cargo run --release --example embeddings <model_architecture> <model_path> [query] [comma-separated comparands] [overrides, json]");
-        std::process::exit(1);
-    }
+    let args = Args::parse();
 
-    let model_architecture: llm::ModelArchitecture = raw_args[0].parse().unwrap();
-    let model_path = Path::new(&raw_args[1]);
-    let query = raw_args
-        .get(2)
-        .map(|s| s.as_str())
+    let vocabulary_source = args.to_vocabulary_source();
+    let architecture = args.architecture.parse().unwrap();
+    let path = args.path;
+    let query = args
+        .query
+        .as_deref()
         .unwrap_or("My favourite animal is the dog");
-    let comparands = raw_args
-        .get(3)
-        .map(|s| s.split(',').map(|s| s.trim()).collect::<Vec<_>>())
-        .unwrap_or_else(|| {
-            vec![
-                "My favourite animal is the dog",
-                "I have just adopted a cute dog",
-                "My favourite animal is the cat",
-            ]
-        });
-    let overrides = raw_args.get(4).map(|s| serde_json::from_str(s).unwrap());
+    let comparands = if !args.comparands.is_empty() {
+        args.comparands
+    } else {
+        vec![
+            "My favourite animal is the dog".to_string(),
+            "I have just adopted a cute dog".to_string(),
+            "My favourite animal is the cat".to_string(),
+        ]
+    };
 
     // Load model
     let model_params = llm::ModelParameters {
@@ -33,25 +55,23 @@ fn main() {
         lora_adapters: None,
     };
     let model = llm::load_dynamic(
-        model_architecture,
-        model_path,
-        llm::VocabularySource::Model,
+        architecture,
+        &path,
+        vocabulary_source,
         model_params,
-        overrides,
+        None,
         llm::load_progress_callback_stdout,
     )
-    .unwrap_or_else(|err| {
-        panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
-    });
+    .unwrap_or_else(|err| panic!("Failed to load {architecture} model from {path:?}: {err}"));
     let inference_parameters = llm::InferenceParameters::default();
 
     // Generate embeddings for query and comparands
     let query_embeddings = get_embeddings(model.as_ref(), &inference_parameters, query);
     let comparand_embeddings: Vec<(String, Vec<f32>)> = comparands
         .iter()
-        .map(|&text| {
+        .map(|text| {
             (
-                text.to_owned(),
+                text.clone(),
                 get_embeddings(model.as_ref(), &inference_parameters, text),
             )
         })

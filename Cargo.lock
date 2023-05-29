@@ -1240,6 +1240,7 @@ name = "llm"
 version = "0.2.0-dev"
 dependencies = [
  "bytesize",
+ "clap",
  "llm-base",
  "llm-bloom",
  "llm-gpt2",
