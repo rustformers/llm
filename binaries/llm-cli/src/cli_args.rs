@@ -1,7 +1,7 @@
 use std::{fmt, ops::Deref, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use color_eyre::eyre::{eyre, Result, WrapErr};
+use color_eyre::eyre::{bail, Result, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
     LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, VocabularySource,
@@ -340,16 +340,10 @@ pub struct ModelVocabulary {
     pub vocabulary_repository: Option<String>,
 }
 impl ModelVocabulary {
-    pub fn to_source(&self, sp: &mut Option<spinoff::Spinner>) -> Result<VocabularySource> {
+    pub fn to_source(&self) -> Result<VocabularySource> {
         Ok(match (&self.vocabulary_path, &self.vocabulary_repository) {
             (Some(_), Some(_)) => {
-                if let Some(sp) = sp.take() {
-                    sp.fail("Invalid arguments");
-                };
-
-                return Err(eyre!(
-                    "Cannot specify both --vocabulary-path and --vocabulary-repository"
-                ));
+                bail!("Cannot specify both --vocabulary-path and --vocabulary-repository");
             }
             (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
             (None, Some(repo)) => VocabularySource::HuggingFaceRemote(repo.to_owned()),
@@ -376,8 +370,8 @@ pub struct ModelAndVocabulary {
     pub vocabulary_repository: Option<String>,
 }
 impl ModelAndVocabulary {
-    pub fn to_source(&self, sp: &mut Option<spinoff::Spinner>) -> Result<VocabularySource> {
-        self.vocabulary.to_source(sp)
+    pub fn to_source(&self) -> Result<VocabularySource> {
+        self.vocabulary.to_source()
     }
 }
 
@@ -427,7 +421,15 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let vocabulary_source = self.model_and_vocabulary.to_source(&mut sp)?;
+        let vocabulary_source = match self.model_and_vocabulary.to_source() {
+            Ok(vs) => vs,
+            Err(err) => {
+                if let Some(sp) = sp.take() {
+                    sp.fail(&format!("Failed to load vocabulary: {}", err));
+                }
+                return Err(err);
+            }
+        };
 
         let model = llm::load::<M>(
             &self.model_and_vocabulary.model_path,

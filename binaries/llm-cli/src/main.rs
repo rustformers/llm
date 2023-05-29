@@ -151,7 +151,7 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
     let model_path = &args.model_and_vocabulary.model_path;
     let vocabulary = args
         .model_and_vocabulary
-        .to_source(&mut None)?
+        .to_source()?
         .retrieve(model_path)?;
 
     let file = File::open(model_path)?;
@@ -321,10 +321,7 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
 
     let mut source = BufReader::new(std::fs::File::open(&args.source)?);
     let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
-    let vocabulary = args
-        .vocabulary
-        .to_source(&mut None)?
-        .retrieve(&args.source)?;
+    let vocabulary = args.vocabulary.to_source()?.retrieve(&args.source)?;
 
     llm::quantize::<M, _, _>(
         &mut source,
