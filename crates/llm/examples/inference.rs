@@ -3,8 +3,8 @@ use std::{convert::Infallible, io::Write, path::PathBuf};
 
 #[derive(Parser)]
 struct Args {
-    architecture: String,
-    path: PathBuf,
+    model_architecture: llm::ModelArchitecture,
+    model_path: PathBuf,
     #[arg(long, short = 'p')]
     prompt: Option<String>,
     #[arg(long, short = 'v')]
@@ -29,8 +29,8 @@ fn main() {
     let args = Args::parse();
 
     let vocabulary_source = args.to_vocabulary_source();
-    let architecture = args.architecture.parse().unwrap();
-    let path = args.path;
+    let model_architecture = args.model_architecture;
+    let model_path = args.model_path;
     let prompt = args
         .prompt
         .as_deref()
@@ -39,13 +39,15 @@ fn main() {
     let now = std::time::Instant::now();
 
     let model = llm::load_dynamic(
-        architecture,
-        &path,
+        model_architecture,
+        &model_path,
         vocabulary_source,
         Default::default(),
         llm::load_progress_callback_stdout,
     )
-    .unwrap_or_else(|err| panic!("Failed to load {architecture} model from {path:?}: {err}"));
+    .unwrap_or_else(|err| {
+        panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
+    });
 
     println!(
         "Model fully loaded! Elapsed: {}ms",
