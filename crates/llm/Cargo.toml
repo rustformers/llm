@@ -25,6 +25,7 @@ rand = { workspace = true }
 rustyline = { workspace = true }
 spinoff = { workspace = true }
 serde_json = { workspace = true }
+clap = { workspace = true }
 
 [features]
 default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
