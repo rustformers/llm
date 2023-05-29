@@ -216,10 +216,6 @@ impl Display for ModelArchitecture {
 /// A helper function that loads the specified model from disk using an architecture
 /// specified at runtime.
 ///
-/// The `overrides` will attempt to deserialize to the [KnownModel::Overrides] type
-/// for that model. If the model does not support overrides, this will be an empty
-/// struct. If the overrides are invalid, this will return an error.
-///
 /// A wrapper around [load] that dispatches to the correct model.
 pub fn load_dynamic(
     architecture: ModelArchitecture,
