@@ -363,7 +363,6 @@ pub fn load<M: KnownModel>(
     path: &Path,
     vocabulary_source: VocabularySource,
     params: ModelParameters,
-    overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
     if !path.exists() {
@@ -492,7 +491,7 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, overrides, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,

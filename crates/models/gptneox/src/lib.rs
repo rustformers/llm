@@ -45,12 +45,10 @@ unsafe impl Sync for GptNeoX {}
 
 impl KnownModel for GptNeoX {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: Error>(
         hyperparameters: Hyperparameters,
         params: ModelParameters,
-        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>

@@ -403,10 +403,7 @@ pub struct ModelLoad {
     pub lora_paths: Option<Vec<PathBuf>>,
 }
 impl ModelLoad {
-    pub fn load<M: llm::KnownModel + 'static>(
-        &self,
-        overrides: Option<M::Overrides>,
-    ) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
@@ -435,7 +432,6 @@ impl ModelLoad {
             &self.model_and_vocabulary.model_path,
             vocabulary_source,
             params,
-            overrides,
             |progress| match progress {
                 LoadProgress::HyperparametersLoaded => {
                     if let Some(sp) = sp.as_mut() {

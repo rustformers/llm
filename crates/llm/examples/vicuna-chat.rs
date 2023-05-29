@@ -35,7 +35,6 @@ fn main() {
         &path,
         vocabulary_source,
         Default::default(),
-        None,
         llm::load_progress_callback_stdout,
     )
     .unwrap_or_else(|err| panic!("Failed to load {architecture} model from {path:?}: {err}"));

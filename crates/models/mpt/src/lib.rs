@@ -39,12 +39,10 @@ unsafe impl Sync for Mpt {}
 
 impl KnownModel for Mpt {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {

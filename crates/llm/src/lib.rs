@@ -82,10 +82,9 @@ pub use llm_base::{
     quantize, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
-    LoadError, LoadProgress, Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
-    ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
-    VocabularySource,
+    LoadError, LoadProgress, Loader, Model, ModelKVMemoryType, ModelParameters, OutputRequest,
+    Prompt, QuantizeError, QuantizeProgress, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer,
+    TokenizationError, Vocabulary, VocabularySource,
 };
 
 use serde::Serialize;
@@ -229,7 +228,6 @@ pub fn load_dynamic(
     path: &Path,
     vocabulary_source: VocabularySource,
     params: ModelParameters,
-    overrides: Option<ModelDynamicOverrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
     use ModelArchitecture::*;
@@ -238,67 +236,39 @@ pub fn load_dynamic(
         path: &Path,
         vocabulary_source: VocabularySource,
         params: ModelParameters,
-        overrides: Option<ModelDynamicOverrides>,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Box<dyn Model>, LoadError> {
         Ok(Box::new(load::<M>(
             path,
             vocabulary_source,
             params,
-            overrides.map(|o| o.into()),
             load_progress_callback,
         )?))
     }
 
     let model: Box<dyn Model> = match architecture {
         #[cfg(feature = "bloom")]
-        Bloom => load_model::<models::Bloom>(
-            path,
-            vocabulary_source,
-            params,
-            overrides,
-            load_progress_callback,
-        )?,
+        Bloom => {
+            load_model::<models::Bloom>(path, vocabulary_source, params, load_progress_callback)?
+        }
         #[cfg(feature = "gpt2")]
-        Gpt2 => load_model::<models::Gpt2>(
-            path,
-            vocabulary_source,
-            params,
-            overrides,
-            load_progress_callback,
-        )?,
+        Gpt2 => {
+            load_model::<models::Gpt2>(path, vocabulary_source, params, load_progress_callback)?
+        }
         #[cfg(feature = "gptj")]
-        GptJ => load_model::<models::GptJ>(
-            path,
-            vocabulary_source,
-            params,
-            overrides,
-            load_progress_callback,
-        )?,
+        GptJ => {
+            load_model::<models::GptJ>(path, vocabulary_source, params, load_progress_callback)?
+        }
         #[cfg(feature = "gptneox")]
-        GptNeoX => load_model::<models::GptNeoX>(
-            path,
-            vocabulary_source,
-            params,
-            overrides,
-            load_progress_callback,
-        )?,
+        GptNeoX => {
+            load_model::<models::GptNeoX>(path, vocabulary_source, params, load_progress_callback)?
+        }
         #[cfg(feature = "llama")]
-        Llama => load_model::<models::Llama>(
-            path,
-            vocabulary_source,
-            params,
-            overrides,
-            load_progress_callback,
-        )?,
+        Llama => {
+            load_model::<models::Llama>(path, vocabulary_source, params, load_progress_callback)?
+        }
         #[cfg(feature = "mpt")]
-        Mpt => load_model::<models::Mpt>(
-            path,
-            vocabulary_source,
-            params,
-            overrides,
-            load_progress_callback,
-        )?,
+        Mpt => load_model::<models::Mpt>(path, vocabulary_source, params, load_progress_callback)?,
     };
 
     Ok(model)
