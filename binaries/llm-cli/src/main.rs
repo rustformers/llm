@@ -8,10 +8,12 @@ use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
 use llm::{InferenceError, InferenceFeedback, InferenceResponse};
-use rustyline::error::ReadlineError;
-use rustyline::validate::{ValidationContext, ValidationResult, Validator};
-use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
-use rustyline::{Completer, Helper, Highlighter, Hinter};
+use rustyline::{
+    error::ReadlineError,
+    history::DefaultHistory,
+    validate::{ValidationContext, ValidationResult, Validator},
+    Cmd, Completer, Helper, Highlighter, Hinter, KeyCode, KeyEvent, Modifiers,
+};
 
 mod cli_args;
 mod snapshot;
@@ -209,6 +211,18 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
     Ok(())
 }
 
+#[cfg(not(windows))]
+fn force_newline_event_seq() -> KeyEvent {
+    KeyEvent(KeyCode::Enter, Modifiers::ALT)
+}
+
+// On Windows, `SHIFT+ENTER` is the key sequence for forcing a newline. This is
+// because `ALT+ENTER` typically maximizes the window.
+#[cfg(windows)]
+fn force_newline_event_seq() -> KeyEvent {
+    KeyEvent(KeyCode::Enter, Modifiers::SHIFT)
+}
+
 fn interactive<M: llm::KnownModel + 'static>(
     args: &cli_args::Repl,
     // If set to false, the session will be cloned after each inference
@@ -229,10 +243,8 @@ fn interactive<M: llm::KnownModel + 'static>(
     let mut rng = args.generate.rng();
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
-    rl.bind_sequence(
-        Event::KeySeq(vec![KeyEvent(KeyCode::Enter, Modifiers::SHIFT)]),
-        EventHandler::Simple(Cmd::Newline),
-    );
+
+    rl.bind_sequence(force_newline_event_seq(), Cmd::Newline);
 
     loop {
         let readline = rl.readline(">> ");
