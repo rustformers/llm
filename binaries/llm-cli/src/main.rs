@@ -8,10 +8,12 @@ use clap::Parser;
 use cli_args::{Args, BaseArgs};
 use color_eyre::eyre::{Context, Result};
 use llm::{InferenceError, InferenceFeedback, InferenceResponse};
-use rustyline::error::ReadlineError;
-use rustyline::validate::{ValidationContext, ValidationResult, Validator};
-use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
-use rustyline::{Completer, Helper, Highlighter, Hinter};
+use rustyline::{
+    error::ReadlineError,
+    history::DefaultHistory,
+    validate::{ValidationContext, ValidationResult, Validator},
+    Cmd, Completer, Helper, Highlighter, Hinter, KeyCode, KeyEvent, Modifiers,
+};
 
 mod cli_args;
 mod snapshot;
