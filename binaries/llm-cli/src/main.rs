@@ -229,8 +229,16 @@ fn interactive<M: llm::KnownModel + 'static>(
     let mut rng = args.generate.rng();
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
+
+    // Shift+Enter not supported so we support Shift+Down and Ctrl+S
+    // See https://github.com/kkawakam/rustyline/issues/653
     rl.bind_sequence(
-        Event::KeySeq(vec![KeyEvent(KeyCode::Enter, Modifiers::SHIFT)]),
+        Event::KeySeq(vec![KeyEvent(KeyCode::Down, Modifiers::SHIFT)]),
+        EventHandler::Simple(Cmd::Newline),
+    );
+
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('s'), Modifiers::CTRL),
         EventHandler::Simple(Cmd::Newline),
     );
 
