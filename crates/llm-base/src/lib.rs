@@ -31,15 +31,16 @@ pub use loader::{
 };
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
-pub use model::{
-    Hyperparameters, KnownModel, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
-    ModelParameters, OutputRequest,
-};
+pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use samplers::Sampler;
 pub use util::TokenUtf8Buffer;
-pub use vocabulary::{InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Vocabulary};
+pub(crate) use vocabulary::ModelVocabulary;
+pub use vocabulary::{
+    InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Vocabulary,
+    VocabularyLoadError, VocabularySource,
+};
 
 #[derive(Clone, Debug)]
 /// The parameters for text generation.

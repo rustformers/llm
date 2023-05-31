@@ -39,12 +39,10 @@ unsafe impl Sync for Mpt {}
 
 impl KnownModel for Mpt {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
@@ -279,18 +277,11 @@ impl KnownModel for Mpt {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary
-            .token_to_id
-            .get("<|padding|>".as_bytes())
-            .copied()
+        self.vocabulary.id("<|padding|>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("<|endoftext|>".as_bytes())
-            .copied()
-            .unwrap()
+        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

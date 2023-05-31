@@ -45,12 +45,10 @@ unsafe impl Sync for GptNeoX {}
 
 impl KnownModel for GptNeoX {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: Error>(
         hyperparameters: Hyperparameters,
         params: ModelParameters,
-        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
@@ -349,11 +347,7 @@ impl KnownModel for GptNeoX {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("<|endoftext|>".as_bytes())
-            .copied()
-            .unwrap()
+        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

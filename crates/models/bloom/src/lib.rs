@@ -45,12 +45,10 @@ unsafe impl Sync for Bloom {}
 
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
@@ -369,15 +367,11 @@ impl KnownModel for Bloom {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary.token_to_id.get("<s>".as_bytes()).copied()
+        self.vocabulary.id("<s>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("</s>".as_bytes())
-            .copied()
-            .unwrap()
+        self.vocabulary.id("</s>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {
