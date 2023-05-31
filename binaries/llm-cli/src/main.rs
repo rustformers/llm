@@ -209,6 +209,18 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
     Ok(())
 }
 
+#[cfg(not(windows))]
+fn force_newline_event_seq() -> KeyEvent {
+    KeyEvent(KeyCode::Enter, Modifiers::ALT)
+}
+
+// On Windows, `SHIFT+ENTER` is the key sequence for forcing a newline. This is
+// because `ALT+ENTER` typically maximizes the window.
+#[cfg(windows)]
+fn force_newline_event_seq() -> KeyEvent {
+    KeyEvent(KeyCode::Enter, Modifiers::SHIFT)
+}
+
 fn interactive<M: llm::KnownModel + 'static>(
     args: &cli_args::Repl,
     // If set to false, the session will be cloned after each inference
@@ -230,17 +242,7 @@ fn interactive<M: llm::KnownModel + 'static>(
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
 
-    // Shift+Enter not supported so we support Shift+Down and Ctrl+S
-    // See https://github.com/kkawakam/rustyline/issues/653
-    rl.bind_sequence(
-        Event::KeySeq(vec![KeyEvent(KeyCode::Down, Modifiers::SHIFT)]),
-        EventHandler::Simple(Cmd::Newline),
-    );
-
-    rl.bind_sequence(
-        KeyEvent(KeyCode::Char('s'), Modifiers::CTRL),
-        EventHandler::Simple(Cmd::Newline),
-    );
+    rl.bind_sequence(force_newline_event_seq(), Cmd::Newline);
 
     loop {
         let readline = rl.readline(">> ");
