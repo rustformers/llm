@@ -57,8 +57,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let sampler = args.generate.sampler(model.eot_token_id());
-    let parameters = args.generate.inference_parameters(&sampler);
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let res = session.infer::<Infallible>(
@@ -125,8 +124,7 @@ fn perplexity<M: llm::KnownModel + 'static>(args: &cli_args::Perplexity) -> Resu
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let sampler = args.generate.sampler(model.eot_token_id());
-    let parameters = args.generate.inference_parameters(&sampler);
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     session.perplexity(
         model.as_ref(),
@@ -226,8 +224,7 @@ fn interactive<M: llm::KnownModel + 'static>(
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let sampler = args.generate.sampler(model.eot_token_id());
-    let parameters = args.generate.inference_parameters(&sampler);
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;

@@ -578,7 +578,7 @@ pub struct InferenceRequest<'a> {
     /// The prompt to feed to the model.
     pub prompt: Prompt<'a>,
     /// The parameters to use during this inference attempt.
-    pub parameters: &'a InferenceParameters<'a>,
+    pub parameters: &'a InferenceParameters,
     /// Whether or not to call the callback with the previous tokens
     /// that were encountered in this session.
     ///

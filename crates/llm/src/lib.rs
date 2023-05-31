@@ -41,11 +41,7 @@
 //!     // inference parameters
 //!     &llm::InferenceRequest {
 //!         prompt: "Rust is a cool programming language because".into(),
-//!         parameters: &llm::InferenceParameters {
-//!             n_threads: 8,
-//!             n_batch: 8,
-//!             sampler: &llm::samplers::TopPTopK::default(),
-//!         },
+//!         parameters: &llm::InferenceParameters::default(),
 //!         play_back_previous_tokens: false,
 //!         maximum_token_count: None,
 //!     },

@@ -52,11 +52,7 @@ fn main() {
          {character_name}:  Paris is the capital of France."
     );
 
-    let inference_parameters = llm::InferenceParameters {
-        n_threads: 8,
-        n_batch: 8,
-        sampler: &llm::samplers::TopPTopK::default(),
-    };
+    let inference_parameters = llm::InferenceParameters::default();
 
     session
         .feed_prompt(

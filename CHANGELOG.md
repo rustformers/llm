@@ -8,7 +8,7 @@
 - `llm::InferenceRequest` no longer implements `Default::default`.
 - The `infer` callback now provides an `InferenceResponse` instead of a string to disambiguate the source of the token. Additionally, it now returns an `InferenceFeedback` to control whether or not the generation should continue.
 - Several fields have been renamed:
-    - `n_context_tokens` -> `context_size`
+  - `n_context_tokens` -> `context_size`
 
 # 0.1.1 (2023-05-08)
 

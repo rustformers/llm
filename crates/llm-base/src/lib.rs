@@ -17,6 +17,8 @@ pub mod model;
 pub mod samplers;
 pub mod util;
 
+use std::sync::Arc;
+
 pub use ggml;
 pub use ggml::Type as ElementType;
 
@@ -47,7 +49,7 @@ pub use vocabulary::{
 ///
 /// This needs to be provided during all inference calls,
 /// but can be changed between calls.
-pub struct InferenceParameters<'a> {
+pub struct InferenceParameters {
     /// The number of threads to use. This is dependent on your user's system,
     /// and should be selected accordingly.
     ///
@@ -81,5 +83,14 @@ pub struct InferenceParameters<'a> {
     ///
     /// A recommended default sampler is [TopPTopK](samplers::TopPTopK), which is a standard
     /// sampler that offers a [Default](samplers::TopPTopK::default) implementation.
-    pub sampler: &'a dyn Sampler,
+    pub sampler: Arc<dyn Sampler>,
+}
+impl Default for InferenceParameters {
+    fn default() -> Self {
+        Self {
+            n_threads: 8,
+            n_batch: 8,
+            sampler: Arc::new(samplers::TopPTopK::default()),
+        }
+    }
 }
