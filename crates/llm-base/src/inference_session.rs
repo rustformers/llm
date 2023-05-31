@@ -1,7 +1,4 @@
 use std::fmt::Display;
-
-use partial_sort::PartialSort;
-use rand::{distributions::WeightedIndex, prelude::Distribution};
 use thiserror::Error;
 
 use crate::{
@@ -140,8 +137,7 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        // First, sample the next token, using the stored last_logits;
-        let next_token = self.sample_top_p_top_k(params, rng);
+        let next_token = params.sampler.sample(&self.tokens, &self.last_logits, rng);
 
         // Update the tokens for this session
         self.tokens.push(next_token);
@@ -329,97 +325,6 @@ impl InferenceSession {
         }
 
         Ok(())
-    }
-
-    /// Sample a token using Top-P/Top-K sampling and the last logits from this session.
-    pub fn sample_top_p_top_k(
-        &self,
-        params: &InferenceParameters,
-        rng: &mut impl rand::Rng,
-    ) -> TokenId {
-        let logits = &self.last_logits;
-        let n_logits = logits.len();
-        let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
-
-        {
-            let scale = 1.0 / params.temperature;
-            for (i, &logit) in logits.iter().enumerate() {
-                let tid = i as TokenId;
-
-                let val = if let Some(logit_override) = params.bias_tokens.get(tid) {
-                    logit_override
-                } else if self.tokens[self
-                    .tokens
-                    .len()
-                    .saturating_sub(params.repetition_penalty_last_n)..]
-                    .contains(&(i as TokenId))
-                {
-                    // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
-                    // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
-
-                    // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
-                    if logits[i] < 0.0 {
-                        logit * scale * params.repeat_penalty
-                    } else {
-                        logit * scale / params.repeat_penalty
-                    }
-                } else {
-                    logit * scale
-                };
-                logits_id.push((val, tid));
-            }
-        }
-
-        // find the top K tokens
-        {
-            logits_id.partial_sort(params.top_k, |a, b| {
-                // Sort descending
-                b.0.total_cmp(&a.0)
-            });
-            logits_id.truncate(params.top_k);
-        }
-
-        let maxl = logits_id
-            .iter()
-            .map(|x| x.0)
-            .max_by(f32::total_cmp)
-            .unwrap();
-
-        // compute probs for the top K tokens
-        let mut probs: Vec<f32> = logits_id
-            .iter()
-            .copied()
-            .map(|(k, _)| (k - maxl).exp())
-            .collect();
-        let sum: f32 = probs.iter().copied().sum();
-
-        // Normalize the probs
-        for p in probs.iter_mut() {
-            *p /= sum;
-        }
-
-        // Top p sampling
-        if params.top_p < 1.0 {
-            let mut cumsum = 0.0;
-            for i in 0..probs.len() {
-                cumsum += probs[i];
-                if cumsum >= params.top_p {
-                    probs.truncate(i + 1);
-                    logits_id.truncate(i + 1);
-                    break;
-                }
-            }
-
-            cumsum = 1.0 / cumsum;
-            for p in probs.iter_mut() {
-                *p *= cumsum;
-            }
-        }
-
-        let dist = WeightedIndex::new(&probs).expect("WeightedIndex error");
-        let idx = dist.sample(rng);
-
-        logits_id[idx].1
     }
 
     /// Obtains a serializable snapshot of the current inference status. This
@@ -667,7 +572,7 @@ impl Default for InferenceSessionConfig {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 /// Settings specific to [InferenceSession::infer].
 pub struct InferenceRequest<'a> {
     /// The prompt to feed to the model.

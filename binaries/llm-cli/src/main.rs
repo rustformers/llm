@@ -57,7 +57,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let inference_params = args.generate.inference_parameters(model.eot_token_id());
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let res = session.infer::<Infallible>(
@@ -65,7 +65,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
         &mut rng,
         &llm::InferenceRequest {
             prompt: prompt.as_str().into(),
-            parameters: &inference_params,
+            parameters: &parameters,
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
@@ -224,7 +224,7 @@ fn interactive<M: llm::KnownModel + 'static>(
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let inference_params = args.generate.inference_parameters(model.eot_token_id());
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
@@ -253,7 +253,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                 let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
                 if let Err(InferenceError::ContextFull) = session.feed_prompt(
                     model.as_ref(),
-                    &inference_params,
+                    &parameters,
                     &prompt,
                     // OutputRequest
                     &mut Default::default(),
@@ -268,7 +268,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                     &mut rng,
                     &llm::InferenceRequest {
                         prompt: "".into(),
-                        parameters: &inference_params,
+                        parameters: &parameters,
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
                     },

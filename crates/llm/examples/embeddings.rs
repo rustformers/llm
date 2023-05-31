@@ -97,7 +97,7 @@ fn main() {
         .map(|(text, embeddings)| {
             (
                 text.as_str(),
-                cosine_similarity(&query_embeddings, &embeddings),
+                cosine_similarity(&query_embeddings, embeddings),
             )
         })
         .collect();
@@ -129,7 +129,7 @@ fn get_embeddings(
         .iter()
         .map(|(_, tok)| *tok)
         .collect::<Vec<_>>();
-    let _ = model.evaluate(
+    model.evaluate(
         &mut session,
         inference_parameters,
         &query_token_ids,
@@ -139,9 +139,9 @@ fn get_embeddings(
 }
 
 fn cosine_similarity(v1: &[f32], v2: &[f32]) -> f32 {
-    let dot_product = dot(&v1, &v2);
-    let magnitude1 = magnitude(&v1);
-    let magnitude2 = magnitude(&v2);
+    let dot_product = dot(v1, v2);
+    let magnitude1 = magnitude(v1);
+    let magnitude2 = magnitude(v2);
 
     dot_product / (magnitude1 * magnitude2)
 }
