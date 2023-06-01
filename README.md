@@ -151,11 +151,11 @@ Hugging Face 🤗).
 
 Once the `llm` executable has been built or is in a `$PATH` directory, try
 running it. Here's an example that uses the open-source
-[GPT4All](https://gpt4all.io/models/ggml-gpt4all-j-v1.3-groovy.bin) language
-model:
+[RedPajama](https://huggingface.co/rustformers/redpajama-ggml/blob/main/RedPajama-INCITE-Base-3B-v1-q4_0.bin)
+language model:
 
 ```shell
-llm llama infer -m ggml-gpt4all-j-v1.3-groovy.bin -p "Rust is a cool programming language because"
+llm gptneox infer -m RedPajama-INCITE-Base-3B-v1-q4_0.bin -p "Rust is a cool programming language because"
 ```
 
 For more information about the `llm` CLI, use the `--help` parameter.
@@ -164,7 +164,7 @@ There is also a [simple inference example](./crates/llm/examples/inference.rs)
 that is helpful for [debugging](./.vscode/launch.json):
 
 ```shell
-cargo run --release --example inference llama ggml-gpt4all-j-v1.3-groovy.bin $OPTIONAL_PROMPT
+cargo run --release --example inference gptneox RedPajama-INCITE-Base-3B-v1-q4_0.bin $OPTIONAL_PROMPT
 ```
 
 ## Q&A
