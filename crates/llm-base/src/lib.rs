@@ -85,6 +85,11 @@ pub struct InferenceParameters {
     /// sampler that offers a [Default](samplers::TopPTopK::default) implementation.
     pub sampler: Arc<dyn Sampler>,
 }
+
+//Since Sampler implements Send and Sync, InferenceParameters should too.
+unsafe impl Send for InferenceParameters {}
+unsafe impl Sync for InferenceParameters {}
+
 impl Default for InferenceParameters {
     fn default() -> Self {
         Self {

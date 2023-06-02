@@ -10,7 +10,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution};
 use crate::{TokenBias, TokenId};
 
 /// A sampler for generation.
-pub trait Sampler: Debug {
+pub trait Sampler: Debug + Send + Sync {
     /// Given the previous tokens, the logits from the most recent evaluation, and a source of randomness,
     /// sample from the logits and return the token ID.
     fn sample(
