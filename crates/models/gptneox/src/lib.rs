@@ -317,6 +317,8 @@ impl KnownModel for GptNeoX {
             &ctx0.op_repeat(&self.ln_f_b, &input_layer),
         );
 
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
+
         // Disable the scratchbuffer
         ctx0.use_scratch(None);
 
@@ -330,7 +332,7 @@ impl KnownModel for GptNeoX {
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, n);
         common::extract_logits(output_request, &input_layer, n_vocab, n);
-        common::extract_embeddings(output_request, &embd, n_embd, n);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, n);
         common::update_session(session, &ctx0, input_tokens.len(), n);
     }
 

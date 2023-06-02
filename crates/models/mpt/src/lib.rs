@@ -251,6 +251,8 @@ impl KnownModel for Mpt {
         input_layer = ctx0.op_norm(&input_layer);
         input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
+
         // disable scratch buffer for last layer
         ctx0.use_scratch(None);
         // output embedding weight tied to input embedding
@@ -263,7 +265,7 @@ impl KnownModel for Mpt {
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
         common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
