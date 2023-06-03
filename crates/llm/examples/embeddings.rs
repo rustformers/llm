@@ -49,11 +49,7 @@ fn main() {
     };
 
     // Load model
-    let model_params = llm::ModelParameters {
-        prefer_mmap: true,
-        context_size: 4096,
-        lora_adapters: None,
-    };
+    let model_params = llm::ModelParameters::default();
     let model = llm::load_dynamic(
         model_architecture,
         &model_path,
@@ -124,7 +120,7 @@ fn get_embeddings(
     let vocab = model.vocabulary();
     let beginning_of_sentence = true;
     let query_token_ids = vocab
-        .tokenize(&format!(" {}", query), beginning_of_sentence)
+        .tokenize(&format!("{}", query), beginning_of_sentence)
         .unwrap()
         .iter()
         .map(|(_, tok)| *tok)

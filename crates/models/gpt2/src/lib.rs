@@ -295,6 +295,8 @@ impl KnownModel for Gpt2 {
             &ctx0.op_repeat(&self.ln_f_b, &input_layer),
         );
 
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
+
         input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);
 
         // run the computation
@@ -304,7 +306,7 @@ impl KnownModel for Gpt2 {
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
         common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
