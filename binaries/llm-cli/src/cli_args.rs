@@ -244,10 +244,16 @@ pub struct Generate {
     #[arg(long, default_value = None)]
     pub seed: Option<u64>,
 
-    /// Use 16-bit floats for model memory key and value. Ignored when restoring
-    /// from the cache.
-    #[arg(long, default_value_t = false)]
-    pub float16: bool,
+    /// Use 16-bit floats for model memory key and value. Ignored but allowed for
+    /// backwards compatibility: this is now the default
+    #[arg(long = "float16", hide = true)]
+    pub _float16: bool,
+
+    /// Use 32-bit floats for model memory key and value.
+    /// Not recommended: doubles size without a measurable quality increase.
+    /// Ignored when restoring from the cache
+    #[arg(long = "no-float16", default_value_t = false)]
+    pub no_float16: bool,
 
     /// A comma separated list of token biases. The list should be in the format
     /// "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS is a
@@ -287,10 +293,10 @@ impl Generate {
     }
 
     pub fn inference_session_config(&self) -> InferenceSessionConfig {
-        let mem_typ = if self.float16 {
-            ModelKVMemoryType::Float16
-        } else {
+        let mem_typ = if self.no_float16 {
             ModelKVMemoryType::Float32
+        } else {
+            ModelKVMemoryType::Float16
         };
         InferenceSessionConfig {
             memory_k_type: mem_typ,
