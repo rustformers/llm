@@ -566,8 +566,8 @@ pub struct InferenceSessionConfig {
 impl Default for InferenceSessionConfig {
     fn default() -> Self {
         Self {
-            memory_k_type: ModelKVMemoryType::Float32,
-            memory_v_type: ModelKVMemoryType::Float32,
+            memory_k_type: ModelKVMemoryType::Float16,
+            memory_v_type: ModelKVMemoryType::Float16,
         }
     }
 }
