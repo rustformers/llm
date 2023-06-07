@@ -362,14 +362,6 @@ pub struct ModelAndVocabulary {
 
     #[command(flatten)]
     pub vocabulary: ModelVocabulary,
-
-    /// Local path to vocabulary
-    #[arg(long, short = 'v')]
-    pub vocabulary_path: Option<PathBuf>,
-
-    /// Remote HuggingFace repository containing vocabulary
-    #[arg(long, short = 'r')]
-    pub vocabulary_repository: Option<String>,
 }
 impl ModelAndVocabulary {
     pub fn to_source(&self) -> Result<VocabularySource> {
