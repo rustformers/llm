@@ -45,12 +45,10 @@ unsafe impl Sync for Bloom {}
 
 impl KnownModel for Bloom {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        _overrides: Option<Self::Overrides>,
         vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
@@ -346,6 +344,8 @@ impl KnownModel for Bloom {
             &input_layer,
         );
 
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
+
         // lm_head
         input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
@@ -356,7 +356,7 @@ impl KnownModel for Bloom {
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        common::extract_embeddings(output_request, &embd, n_embd, input_len);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
         common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
@@ -369,15 +369,11 @@ impl KnownModel for Bloom {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary.token_to_id.get("<s>".as_bytes()).copied()
+        self.vocabulary.id("<s>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary
-            .token_to_id
-            .get("</s>".as_bytes())
-            .copied()
-            .unwrap()
+        self.vocabulary.id("</s>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

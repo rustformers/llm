@@ -1,6 +1,6 @@
 [package]
 name = "ggml-sys"
-version = "0.1.1"
+version = "0.2.0-dev"
 repository = { workspace = true }
 edition = "2021"
 description = "Raw bindings (i.e. bindgen output) for the ggml library."

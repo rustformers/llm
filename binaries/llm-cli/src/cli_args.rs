@@ -1,10 +1,10 @@
-use std::{fmt, ops::Deref, path::PathBuf};
+use std::{fmt, ops::Deref, path::PathBuf, sync::Arc};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::{bail, Result, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, VocabularySource,
 };
 use rand::SeedableRng;
 
@@ -141,9 +141,8 @@ pub struct Perplexity {
 
 #[derive(Parser, Debug)]
 pub struct Info {
-    /// The model to inspect.
-    #[arg(long, short = 'm')]
-    pub model_path: PathBuf,
+    #[command(flatten)]
+    pub model_and_vocabulary: ModelAndVocabulary,
 
     /// Show all of the tensors in the model, including their names, formats and shapes.
     #[arg(long, short = 't')]
@@ -245,10 +244,16 @@ pub struct Generate {
     #[arg(long, default_value = None)]
     pub seed: Option<u64>,
 
-    /// Use 16-bit floats for model memory key and value. Ignored when restoring
-    /// from the cache.
-    #[arg(long, default_value_t = false)]
-    pub float16: bool,
+    /// Use 16-bit floats for model memory key and value. Ignored but allowed for
+    /// backwards compatibility: this is now the default
+    #[arg(long = "float16", hide = true)]
+    pub _float16: bool,
+
+    /// Use 32-bit floats for model memory key and value.
+    /// Not recommended: doubles size without a measurable quality increase.
+    /// Ignored when restoring from the cache
+    #[arg(long = "no-float16", default_value_t = false)]
+    pub no_float16: bool,
 
     /// A comma separated list of token biases. The list should be in the format
     /// "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS is a
@@ -288,10 +293,10 @@ impl Generate {
     }
 
     pub fn inference_session_config(&self) -> InferenceSessionConfig {
-        let mem_typ = if self.float16 {
-            ModelKVMemoryType::Float16
-        } else {
+        let mem_typ = if self.no_float16 {
             ModelKVMemoryType::Float32
+        } else {
+            ModelKVMemoryType::Float16
         };
         InferenceSessionConfig {
             memory_k_type: mem_typ,
@@ -311,18 +316,20 @@ impl Generate {
         InferenceParameters {
             n_threads: self.num_threads(),
             n_batch: self.batch_size,
-            top_k: self.top_k,
-            top_p: self.top_p,
-            repeat_penalty: self.repeat_penalty,
-            temperature: self.temperature,
-            bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
-                if self.ignore_eos {
-                    TokenBias::new(vec![(eot, -1.0)])
-                } else {
-                    TokenBias::default()
-                }
+            sampler: Arc::new(llm::samplers::TopPTopK {
+                top_k: self.top_k,
+                top_p: self.top_p,
+                repeat_penalty: self.repeat_penalty,
+                temperature: self.temperature,
+                bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
+                    if self.ignore_eos {
+                        TokenBias::new(vec![(eot, -1.0)])
+                    } else {
+                        TokenBias::default()
+                    }
+                }),
+                repetition_penalty_last_n: self.repeat_last_n,
             }),
-            repetition_penalty_last_n: self.repeat_last_n,
         }
     }
 }
@@ -331,10 +338,47 @@ fn parse_bias(s: &str) -> Result<TokenBias, InvalidTokenBias> {
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelLoad {
+pub struct ModelVocabulary {
+    /// Local path to vocabulary
+    #[arg(long, short = 'v')]
+    pub vocabulary_path: Option<PathBuf>,
+
+    /// Remote HuggingFace repository containing vocabulary
+    #[arg(long, short = 'r')]
+    pub vocabulary_repository: Option<String>,
+}
+impl ModelVocabulary {
+    pub fn to_source(&self) -> Result<VocabularySource> {
+        Ok(match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                bail!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => VocabularySource::Model,
+        })
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelAndVocabulary {
     /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
+
+    #[command(flatten)]
+    pub vocabulary: ModelVocabulary,
+}
+impl ModelAndVocabulary {
+    pub fn to_source(&self) -> Result<VocabularySource> {
+        self.vocabulary.to_source()
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelLoad {
+    #[command(flatten)]
+    pub model_and_vocabulary: ModelAndVocabulary,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -359,10 +403,7 @@ pub struct ModelLoad {
     pub lora_paths: Option<Vec<PathBuf>>,
 }
 impl ModelLoad {
-    pub fn load<M: llm::KnownModel + 'static>(
-        &self,
-        overrides: Option<M::Overrides>,
-    ) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
@@ -377,10 +418,20 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
+        let vocabulary_source = match self.model_and_vocabulary.to_source() {
+            Ok(vs) => vs,
+            Err(err) => {
+                if let Some(sp) = sp.take() {
+                    sp.fail(&format!("Failed to load vocabulary: {}", err));
+                }
+                return Err(err);
+            }
+        };
+
         let model = llm::load::<M>(
-            &self.model_path,
+            &self.model_and_vocabulary.model_path,
+            vocabulary_source,
             params,
-            overrides,
             |progress| match progress {
                 LoadProgress::HyperparametersLoaded => {
                     if let Some(sp) = sp.as_mut() {
@@ -491,6 +542,9 @@ pub struct Quantize {
     /// The path to save the quantized model to
     #[arg()]
     pub destination: PathBuf,
+
+    #[command(flatten)]
+    pub vocabulary: ModelVocabulary,
 
     /// The GGML container type to target.
     ///

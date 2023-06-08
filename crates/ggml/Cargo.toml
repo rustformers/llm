@@ -1,6 +1,6 @@
 [package]
 name = "ggml"
-version = "0.1.1"
+version = "0.2.0-dev"
 repository = { workspace = true }
 edition = "2021"
 description = "Semi-idiomatic Rust bindings for the ggml library (from `ggml-sys`)."
@@ -8,7 +8,7 @@ license = "MIT"
 
 [dependencies]
 thiserror = { workspace = true }
-ggml-sys = { path = "sys", version = "0.1.1" }
+ggml-sys = { path = "sys", version = "0.2.0-dev" }
 
 [dev-dependencies]
 rand = { workspace = true }

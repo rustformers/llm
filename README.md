@@ -151,20 +151,27 @@ Hugging Face 🤗).
 
 Once the `llm` executable has been built or is in a `$PATH` directory, try
 running it. Here's an example that uses the open-source
-[GPT4All](https://gpt4all.io/models/ggml-gpt4all-j-v1.3-groovy.bin) language
-model:
+[RedPajama](https://huggingface.co/rustformers/redpajama-ggml/blob/main/RedPajama-INCITE-Base-3B-v1-q4_0.bin)
+language model:
 
 ```shell
-llm llama infer -m ggml-gpt4all-j-v1.3-groovy.bin -p "Rust is a cool programming language because"
+llm gptneox infer -m RedPajama-INCITE-Base-3B-v1-q4_0.bin -p "Rust is a cool programming language because" -r togethercomputer/RedPajama-INCITE-Base-3B-v1
 ```
 
+In the example above, the first two arguments specify the model architecture and
+command, respectively. The required `-m` argument specifies the local path to
+the model, and the required `-p` argument specifies the evaluation prompt. The
+optional `-r` argument is used to load the model's vocabulary from a remote
+Hugging Face 🤗 repository, which will typically improve results when compared
+to loading the vocabulary from the model file itself; there is also an optional
+`-v` argument that can be used to specify the path to a local vocabulary file.
 For more information about the `llm` CLI, use the `--help` parameter.
 
 There is also a [simple inference example](./crates/llm/examples/inference.rs)
 that is helpful for [debugging](./.vscode/launch.json):
 
 ```shell
-cargo run --release --example inference llama ggml-gpt4all-j-v1.3-groovy.bin $OPTIONAL_PROMPT
+cargo run --release --example inference gptneox RedPajama-INCITE-Base-3B-v1-q4_0.bin -r $OPTIONAL_VOCAB_REPO -p $OPTIONAL_PROMPT
 ```
 
 ## Q&A

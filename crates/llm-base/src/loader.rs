@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    error::Error,
     fmt::{Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
@@ -7,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
-    Vocabulary,
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters,
+    ModelVocabulary, TokenId, Vocabulary, VocabularyLoadError, VocabularySource,
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -280,12 +281,29 @@ pub enum LoadError {
         /// The paths that were found.
         paths: Vec<PathBuf>,
     },
+    /// The vocab file for the tokenizer could not be loaded.
+    #[error("could not load vocabulary file {path:?}")]
+    VocabularyLoadError {
+        /// The invalid vocabulary path
+        path: PathBuf,
+
+        /// The error that occurred.
+        error: Box<dyn Error + Send + Sync>,
+    },
 }
 impl From<util::FindAllModelFilesError> for LoadError {
     fn from(value: util::FindAllModelFilesError) -> Self {
         match value {
             util::FindAllModelFilesError::NoParentPath { path } => LoadError::NoParentPath { path },
             util::FindAllModelFilesError::IO(err) => LoadError::Io(err),
+        }
+    }
+}
+impl From<VocabularyLoadError> for LoadError {
+    fn from(value: VocabularyLoadError) -> Self {
+        LoadError::VocabularyLoadError {
+            path: value.path,
+            error: value.error,
         }
     }
 }
@@ -343,8 +361,8 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
+    vocabulary_source: VocabularySource,
     params: ModelParameters,
-    overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
     if !path.exists() {
@@ -364,7 +382,8 @@ pub fn load<M: KnownModel>(
     })?;
     let mut reader = BufReader::new(&file);
 
-    let mut loader = Loader::new(load_progress_callback);
+    let vocabulary = vocabulary_source.retrieve(path)?;
+    let mut loader = Loader::new(vocabulary, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
@@ -422,7 +441,8 @@ pub fn load<M: KnownModel>(
                 let mut lora_reader = BufReader::new(&lora_file);
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-                let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
+                let mut lora_loader: Loader<LoraParameters, _> =
+                    Loader::new(ModelVocabulary::default().into(), |_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
@@ -471,7 +491,7 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, overrides, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,
@@ -486,25 +506,27 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
     // Input
     load_progress_callback: F,
 
+    // Input/Output
+    /// The vocabulary of the model.
+    pub vocabulary: Vocabulary,
+
     // Output
     /// The container type of the model.
     pub container_type: ContainerType,
     /// The hyperparameters of the model.
     pub hyperparameters: Hp,
-    /// The vocabulary of the model.
-    pub vocabulary: Vocabulary,
     /// The tensors of the model.
     pub tensors: HashMap<String, TensorLoadInfo>,
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
-    pub fn new(load_progress_callback: F) -> Self {
+    pub fn new(vocabulary: Vocabulary, load_progress_callback: F) -> Self {
         Self {
             load_progress_callback,
 
             container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
-            vocabulary: Vocabulary::default(),
+            vocabulary,
             tensors: HashMap::default(),
         }
     }
@@ -518,11 +540,14 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
     }
 
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
-        let id = match TokenId::try_from(i) {
-            Ok(id) => id,
-            Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
-        };
-        self.vocabulary.push_token(id, token, score);
+        if let Vocabulary::Model(mv) = &mut self.vocabulary {
+            let id = match TokenId::try_from(i) {
+                Ok(id) => id,
+                Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
+            };
+
+            mv.push_token(id, token, score);
+        }
 
         Ok(())
     }

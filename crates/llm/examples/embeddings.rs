@@ -1,42 +1,60 @@
-use std::path::Path;
+use std::path::PathBuf;
+
+use clap::Parser;
+
+#[derive(Parser)]
+struct Args {
+    model_architecture: llm::ModelArchitecture,
+    model_path: PathBuf,
+    #[arg(long, short = 'v')]
+    pub vocabulary_path: Option<PathBuf>,
+    #[arg(long, short = 'r')]
+    pub vocabulary_repository: Option<String>,
+    #[arg(long, short = 'q')]
+    pub query: Option<String>,
+    #[arg(long, short = 'c')]
+    pub comparands: Vec<String>,
+}
+impl Args {
+    pub fn to_vocabulary_source(&self) -> llm::VocabularySource {
+        match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                panic!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => llm::VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => llm::VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => llm::VocabularySource::Model,
+        }
+    }
+}
 
 fn main() {
-    // Get arguments from command line
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
-    if raw_args.len() < 2 {
-        println!("Usage: cargo run --release --example embeddings <model_architecture> <model_path> [query] [comma-separated comparands] [overrides, json]");
-        std::process::exit(1);
-    }
+    let args = Args::parse();
 
-    let model_architecture: llm::ModelArchitecture = raw_args[0].parse().unwrap();
-    let model_path = Path::new(&raw_args[1]);
-    let query = raw_args
-        .get(2)
-        .map(|s| s.as_str())
+    let vocabulary_source = args.to_vocabulary_source();
+    let model_architecture = args.model_architecture;
+    let model_path = args.model_path;
+    let query = args
+        .query
+        .as_deref()
         .unwrap_or("My favourite animal is the dog");
-    let comparands = raw_args
-        .get(3)
-        .map(|s| s.split(',').map(|s| s.trim()).collect::<Vec<_>>())
-        .unwrap_or_else(|| {
-            vec![
-                "My favourite animal is the dog",
-                "I have just adopted a cute dog",
-                "My favourite animal is the cat",
-            ]
-        });
-    let overrides = raw_args.get(4).map(|s| serde_json::from_str(s).unwrap());
+    let comparands = if !args.comparands.is_empty() {
+        args.comparands
+    } else {
+        vec![
+            "My favourite animal is the dog".to_string(),
+            "I have just adopted a cute dog".to_string(),
+            "My favourite animal is the cat".to_string(),
+        ]
+    };
 
     // Load model
-    let model_params = llm::ModelParameters {
-        prefer_mmap: true,
-        context_size: 4096,
-        lora_adapters: None,
-    };
+    let model_params = llm::ModelParameters::default();
     let model = llm::load_dynamic(
         model_architecture,
-        model_path,
+        &model_path,
+        vocabulary_source,
         model_params,
-        overrides,
         llm::load_progress_callback_stdout,
     )
     .unwrap_or_else(|err| {
@@ -48,9 +66,9 @@ fn main() {
     let query_embeddings = get_embeddings(model.as_ref(), &inference_parameters, query);
     let comparand_embeddings: Vec<(String, Vec<f32>)> = comparands
         .iter()
-        .map(|&text| {
+        .map(|text| {
             (
-                text.to_owned(),
+                text.clone(),
                 get_embeddings(model.as_ref(), &inference_parameters, text),
             )
         })
@@ -75,7 +93,7 @@ fn main() {
         .map(|(text, embeddings)| {
             (
                 text.as_str(),
-                cosine_similarity(&query_embeddings, &embeddings),
+                cosine_similarity(&query_embeddings, embeddings),
             )
         })
         .collect();
@@ -102,12 +120,12 @@ fn get_embeddings(
     let vocab = model.vocabulary();
     let beginning_of_sentence = true;
     let query_token_ids = vocab
-        .tokenize(&format!(" {}", query), beginning_of_sentence)
+        .tokenize(&format!("{}", query), beginning_of_sentence)
         .unwrap()
         .iter()
         .map(|(_, tok)| *tok)
         .collect::<Vec<_>>();
-    let _ = model.evaluate(
+    model.evaluate(
         &mut session,
         inference_parameters,
         &query_token_ids,
@@ -117,9 +135,9 @@ fn get_embeddings(
 }
 
 fn cosine_similarity(v1: &[f32], v2: &[f32]) -> f32 {
-    let dot_product = dot(&v1, &v2);
-    let magnitude1 = magnitude(&v1);
-    let magnitude2 = magnitude(&v2);
+    let dot_product = dot(v1, v2);
+    let magnitude1 = magnitude(v1);
+    let magnitude2 = magnitude(v2);
 
     dot_product / (magnitude1 * magnitude2)
 }
