@@ -1881,3 +1881,7 @@ fn bindgen_test_layout_quantize_fns_t() {
 extern "C" {
     pub fn ggml_internal_get_quantize_fn(i: usize) -> quantize_fns_t;
 }
+#[cfg(feature = "cublas")]
+include!("lib_cuda.rs");
+#[cfg(feature = "clblast")]
+include!("lib_opencl.rs");
