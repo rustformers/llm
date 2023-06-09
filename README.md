@@ -52,6 +52,10 @@ Currently, the following models are supported:
   [Wizard](https://github.com/nlpxucan/WizardLM))
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
+Unofficial third-party language bindings:
+
+- [Python](https://github.com/LLukas22/llm-rs-python)
+
 ## Using `llm` in a Rust Project
 
 This project depends on Rust v1.65.0 or above and a modern C toolchain.
