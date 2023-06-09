@@ -8,9 +8,7 @@ fn main() {
 
     let mut builder = cc::Build::new();
 
-    let build = builder
-        .files(["ggml/src/ggml.c"])
-        .includes(["ggml/include/ggml"]);
+    let build = builder.files(["llama-cpp/ggml.c"]).includes(["llama-cpp"]);
 
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
