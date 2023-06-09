@@ -119,9 +119,16 @@ fn enable_cublas(build: &mut cc::Build) {
         let targets_include = concat!(env!("CUDA_PATH"), r"\include");
         let targets_lib = concat!(env!("CUDA_PATH"), r"\lib\x64");
 
-        std::process::Command::new("nvcc") 
+        std::process::Command::new("nvcc")
             .arg("-ccbin")
-            .arg(cc::Build::new().get_compiler().path().parent().unwrap().join("cl.exe"))
+            .arg(
+                cc::Build::new()
+                    .get_compiler()
+                    .path()
+                    .parent()
+                    .unwrap()
+                    .join("cl.exe"),
+            )
             .arg("-I")
             .arg(targets_include)
             .arg("-o")

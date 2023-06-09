@@ -2,11 +2,10 @@
 //!
 //! Assumed to be run from the root of the workspace.
 
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 
 fn main() {
-
     let bindings = bindgen::Builder::default()
         .header("crates/ggml/sys/ggml/include/ggml/ggml.h")
         // Suppress some warnings
@@ -20,27 +19,24 @@ fn main() {
         .expect("Unable to generate bindings");
 
     let cuda_bindings = bindgen::Builder::default()
-            .header("crates/ggml/sys/ggml/src/ggml-cuda.h")
-            .allowlist_file("crates/ggml/sys/ggml/src/ggml-cuda.h")
-            .allowlist_recursively(false)
-            .clang_arg("-I")
-            .clang_arg("crates/ggml/sys/ggml/include/ggml")
-            .generate()
-            .expect("Unable to generate cuda bindings");
+        .header("crates/ggml/sys/ggml/src/ggml-cuda.h")
+        .allowlist_file("crates/ggml/sys/ggml/src/ggml-cuda.h")
+        .allowlist_recursively(false)
+        .clang_arg("-I")
+        .clang_arg("crates/ggml/sys/ggml/include/ggml")
+        .generate()
+        .expect("Unable to generate cuda bindings");
 
     let opencl_bindings = bindgen::Builder::default()
-            .header("crates/ggml/sys/ggml/src/ggml-opencl.h")
-            .allowlist_file("crates/ggml/sys/ggml/src/ggml-opencl.h")
-            .allowlist_recursively(false)
-            .clang_arg("-I")
-            .clang_arg("crates/ggml/sys/ggml/include/ggml")
-            .generate()
-            .expect("Unable to generate opencl bindings");
+        .header("crates/ggml/sys/ggml/src/ggml-opencl.h")
+        .allowlist_file("crates/ggml/sys/ggml/src/ggml-opencl.h")
+        .allowlist_recursively(false)
+        .clang_arg("-I")
+        .clang_arg("crates/ggml/sys/ggml/include/ggml")
+        .generate()
+        .expect("Unable to generate opencl bindings");
 
-    let out_dir = PathBuf::from("crates")
-        .join("ggml")
-        .join("sys")
-        .join("src");
+    let out_dir = PathBuf::from("crates").join("ggml").join("sys").join("src");
 
     cuda_bindings
         .write_to_file(out_dir.join("lib_cuda.rs"))
@@ -62,10 +58,9 @@ fn main() {
 
     writeln!(file, "#[cfg(feature = \"cublas\")]").expect("Couldn't write to bindings file");
     writeln!(file, "include!(\"lib_cuda.rs\");").expect("Couldn't write to bindings file");
-    
+
     writeln!(file, "#[cfg(feature = \"clblast\")]").expect("Couldn't write to bindings file");
     writeln!(file, "include!(\"lib_opencl.rs\");").expect("Couldn't write to bindings file");
-
 
     println!("Successfully updated bindings");
 }
