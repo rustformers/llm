@@ -216,8 +216,8 @@ cargo run --release $MODEL_ARCHITECTURE quantize $MODEL_IN $MODEL_OUT {q4_0,q4_1
 
 ### Do you provide support for Docker and NixOS?
 
-The `llm` [Dockerfile](./utils/Dockerfile) is in the `utils` directory, as is a
-[NixOS flake](./utils/flake) manifest and lockfile.
+The `llm` [Dockerfile](./utils/Dockerfile) is in the `utils` directory; the
+[NixOS flake](./flake.nix) manifest and lockfile are in the project root.
 
 ### What's the best way to get in touch with the `llm` community?
 
