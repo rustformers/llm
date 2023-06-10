@@ -21,7 +21,9 @@ fn main() {
         enable_cublas(build);
     } else if cfg!(feature = "clblast") {
         enable_clblast(build);
-    } else if cfg!(feature = "metal") && cfg!(macos) {
+    } else if cfg!(feature = "metal")
+    /*&& cfg!(macos)*/
+    {
         enable_metal(build);
     }
 
@@ -79,6 +81,7 @@ fn main() {
         _ => {}
     }
 
+    /*
     #[allow(clippy::single_match)]
     match target_os.as_str() {
         "macos" => {
@@ -87,6 +90,7 @@ fn main() {
         }
         _ => {}
     }
+    */
 
     if is_release {
         build.define("NDEBUG", None);
@@ -128,6 +132,7 @@ fn enable_metal(build: &mut cc::Build) {
 
     build.file("llama-cpp/ggml-metal.m");
     build.flag("-DGGML_USE_METAL");
+    build.flag("-DGGML_METAL_NDEBUG");
 }
 
 fn enable_cublas(build: &mut cc::Build) {
