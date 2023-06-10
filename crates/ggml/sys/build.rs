@@ -4,7 +4,7 @@ use std::env;
 // the host and target are the same. If they are not, it will turn off auto-feature-detection,
 // and you will need to manually specify target features through target-features.
 fn main() {
-    println!("cargo:rerun-if-changed=ggml");
+    println!("cargo:rerun-if-changed=llama-cpp");
 
     let mut builder = cc::Build::new();
 
@@ -17,11 +17,11 @@ fn main() {
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();
 
-    #[cfg(feature = "cublas")]
-    enable_cublas(build);
-
-    #[cfg(feature = "clblast")]
-    enable_clblast(build);
+    if cfg!(feature = "cublas") && !cfg!(macos) {
+        enable_cublas(build);
+    } else if cfg!(feature = "clblast") {
+        enable_clblast(build);
+    }
 
     match target_arch.as_str() {
         "x86" | "x86_64" => {
@@ -93,20 +93,18 @@ fn main() {
     build.compile("ggml");
 }
 
-#[cfg(feature = "clblast")]
 fn enable_clblast(build: &mut cc::Build) {
     println!("cargo:rustc-link-lib=clblast");
     println!("cargo:rustc-link-lib=OpenCL");
     println!("cargo:rustc-link-lib=openblas");
 
-    build.file("ggml/src/ggml-opencl.c");
+    build.file("llama-cpp/ggml-opencl.cpp");
     build.flag("-DGGML_USE_CLBLAST");
 }
 
-#[cfg(feature = "cublas")]
 fn enable_cublas(build: &mut cc::Build) {
     let out_dir = env::var("OUT_DIR").unwrap();
-    let object_file = format!(r"{}\ggml\src\ggml-cuda.o", &out_dir);
+    let object_file = format!(r"{}\llama-cpp\ggml-cuda.o", &out_dir);
 
     let path = std::path::Path::new(&object_file);
     let parent_dir = path.parent().unwrap();
@@ -145,8 +143,8 @@ fn enable_cublas(build: &mut cc::Build) {
             .arg("-D_CRT_SECURE_NO_WARNINGS")
             .arg("-D_MBCS")
             .arg("-DWIN32")
-            .arg(r"-Iggml\include\ggml")
-            .arg(r"ggml\src\ggml-cuda.cu")
+            .arg(r"-Illama-cpp\include\ggml")
+            .arg(r"llama-cpp\ggml-cuda.cu")
             .status()
             .unwrap();
 
@@ -167,7 +165,7 @@ fn enable_cublas(build: &mut cc::Build) {
             .arg("-O3")
             .arg("-std=c++11")
             .arg("-fPIC")
-            .arg("-Iggml/include/ggml")
+            .arg("-Illama-cpp/include/ggml")
             .arg("-mtune=native")
             .arg("-pthread")
             .arg("-DGGML_USE_CUBLAS")
@@ -176,7 +174,7 @@ fn enable_cublas(build: &mut cc::Build) {
             .arg("-I")
             .arg(targets_include)
             .arg("-c")
-            .arg("ggml/src/ggml-cuda.cu")
+            .arg("llama-cpp/ggml-cuda.cu")
             .arg("-o")
             .arg(&object_file)
             .status()
