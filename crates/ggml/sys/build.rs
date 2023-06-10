@@ -17,14 +17,19 @@ fn main() {
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();
 
+    // Enable acccelerators
     if cfg!(feature = "cublas") && !cfg!(macos) {
         enable_cublas(build);
     } else if cfg!(feature = "clblast") {
         enable_clblast(build);
-    } else if cfg!(feature = "metal")
-    /*&& cfg!(macos)*/
-    {
-        enable_metal(build);
+    } else if cfg!(macos) {
+        if cfg!(feature = "metal") {
+            enable_metal(build);
+        } else {
+            println!("cargo:rustc-link-lib=framework=Accelerate");
+
+            build.define("GGML_USE_ACCELERATE", None);
+        }
     }
 
     match target_arch.as_str() {
@@ -81,20 +86,10 @@ fn main() {
         _ => {}
     }
 
-    /*
-    #[allow(clippy::single_match)]
-    match target_os.as_str() {
-        "macos" => {
-            build.define("GGML_USE_ACCELERATE", None);
-            println!("cargo:rustc-link-lib=framework=Accelerate");
-        }
-        _ => {}
-    }
-    */
-
     if is_release {
         build.define("NDEBUG", None);
     }
+
     build.warnings(false);
     build.compile("ggml");
 }
