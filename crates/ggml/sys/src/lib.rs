@@ -665,7 +665,7 @@ fn bindgen_test_layout_ggml_init_params() {
 pub const ggml_task_type_GGML_TASK_INIT: ggml_task_type = 0;
 pub const ggml_task_type_GGML_TASK_COMPUTE: ggml_task_type = 1;
 pub const ggml_task_type_GGML_TASK_FINALIZE: ggml_task_type = 2;
-pub type ggml_task_type = ::std::os::raw::c_int;
+pub type ggml_task_type = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_compute_params {
@@ -1449,12 +1449,12 @@ extern "C" {
 }
 pub const ggml_opt_type_GGML_OPT_ADAM: ggml_opt_type = 0;
 pub const ggml_opt_type_GGML_OPT_LBFGS: ggml_opt_type = 1;
-pub type ggml_opt_type = ::std::os::raw::c_int;
+pub type ggml_opt_type = ::std::os::raw::c_uint;
 pub const ggml_linesearch_GGML_LINESEARCH_DEFAULT: ggml_linesearch = 1;
 pub const ggml_linesearch_GGML_LINESEARCH_BACKTRACKING_ARMIJO: ggml_linesearch = 0;
 pub const ggml_linesearch_GGML_LINESEARCH_BACKTRACKING_WOLFE: ggml_linesearch = 1;
 pub const ggml_linesearch_GGML_LINESEARCH_BACKTRACKING_STRONG_WOLFE: ggml_linesearch = 2;
-pub type ggml_linesearch = ::std::os::raw::c_int;
+pub type ggml_linesearch = ::std::os::raw::c_uint;
 pub const ggml_opt_result_GGML_OPT_OK: ggml_opt_result = 0;
 pub const ggml_opt_result_GGML_OPT_DID_NOT_CONVERGE: ggml_opt_result = 1;
 pub const ggml_opt_result_GGML_OPT_NO_CONTEXT: ggml_opt_result = 2;
@@ -2022,3 +2022,5 @@ extern "C" {
 include!("lib_cuda.rs");
 #[cfg(feature = "clblast")]
 include!("lib_opencl.rs");
+#[cfg(feature = "metal")]
+pub mod lib_metal;

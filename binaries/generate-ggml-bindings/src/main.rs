@@ -7,6 +7,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn main() {
+    let sys_path = PathBuf::from("crates").join("ggml").join("sys");
+    let ggml_path = sys_path.join("llama-cpp");
+    let include_path = ggml_path.to_str().unwrap().to_string();
+
     let bindings = bindgen::Builder::default()
         .header("crates/ggml/sys/llama-cpp/ggml.h")
         // Suppress some warnings
@@ -19,25 +23,41 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings");
 
+    let cuda_header = ggml_path.join("ggml-cuda.h").to_str().unwrap().to_string();
     let cuda_bindings = bindgen::Builder::default()
-        .header("crates/ggml/sys/ggml/src/ggml-cuda.h")
-        .allowlist_file("crates/ggml/sys/ggml/src/ggml-cuda.h")
+        .header(&cuda_header)
+        .allowlist_file(&cuda_header)
         .allowlist_recursively(false)
         .clang_arg("-I")
-        .clang_arg("crates/ggml/sys/ggml/include/ggml")
+        .clang_arg(&include_path)
         .generate()
         .expect("Unable to generate cuda bindings");
 
+    let opencl_header = ggml_path
+        .join("ggml-opencl.h")
+        .to_str()
+        .unwrap()
+        .to_string();
     let opencl_bindings = bindgen::Builder::default()
-        .header("crates/ggml/sys/ggml/src/ggml-opencl.h")
-        .allowlist_file("crates/ggml/sys/ggml/src/ggml-opencl.h")
+        .header(&opencl_header)
+        .allowlist_file(&opencl_header)
         .allowlist_recursively(false)
         .clang_arg("-I")
-        .clang_arg("crates/ggml/sys/ggml/include/ggml")
+        .clang_arg(&include_path)
         .generate()
         .expect("Unable to generate opencl bindings");
 
-    let out_dir = PathBuf::from("crates").join("ggml").join("sys").join("src");
+    let metal_header = ggml_path.join("ggml-metal.h").to_str().unwrap().to_string();
+    let metal_bindings = bindgen::Builder::default()
+        .header(&metal_header)
+        .allowlist_file(&metal_header)
+        .allowlist_recursively(false)
+        .clang_arg("-I")
+        .clang_arg(&include_path)
+        .generate()
+        .expect("Unable to generate metal bindings");
+
+    let out_dir = sys_path.join("src");
 
     cuda_bindings
         .write_to_file(out_dir.join("lib_cuda.rs"))
@@ -46,6 +66,10 @@ fn main() {
     opencl_bindings
         .write_to_file(out_dir.join("lib_opencl.rs"))
         .expect("Couldn't write opencl bindings");
+
+    metal_bindings
+        .write_to_file(out_dir.join("lib_metal.rs"))
+        .expect("Couldn't write metal bindings");
 
     bindings
         .write_to_file(out_dir.join("lib.rs"))
@@ -90,6 +114,9 @@ fn main() {
 
     writeln!(file, "#[cfg(feature = \"clblast\")]").expect("Couldn't write to bindings file");
     writeln!(file, "include!(\"lib_opencl.rs\");").expect("Couldn't write to bindings file");
+
+    writeln!(file, "#[cfg(feature = \"metal\")]").expect("Couldn't write to bindings file");
+    writeln!(file, "pub mod lib_metal;").expect("Couldn't write to bindings file");
 
     println!("Successfully updated bindings");
 }

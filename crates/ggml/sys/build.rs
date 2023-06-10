@@ -21,6 +21,8 @@ fn main() {
         enable_cublas(build);
     } else if cfg!(feature = "clblast") {
         enable_clblast(build);
+    } else if cfg!(feature = "metal") && cfg!(macos) {
+        enable_metal(build);
     }
 
     match target_arch.as_str() {
@@ -96,10 +98,19 @@ fn main() {
 fn enable_clblast(build: &mut cc::Build) {
     println!("cargo:rustc-link-lib=clblast");
     println!("cargo:rustc-link-lib=OpenCL");
-    println!("cargo:rustc-link-lib=openblas");
 
     build.file("llama-cpp/ggml-opencl.cpp");
     build.flag("-DGGML_USE_CLBLAST");
+}
+
+fn enable_metal(build: &mut cc::Build) {
+    println!("cargo:rustc-link-lib=framework=Foundation");
+    println!("cargo:rustc-link-lib=framework=Metal");
+    println!("cargo:rustc-link-lib=framework=MetalKit");
+    println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
+
+    build.file("llama-cpp/ggml-metal.m");
+    build.flag("-DGGML_USE_METAL");
 }
 
 fn enable_cublas(build: &mut cc::Build) {

@@ -31,3 +31,4 @@ zstd = { version = "0.12", default-features = false }
 [features]
 cublas = ["llm/cublas"]
 clblast = ["llm/clblast"]
+metal = ["llm/metal"]

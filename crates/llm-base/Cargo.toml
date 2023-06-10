@@ -28,3 +28,4 @@ regex = "1.8"
 [features]
 cublas = ["ggml/cublas"]
 clblast = ["ggml/clblast"]
+metal = ["ggml/metal"]

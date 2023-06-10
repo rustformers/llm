@@ -12,3 +12,4 @@ cc = "^1.0"
 [features]
 cublas = []
 clblast = []
+metal = []

@@ -17,3 +17,4 @@ anyhow = { workspace = true }
 [features]
 cublas = ["ggml-sys/cublas"]
 clblast = ["ggml-sys/clblast"]
+metal = ["ggml-sys/metal"]

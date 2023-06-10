@@ -4,6 +4,9 @@ extern "C" {
     pub fn ggml_cl_init();
 }
 extern "C" {
+    pub fn ggml_cl_mul(src0: *const ggml_tensor, src1: *const ggml_tensor, dst: *mut ggml_tensor);
+}
+extern "C" {
     pub fn ggml_cl_can_mul_mat(
         src0: *const ggml_tensor,
         src1: *const ggml_tensor,
@@ -33,5 +36,15 @@ extern "C" {
     pub fn ggml_cl_host_free(ptr: *mut ::std::os::raw::c_void);
 }
 extern "C" {
+    pub fn ggml_cl_free_data(tensor: *const ggml_tensor);
+}
+extern "C" {
     pub fn ggml_cl_transform_tensor(tensor: *mut ggml_tensor);
+}
+extern "C" {
+    pub fn ggml_cl_load_data(
+        fname: *const ::std::os::raw::c_char,
+        tensor: *mut ggml_tensor,
+        offset: usize,
+    );
 }
