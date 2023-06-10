@@ -101,6 +101,23 @@ fn enable_clblast(build: &mut cc::Build) {
 
     build.file("llama-cpp/ggml-opencl.cpp");
     build.flag("-DGGML_USE_CLBLAST");
+
+    if cfg!(windows) {
+        let Ok(clblast_path) = env::var("CLBLAST_PATH") else {
+            panic!("CLBLAST_PATH is not defined");
+        };
+
+        let Ok(opencl_path) = env::var("OPENCL_PATH") else {
+            panic!("CLBLAST_PATH is not defined");
+        };
+
+        println!(r"cargo:rustc-link-search=native={clblast_path}\lib");
+        println!(r"cargo:rustc-link-search=native={opencl_path}\lib");
+
+        build.flag(&format!(r"-I{clblast_path}\include\"));
+        build.flag(&format!(r"-I{opencl_path}\include\"));
+        build.flag("/MT");
+    }
 }
 
 fn enable_metal(build: &mut cc::Build) {
@@ -114,8 +131,15 @@ fn enable_metal(build: &mut cc::Build) {
 }
 
 fn enable_cublas(build: &mut cc::Build) {
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let object_file = format!(r"{}\llama-cpp\ggml-cuda.o", &out_dir);
+    let Ok(cuda_path) = env::var("CUDA_PATH") else {
+        panic!("CUDA_PATH is not defined");
+    };
+
+    let Ok(out_dir) = env::var("OUT_DIR") else {
+        panic!("CUDA_PATH is not defined");
+    };
+
+    let object_file = format!(r"{out_dir}\llama-cpp\ggml-cuda.o");
 
     let path = std::path::Path::new(&object_file);
     let parent_dir = path.parent().unwrap();
@@ -123,8 +147,8 @@ fn enable_cublas(build: &mut cc::Build) {
     std::fs::create_dir_all(parent_dir).unwrap();
 
     if cfg!(windows) {
-        let targets_include = concat!(env!("CUDA_PATH"), r"\include");
-        let targets_lib = concat!(env!("CUDA_PATH"), r"\lib\x64");
+        let targets_include = format!(r"{cuda_path}\include");
+        let targets_lib = format!(r"{cuda_path}\lib\x64");
 
         std::process::Command::new("nvcc")
             .arg("-ccbin")
@@ -137,7 +161,7 @@ fn enable_cublas(build: &mut cc::Build) {
                     .join("cl.exe"),
             )
             .arg("-I")
-            .arg(targets_include)
+            .arg(&targets_include)
             .arg("-o")
             .arg(&object_file)
             .arg("-x")
@@ -166,10 +190,10 @@ fn enable_cublas(build: &mut cc::Build) {
 
         build.object(object_file);
         build.flag("-DGGML_USE_CUBLAS");
-        build.include(targets_include);
+        build.include(&targets_include);
     } else {
-        let targets_include = concat!(env!("CUDA_PATH"), "/targets/x86_64-linux/include");
-        let targets_lib = concat!(env!("CUDA_PATH"), "/targets/x86_64-linux/lib");
+        let targets_include = format!("{cuda_path}/targets/x86_64-linux/include");
+        let targets_lib = format!("{cuda_path}/targets/x86_64-linux/lib");
 
         std::process::Command::new("nvcc")
             .arg("--forward-unknown-to-host-compiler")
@@ -183,7 +207,7 @@ fn enable_cublas(build: &mut cc::Build) {
             .arg("-I/usr/local/cuda/include")
             .arg("-I/opt/cuda/include")
             .arg("-I")
-            .arg(targets_include)
+            .arg(&targets_include)
             .arg("-c")
             .arg("llama-cpp/ggml-cuda.cu")
             .arg("-o")
