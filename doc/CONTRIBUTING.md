@@ -32,24 +32,26 @@ cargo run --release --package generate-ggml-bindings
 
 Here's a more polished version of the documentation section:
 
-## Acceleration Support for Building 
+## Acceleration Support for Building
 
-The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time.
+The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored. On MacOS clblast is prioritized over metal.
 
-| Platform/OS | `cublas` | `clblast` | `metal` |
-|-------------|----------------|-----------------|---------------|
-| Windows     | :heavy_check_mark: | :heavy_check_mark: | :x: |
-| Linux       | :heavy_check_mark: | :heavy_check_mark: | :x: |
-| MacOS       | :x: | :heavy_check_mark: | :heavy_check_mark: |
+| Platform/OS | `cublas`           | `clblast`          | `metal`            |
+| ----------- | ------------------ | ------------------ | ------------------ |
+| Windows     | :heavy_check_mark: | :heavy_check_mark: | :x:                |
+| Linux       | :heavy_check_mark: | :heavy_check_mark: | :x:                |
+| MacOS       | :x:                | :heavy_check_mark: | :heavy_check_mark: |
 
 ## Dependencies for Building with Acceleration Support
 
 ### Windows
 
 #### CuBLAS
+
 CUDA must be installed. You can download CUDA from the official [Nvidia site](https://developer.nvidia.com/cuda-downloads).
 
 #### CLBlast
+
 CLBlast can be installed via [vcpkg](https://vcpkg.io/en/getting-started.html) using the command `vcpkg install clblast`. After installation, the `OPENCL_PATH` and `CLBLAST_PATH` environment variables should be set to the `opencl_x64-windows` and `clblast_x64-windows` directories respectively.
 
 Here's an example of the required commands:
@@ -62,20 +64,26 @@ set OPENCL_PATH=....\vcpkg\packages\opencl_x64-windows
 set CLBLAST_PATH=....\vcpkg\packages\clblast_x64-windows
 ```
 
+llm needs clblast.dll & OpenCL.dll to run. They are in the subdirectory bin of the corresponding vcpkg packages. The dlls need to be copied to target/release or target/debug depending the profile used at compile time.
+
 ### Linux
 
 #### CuBLAS
-You need to have CUDA installed on your system. CUDA can be downloaded and installed from the official [Nvidia site](https://developer.nvidia.com/cuda-downloads).
+
+You need to have CUDA installed on your system. CUDA can be downloaded and installed from the official [Nvidia site](https://developer.nvidia.com/cuda-downloads). On Linux distributions that do not have CUDA_PATH set, the environment variables CUDA_INCLUDE_PATH and CUDA_LIB_PATH can be set to their corresponding paths.
 
 #### CLBlast
-CLBlast can be installed on Linux through various package managers. For example, using `apt` you can install it via `sudo apt install clblast`. After installation, make sure that the `OPENCL_PATH` and `CLBLAST_PATH` environment variables are correctly set.
+
+CLBlast can be installed on Linux through various package managers. For example, using `apt` you can install it via `sudo apt install clblast`. After installation, make sure that the `OPENCL_PATH` and `CLBLAST_PATH` environment variables are correctly set. Additionally the environment variables OPENCL_INCLUDE_PATH/OPENCL_LIB_PATH & CBLAST_INCLUDE_PATH/CLBLAST_LIB_PATH can be used to specify the location of the files. All environment variables are supported by all listed operating systems.
 
 ### MacOS
 
 #### Metal
+
 Xcode and the associated command-line tools should be installed on your system, and you should be running a version of MacOS that supports Metal. For more detailed information, please consult the [official Metal documentation](https://developer.apple.com/metal/).
 
 #### CLBlast
+
 CLBlast can be installed on MacOS using Homebrew with the command `brew install clblast`. Ensure the `OPENCL_PATH` and `CLBLAST_PATH` environment variables are correctly set post-installation.
 
 ## Debugging
