@@ -184,7 +184,6 @@ fn cuda_lib_path() -> String {
         } else {
             cuda_path.join("targets").join("lib")
         }
-        .join("include")
     } else if let Ok(cuda_lib_path) = env::var("CUDA_LIB_PATH") {
         PathBuf::from(cuda_lib_path)
     } else {
