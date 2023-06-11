@@ -4,6 +4,12 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(unused)]
+#[cfg(feature = "cublas")]
+pub mod cuda;
+#[cfg(feature = "clblast")]
+pub mod opencl;
+#[cfg(feature = "metal")]
+pub mod metal;
 
 pub const GGML_FILE_MAGIC: u32 = 1734831468;
 pub const GGML_FILE_VERSION: u32 = 1;
@@ -2018,9 +2024,3 @@ fn bindgen_test_layout_quantize_fns_t() {
 extern "C" {
     pub fn ggml_internal_get_quantize_fn(i: usize) -> quantize_fns_t;
 }
-#[cfg(feature = "cublas")]
-pub mod cuda;
-#[cfg(feature = "clblast")]
-pub mod opencl;
-#[cfg(feature = "metal")]
-pub mod metal;
