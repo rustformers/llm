@@ -18,13 +18,13 @@ fn main() {
     let is_release = env::var("PROFILE").unwrap() == "release";
     let compiler = build.get_compiler();
 
-    // Enable acccelerators
-    if cfg!(feature = "cublas") && !cfg!(macos) {
+    // Enable accelerators
+    if cfg_cublas() && !cfg!(macos) {
         enable_cublas(build);
-    } else if cfg!(feature = "clblast") {
+    } else if cfg_clblast() {
         enable_clblast(build);
     } else if cfg!(macos) {
-        if cfg!(feature = "metal") {
+        if cfg_metal() {
             enable_metal(build);
         } else {
             println!("cargo:rustc-link-lib=framework=Accelerate");
@@ -92,7 +92,34 @@ fn main() {
     }
 
     build.warnings(false);
-    build.compile("ggml");
+
+    if let Err(error) = build.try_compile("ggml") {
+        eprintln!("{} {error}", get_error_message());
+
+        std::process::exit(1);
+    }
+}
+
+fn cfg_cublas() -> bool {
+    cfg!(feature = "cublas")
+}
+
+fn cfg_clblast() -> bool {
+    cfg!(feature = "clblast")
+}
+
+fn cfg_metal() -> bool {
+    cfg!(feature = "metal")
+}
+
+fn get_error_message() -> String {
+    if cfg_cublas() {
+        "Please make sure nvcc is executable and the paths are defined using CUDA_PATH, CUDA_INCLUDE_PATH and/or CUDA_LIB_PATH"
+    }else if cfg_clblast() {
+        "Please make sure the paths are defined using CLBLAST_PATH, CLBLAST_INCLUDE_PATH, CLBLAST_LIB_PATH, OPENCL_PATH, OPENCL_INCLUDE_PATH, and/or OPENCL_LIB_PATH"
+    } else {
+        "Please read the llm documentation"
+    }.to_string()
 }
 
 fn include_path(prefix: &str) -> String {
@@ -211,7 +238,6 @@ fn enable_cublas(build: &mut cc::Build) {
 
     let include_path = cuda_include_path();
     let lib_path = cuda_lib_path();
-    let nvcc_error = "Please make sure nvcc is executable and the paths are defined using CUDA_PATH, CUDA_INCLUDE_PATH or CUDA_LIB_PATH";
 
     if cfg!(windows) {
         std::process::Command::new("nvcc")
@@ -245,7 +271,7 @@ fn enable_cublas(build: &mut cc::Build) {
             .arg(r"-Illama-cpp\include\ggml")
             .arg(r"llama-cpp\ggml-cuda.cu")
             .status()
-            .expect(nvcc_error);
+            .unwrap_or_else(|_| panic!("{}", get_error_message()));
 
         println!("cargo:rustc-link-search=native={}", lib_path);
         println!("cargo:rustc-link-lib=cublas");
@@ -274,7 +300,7 @@ fn enable_cublas(build: &mut cc::Build) {
             .arg("-o")
             .arg(&object_file)
             .status()
-            .expect(nvcc_error);
+            .unwrap_or_else(|_| panic!("{}", get_error_message()));
 
         println!("cargo:rustc-link-search=native={}", lib_path);
         println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
