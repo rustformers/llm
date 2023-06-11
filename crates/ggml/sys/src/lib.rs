@@ -2019,8 +2019,8 @@ extern "C" {
     pub fn ggml_internal_get_quantize_fn(i: usize) -> quantize_fns_t;
 }
 #[cfg(feature = "cublas")]
-include!("lib_cuda.rs");
+pub mod cuda;
 #[cfg(feature = "clblast")]
-include!("lib_opencl.rs");
+pub mod opencl;
 #[cfg(feature = "metal")]
-pub mod lib_metal;
+pub mod metal;

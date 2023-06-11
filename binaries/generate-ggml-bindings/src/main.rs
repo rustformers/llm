@@ -30,6 +30,8 @@ fn main() {
         .allowlist_recursively(false)
         .clang_arg("-I")
         .clang_arg(&include_path)
+        .raw_line("use super::ggml_tensor;")
+        .raw_line("use super::ggml_compute_params;")
         .generate()
         .expect("Unable to generate cuda bindings");
 
@@ -44,6 +46,7 @@ fn main() {
         .allowlist_recursively(false)
         .clang_arg("-I")
         .clang_arg(&include_path)
+        .raw_line("use super::ggml_tensor;")
         .generate()
         .expect("Unable to generate opencl bindings");
 
@@ -60,15 +63,15 @@ fn main() {
     let out_dir = sys_path.join("src");
 
     cuda_bindings
-        .write_to_file(out_dir.join("lib_cuda.rs"))
+        .write_to_file(out_dir.join("cuda.rs"))
         .expect("Couldn't write cuda bindings");
 
     opencl_bindings
-        .write_to_file(out_dir.join("lib_opencl.rs"))
+        .write_to_file(out_dir.join("opencl.rs"))
         .expect("Couldn't write opencl bindings");
 
     metal_bindings
-        .write_to_file(out_dir.join("lib_metal.rs"))
+        .write_to_file(out_dir.join("metal.rs"))
         .expect("Couldn't write metal bindings");
 
     bindings
@@ -110,13 +113,13 @@ fn main() {
         .expect("Couldn't open bindings file");
 
     writeln!(file, "#[cfg(feature = \"cublas\")]").expect("Couldn't write to bindings file");
-    writeln!(file, "include!(\"lib_cuda.rs\");").expect("Couldn't write to bindings file");
+    writeln!(file, "pub mod cuda;").expect("Couldn't write to bindings file");
 
     writeln!(file, "#[cfg(feature = \"clblast\")]").expect("Couldn't write to bindings file");
-    writeln!(file, "include!(\"lib_opencl.rs\");").expect("Couldn't write to bindings file");
+    writeln!(file, "pub mod opencl;").expect("Couldn't write to bindings file");
 
     writeln!(file, "#[cfg(feature = \"metal\")]").expect("Couldn't write to bindings file");
-    writeln!(file, "pub mod lib_metal;").expect("Couldn't write to bindings file");
+    writeln!(file, "pub mod metal;").expect("Couldn't write to bindings file");
 
     println!("Successfully updated bindings");
 }
