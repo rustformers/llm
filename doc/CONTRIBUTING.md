@@ -30,8 +30,6 @@ git submodule update --remote
 cargo run --release --package generate-ggml-bindings
 ```
 
-Here's a more polished version of the documentation section:
-
 ## Acceleration Support for Building
 
 The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored. On MacOS clblast is prioritized over metal.
@@ -64,7 +62,14 @@ set OPENCL_PATH=....\vcpkg\packages\opencl_x64-windows
 set CLBLAST_PATH=....\vcpkg\packages\clblast_x64-windows
 ```
 
-llm needs clblast.dll & OpenCL.dll to run. They are in the subdirectory bin of the corresponding vcpkg packages. The dlls need to be copied to target/release or target/debug depending the profile used at compile time.
+For `llm` to function properly, it requires the `clblast.dll` and `OpenCL.dll` files. These files can be found within the `bin` subdirectory of their respective vcpkg packages. There are two options to ensure `llm` can access these files:
+
+1. Amend your `PATH` environment variable to include the `bin` directories of each respective package.
+
+2. Manually copy the `clblast.dll` and `OpenCL.dll` files into the `./target/release` or `./target/debug` directories. The destination directory will depend on the profile that was active during the compilation process.
+
+Please choose the option that best suits your needs and environment configuration.
+
 
 ### Linux
 
