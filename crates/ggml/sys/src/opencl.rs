@@ -41,12 +41,5 @@ extern "C" {
     pub fn ggml_cl_free_data(tensor: *const ggml_tensor);
 }
 extern "C" {
-    pub fn ggml_cl_transform_tensor(tensor: *mut ggml_tensor);
-}
-extern "C" {
-    pub fn ggml_cl_load_data(
-        fname: *const ::std::os::raw::c_char,
-        tensor: *mut ggml_tensor,
-        offset: usize,
-    );
+    pub fn ggml_cl_transform_tensor(data: *mut ::std::os::raw::c_void, tensor: *mut ggml_tensor);
 }

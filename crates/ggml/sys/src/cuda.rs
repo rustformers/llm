@@ -74,11 +74,7 @@ extern "C" {
     pub fn ggml_cuda_host_free(ptr: *mut ::std::os::raw::c_void);
 }
 extern "C" {
-    pub fn ggml_cuda_load_data(
-        fname: *const ::std::os::raw::c_char,
-        tensors: *mut ggml_tensor,
-        offset: usize,
-    );
+    pub fn ggml_cuda_transform_tensor(data: *mut ::std::os::raw::c_void, tensor: *mut ggml_tensor);
 }
 extern "C" {
     pub fn ggml_cuda_free_data(tensor: *mut ggml_tensor);
