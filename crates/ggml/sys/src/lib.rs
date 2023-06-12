@@ -6,10 +6,10 @@
 #![allow(unused)]
 #[cfg(feature = "cublas")]
 pub mod cuda;
-#[cfg(feature = "clblast")]
-pub mod opencl;
 #[cfg(feature = "metal")]
 pub mod metal;
+#[cfg(feature = "clblast")]
+pub mod opencl;
 
 pub const GGML_FILE_MAGIC: u32 = 1734831468;
 pub const GGML_FILE_VERSION: u32 = 1;
