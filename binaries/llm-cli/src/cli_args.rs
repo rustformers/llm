@@ -137,6 +137,10 @@ pub struct Perplexity {
 
     #[command(flatten)]
     pub prompt: Prompt,
+
+    /// Whether to use GPU acceleration when available
+    #[arg(long, default_value_t = false)]
+    pub use_gpu: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -163,6 +167,10 @@ pub struct PromptTokens {
 
     #[command(flatten)]
     pub prompt: Prompt,
+
+    /// Whether to use GPU acceleration when available
+    #[arg(long, default_value_t = false)]
+    pub use_gpu: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -192,6 +200,10 @@ pub struct Repl {
 
     #[command(flatten)]
     pub generate: Generate,
+
+    /// Whether to use GPU acceleration when available
+    #[arg(long, default_value_t = false)]
+    pub use_gpu: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -403,21 +415,17 @@ pub struct ModelLoad {
     #[arg(long)]
     pub no_mmap: bool,
 
-    /// Whether to use GPU acceleration when available
-    #[arg(long)]
-    pub use_gpu: bool,
-
     /// LoRA adapter to use for the model
     #[arg(long, num_args(0..))]
     pub lora_paths: Option<Vec<PathBuf>>,
 }
 impl ModelLoad {
-    pub fn load<M: llm::KnownModel + 'static>(&self) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(&self, use_gpu: bool) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
-            use_gpu: self.use_gpu,
+            use_gpu,
         };
 
         let mut sp = Some(spinoff::Spinner::new(

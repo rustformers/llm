@@ -51,7 +51,7 @@ fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Resul
 fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(args.generate.use_gpu)?;
 
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
@@ -119,7 +119,7 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
 fn perplexity<M: llm::KnownModel + 'static>(args: &cli_args::Perplexity) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(args.use_gpu)?;
     let (mut session, _) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
@@ -184,7 +184,7 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 
 fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(args.use_gpu)?;
     let toks = match model.vocabulary().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
@@ -231,7 +231,7 @@ fn interactive<M: llm::KnownModel + 'static>(
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>()?;
+    let model = args.model_load.load::<M>(args.use_gpu)?;
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
