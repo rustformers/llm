@@ -260,7 +260,17 @@ impl KnownModel for Mpt {
 
         // run the computation
         gf.build_forward_expand(&input_layer);
-        ctx0.graph_compute(&mut gf);
+
+        if cfg!(feature = "metal") {
+            if let Some(ref metal_context) = ctx0.metal_context {
+                metal_context.graph_compute(&mut gf);
+                metal_context.get_tensor(&input_layer);
+            } else {
+                ctx0.graph_compute(&mut gf);
+            }
+        } else {
+            ctx0.graph_compute(&mut gf);
+        }
 
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);

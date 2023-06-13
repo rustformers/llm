@@ -20,7 +20,7 @@ pub struct Context {
 
     /// Metal context for optional acceleration through MPS.
     #[cfg(feature = "metal")]
-    metal_context: Option<MetalContext>,
+    pub metal_context: Option<MetalContext>,
 }
 
 impl Context {
