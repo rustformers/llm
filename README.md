@@ -244,6 +244,7 @@ Absolutely! Please see the [contributing guide](./doc/CONTRIBUTING.md).
   messages using `llm`.
 - [local.ai](https://github.com/louisgv/local.ai): Desktop app for hosting an
   inference API on your local machine using `llm`.
+- [secondbrain](https://github.com/juliooa/secondbrain): Desktop app to download and run LLMs locally in your computer using `llm`.
 
 #### Libraries
 
