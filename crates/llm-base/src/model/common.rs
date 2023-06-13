@@ -28,7 +28,7 @@ pub fn prepare_for_evaluate(
         // add 10% to account for ggml object overhead
         buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
     };
-    let ctx0 = ggml::Context::init(buf_size, true);
+    let ctx0 = ggml::Context::init(buf_size, true, session.config.use_gpu);
 
     let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
     unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };

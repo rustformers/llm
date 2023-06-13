@@ -269,6 +269,10 @@ pub struct Generate {
     /// option will override this if specified.
     #[arg(long, default_value_t = false)]
     pub ignore_eos: bool,
+
+    /// Whether to use GPU acceleration when available
+    #[arg(long, default_value_t = false)]
+    pub use_gpu: bool,
 }
 impl Generate {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -301,6 +305,7 @@ impl Generate {
         InferenceSessionConfig {
             memory_k_type: mem_typ,
             memory_v_type: mem_typ,
+            use_gpu: self.use_gpu,
         }
     }
 
@@ -398,6 +403,10 @@ pub struct ModelLoad {
     #[arg(long)]
     pub no_mmap: bool,
 
+    /// Whether to use GPU acceleration when available
+    #[arg(long)]
+    pub use_gpu: bool,
+
     /// LoRA adapter to use for the model
     #[arg(long, num_args(0..))]
     pub lora_paths: Option<Vec<PathBuf>>,
@@ -408,6 +417,7 @@ impl ModelLoad {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
+            use_gpu: self.use_gpu,
         };
 
         let mut sp = Some(spinoff::Spinner::new(

@@ -6,6 +6,9 @@ use std::{
 
 use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
 
+#[cfg(feature = "metal")]
+use crate::metal::MetalContext;
+
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
 pub struct Context {
@@ -14,11 +17,15 @@ pub struct Context {
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
     ptr: Arc<NonNull<sys::ggml_context>>,
+
+    /// Metal context for optional acceleration through MPS.
+    #[cfg(feature = "metal")]
+    metal_context: Option<MetalContext>,
 }
 
 impl Context {
     /// Creates a new [Context] with the specified `mem_size` as a working area.
-    pub fn init(mem_size: usize, alloc: bool) -> Self {
+    pub fn init(mem_size: usize, alloc: bool, gpu_acceleration: bool) -> Self {
         let raw = unsafe {
             sys::ggml_init(sys::ggml_init_params {
                 mem_size,
@@ -30,6 +37,15 @@ impl Context {
         };
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            metal_context: if gpu_acceleration {
+                if cfg!(feature = "metal") {
+                    Some(MetalContext::new())
+                } else {
+                    None
+                }
+            } else {
+                None
+            },
         }
     }
 

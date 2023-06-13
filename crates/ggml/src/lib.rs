@@ -23,6 +23,9 @@ pub(crate) use ggml_sys as sys;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "metal")]
+pub mod metal;
+
 /// The type of a tensor element.
 pub type ElementType = Type;
 

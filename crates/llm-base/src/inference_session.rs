@@ -411,7 +411,7 @@ impl InferenceSession {
             ctx_size
         };
 
-        let session_ctx = ggml::Context::init(ctx_size, true);
+        let session_ctx = ggml::Context::init(ctx_size, true, config.use_gpu);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -436,7 +436,7 @@ impl InferenceSession {
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let context = ggml::Context::init(self.memory_size, true);
+        let context = ggml::Context::init(self.memory_size, true, self.config.use_gpu);
         let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 
@@ -560,14 +560,19 @@ pub struct InferenceSnapshot {
 pub struct InferenceSessionConfig {
     /// The type of the memory K tensor.
     pub memory_k_type: ModelKVMemoryType,
+
     /// The type of the memory V tensor.
     pub memory_v_type: ModelKVMemoryType,
+
+    /// Whether to use GPU acceleration
+    pub use_gpu: bool,
 }
 impl Default for InferenceSessionConfig {
     fn default() -> Self {
         Self {
             memory_k_type: ModelKVMemoryType::Float16,
             memory_v_type: ModelKVMemoryType::Float16,
+            use_gpu: false,
         }
     }
 }
