@@ -92,7 +92,7 @@ impl KnownModel for Mpt {
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
-        )
+        )        
     }
 
     fn evaluate(
@@ -117,6 +117,13 @@ impl KnownModel for Mpt {
         } = self.hyperparameters;
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+
+
+        //ctx0 is the context used for the computation graph => its memory footprint is the `eval` buffer
+        //We probably should move this to the session
+        let metal_context = self._context.metal_context.as_ref().unwrap();
+        metal_context.initialize_buffers( &self._context,&ctx0,&mut session.memory_k, &mut session.memory_v, &mut session.scratch);
+
 
         let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
 

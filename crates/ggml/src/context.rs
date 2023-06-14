@@ -16,7 +16,7 @@ pub struct Context {
     /// allocated tensors. Tensors are owned by the object, so a [`Tensor`]
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
-    ptr: Arc<NonNull<sys::ggml_context>>,
+    pub ptr: Arc<NonNull<sys::ggml_context>>,
 
     /// Metal context for optional acceleration through MPS.
     #[cfg(feature = "metal")]
