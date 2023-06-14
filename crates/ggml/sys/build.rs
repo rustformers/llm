@@ -19,11 +19,11 @@ fn main() {
     let compiler = build.get_compiler();
 
     // Enable accelerators
-    if cfg_cublas() && !cfg!(macos) {
+    if cfg_cublas() && !cfg!(target_os = "macos") {
         enable_cublas(build);
     } else if cfg_clblast() {
         enable_clblast(build);
-    } else if cfg!(macos) {
+    } else if cfg!(target_os = "macos") {
         if cfg_metal() {
             enable_metal(build);
         } else {
