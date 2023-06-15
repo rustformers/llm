@@ -1,10 +1,13 @@
 use std::{
+    alloc::Layout,
     os::raw::{c_int, c_void},
     ptr::NonNull,
     sync::Arc,
 };
 
 use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
+
+const ALIGN_OWNED_TENSORS_TO_PAGE_SIZE: usize = 16384;
 
 #[cfg(feature = "metal")]
 use crate::metal::MetalContext;
@@ -17,6 +20,9 @@ pub struct Context {
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
     pub ptr: Arc<NonNull<sys::ggml_context>>,
+
+    /// Memory allocated and owned by this context
+    pub owned_memory: Vec<(*mut u8, Layout)>,
 
     /// Metal context for optional acceleration through MPS.
     #[cfg(feature = "metal")]
@@ -39,14 +45,25 @@ impl Context {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             metal_context: if gpu_acceleration {
                 if cfg!(feature = "metal") {
-                    Some(MetalContext::new())
+                    Some(MetalContext::default())
                 } else {
                     None
                 }
             } else {
                 None
             },
+            owned_memory: vec![],
         }
+    }
+
+    /// Allocates aligned memory associated with this context (meaning it will be deallocated when the context is dropped)
+    pub fn alloc_owned_aligned(&mut self, size: usize) -> *mut u8 {
+        let size_bytes =
+            (size & (!ALIGN_OWNED_TENSORS_TO_PAGE_SIZE)) + ALIGN_OWNED_TENSORS_TO_PAGE_SIZE;
+        let layout = Layout::from_size_align(size_bytes, ALIGN_OWNED_TENSORS_TO_PAGE_SIZE).unwrap();
+        let ptr = unsafe { std::alloc::alloc(layout).cast() };
+        self.owned_memory.push((ptr, layout));
+        ptr
     }
 
     /// Wraps a raw tensor with a weak pointer to the context.
@@ -452,6 +469,9 @@ impl Drop for Context {
         // this drop call.
         unsafe {
             sys::ggml_free(self.ptr.as_ptr());
+            for (ptr, layout) in self.owned_memory.drain(..) {
+                std::alloc::dealloc(ptr, layout);
+            }
         }
     }
 }

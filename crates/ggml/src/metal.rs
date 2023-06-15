@@ -8,9 +8,8 @@ pub struct MetalContext {
     ptr: Arc<NonNull<metal::ggml_metal_context>>,
 }
 
-impl MetalContext {
-    /// Creates a new [MetalContext]
-    pub fn new() -> Self {
+impl Default for MetalContext {
+    fn default() -> Self {
         let raw = unsafe { metal::ggml_metal_init() };
 
         MetalContext {
@@ -81,7 +80,6 @@ impl MetalContext {
 
 impl Drop for MetalContext {
     fn drop(&mut self) {
-        panic!();
         // SAFETY: The only non-weak copy of ptr is no longer accessible after
         // this drop call.
         unsafe { metal::ggml_metal_free(self.ptr.as_ptr()) }

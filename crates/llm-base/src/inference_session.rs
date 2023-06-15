@@ -411,13 +411,18 @@ impl InferenceSession {
             ctx_size
         };
 
-        let session_ctx = ggml::Context::init(ctx_size, true, config.use_gpu);
+        let mut session_ctx = ggml::Context::init(ctx_size, false, config.use_gpu);
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
+        let mut memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
+        let mut memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
+
+        unsafe {
+            memory_k.set_data(session_ctx.alloc_owned_aligned(memory_k.nbytes()).cast());
+            memory_v.set_data(session_ctx.alloc_owned_aligned(memory_v.nbytes()).cast());
+        }
 
         InferenceSession {
             _session_ctx: session_ctx,
@@ -436,9 +441,15 @@ impl InferenceSession {
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let context = ggml::Context::init(self.memory_size, true, self.config.use_gpu);
-        let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
-        let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
+        let mut context = ggml::Context::init(self.memory_size, false, self.config.use_gpu);
+        let mut memory_k =
+            context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
+        let mut memory_v =
+            context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
+        unsafe {
+            memory_k.set_data(context.alloc_owned_aligned(memory_k.nbytes()).cast());
+            memory_v.set_data(context.alloc_owned_aligned(memory_v.nbytes()).cast());
+        }
 
         Self {
             _session_ctx: context,

@@ -101,11 +101,11 @@ fn main() {
 }
 
 fn cfg_cublas() -> bool {
-    cfg!(feature = "cublas")
+    !cfg!(target_os = "macos") && cfg!(feature = "cublas")
 }
 
 fn cfg_clblast() -> bool {
-    cfg!(feature = "clblast")
+    !cfg!(target_os = "macos") && cfg!(feature = "clblast")
 }
 
 fn cfg_metal() -> bool {
