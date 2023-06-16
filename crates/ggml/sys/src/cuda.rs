@@ -83,10 +83,16 @@ extern "C" {
     pub fn ggml_cuda_assign_buffers(tensor: *mut ggml_tensor);
 }
 extern "C" {
+    pub fn ggml_cuda_assign_buffers_no_scratch(tensor: *mut ggml_tensor);
+}
+extern "C" {
     pub fn ggml_cuda_set_main_device(main_device: ::std::os::raw::c_int);
 }
 extern "C" {
     pub fn ggml_cuda_set_scratch_size(scratch_size: usize);
+}
+extern "C" {
+    pub fn ggml_cuda_free_scratch();
 }
 extern "C" {
     pub fn ggml_cuda_compute_forward(
