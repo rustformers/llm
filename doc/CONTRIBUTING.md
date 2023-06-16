@@ -70,6 +70,12 @@ For `llm` to function properly, it requires the `clblast.dll` and `OpenCL.dll` f
 
 Please choose the option that best suits your needs and environment configuration.
 
+⚠️Caution:
+
+In certain instances, setting the `-Ctarget-feature=+crt-static` Rust flag may be essential. This flag facilitates the static linking of the C runtime, which could be crucial for specific deployment scenarios or environments. 
+
+For a comprehensive understanding of how to effectively set this flag, kindly refer to this detailed [StackOverflow discussion](https://stackoverflow.com/questions/38040327/how-to-pass-rustc-flags-to-cargo). Carefully evaluate the presented options and select the one that aligns best with your project requirements and environment.
+
 
 ### Linux
 
