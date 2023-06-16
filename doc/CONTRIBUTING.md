@@ -38,7 +38,7 @@ The `ggml-sys` crate includes various acceleration backends, selectable via `--f
 | ----------- | ------------------ | ------------------ | ------------------ |
 | Windows     | :heavy_check_mark: | :heavy_check_mark: | :x:                |
 | Linux       | :heavy_check_mark: | :heavy_check_mark: | :x:                |
-| MacOS       | :x:                | :heavy_check_mark: | :heavy_check_mark: |
+| MacOS       | :x:                | :x:                | :heavy_check_mark: |
 
 ## Dependencies for Building with Acceleration Support
 
@@ -86,10 +86,6 @@ CLBlast can be installed on Linux through various package managers. For example,
 #### Metal
 
 Xcode and the associated command-line tools should be installed on your system, and you should be running a version of MacOS that supports Metal. For more detailed information, please consult the [official Metal documentation](https://developer.apple.com/metal/).
-
-#### CLBlast
-
-CLBlast can be installed on MacOS using Homebrew with the command `brew install clblast`. Ensure the `OPENCL_PATH` and `CLBLAST_PATH` environment variables are correctly set post-installation.
 
 ## Debugging
 
