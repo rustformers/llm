@@ -115,7 +115,6 @@ impl KnownModel for Falcon {
         let ctx_size = self.context_size;
 
         let Hyperparameters {
-            n_ctx,
             n_embd,
             n_head,
             n_vocab,
@@ -124,12 +123,12 @@ impl KnownModel for Falcon {
         } = self.hyperparameters;
 
         let head_dim = n_embd / n_head;
-        let N = input_len;
+        let n = input_len;
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
-        let mut repeat_dummy = ctx0.new_tensor_3d(
+        let repeat_dummy = ctx0.new_tensor_3d(
             input_layer.get_type(),
             head_dim,
             input_len + session_len,
@@ -154,7 +153,7 @@ impl KnownModel for Falcon {
             ctx0.use_scratch(Some(&mut session.scratch[0]));
 
             // self-attention
-            let mut current = ctx0.op_norm(&input_layer);
+            current = ctx0.op_norm(&input_layer);
             current = ctx0.op_add(
                 &ctx0.op_mul(
                     &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
@@ -172,40 +171,40 @@ impl KnownModel for Falcon {
 
             let mut qcur = ctx0.op_view_3d(
                 &current,
-                (head_dim, n_head, N),
+                (head_dim, n_head, n),
                 (head_dim * f32_size, fused_qkv_row_nb),
                 0,
             );
 
             let mut kcur = ctx0.op_view_3d(
                 &current,
-                (head_dim, 1, N),
+                (head_dim, 1, n),
                 (head_dim * f32_size, fused_qkv_row_nb),
                 n_embd * f32_size,
             );
 
             let vcur = ctx0.op_view_3d(
                 &current,
-                (head_dim, 1, N),
+                (head_dim, 1, n),
                 (head_dim * f32_size, fused_qkv_row_nb),
                 (n_embd + head_dim) * f32_size,
             );
 
             // using mode = 2 for neox mode
             qcur = ctx0.op_rope_inplace(&qcur, session_len, head_dim, 2);
-            kcur = ctx0.op_rope_inplace(&qcur, session_len, head_dim, 2);
+            kcur = ctx0.op_rope_inplace(&kcur, session_len, head_dim, 2);
 
             // store key and value to memory
 
             let k = ctx0.op_view_1d(
                 &memory_k,
-                N * head_dim,
-                (memory_k_size * head_dim) * (il * n_ctx + session_len),
+                n * head_dim,
+                (memory_k_size * head_dim) * (il * ctx_size + session_len),
             );
             let v = ctx0.op_view_1d(
                 &memory_v,
-                N * head_dim,
-                (memory_k_size * head_dim) * (il * n_ctx + session_len),
+                n * head_dim,
+                (memory_k_size * head_dim) * (il * ctx_size + session_len),
             );
 
             gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
@@ -218,12 +217,12 @@ impl KnownModel for Falcon {
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         &memory_k,
-                        (session_len + N) * head_dim,
-                        il * n_ctx * memory_k_size * head_dim,
+                        (session_len + n) * head_dim,
+                        il * ctx_size * memory_k_size * head_dim,
                     ),
                     head_dim,
                     1,
-                    session_len + N,
+                    session_len + n,
                 ),
                 (0, 2, 1, 3),
             );
@@ -245,12 +244,12 @@ impl KnownModel for Falcon {
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
                         &memory_v,
-                        (session_len + N) * head_dim,
-                        il * n_ctx * memory_v_size * head_dim,
+                        (session_len + n) * head_dim,
+                        il * ctx_size * memory_v_size * head_dim,
                     ),
                     head_dim,
                     1,
-                    session_len + N,
+                    session_len + n,
                 ),
                 (0, 2, 1, 3),
             );
@@ -264,7 +263,7 @@ impl KnownModel for Falcon {
             // cur = KQV_merged.contiguous().view(n_embd, N)
             current = ctx0.op_cpy(
                 &big_kqv_merged,
-                &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, N),
+                &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n),
             );
 
             // projection
@@ -273,10 +272,10 @@ impl KnownModel for Falcon {
             // feed forward uses second scratch buffer
             ctx0.use_scratch(Some(&mut session.scratch[1]));
 
-            let inpFF = layernorm_output.share();
-            let attn_out = ctx0.op_cpy(&current, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, N));
+            let inp_ff = layernorm_output.share();
+            let attn_out = ctx0.op_cpy(&current, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
 
-            current = ctx0.op_mul_mat(&self.layers[il].ffn_up, &inpFF);
+            current = ctx0.op_mul_mat(&self.layers[il].ffn_up, &inp_ff);
             current = ctx0.op_gelu(&current);
             current = ctx0.op_mul_mat(&self.layers[il].ffn_down, &current);
 
