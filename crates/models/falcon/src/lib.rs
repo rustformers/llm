@@ -115,6 +115,7 @@ impl KnownModel for Falcon {
         let ctx_size = self.context_size;
 
         let Hyperparameters {
+            n_ctx,
             n_embd,
             n_head,
             n_vocab,
@@ -122,9 +123,18 @@ impl KnownModel for Falcon {
             ..
         } = self.hyperparameters;
 
+        let head_dim = n_embd / n_head;
+        let N = input_len;
+
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
         let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
+        let mut repeat_dummy = ctx0.new_tensor_3d(
+            input_layer.get_type(),
+            head_dim,
+            input_len + session_len,
+            n_head,
+        );
 
         let f32_size = std::mem::size_of::<f32>();
 
@@ -135,144 +145,176 @@ impl KnownModel for Falcon {
         let memory_v_size = memory_v.element_size();
 
         let mut gf = ggml::ComputationGraph::new(num_threads);
-        // for il in 0..n_layer {
-        //     // attention uses first scratch buffer
-        //     ctx0.use_scratch(Some(&mut session.scratch[0]));
 
-        //     let mut current = ctx0.op_norm(&input_layer);
-        //     current = ctx0.op_mul(
-        //         &ctx0.op_repeat(&self.layers[il].norm_1_weight, &current),
-        //         &current,
-        //     );
+        let mut current: Tensor;
+        let mut layernorm_output: Tensor;
 
-        //     current = ctx0.op_mul_mat(&self.layers[il].c_attn_wqkv_weight, &current);
+        for il in 0..n_layer {
+            // attention uses first scratch buffer
+            ctx0.use_scratch(Some(&mut session.scratch[0]));
 
-        //     let nb = current.get_nb()[1];
-        //     let qcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, 0);
-        //     let kcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, f32_size * n_embd);
-        //     let vcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, f32_size * n_embd * 2);
+            // self-attention
+            let mut current = ctx0.op_norm(&input_layer);
+            current = ctx0.op_add(
+                &ctx0.op_mul(
+                    &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
+                    &current,
+                ),
+                &ctx0.op_repeat(&self.layers[il].attention_norm_b, &current),
+            );
 
-        //     let k = ctx0.op_view_1d(
-        //         memory_k,
-        //         input_len * n_embd,
-        //         (memory_k_size * n_embd) * (il * ctx_size + session_len),
-        //     );
-        //     let v = ctx0.op_view_1d(
-        //         memory_v,
-        //         input_len * n_embd,
-        //         (memory_v_size * n_embd) * (il * ctx_size + session_len),
-        //     );
+            layernorm_output = current.share();
 
-        //     gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
-        //     gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
+            // compute QKV
+            current = ctx0.op_mul_mat(&self.layers[il].query_key_value, &current);
 
-        //     let q = ctx0.op_permute(
-        //         &ctx0.op_cpy(
-        //             &qcur,
-        //             &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
-        //         ),
-        //         (0, 2, 1, 3),
-        //     );
+            let fused_qkv_row_nb = (n_embd + 2 * (n_embd / n_head)) * f32_size;
 
-        //     let bigk = ctx0.op_permute(
-        //         &ctx0.op_reshape_3d(
-        //             &ctx0.op_view_1d(
-        //                 memory_k,
-        //                 (session_len + input_len) * n_embd,
-        //                 il * ctx_size * memory_k_size * n_embd,
-        //             ),
-        //             n_embd / n_head,
-        //             n_head,
-        //             session_len + input_len,
-        //         ),
-        //         (0, 2, 1, 3),
-        //     );
+            let mut qcur = ctx0.op_view_3d(
+                &current,
+                (head_dim, n_head, N),
+                (head_dim * f32_size, fused_qkv_row_nb),
+                0,
+            );
 
-        //     let kq = ctx0.op_mul_mat(&bigk, &q);
-        //     let kq_scaled = ctx0.op_scale(
-        //         &kq,
-        //         &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
-        //     );
-        //     let kq_scaled_alibi = ctx0.op_alibi(&kq_scaled, session_len, n_head, alibi_bias_max);
-        //     let kq_masked = ctx0.op_diag_mask_inf(&kq_scaled_alibi, session_len);
-        //     let kq_softmax = ctx0.op_soft_max(&kq_masked);
+            let mut kcur = ctx0.op_view_3d(
+                &current,
+                (head_dim, 1, N),
+                (head_dim * f32_size, fused_qkv_row_nb),
+                n_embd * f32_size,
+            );
 
-        //     let v_trans = ctx0.op_cpy(
-        //         &ctx0.op_permute(
-        //             &ctx0.op_reshape_3d(
-        //                 &ctx0.op_view_1d(
-        //                     &session.memory_v,
-        //                     (session_len + input_len) * n_embd,
-        //                     il * ctx_size * memory_v_size * n_embd,
-        //                 ),
-        //                 n_embd / n_head,
-        //                 n_head,
-        //                 session_len + input_len,
-        //             ),
-        //             (1, 2, 0, 3),
-        //         ),
-        //         &ctx0.new_tensor_3d(
-        //             session.memory_v.get_type(),
-        //             session_len + input_len,
-        //             n_embd / n_head,
-        //             n_head,
-        //         ),
-        //     );
+            let vcur = ctx0.op_view_3d(
+                &current,
+                (head_dim, 1, N),
+                (head_dim * f32_size, fused_qkv_row_nb),
+                (n_embd + head_dim) * f32_size,
+            );
 
-        //     let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
-        //     let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
+            // using mode = 2 for neox mode
+            qcur = ctx0.op_rope_inplace(&qcur, session_len, head_dim, 2);
+            kcur = ctx0.op_rope_inplace(&qcur, session_len, head_dim, 2);
 
-        //     current = ctx0.op_cpy(
-        //         &kqv_merged,
-        //         &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
-        //     );
-        //     // projection
-        //     current = ctx0.op_mul_mat(&self.layers[il].c_attn_out_proj_weight, &current);
+            // store key and value to memory
 
-        //     input_layer = ctx0.op_add(&input_layer, &current);
+            let k = ctx0.op_view_1d(
+                &memory_k,
+                N * head_dim,
+                (memory_k_size * head_dim) * (il * n_ctx + session_len),
+            );
+            let v = ctx0.op_view_1d(
+                &memory_v,
+                N * head_dim,
+                (memory_k_size * head_dim) * (il * n_ctx + session_len),
+            );
 
-        //     // feed forward uses second scratch buffer
-        //     ctx0.use_scratch(Some(&mut session.scratch[1]));
+            gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
+            gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
 
-        //     current = ctx0.op_norm(&input_layer);
-        //     current = ctx0.op_mul(
-        //         &ctx0.op_repeat(&self.layers[il].norm_2_weight, &current),
-        //         &current,
-        //     );
+            // Q = Qcur.contiguous().view(n_embd/n_head, n_head, N).permute(0, 2, 1, 3)
+            let bigq = ctx0.op_permute(&qcur, (0, 2, 1, 3));
 
-        //     current = ctx0.op_mul_mat(&self.layers[il].ffn_up_proj, &current);
+            let mut bigk = ctx0.op_permute(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_view_1d(
+                        &memory_k,
+                        (session_len + N) * head_dim,
+                        il * n_ctx * memory_k_size * head_dim,
+                    ),
+                    head_dim,
+                    1,
+                    session_len + N,
+                ),
+                (0, 2, 1, 3),
+            );
+            // K * Q
+            bigk = ctx0.op_cont(&ctx0.op_repeat(&bigk, &repeat_dummy));
+            let big_kq = ctx0.op_mul(&bigk, &bigq);
 
-        //     current = ctx0.op_gelu(&current);
+            // KQ_scaled = KQ / sqrt(n_embd/n_head)
+            let big_kq_scaled = ctx0.op_scale_inplace(
+                &big_kq,
+                &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
+            );
 
-        //     // projection
-        //     current = ctx0.op_mul_mat(&self.layers[il].ffn_down_proj, &current);
+            let big_kq_masked = ctx0.op_diag_mask_inf_inplace(&big_kq_scaled, session_len);
 
-        //     input_layer = ctx0.op_add(&input_layer, &current);
-        // }
+            let big_kq_softmax = ctx0.op_soft_max_inplace(&big_kq_masked);
 
-        // //use scratch buffer 0 for the rest
-        // ctx0.use_scratch(Some(&mut session.scratch[0]));
+            let mut bigv = ctx0.op_permute(
+                &ctx0.op_reshape_3d(
+                    &ctx0.op_view_1d(
+                        &memory_v,
+                        (session_len + N) * head_dim,
+                        il * n_ctx * memory_v_size * head_dim,
+                    ),
+                    head_dim,
+                    1,
+                    session_len + N,
+                ),
+                (0, 2, 1, 3),
+            );
+            bigv = ctx0.op_cont(&ctx0.op_transpose(&ctx0.op_repeat(&bigv, &repeat_dummy)));
 
-        // // norm
-        // input_layer = ctx0.op_norm(&input_layer);
-        // input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+            // KQV = transpose(V) * KQ_soft_max
+            let big_kqv = ctx0.op_mul_mat(&bigv, &big_kq_softmax);
+            // KQV_merged = KQV.permute(0, 2, 1, 3)
+            let big_kqv_merged = ctx0.op_permute(&big_kqv, (0, 2, 1, 3));
 
-        // let embeddings_tensor: ggml::Tensor = input_layer.share();
+            // cur = KQV_merged.contiguous().view(n_embd, N)
+            current = ctx0.op_cpy(
+                &big_kqv_merged,
+                &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, N),
+            );
 
-        // // disable scratch buffer for last layer
-        // ctx0.use_scratch(None);
-        // // output embedding weight tied to input embedding
-        // input_layer = ctx0.op_mul_mat(&self.wte, &input_layer);
+            // projection
+            current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
-        // // run the computation
-        // gf.build_forward_expand(&input_layer);
-        // ctx0.graph_compute(&mut gf);
+            // feed forward uses second scratch buffer
+            ctx0.use_scratch(Some(&mut session.scratch[1]));
 
-        // // finish evaluation
-        // common::read_last_token(session, &input_layer, n_vocab, input_len);
-        // common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        // common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
-        // common::update_session(session, &ctx0, input_tokens.len(), input_len);
+            let inpFF = layernorm_output.share();
+            let attn_out = ctx0.op_cpy(&current, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, N));
+
+            current = ctx0.op_mul_mat(&self.layers[il].ffn_up, &inpFF);
+            current = ctx0.op_gelu(&current);
+            current = ctx0.op_mul_mat(&self.layers[il].ffn_down, &current);
+
+            current = ctx0.op_add(&current, &attn_out);
+            current = ctx0.op_add(&current, &input_layer);
+
+            input_layer = current.share();
+        }
+
+        ctx0.use_scratch(Some(&mut session.scratch[0]));
+
+        // norm
+        input_layer = ctx0.op_norm(&input_layer);
+
+        input_layer = ctx0.op_add(
+            &ctx0.op_mul(
+                &ctx0.op_repeat(&self.output_norm, &input_layer),
+                &input_layer,
+            ),
+            &ctx0.op_repeat(&self.output_norm_b, &input_layer),
+        );
+
+        let embeddings_tensor: ggml::Tensor = input_layer.share();
+
+        ctx0.use_scratch(None);
+
+        // lm_head
+        input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);
+
+        // run the computation
+        gf.build_forward_expand(&input_layer);
+        ctx0.graph_compute(&mut gf);
+
+        // finish evaluation
+        common::read_last_token(session, &input_layer, n_vocab, input_len);
+        common::extract_logits(output_request, &input_layer, n_vocab, input_len);
+        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
+        common::update_session(session, &ctx0, input_tokens.len(), input_len);
     }
 
     /// Returns the vocabulary used by this model.
