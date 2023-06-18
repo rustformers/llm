@@ -2,6 +2,8 @@
 //! for the `llm` ecosystem.
 #![deny(missing_docs)]
 
+use std::sync::Arc;
+
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
@@ -36,7 +38,7 @@ pub struct Bloom {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    _context: ggml::Context,
+    context: Arc<ggml::Context>,
     _mmap: Option<Mmap>,
 }
 
@@ -88,7 +90,7 @@ impl KnownModel for Bloom {
             layers.push(layer);
         }
 
-        let (_context, _, _mmap) = tl.finish();
+        let (context, _, _mmap) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -103,7 +105,7 @@ impl KnownModel for Bloom {
             output_norm_bias,
             output,
             layers,
-            _context,
+            context: Arc::new(context),
             _mmap,
         })
     }
@@ -139,9 +141,12 @@ impl KnownModel for Bloom {
             file_type: _,
         } = self.hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let evaluation_ctx =
+            common::prepare_for_evaluate_v2(n_layer, session, self.context.clone(), input_tokens);
+        let ctx0 = &evaluation_ctx.ctx0;
+        let embd = &evaluation_ctx.embd;
 
-        let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
+        let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
         // normalize embeddings
         input_layer = ctx0.op_norm(&input_layer);
@@ -357,7 +362,7 @@ impl KnownModel for Bloom {
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
         common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
-        common::update_session(session, &ctx0, input_tokens.len(), input_len);
+        common::update_session(session, ctx0, input_tokens.len(), input_len);
     }
 
     fn vocabulary(&self) -> &Vocabulary {

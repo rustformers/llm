@@ -1,6 +1,8 @@
 //! An implementation of [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
+use std::sync::Arc;
+
 use ggml::Tensor;
 use llm_base::{
     ggml,
@@ -35,7 +37,7 @@ pub struct Gpt2 {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    _context: ggml::Context,
+    context: Arc<ggml::Context>,
     _mmap: Option<Mmap>,
 }
 
@@ -80,7 +82,7 @@ impl KnownModel for Gpt2 {
             layers.push(layer);
         }
 
-        let (_context, _, _mmap) = tl.finish();
+        let (context, _, _mmap) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -94,7 +96,7 @@ impl KnownModel for Gpt2 {
             wte,
             wpe,
             lm_head,
-            _context,
+            context: Arc::new(context),
             _mmap,
         })
     }
@@ -129,7 +131,10 @@ impl KnownModel for Gpt2 {
             ..
         } = self.hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let evaluation_ctx =
+            common::prepare_for_evaluate_v2(n_layer, session, self.context.clone(), input_tokens);
+        let ctx0 = &evaluation_ctx.ctx0;
+        let embd = &evaluation_ctx.embd;
 
         let position_buf: Vec<usize> = (0..input_len).map(|i| session_len + i).collect();
 
@@ -137,7 +142,7 @@ impl KnownModel for Gpt2 {
         unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
 
         let mut input_layer = ctx0.op_add(
-            &ctx0.op_get_rows(&self.wte, &embd),
+            &ctx0.op_get_rows(&self.wte, embd),
             &ctx0.op_get_rows(&self.wpe, &position),
         );
 
@@ -307,7 +312,7 @@ impl KnownModel for Gpt2 {
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
         common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
-        common::update_session(session, &ctx0, input_tokens.len(), input_len);
+        common::update_session(session, ctx0, input_tokens.len(), input_len);
     }
 
     fn vocabulary(&self) -> &Vocabulary {

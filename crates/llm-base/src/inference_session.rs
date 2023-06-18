@@ -18,7 +18,7 @@ use crate::{
 /// to use it from multiple threads.
 pub struct InferenceSession {
     // Must be kept alive for the model
-    pub(crate) _session_ctx: Arc<ggml::Context>,
+    pub(crate) session_ctx: Arc<ggml::Context>,
 
     // Original size of the memory used to create this context.
     pub(crate) memory_size: usize,
@@ -405,16 +405,13 @@ impl InferenceSession {
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let mut memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
-        let mut memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
-
-        unsafe {
-            memory_k.set_data(session_ctx.alloc_owned_aligned(memory_k.nbytes()).cast());
-            memory_v.set_data(session_ctx.alloc_owned_aligned(memory_v.nbytes()).cast());
-        }
+        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
+        ggml::set_name(&memory_k, "memory_k");
+        ggml::set_name(&memory_v, "memory_v");
 
         InferenceSession {
-            _session_ctx: session_ctx,
+            session_ctx,
             memory_size: ctx_size,
             config,
             memory_k,
@@ -430,17 +427,11 @@ impl InferenceSession {
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
         let context = Arc::new(ggml::Context::init(self.memory_size, false));
-        let mut memory_k =
-            context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
-        let mut memory_v =
-            context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
-        unsafe {
-            memory_k.set_data(context.alloc_owned_aligned(memory_k.nbytes()).cast());
-            memory_v.set_data(context.alloc_owned_aligned(memory_v.nbytes()).cast());
-        }
+        let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
+        let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
 
         Self {
-            _session_ctx: context,
+            session_ctx: context,
             memory_size: self.memory_size,
             config: self.config,
             memory_k,

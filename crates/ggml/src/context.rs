@@ -8,8 +8,6 @@ use std::{
 
 use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
 
-const ALIGN_OWNED_TENSORS_TO_PAGE_SIZE: usize = 16384;
-
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
 pub struct Context {
@@ -40,17 +38,6 @@ impl Context {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             owned_memory: Mutex::new(RefCell::new(vec![])),
         }
-    }
-
-    /// Allocates aligned memory associated with this context (meaning it will be deallocated when the context is dropped)
-    pub fn alloc_owned_aligned(&self, size: usize) -> *mut u8 {
-        let size_bytes =
-            (size & (!ALIGN_OWNED_TENSORS_TO_PAGE_SIZE)) + ALIGN_OWNED_TENSORS_TO_PAGE_SIZE;
-        let layout = Layout::from_size_align(size_bytes, ALIGN_OWNED_TENSORS_TO_PAGE_SIZE).unwrap();
-        let ptr = unsafe { std::alloc::alloc(layout).cast() };
-        let om = self.owned_memory.lock().unwrap();
-        om.borrow_mut().push((ptr, layout));
-        ptr
     }
 
     /// Wraps a raw tensor with a weak pointer to the context.

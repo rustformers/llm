@@ -23,6 +23,26 @@ impl MetalContext {
         }
     }
 
+    /// Register a buffer mapping
+    pub fn add_scratch_buffer(&mut self, buf: &Buffer) {
+        unsafe {
+            let raw_metal_context = self.ptr.as_ptr();
+
+            //Last we need to add the scratch buffers to the buffers
+            assert!(
+                metal::ggml_metal_add_buffer(
+                    raw_metal_context,
+                    "scratch\0".as_ptr().cast(), // FIXME: allocate string and insert number in name
+                    buf.data.as_ptr() as *mut core::ffi::c_void,
+                    buf.data.len(),
+                    buf.data.len()
+                ),
+                "{}",
+                format!("Could not add scratch buffer to metal context")
+            );
+        }
+    }
+
     /// Add a context's memory as buffer to this Metal context
     pub fn add_context(&mut self, from_context: Arc<Context>) {
         self.ref_context(from_context.clone());
@@ -55,59 +75,6 @@ impl Default for MetalContext {
 impl MetalContext {
     fn ref_context(&mut self, context: Arc<Context>) {
         self.contexts.push(context);
-    }
-
-    /// Initializes the buffers needed for a metal forward pass.
-    pub fn initialize_buffers(
-        &mut self,
-        context: Arc<Context>,
-        memory_k: &mut Tensor,
-        memory_v: &mut Tensor,
-        scratch: &mut [Buffer],
-    ) {
-        unsafe {
-            let raw_metal_context = self.ptr.as_ptr();
-
-            //This is the `kv` section from the original code, we dont have a joined kv buffer, so we need to add them seperately
-            assert!(
-                metal::ggml_metal_add_buffer(
-                    raw_metal_context,
-                    "k\0".as_ptr().cast(),
-                    memory_k.data(),
-                    memory_k.element_size(),
-                    0
-                ),
-                "Could not add k buffer to metal context"
-            );
-
-            assert!(
-                metal::ggml_metal_add_buffer(
-                    raw_metal_context,
-                    "v\0".as_ptr().cast(),
-                    memory_v.data(),
-                    memory_v.element_size(),
-                    0
-                ),
-                "Could not add v buffer to metal context"
-            );
-
-            //Last we need to add the scratch buffers to the buffers
-            for (i, buf) in scratch.iter().enumerate() {
-                assert!(
-                    metal::ggml_metal_add_buffer(
-                        raw_metal_context,
-                        "scrN\0".as_ptr().cast(), // FIXME: allocate string and insert number in name
-                        buf.data.as_ptr() as *mut core::ffi::c_void,
-                        buf.data.len(),
-                        buf.data.len()
-                    ),
-                    "{}",
-                    format!("Could not add scratch buffer {} to metal context", i)
-                );
-            }
-        }
-
-        self.ref_context(context);
     }
 
     /// Computes the specified graph using Metal.

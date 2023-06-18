@@ -79,7 +79,7 @@ pub fn prepare_for_evaluate_v2(
 ) -> EvaluationContext {
     let (ctx0, embd) = prepare_for_evaluate(n_layer, session, input_tokens);
 
-    let mut scratch = scratch_buffers();
+    let scratch = scratch_buffers();
 
     #[cfg(feature = "metal")]
     {
@@ -87,15 +87,13 @@ pub fn prepare_for_evaluate_v2(
         // See https://github.com/ggerganov/llama.cpp/blob/e1886cf4fe0d0f31661dda52a4a9f34bd9b9009a/llama.cpp#L1692
         let metal_context = if session.config.use_gpu && input_tokens.len() == 1 {
             let mut metal_context = MetalContext::new();
-            metal_context.initialize_buffers(
-                session._session_ctx.clone(),
-                &mut session.memory_k,
-                &mut session.memory_v,
-                &mut scratch,
-            );
+
+            for buf in scratch.iter() {
+                metal_context.add_scratch_buffer(buf);
+            }
 
             metal_context.add_context(ctx0.clone());
-            metal_context.add_context(session._session_ctx.clone());
+            metal_context.add_context(session.session_ctx.clone());
             metal_context.add_context(model_context);
 
             Some(metal_context)
@@ -121,7 +119,7 @@ pub fn prepare_for_evaluate_v2(
 }
 
 /// Common code to prepare a model to evaluate input
-pub fn prepare_for_evaluate(
+fn prepare_for_evaluate(
     n_layer: usize,
     session: &mut InferenceSession,
     input_tokens: &[TokenId],
