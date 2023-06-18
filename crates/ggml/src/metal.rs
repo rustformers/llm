@@ -65,20 +65,6 @@ impl MetalContext {
         unsafe {
             let raw_metal_context = self.ptr.as_ptr();
 
-            //TODO check if this works with mmap
-            let raw_context = context.ptr.as_ptr();
-            let data_ptr = ggml_sys::ggml_get_mem_buffer(raw_context);
-            let data_size = ggml_sys::ggml_get_mem_size(raw_context);
-            assert!(
-                metal::ggml_metal_add_buffer(
-                    raw_metal_context,
-                    "data\0".as_ptr().cast(),
-                    data_ptr,
-                    data_size
-                ),
-                "Could not add data buffer to metal context"
-            );
-
             //This is the `kv` section from the original code, we dont have a joined kv buffer, so we need to add them seperately
             assert!(
                 metal::ggml_metal_add_buffer(
