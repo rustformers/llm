@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use ggml::{metal::MetalContext, ComputationGraph, Context, Tensor};
+use ggml::{ComputationGraph, Context, Tensor};
+
+#[cfg(feature = "metal")]
+use ggml::metal::MetalContext;
 
 use crate::{InferenceSession, OutputRequest, TokenId};
 
@@ -34,14 +37,17 @@ impl EvaluationContext {
     /// Compute the graph
     pub fn compute(&self, gf: &mut ComputationGraph, input_layer: &Tensor) {
         gf.build_forward_expand(input_layer);
-        if cfg!(feature = "metal") {
+        #[cfg(feature = "metal")]
+        {
             if let Some(ref metal_context) = self.metal_context {
                 metal_context.graph_compute(gf);
                 metal_context.get_tensor(input_layer);
             } else {
                 self.ctx0.graph_compute(gf);
             }
-        } else {
+        }
+        #[cfg(not(feature = "metal"))]
+        {
             self.ctx0.graph_compute(gf);
         }
     }
@@ -88,6 +94,8 @@ pub fn prepare_for_evaluate_v2(
                 &mut scratch,
             );
 
+            metal_context.add_context(ctx0.clone());
+            metal_context.add_context(session._session_ctx.clone());
             metal_context.add_context(model_context);
 
             Some(metal_context)
@@ -104,7 +112,11 @@ pub fn prepare_for_evaluate_v2(
 
     #[cfg(not(feature = "metal"))]
     {
-        EvaluationContext { ctx0, embd }
+        EvaluationContext {
+            ctx0,
+            embd,
+            scratch,
+        }
     }
 }
 
