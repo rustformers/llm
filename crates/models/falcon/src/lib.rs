@@ -197,14 +197,14 @@ impl KnownModel for Falcon {
             // store key and value to memory
 
             let k = ctx0.op_view_1d(
-                &memory_k,
+                memory_k,
                 n * head_dim,
                 (memory_k_size * head_dim) * (il * ctx_size + session_len),
             );
             let v = ctx0.op_view_1d(
-                &memory_v,
+                memory_v,
                 n * head_dim,
-                (memory_k_size * head_dim) * (il * ctx_size + session_len),
+                (memory_v_size * head_dim) * (il * ctx_size + session_len),
             );
 
             gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
@@ -216,7 +216,7 @@ impl KnownModel for Falcon {
             let mut bigk = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
-                        &memory_k,
+                        memory_k,
                         (session_len + n) * head_dim,
                         il * ctx_size * memory_k_size * head_dim,
                     ),
@@ -228,7 +228,7 @@ impl KnownModel for Falcon {
             );
             // K * Q
             bigk = ctx0.op_cont(&ctx0.op_repeat(&bigk, &repeat_dummy));
-            let big_kq = ctx0.op_mul(&bigk, &bigq);
+            let big_kq = ctx0.op_mul_mat(&bigk, &bigq);
 
             // KQ_scaled = KQ / sqrt(n_embd/n_head)
             let big_kq_scaled = ctx0.op_scale_inplace(
@@ -243,7 +243,7 @@ impl KnownModel for Falcon {
             let mut bigv = ctx0.op_permute(
                 &ctx0.op_reshape_3d(
                     &ctx0.op_view_1d(
-                        &memory_v,
+                        memory_v,
                         (session_len + n) * head_dim,
                         il * ctx_size * memory_v_size * head_dim,
                     ),
@@ -326,7 +326,7 @@ impl KnownModel for Falcon {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary.id("<|padding|>".as_bytes())
+        None
     }
 
     fn eot_token_id(&self) -> TokenId {
@@ -347,8 +347,6 @@ impl KnownModel for Falcon {
 pub struct Hyperparameters {
     /// Size of the model's vocabulary
     n_vocab: usize,
-    /// Maximum sequence length
-    n_ctx: usize,
     /// Size of the model's embedding layer
     n_embd: usize,
     /// n_heads
@@ -363,7 +361,6 @@ impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         let hyperparameters = Hyperparameters {
             n_vocab: util::read_i32(reader)?.try_into()?,
-            n_ctx: util::read_i32(reader)?.try_into()?,
             n_embd: util::read_i32(reader)?.try_into()?,
             n_head: util::read_i32(reader)?.try_into()?,
             n_layer: util::read_i32(reader)?.try_into()?,
@@ -375,7 +372,6 @@ impl llm_base::Hyperparameters for Hyperparameters {
 
     fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
         util::write_i32(writer, self.n_vocab.try_into()?)?;
-        util::write_i32(writer, self.n_embd.try_into()?)?;
         util::write_i32(writer, self.n_embd.try_into()?)?;
         util::write_i32(writer, self.n_head.try_into()?)?;
         util::write_i32(writer, self.n_layer.try_into()?)?;

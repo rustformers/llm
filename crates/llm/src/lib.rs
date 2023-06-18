@@ -92,6 +92,8 @@ use serde::Serialize;
 pub mod models {
     #[cfg(feature = "bloom")]
     pub use llm_bloom::{self as bloom, Bloom};
+    #[cfg(feature = "falcon")]
+    pub use llm_falcon::{self as falcon, Falcon};
     #[cfg(feature = "gpt2")]
     pub use llm_gpt2::{self as gpt2, Gpt2};
     #[cfg(feature = "gptj")]
@@ -102,8 +104,6 @@ pub mod models {
     pub use llm_llama::{self as llama, Llama};
     #[cfg(feature = "mpt")]
     pub use llm_mpt::{self as mpt, Mpt};
-    #[cfg(feature = "falcon")]
-    pub use llm_falcon::{self as falcon, Falcon};
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -276,8 +276,9 @@ pub fn load_dynamic(
         #[cfg(feature = "mpt")]
         Mpt => load_model::<models::Mpt>(path, vocabulary_source, params, load_progress_callback)?,
         #[cfg(feature = "falcon")]
-        Falcon => load_model::<models::Falcon>(path, vocabulary_source, params, load_progress_callback)?,
-        
+        Falcon => {
+            load_model::<models::Falcon>(path, vocabulary_source, params, load_progress_callback)?
+        }
     };
 
     Ok(model)
