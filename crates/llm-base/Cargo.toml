@@ -24,3 +24,8 @@ memmap2 = "0.5.10"
 half = "2.2.1"
 tokenizers = "0.13.3"
 regex = "1.8"
+
+[features]
+cublas = ["ggml/cublas"]
+clblast = ["ggml/clblast"]
+metal = ["ggml/metal"]
