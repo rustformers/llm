@@ -28,6 +28,7 @@ extern "C" {
         name: *const ::std::os::raw::c_char,
         data: *mut ::std::os::raw::c_void,
         size: usize,
+        max_size: usize,
     ) -> bool;
 }
 extern "C" {
