@@ -396,10 +396,11 @@ impl InferenceSession {
                 ggml::type_sizef(config.memory_v_type.into())
             ); // memory_v
             ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+
             ctx_size
         };
 
-        let session_ctx = Arc::new(ggml::Context::init(ctx_size, false));
+        let session_ctx = Arc::new(ggml::Context::init(ctx_size, true));
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;

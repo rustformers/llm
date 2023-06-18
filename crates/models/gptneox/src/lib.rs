@@ -2,7 +2,7 @@
 //! This crate also supports the [RedPajama](https://www.together.xyz/blog/redpajama) GPT-NeoX model.
 #![deny(missing_docs)]
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 use ggml::Tensor;
 use llm_base::{
@@ -36,7 +36,7 @@ pub struct GptNeoX {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    _context: ggml::Context,
+    context: Arc<ggml::Context>,
     _mmap: Option<Mmap>,
 }
 
@@ -96,7 +96,7 @@ impl KnownModel for GptNeoX {
             layers.push(layer);
         }
 
-        let (_context, _, _mmap) = tl.finish();
+        let (context, _, _mmap) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -109,7 +109,7 @@ impl KnownModel for GptNeoX {
             wte,
             lmh_g,
             layers,
-            _context,
+            context: Arc::new(context),
             _mmap,
         })
     }
@@ -148,7 +148,8 @@ impl KnownModel for GptNeoX {
             ..
         } = self.hyperparameters;
 
-        let mut evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let mut evaluation_ctx =
+            common::prepare_for_evaluate_v2(n_layer, session, self.context.clone(), input_tokens);
         let ctx0 = &evaluation_ctx.ctx0;
         let embd = &evaluation_ctx.embd;
 

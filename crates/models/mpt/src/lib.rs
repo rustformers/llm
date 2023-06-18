@@ -1,6 +1,8 @@
 //! An implementation of [MPT](https://huggingface.co/mosaicml) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
+use std::sync::Arc;
+
 use ggml::Tensor;
 use llm_base::{
     ggml::{self},
@@ -30,7 +32,7 @@ pub struct Mpt {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    _context: ggml::Context,
+    context: Arc<ggml::Context>,
     _mmap: Option<Mmap>,
 }
 
@@ -69,7 +71,7 @@ impl KnownModel for Mpt {
             layers.push(layer);
         }
 
-        let (_context, _, _mmap) = tl.finish();
+        let (context, _, _mmap) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -80,7 +82,7 @@ impl KnownModel for Mpt {
             wte,
             norm,
             layers,
-            _context,
+            context: Arc::new(context),
             _mmap,
         })
     }
@@ -116,7 +118,8 @@ impl KnownModel for Mpt {
             ..
         } = self.hyperparameters;
 
-        let mut evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let mut evaluation_ctx =
+            common::prepare_for_evaluate_v2(n_layer, session, self.context.clone(), input_tokens);
         let ctx0 = &evaluation_ctx.ctx0;
         let embd = &evaluation_ctx.embd;
 

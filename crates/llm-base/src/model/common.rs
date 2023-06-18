@@ -45,6 +45,16 @@ impl EvaluationContext {
             self.ctx0.graph_compute(gf);
         }
     }
+
+    /// Register weights buffer
+    pub fn add_weights(&mut self, from_context: Arc<Context>) {
+        #[cfg(feature = "metal")]
+        {
+            if let Some(ref mut metal_context) = self.metal_context {
+                metal_context.add_context(from_context);
+            }
+        }
+    }
 }
 
 fn scratch_buffers() -> [ggml::Buffer; 2] {
@@ -58,6 +68,7 @@ fn scratch_buffers() -> [ggml::Buffer; 2] {
 pub fn prepare_for_evaluate_v2(
     n_layer: usize,
     session: &mut InferenceSession,
+    model_context: Arc<Context>,
     input_tokens: &[TokenId],
 ) -> EvaluationContext {
     let (ctx0, embd) = prepare_for_evaluate(n_layer, session, input_tokens);
@@ -76,7 +87,9 @@ pub fn prepare_for_evaluate_v2(
                 &mut session.memory_v,
                 &mut scratch,
             );
-            metal_context.initialize_eval_buffers(ctx0.clone());
+
+            metal_context.add_context(model_context);
+
             Some(metal_context)
         } else {
             None
@@ -115,15 +128,14 @@ pub fn prepare_for_evaluate(
         };
         buf_size_mb * 1024 * 1024
     };
-
     let n = input_tokens.len();
     if session.mem_per_token > 0 && session.mem_per_token * n > buf_size {
         // add 10% to account for ggml object overhead
         buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
     };
-    let ctx0 = Arc::new(ggml::Context::init(buf_size, true));
 
-    let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
+    let ctx0 = Arc::new(ggml::Context::init(buf_size, true));
+    let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
     unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
     ggml::set_name(&embd, "embd");
 

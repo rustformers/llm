@@ -1,7 +1,7 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 use llm_base::{
     ggml,
@@ -33,7 +33,7 @@ pub struct Llama {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    _context: ggml::Context,
+    context: Arc<ggml::Context>,
     _mmap: Option<Mmap>,
 }
 
@@ -73,7 +73,7 @@ impl KnownModel for Llama {
             layers.push(layer);
         }
 
-        let (_context, _tensors, _mmap) = tl.finish();
+        let (context, _tensors, _mmap) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -85,7 +85,7 @@ impl KnownModel for Llama {
             norm,
             output,
             layers,
-            _context,
+            context: Arc::new(context),
             _mmap,
         })
     }
@@ -123,7 +123,9 @@ impl KnownModel for Llama {
             file_type: _,
         } = self.hyperparameters;
 
-        let mut evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let mut evaluation_ctx =
+            common::prepare_for_evaluate_v2(n_layer, session, self.context.clone(), input_tokens);
+
         let ctx0 = &evaluation_ctx.ctx0;
         let embd = &evaluation_ctx.embd;
 

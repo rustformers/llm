@@ -22,6 +22,25 @@ impl MetalContext {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
         }
     }
+
+    /// Add a context's memory as buffer to this Metal context
+    pub fn add_context(&mut self, from_context: Arc<Context>) {
+        self.ref_context(from_context.clone());
+        unsafe {
+            let raw_context = from_context.ptr.as_ptr();
+            let data_ptr = ggml_sys::ggml_get_mem_buffer(raw_context);
+            let data_size = ggml_sys::ggml_get_mem_size(raw_context);
+            assert!(
+                metal::ggml_metal_add_buffer(
+                    self.ptr.as_ptr(),
+                    "wt\0".as_ptr().cast(), // FIXME provide an actual name
+                    data_ptr,
+                    data_size
+                ),
+                "Could not add weight buffer to metal context"
+            );
+        }
+    }
 }
 
 impl Default for MetalContext {
@@ -31,30 +50,6 @@ impl Default for MetalContext {
 }
 
 impl MetalContext {
-    /// Initializes the buffers needed for a metal forward pass.
-    pub fn initialize_eval_buffers(&mut self, eval_context: Arc<Context>) {
-        unsafe {
-            let raw_metal_context = self.ptr.as_ptr();
-
-            // TODO check if this works with mmap
-            // in our implementation this should be the `ctx0` buffer
-            // Original code: ggml_metal_add_buffer(ctx->ctx_metal, "eval", ctx->buf_compute.addr, ctx->buf_compute.size)
-            let raw_eval_context = eval_context.ptr.as_ptr();
-            self.ref_context(eval_context);
-            let eval_ptr = ggml_sys::ggml_get_mem_buffer(raw_eval_context);
-            let eval_size = ggml_sys::ggml_get_mem_size(raw_eval_context);
-            assert!(
-                metal::ggml_metal_add_buffer(
-                    raw_metal_context,
-                    "eval".as_ptr().cast(),
-                    eval_ptr,
-                    eval_size
-                ),
-                "Could not add eval buffer to metal context"
-            );
-        }
-    }
-
     fn ref_context(&mut self, context: Arc<Context>) {
         self.contexts.push(context);
     }
