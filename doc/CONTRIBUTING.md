@@ -32,7 +32,7 @@ cargo run --release --package generate-ggml-bindings
 
 ## Acceleration Support for Building
 
-The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored. On MacOS clblast is prioritized over metal.
+The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored. 
 
 | Platform/OS | `cublas`           | `clblast`          | `metal`            |
 | ----------- | ------------------ | ------------------ | ------------------ |

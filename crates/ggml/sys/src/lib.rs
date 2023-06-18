@@ -840,10 +840,13 @@ extern "C" {
     pub fn ggml_set_no_alloc(ctx: *mut ggml_context, no_alloc: bool);
 }
 extern "C" {
-    pub fn ggml_get_mem_buffer(ctx: *mut ggml_context) -> *mut ::std::os::raw::c_void;
+    pub fn ggml_get_mem_buffer(ctx: *const ggml_context) -> *mut ::std::os::raw::c_void;
 }
 extern "C" {
-    pub fn ggml_get_mem_size(ctx: *mut ggml_context) -> usize;
+    pub fn ggml_get_mem_size(ctx: *const ggml_context) -> usize;
+}
+extern "C" {
+    pub fn ggml_get_max_tensor_size(ctx: *const ggml_context) -> usize;
 }
 extern "C" {
     pub fn ggml_new_tensor(
