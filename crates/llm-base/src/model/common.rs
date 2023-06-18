@@ -1,13 +1,82 @@
-use ggml::{Context, Tensor};
+use std::sync::Arc;
+
+use ggml::{metal::MetalContext, ComputationGraph, Context, Tensor};
 
 use crate::{InferenceSession, OutputRequest, TokenId};
+
+/// Holds context and tensors used during a single evaluation
+pub struct EvaluationContext {
+    /// The context that holds data
+    pub ctx0: Arc<Context>,
+
+    /// Token input tensor
+    pub embd: Tensor,
+
+    /// When Metal is available: None if Metal is disabled, Some(MetalContext) when Metal acceleration is enabled
+    #[cfg(feature = "metal")]
+    pub metal_context: Option<MetalContext>,
+}
+
+impl EvaluationContext {
+    /// Compute the graph
+    pub fn compute(&self, gf: &mut ComputationGraph, input_layer: &Tensor) {
+        gf.build_forward_expand(input_layer);
+        if cfg!(feature = "metal") {
+            if let Some(ref metal_context) = self.metal_context {
+                metal_context.graph_compute(gf);
+                metal_context.get_tensor(input_layer);
+            } else {
+                self.ctx0.graph_compute(gf);
+            }
+        } else {
+            self.ctx0.graph_compute(gf);
+        }
+    }
+}
+
+/// Common code to prepare a model to evaluate input
+pub fn prepare_for_evaluate_v2(
+    n_layer: usize,
+    session: &mut InferenceSession,
+    input_tokens: &[TokenId],
+) -> EvaluationContext {
+    let (ctx0, embd) = prepare_for_evaluate(n_layer, session, input_tokens);
+    #[cfg(feature = "metal")]
+    {
+        // FIXME can only process one token at a time currently
+        // See https://github.com/ggerganov/llama.cpp/blob/e1886cf4fe0d0f31661dda52a4a9f34bd9b9009a/llama.cpp#L1692
+        let metal_context = if session.config.use_gpu && input_tokens.len() == 1 {
+            let mut metal_context = MetalContext::new();
+            metal_context.initialize_buffers(
+                session._session_ctx.clone(),
+                &mut session.memory_k,
+                &mut session.memory_v,
+                &mut session.scratch,
+            );
+            metal_context.initialize_eval_buffers(ctx0.clone());
+            Some(metal_context)
+        } else {
+            None
+        };
+        EvaluationContext {
+            metal_context,
+            embd,
+            ctx0,
+        }
+    }
+
+    #[cfg(not(feature = "metal"))]
+    {
+        EvaluationContext { ctx0, embd }
+    }
+}
 
 /// Common code to prepare a model to evaluate input
 pub fn prepare_for_evaluate(
     n_layer: usize,
-    session: &InferenceSession,
+    session: &mut InferenceSession,
     input_tokens: &[TokenId],
-) -> (Context, Tensor) {
+) -> (Arc<Context>, Tensor) {
     // For the first run, we need to guess a maximum buffer size so we can measure
     // the actual memory consumption of the temporary ggml context.
     //
@@ -28,7 +97,7 @@ pub fn prepare_for_evaluate(
         // add 10% to account for ggml object overhead
         buf_size = (1.1f64 * session.mem_per_token as f64 * n as f64) as usize;
     };
-    let ctx0 = ggml::Context::init(buf_size, true);
+    let ctx0 = Arc::new(ggml::Context::init(buf_size, true));
 
     let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, n);
     unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };

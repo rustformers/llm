@@ -1,4 +1,3 @@
-use ggml::metal::MetalContext;
 use std::{fmt::Display, sync::Arc};
 use thiserror::Error;
 
@@ -66,10 +65,6 @@ pub struct InferenceSession {
     /// There is no specific reason for this number, but one is insufficient.
     #[doc(hidden)]
     pub scratch: [ggml::Buffer; 2],
-
-    /// When Metal is available: None if Metal is disabled, Some(MetalContext) when Metal acceleration is enabled
-    #[cfg(feature = "metal")]
-    pub metal_context: Option<MetalContext>,
 }
 unsafe impl Send for InferenceSession {}
 impl InferenceSession {
@@ -418,13 +413,6 @@ impl InferenceSession {
 
         let session_ctx = Arc::new(ggml::Context::init(ctx_size, false));
 
-        // When available and configured, set up a Metal context for GPU acceleration
-        let metal_context = if cfg!(feature = "metal") && config.use_gpu {
-            Some(MetalContext::new(session_ctx.clone()))
-        } else {
-            None
-        };
-
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
@@ -435,6 +423,8 @@ impl InferenceSession {
             memory_k.set_data(session_ctx.alloc_owned_aligned(memory_k.nbytes()).cast());
             memory_v.set_data(session_ctx.alloc_owned_aligned(memory_v.nbytes()).cast());
         }
+
+        let scratch = scratch_buffers();
 
         InferenceSession {
             _session_ctx: session_ctx,
@@ -447,10 +437,7 @@ impl InferenceSession {
             tokens: vec![],
             decoded_tokens: vec![],
             last_logits: vec![0.0; n_vocab],
-            scratch: scratch_buffers(),
-
-            #[cfg(feature = "metal")]
-            metal_context,
+            scratch,
         }
     }
 }
@@ -466,13 +453,6 @@ impl Clone for InferenceSession {
             memory_v.set_data(context.alloc_owned_aligned(memory_v.nbytes()).cast());
         }
 
-        // When available and configured, set up a Metal context for GPU acceleration
-        let metal_context = if cfg!(feature = "metal") && self.metal_context.is_some() {
-            Some(MetalContext::new(context.clone()))
-        } else {
-            None
-        };
-
         Self {
             _session_ctx: context,
             memory_size: self.memory_size,
@@ -485,9 +465,6 @@ impl Clone for InferenceSession {
             decoded_tokens: self.decoded_tokens.clone(),
             last_logits: self.last_logits.clone(),
             scratch: scratch_buffers(),
-
-            #[cfg(feature = "metal")]
-            metal_context,
         }
     }
 }

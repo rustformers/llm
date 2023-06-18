@@ -3,7 +3,7 @@
 
 use ggml::Tensor;
 use llm_base::{
-    ggml,
+    ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
     LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
@@ -116,23 +116,11 @@ impl KnownModel for Mpt {
             ..
         } = self.hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let ctx0 = &evaluation_ctx.ctx0;
+        let embd = &evaluation_ctx.embd;
 
-        #[cfg(feature = "metal")]
-        {
-            //ctx0 is the context used for the computation graph => its memory footprint is the `eval` buffer
-            //We probably should move this to the session
-            let metal_context = session.metal_context.as_ref().unwrap();
-            metal_context.initialize_buffers(
-                &self._context,
-                &ctx0,
-                &mut session.memory_k,
-                &mut session.memory_v,
-                &mut session.scratch,
-            );
-        }
-
-        let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
+        let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
         let f32_size = std::mem::size_of::<f32>();
 
@@ -272,25 +260,13 @@ impl KnownModel for Mpt {
         // output embedding weight tied to input embedding
         input_layer = ctx0.op_mul_mat(&self.wte, &input_layer);
 
-        // run the computation
-        gf.build_forward_expand(&input_layer);
-
-        if cfg!(feature = "metal") {
-            if let Some(ref metal_context) = session.metal_context {
-                metal_context.graph_compute(&mut gf);
-                metal_context.get_tensor(&input_layer);
-            } else {
-                ctx0.graph_compute(&mut gf);
-            }
-        } else {
-            ctx0.graph_compute(&mut gf);
-        }
+        evaluation_ctx.compute(&mut gf, &input_layer);
 
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
         common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
-        common::update_session(session, &ctx0, input_tokens.len(), input_len);
+        common::update_session(session, ctx0, input_tokens.len(), input_len);
     }
 
     /// Returns the vocabulary used by this model.

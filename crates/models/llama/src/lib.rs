@@ -123,9 +123,11 @@ impl KnownModel for Llama {
             file_type: _,
         } = self.hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let ctx0 = &evaluation_ctx.ctx0;
+        let embd = &evaluation_ctx.embd;
 
-        let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
+        let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
         let memory_k_size = session.memory_k.element_size();
         let memory_v_size = session.memory_v.element_size();
@@ -312,14 +314,13 @@ impl KnownModel for Llama {
         ctx0.use_scratch(None);
 
         // run the computation
-        gf.build_forward_expand(&input_layer);
-        ctx0.graph_compute(&mut gf);
+        evaluation_ctx.compute(&mut gf, &input_layer);
 
         // finish evaluation
         common::read_last_token(session, &input_layer, n_vocab, input_len);
         common::extract_logits(output_request, &input_layer, n_vocab, input_len);
         common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
-        common::update_session(session, &ctx0, input_tokens.len(), input_len);
+        common::update_session(session, ctx0, input_tokens.len(), input_len);
     }
 
     /// Returns the vocabulary used by this model.
