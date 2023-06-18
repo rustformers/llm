@@ -26,16 +26,19 @@ impl MetalContext {
     /// Add a context's memory as buffer to this Metal context
     pub fn add_context(&mut self, from_context: Arc<Context>) {
         self.ref_context(from_context.clone());
+
         unsafe {
             let raw_context = from_context.ptr.as_ptr();
             let data_ptr = ggml_sys::ggml_get_mem_buffer(raw_context);
             let data_size = ggml_sys::ggml_get_mem_size(raw_context);
+            let max_size = ggml_sys::ggml_get_max_tensor_size(raw_context);
             assert!(
                 metal::ggml_metal_add_buffer(
                     self.ptr.as_ptr(),
                     "wt\0".as_ptr().cast(), // FIXME provide an actual name
                     data_ptr,
-                    data_size
+                    data_size,
+                    max_size
                 ),
                 "Could not add weight buffer to metal context"
             );
@@ -71,7 +74,8 @@ impl MetalContext {
                     raw_metal_context,
                     "k\0".as_ptr().cast(),
                     memory_k.data(),
-                    memory_k.element_size()
+                    memory_k.element_size(),
+                    0
                 ),
                 "Could not add k buffer to metal context"
             );
@@ -81,7 +85,8 @@ impl MetalContext {
                     raw_metal_context,
                     "v\0".as_ptr().cast(),
                     memory_v.data(),
-                    memory_v.element_size()
+                    memory_v.element_size(),
+                    0
                 ),
                 "Could not add v buffer to metal context"
             );
@@ -93,6 +98,7 @@ impl MetalContext {
                         raw_metal_context,
                         "scrN\0".as_ptr().cast(), // FIXME: allocate string and insert number in name
                         buf.data.as_ptr() as *mut core::ffi::c_void,
+                        buf.data.len(),
                         buf.data.len()
                     ),
                     "{}",

@@ -35,6 +35,7 @@ impl Context {
                 no_alloc: !alloc,
             })
         };
+
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             owned_memory: Mutex::new(RefCell::new(vec![])),
