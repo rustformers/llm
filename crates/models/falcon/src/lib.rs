@@ -1,4 +1,4 @@
-//! An implementation of [tiiuae](https://huggingface.co/tiiuae)'s [falcon] model for the `llm` ecosystem.
+//! An implementation of [Falcon](https://falconllm.tii.ae/) model for the `llm` ecosystem.
 #![deny(missing_docs)]
 
 use ggml::Tensor;
