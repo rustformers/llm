@@ -92,7 +92,7 @@ impl KnownModel for Mpt {
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
-        )        
+        )
     }
 
     fn evaluate(
@@ -118,16 +118,19 @@ impl KnownModel for Mpt {
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        //ctx0 is the context used for the computation graph => its memory footprint is the `eval` buffer
-        //We probably should move this to the session
-        let metal_context = self._context.metal_context.as_ref().unwrap();
-        metal_context.initialize_buffers(
-            &self._context,
-            &ctx0,
-            &mut session.memory_k,
-            &mut session.memory_v,
-            &mut session.scratch,
-        );
+        #[cfg(feature = "metal")]
+        {
+            //ctx0 is the context used for the computation graph => its memory footprint is the `eval` buffer
+            //We probably should move this to the session
+            let metal_context = session.metal_context.as_ref().unwrap();
+            metal_context.initialize_buffers(
+                &self._context,
+                &ctx0,
+                &mut session.memory_k,
+                &mut session.memory_v,
+                &mut session.scratch,
+            );
+        }
 
         let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
 
@@ -273,7 +276,7 @@ impl KnownModel for Mpt {
         gf.build_forward_expand(&input_layer);
 
         if cfg!(feature = "metal") {
-            if let Some(ref metal_context) = ctx0.metal_context {
+            if let Some(ref metal_context) = session.metal_context {
                 metal_context.graph_compute(&mut gf);
                 metal_context.get_tensor(&input_layer);
             } else {

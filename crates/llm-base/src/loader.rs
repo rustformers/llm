@@ -467,7 +467,7 @@ pub fn load<M: KnownModel>(
     }
 
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
-    let context = Context::init(ctx_size, !use_mmap, params.use_gpu);
+    let context = Context::init(ctx_size, !use_mmap);
 
     let (mmap, file_size) = {
         let file = File::open(path)?;

@@ -7,6 +7,9 @@ description = "An implementation of MosaicPretrainedTransformer (MPT) for the `l
 edition = "2021"
 readme = "../../../README.md"
 
+[features]
+metal = ["llm-base/metal"]
+
 [dependencies]
 llm-base = { path = "../../llm-base", version = "0.2.0-dev" }
 

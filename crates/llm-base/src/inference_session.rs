@@ -1,4 +1,5 @@
-use std::fmt::Display;
+use ggml::metal::MetalContext;
+use std::{fmt::Display, sync::Arc};
 use thiserror::Error;
 
 use crate::{
@@ -24,7 +25,7 @@ const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 /// to use it from multiple threads.
 pub struct InferenceSession {
     // Must be kept alive for the model
-    pub(crate) _session_ctx: ggml::Context,
+    pub(crate) _session_ctx: Arc<ggml::Context>,
 
     // Original size of the memory used to create this context.
     pub(crate) memory_size: usize,
@@ -65,6 +66,10 @@ pub struct InferenceSession {
     /// There is no specific reason for this number, but one is insufficient.
     #[doc(hidden)]
     pub scratch: [ggml::Buffer; 2],
+
+    /// When Metal is available: None if Metal is disabled, Some(MetalContext) when Metal acceleration is enabled
+    #[cfg(feature = "metal")]
+    pub metal_context: Option<MetalContext>,
 }
 unsafe impl Send for InferenceSession {}
 impl InferenceSession {
@@ -411,7 +416,14 @@ impl InferenceSession {
             ctx_size
         };
 
-        let mut session_ctx = ggml::Context::init(ctx_size, false, config.use_gpu);
+        let session_ctx = Arc::new(ggml::Context::init(ctx_size, false));
+
+        // When available and configured, set up a Metal context for GPU acceleration
+        let metal_context = if cfg!(feature = "metal") && config.use_gpu {
+            Some(MetalContext::new(session_ctx.clone()))
+        } else {
+            None
+        };
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -436,12 +448,15 @@ impl InferenceSession {
             decoded_tokens: vec![],
             last_logits: vec![0.0; n_vocab],
             scratch: scratch_buffers(),
+
+            #[cfg(feature = "metal")]
+            metal_context,
         }
     }
 }
 impl Clone for InferenceSession {
     fn clone(&self) -> Self {
-        let mut context = ggml::Context::init(self.memory_size, false, self.config.use_gpu);
+        let context = Arc::new(ggml::Context::init(self.memory_size, false));
         let mut memory_k =
             context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
         let mut memory_v =
@@ -450,6 +465,13 @@ impl Clone for InferenceSession {
             memory_k.set_data(context.alloc_owned_aligned(memory_k.nbytes()).cast());
             memory_v.set_data(context.alloc_owned_aligned(memory_v.nbytes()).cast());
         }
+
+        // When available and configured, set up a Metal context for GPU acceleration
+        let metal_context = if cfg!(feature = "metal") && self.metal_context.is_some() {
+            Some(MetalContext::new(context.clone()))
+        } else {
+            None
+        };
 
         Self {
             _session_ctx: context,
@@ -463,6 +485,9 @@ impl Clone for InferenceSession {
             decoded_tokens: self.decoded_tokens.clone(),
             last_logits: self.last_logits.clone(),
             scratch: scratch_buffers(),
+
+            #[cfg(feature = "metal")]
+            metal_context,
         }
     }
 }

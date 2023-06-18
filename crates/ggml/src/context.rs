@@ -1,16 +1,14 @@
 use std::{
     alloc::Layout,
+    cell::RefCell,
     os::raw::{c_int, c_void},
     ptr::NonNull,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
 
 const ALIGN_OWNED_TENSORS_TO_PAGE_SIZE: usize = 16384;
-
-#[cfg(feature = "metal")]
-use crate::metal::MetalContext;
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
@@ -22,16 +20,12 @@ pub struct Context {
     pub ptr: Arc<NonNull<sys::ggml_context>>,
 
     /// Memory allocated and owned by this context
-    pub owned_memory: Vec<(*mut u8, Layout)>,
-
-    /// Metal context for optional acceleration through MPS.
-    #[cfg(feature = "metal")]
-    pub metal_context: Option<MetalContext>,
+    pub owned_memory: Mutex<RefCell<Vec<(*mut u8, Layout)>>>,
 }
 
 impl Context {
     /// Creates a new [Context] with the specified `mem_size` as a working area.
-    pub fn init(mem_size: usize, alloc: bool, gpu_acceleration: bool) -> Self {
+    pub fn init(mem_size: usize, alloc: bool) -> Self {
         let raw = unsafe {
             sys::ggml_init(sys::ggml_init_params {
                 mem_size,
@@ -43,26 +37,18 @@ impl Context {
         };
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
-            metal_context: if gpu_acceleration {
-                if cfg!(feature = "metal") {
-                    Some(MetalContext::default())
-                } else {
-                    None
-                }
-            } else {
-                None
-            },
-            owned_memory: vec![],
+            owned_memory: Mutex::new(RefCell::new(vec![])),
         }
     }
 
     /// Allocates aligned memory associated with this context (meaning it will be deallocated when the context is dropped)
-    pub fn alloc_owned_aligned(&mut self, size: usize) -> *mut u8 {
+    pub fn alloc_owned_aligned(&self, size: usize) -> *mut u8 {
         let size_bytes =
             (size & (!ALIGN_OWNED_TENSORS_TO_PAGE_SIZE)) + ALIGN_OWNED_TENSORS_TO_PAGE_SIZE;
         let layout = Layout::from_size_align(size_bytes, ALIGN_OWNED_TENSORS_TO_PAGE_SIZE).unwrap();
         let ptr = unsafe { std::alloc::alloc(layout).cast() };
-        self.owned_memory.push((ptr, layout));
+        let om = self.owned_memory.lock().unwrap();
+        om.borrow_mut().push((ptr, layout));
         ptr
     }
 
@@ -465,11 +451,10 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        // SAFETY: The only non-weak copy of ptr is no longer accessible after
-        // this drop call.
+        // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
             sys::ggml_free(self.ptr.as_ptr());
-            for (ptr, layout) in self.owned_memory.drain(..) {
+            for (ptr, layout) in self.owned_memory.lock().unwrap().borrow_mut().drain(..) {
                 std::alloc::dealloc(ptr, layout);
             }
         }

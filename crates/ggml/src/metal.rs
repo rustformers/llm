@@ -6,13 +6,19 @@ use std::{ffi::CString, ptr::NonNull, sync::Arc};
 /// `ggml_metal_init` and dropping via `ggml_metal_free`.
 pub struct MetalContext {
     ptr: Arc<NonNull<metal::ggml_metal_context>>,
+
+    /// Reference to the context that holds buffers that are used in this Metal context. As Metal does not need to copy
+    /// buffers to VRAM, we need to keep the original buffers alive through this reference.
+    _context: Arc<Context>,
 }
 
-impl Default for MetalContext {
-    fn default() -> Self {
+impl MetalContext {
+    /// Create a new Metal context
+    pub fn new(context: Arc<Context>) -> Self {
         let raw = unsafe { metal::ggml_metal_init() };
 
         MetalContext {
+            _context: context,
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
         }
     }
