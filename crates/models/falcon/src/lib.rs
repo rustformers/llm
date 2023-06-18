@@ -342,7 +342,7 @@ impl KnownModel for Falcon {
     }
 }
 
-/// MPT [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
+/// Falcon [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub struct Hyperparameters {
     /// Size of the model's vocabulary
