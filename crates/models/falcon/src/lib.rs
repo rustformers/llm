@@ -9,7 +9,7 @@ use llm_base::{
     LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
-/// The falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae/falcon-40b)
+/// The Falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
