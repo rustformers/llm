@@ -62,7 +62,22 @@ set OPENCL_PATH=....\vcpkg\packages\opencl_x64-windows
 set CLBLAST_PATH=....\vcpkg\packages\clblast_x64-windows
 ```
 
-For `llm` to function properly, it requires the `clblast.dll` and `OpenCL.dll` files. These files can be found within the `bin` subdirectory of their respective vcpkg packages. There are two options to ensure `llm` can access these files:
+
+⚠️ When working with MSVC in a Windows environment, it is essential to set the `-Ctarget-feature=+crt-static` Rust flag. This flag is critical as it enables the static linking of the C runtime, which can be paramount for certain deployment scenarios or specific runtime environments.
+
+To set this flag, you can modify the .cargo\config file in your project directory. Please add the following configuration snippet:
+
+```
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static"]
+```
+
+This will ensure the Rust flag is appropriately set for your compilation process.
+
+For a comprehensive guide on the usage of Rust flags, including other possible ways to set them, please refer to this detailed [StackOverflow discussion](https://stackoverflow.com/questions/38040327/how-to-pass-rustc-flags-to-cargo). Make sure to choose an option that best fits your project requirements and development environment.
+
+
+⚠️ For `llm` to function properly, it requires the `clblast.dll` and `OpenCL.dll` files. These files can be found within the `bin` subdirectory of their respective vcpkg packages. There are two options to ensure `llm` can access these files:
 
 1. Amend your `PATH` environment variable to include the `bin` directories of each respective package.
 
@@ -70,11 +85,6 @@ For `llm` to function properly, it requires the `clblast.dll` and `OpenCL.dll` f
 
 Please choose the option that best suits your needs and environment configuration.
 
-⚠️Caution:
-
-In certain instances, setting the `-Ctarget-feature=+crt-static` Rust flag may be essential. This flag facilitates the static linking of the C runtime, which could be crucial for specific deployment scenarios or environments. 
-
-For a comprehensive understanding of how to effectively set this flag, kindly refer to this detailed [StackOverflow discussion](https://stackoverflow.com/questions/38040327/how-to-pass-rustc-flags-to-cargo). Carefully evaluate the presented options and select the one that aligns best with your project requirements and environment.
 
 
 ### Linux
