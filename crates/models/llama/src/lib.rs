@@ -123,7 +123,7 @@ impl KnownModel for Llama {
             file_type: _,
         } = self.hyperparameters;
 
-        let evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let mut evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
         let ctx0 = &evaluation_ctx.ctx0;
         let embd = &evaluation_ctx.embd;
 
@@ -145,7 +145,7 @@ impl KnownModel for Llama {
             let input_self_attention = input_layer.share();
             let mut current: ggml::Tensor;
 
-            ctx0.use_scratch(Some(&mut session.scratch[0]));
+            ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[0]));
 
             // norm
             current = ctx0.op_rms_norm(&input_layer);
@@ -270,7 +270,7 @@ impl KnownModel for Llama {
             // projection (no bias)
             current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
-            ctx0.use_scratch(Some(&mut session.scratch[1]));
+            ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[1]));
 
             let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
@@ -298,7 +298,7 @@ impl KnownModel for Llama {
             input_layer = current;
         }
 
-        ctx0.use_scratch(Some(&mut session.scratch[0]));
+        ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[0]));
 
         // norm
         input_layer = ctx0.op_rms_norm(&input_layer);

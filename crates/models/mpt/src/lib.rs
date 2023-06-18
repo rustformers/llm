@@ -116,7 +116,7 @@ impl KnownModel for Mpt {
             ..
         } = self.hyperparameters;
 
-        let evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let mut evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
         let ctx0 = &evaluation_ctx.ctx0;
         let embd = &evaluation_ctx.embd;
 
@@ -133,7 +133,7 @@ impl KnownModel for Mpt {
         let mut gf = ggml::ComputationGraph::new(num_threads);
         for il in 0..n_layer {
             // attention uses first scratch buffer
-            ctx0.use_scratch(Some(&mut session.scratch[0]));
+            ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[0]));
 
             let mut current = ctx0.op_norm(&input_layer);
             current = ctx0.op_mul(
@@ -228,7 +228,7 @@ impl KnownModel for Mpt {
             input_layer = ctx0.op_add(&input_layer, &current);
 
             // feed forward uses second scratch buffer
-            ctx0.use_scratch(Some(&mut session.scratch[1]));
+            ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[1]));
 
             current = ctx0.op_norm(&input_layer);
             current = ctx0.op_mul(
@@ -247,7 +247,7 @@ impl KnownModel for Mpt {
         }
 
         //use scratch buffer 0 for the rest
-        ctx0.use_scratch(Some(&mut session.scratch[0]));
+        ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[0]));
 
         // norm
         input_layer = ctx0.op_norm(&input_layer);

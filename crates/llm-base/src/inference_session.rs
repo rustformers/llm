@@ -6,12 +6,6 @@ use crate::{
     TokenizationError,
 };
 
-// The size of a scratch buffer used for inference. This is used for temporary
-// storage of intermediate results during inference.
-//
-// The specific value was copied from `llama.cpp`.
-const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
-
 /// An inference session represents the state of the text generation. This holds
 /// the full context window, as well as several additional parameters used
 /// during sampling.
@@ -58,14 +52,8 @@ pub struct InferenceSession {
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     #[doc(hidden)]
     pub last_logits: Vec<f32>,
-
-    /// Scratch buffers used during inference.
-    ///
-    /// The number of scratch buffers was copied from `llama.cpp`.
-    /// There is no specific reason for this number, but one is insufficient.
-    #[doc(hidden)]
-    pub scratch: [ggml::Buffer; 2],
 }
+
 unsafe impl Send for InferenceSession {}
 impl InferenceSession {
     /// Feed a prompt to the model for this session.
@@ -424,8 +412,6 @@ impl InferenceSession {
             memory_v.set_data(session_ctx.alloc_owned_aligned(memory_v.nbytes()).cast());
         }
 
-        let scratch = scratch_buffers();
-
         InferenceSession {
             _session_ctx: session_ctx,
             memory_size: ctx_size,
@@ -437,7 +423,6 @@ impl InferenceSession {
             tokens: vec![],
             decoded_tokens: vec![],
             last_logits: vec![0.0; n_vocab],
-            scratch,
         }
     }
 }
@@ -464,7 +449,6 @@ impl Clone for InferenceSession {
             tokens: self.tokens.clone(),
             decoded_tokens: self.decoded_tokens.clone(),
             last_logits: self.last_logits.clone(),
-            scratch: scratch_buffers(),
         }
     }
 }
@@ -703,11 +687,4 @@ pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
         Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
         None => Ok(InferenceFeedback::Continue),
     }
-}
-
-fn scratch_buffers() -> [ggml::Buffer; 2] {
-    [
-        ggml::Buffer::new(SCRATCH_SIZE),
-        ggml::Buffer::new(SCRATCH_SIZE),
-    ]
 }

@@ -4,6 +4,12 @@ use ggml::{metal::MetalContext, ComputationGraph, Context, Tensor};
 
 use crate::{InferenceSession, OutputRequest, TokenId};
 
+// The size of a scratch buffer used for inference. This is used for temporary
+// storage of intermediate results during inference.
+//
+// The specific value was copied from `llama.cpp`.
+const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
+
 /// Holds context and tensors used during a single evaluation
 pub struct EvaluationContext {
     /// The context that holds data
@@ -15,6 +21,13 @@ pub struct EvaluationContext {
     /// When Metal is available: None if Metal is disabled, Some(MetalContext) when Metal acceleration is enabled
     #[cfg(feature = "metal")]
     pub metal_context: Option<MetalContext>,
+
+    /// Scratch buffers used during inference.
+    ///
+    /// The number of scratch buffers was copied from `llama.cpp`.
+    /// There is no specific reason for this number, but one is insufficient.
+    #[doc(hidden)]
+    pub scratch: [ggml::Buffer; 2],
 }
 
 impl EvaluationContext {
@@ -34,6 +47,13 @@ impl EvaluationContext {
     }
 }
 
+fn scratch_buffers() -> [ggml::Buffer; 2] {
+    [
+        ggml::Buffer::new(SCRATCH_SIZE),
+        ggml::Buffer::new(SCRATCH_SIZE),
+    ]
+}
+
 /// Common code to prepare a model to evaluate input
 pub fn prepare_for_evaluate_v2(
     n_layer: usize,
@@ -41,6 +61,9 @@ pub fn prepare_for_evaluate_v2(
     input_tokens: &[TokenId],
 ) -> EvaluationContext {
     let (ctx0, embd) = prepare_for_evaluate(n_layer, session, input_tokens);
+
+    let mut scratch = scratch_buffers();
+
     #[cfg(feature = "metal")]
     {
         // FIXME can only process one token at a time currently
@@ -51,7 +74,7 @@ pub fn prepare_for_evaluate_v2(
                 session._session_ctx.clone(),
                 &mut session.memory_k,
                 &mut session.memory_v,
-                &mut session.scratch,
+                &mut scratch,
             );
             metal_context.initialize_eval_buffers(ctx0.clone());
             Some(metal_context)
@@ -62,6 +85,7 @@ pub fn prepare_for_evaluate_v2(
             metal_context,
             embd,
             ctx0,
+            scratch,
         }
     }
 

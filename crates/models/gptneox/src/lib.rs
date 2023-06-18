@@ -148,9 +148,11 @@ impl KnownModel for GptNeoX {
             ..
         } = self.hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let mut evaluation_ctx = common::prepare_for_evaluate_v2(n_layer, session, input_tokens);
+        let ctx0 = &evaluation_ctx.ctx0;
+        let embd = &evaluation_ctx.embd;
 
-        let mut input_layer = ctx0.op_get_rows(&self.wte, &embd);
+        let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
         let memory_k = &session.memory_k;
         let memory_k_size = memory_k.element_size();
@@ -162,7 +164,7 @@ impl KnownModel for GptNeoX {
 
         for il in 0..n_layer {
             // attention uses first scratch buffer
-            ctx0.use_scratch(Some(&mut session.scratch[0]));
+            ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[0]));
 
             // self-attention
             let mut current = ctx0.op_norm(&input_layer);
@@ -282,12 +284,12 @@ impl KnownModel for GptNeoX {
             );
 
             // use the second scratch for the feed forward
-            ctx0.use_scratch(Some(&mut session.scratch[1]));
+            ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[1]));
 
             let feedforward_input: Tensor;
             if !use_parallel_residual {
                 feedforward_input = ctx0.op_add(&current, &input_layer);
-                current = feed_forward_network(&ctx0, &self.layers[il], &feedforward_input);
+                current = feed_forward_network(ctx0, &self.layers[il], &feedforward_input);
                 // input for next layer
                 input_layer = ctx0.op_add(&current, &feedforward_input);
             } else {
@@ -296,7 +298,7 @@ impl KnownModel for GptNeoX {
 
                 // this is independent of the self-attention result, so it could be done in parallel to the self-attention
                 // note here we pass inpL instead of cur
-                current = feed_forward_network(&ctx0, &self.layers[il], &input_layer);
+                current = feed_forward_network(ctx0, &self.layers[il], &input_layer);
 
                 // layer input + FF
                 current = ctx0.op_add(&current, &feedforward_input);
@@ -307,7 +309,7 @@ impl KnownModel for GptNeoX {
         }
 
         // use the first scratch for the norm
-        ctx0.use_scratch(Some(&mut session.scratch[1]));
+        ctx0.use_scratch(Some(&mut evaluation_ctx.scratch[1]));
 
         // normalize the output
         input_layer = ctx0.op_norm(&input_layer);
@@ -333,7 +335,7 @@ impl KnownModel for GptNeoX {
         common::read_last_token(session, &input_layer, n_vocab, n);
         common::extract_logits(output_request, &input_layer, n_vocab, n);
         common::extract_embeddings(output_request, &embeddings_tensor, n_embd, n);
-        common::update_session(session, &ctx0, input_tokens.len(), n);
+        common::update_session(session, ctx0, input_tokens.len(), n);
     }
 
     fn vocabulary(&self) -> &Vocabulary {
