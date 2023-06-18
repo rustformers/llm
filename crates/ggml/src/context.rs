@@ -6,6 +6,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use memmap2::Mmap;
+
 use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
@@ -19,9 +21,31 @@ pub struct Context {
 
     /// Memory allocated and owned by this context
     pub owned_memory: Mutex<RefCell<Vec<(*mut u8, Layout)>>>,
+
+    /// Memory mapping information
+    pub mmap: Option<Mmap>,
 }
 
 impl Context {
+    /// Creates a new [Context] with the memory mapped file provided
+    pub fn init_mmap(mmap: Mmap) -> Self {
+        let raw = unsafe {
+            sys::ggml_init(sys::ggml_init_params {
+                mem_size: mmap.len(),
+                // Null here means we want ggml to own this memory. We don't
+                // support passing an owned buffer from the Rust side.
+                mem_buffer: std::ptr::null_mut(),
+                no_alloc: true,
+            })
+        };
+
+        Self {
+            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            owned_memory: Mutex::new(RefCell::new(vec![])),
+            mmap: Some(mmap),
+        }
+    }
+
     /// Creates a new [Context] with the specified `mem_size` as a working area.
     pub fn init(mem_size: usize, alloc: bool) -> Self {
         let raw = unsafe {
@@ -37,6 +61,7 @@ impl Context {
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             owned_memory: Mutex::new(RefCell::new(vec![])),
+            mmap: None,
         }
     }
 

@@ -1,6 +1,6 @@
 //! Metal support.
 use crate::{sys::metal, Buffer, ComputationGraph, Context, Tensor};
-use std::{ptr::NonNull, sync::Arc};
+use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 
 /// Acts as a RAII-guard over a `sys::metal::ggml_metal_context`, allocating via
 /// `ggml_metal_init` and dropping via `ggml_metal_free`.
@@ -49,8 +49,18 @@ impl MetalContext {
 
         unsafe {
             let raw_context = from_context.ptr.as_ptr();
-            let data_ptr = ggml_sys::ggml_get_mem_buffer(raw_context);
-            let data_size = ggml_sys::ggml_get_mem_size(raw_context);
+
+            let (data_ptr, data_size): (*mut c_void, usize) =
+                if let Some(ref mmap) = from_context.mmap {
+                    // This is a bit naughty...
+                    (mmap.as_ptr().cast_mut().cast(), mmap.len())
+                } else {
+                    (
+                        ggml_sys::ggml_get_mem_buffer(raw_context),
+                        ggml_sys::ggml_get_mem_size(raw_context),
+                    )
+                };
+
             let max_size = ggml_sys::ggml_get_max_tensor_size(raw_context);
             assert!(
                 metal::ggml_metal_add_buffer(

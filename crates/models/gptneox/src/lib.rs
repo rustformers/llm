@@ -9,7 +9,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -37,7 +37,6 @@ pub struct GptNeoX {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    _mmap: Option<Mmap>,
 }
 
 unsafe impl Send for GptNeoX {}
@@ -96,7 +95,7 @@ impl KnownModel for GptNeoX {
             layers.push(layer);
         }
 
-        let (context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -110,7 +109,6 @@ impl KnownModel for GptNeoX {
             lmh_g,
             layers,
             context: Arc::new(context),
-            _mmap,
         })
     }
 

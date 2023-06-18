@@ -7,7 +7,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
 };
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
@@ -34,7 +34,6 @@ pub struct Llama {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    _mmap: Option<Mmap>,
 }
 
 unsafe impl Send for Llama {}
@@ -73,7 +72,7 @@ impl KnownModel for Llama {
             layers.push(layer);
         }
 
-        let (context, _tensors, _mmap) = tl.finish();
+        let (context, _tensors) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -86,7 +85,6 @@ impl KnownModel for Llama {
             output,
             layers,
             context: Arc::new(context),
-            _mmap,
         })
     }
 

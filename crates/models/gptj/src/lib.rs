@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Vocabulary,
 };
 
 /// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
@@ -37,7 +37,6 @@ pub struct GptJ {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    _mmap: Option<Mmap>,
 }
 
 unsafe impl Send for GptJ {}
@@ -82,7 +81,7 @@ impl KnownModel for GptJ {
             layers.push(layer);
         }
 
-        let (context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -96,7 +95,6 @@ impl KnownModel for GptJ {
             lmh_g,
             lmh_b,
             layers,
-            _mmap,
             context: Arc::new(context),
         })
     }

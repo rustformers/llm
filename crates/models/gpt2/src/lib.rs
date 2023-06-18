@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -38,7 +38,6 @@ pub struct Gpt2 {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    _mmap: Option<Mmap>,
 }
 
 unsafe impl Send for Gpt2 {}
@@ -82,7 +81,7 @@ impl KnownModel for Gpt2 {
             layers.push(layer);
         }
 
-        let (context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -97,7 +96,6 @@ impl KnownModel for Gpt2 {
             wpe,
             lm_head,
             context: Arc::new(context),
-            _mmap,
         })
     }
 

@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -39,7 +39,6 @@ pub struct Bloom {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    _mmap: Option<Mmap>,
 }
 
 unsafe impl Send for Bloom {}
@@ -90,7 +89,7 @@ impl KnownModel for Bloom {
             layers.push(layer);
         }
 
-        let (context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -106,7 +105,6 @@ impl KnownModel for Bloom {
             output,
             layers,
             context: Arc::new(context),
-            _mmap,
         })
     }
 

@@ -8,7 +8,7 @@ use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    LoadError, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -33,7 +33,6 @@ pub struct Mpt {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    _mmap: Option<Mmap>,
 }
 
 unsafe impl Send for Mpt {}
@@ -71,7 +70,7 @@ impl KnownModel for Mpt {
             layers.push(layer);
         }
 
-        let (context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -83,7 +82,6 @@ impl KnownModel for Mpt {
             norm,
             layers,
             context: Arc::new(context),
-            _mmap,
         })
     }
 
