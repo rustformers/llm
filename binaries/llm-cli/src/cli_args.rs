@@ -137,10 +137,6 @@ pub struct Perplexity {
 
     #[command(flatten)]
     pub prompt: Prompt,
-
-    /// Whether to use GPU acceleration when available
-    #[arg(long, default_value_t = false)]
-    pub use_gpu: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -167,10 +163,6 @@ pub struct PromptTokens {
 
     #[command(flatten)]
     pub prompt: Prompt,
-
-    /// Whether to use GPU acceleration when available
-    #[arg(long, default_value_t = false)]
-    pub use_gpu: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -200,10 +192,6 @@ pub struct Repl {
 
     #[command(flatten)]
     pub generate: Generate,
-
-    /// Whether to use GPU acceleration when available
-    #[arg(long, default_value_t = false)]
-    pub use_gpu: bool,
 }
 
 #[derive(Parser, Debug)]
