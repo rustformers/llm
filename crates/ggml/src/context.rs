@@ -1,10 +1,4 @@
-use std::{
-    alloc::Layout,
-    cell::RefCell,
-    os::raw::{c_int, c_void},
-    ptr::NonNull,
-    sync::{Arc, Mutex},
-};
+use std::{os::raw::c_int, ptr::NonNull, sync::Arc};
 
 use memmap2::Mmap;
 
@@ -19,30 +13,45 @@ pub struct Context {
     /// with it if the underlying context has been deallocated.
     pub ptr: Arc<NonNull<sys::ggml_context>>,
 
-    /// Memory allocated and owned by this context
-    pub owned_memory: Mutex<RefCell<Vec<(*mut u8, Layout)>>>,
-
     /// Memory mapping information
     pub mmap: Option<Mmap>,
+
+    /// Backing buffer (in case we own it)
+    pub buffer: Option<Buffer>,
 }
 
 impl Context {
-    /// Creates a new [Context] with the memory mapped file provided
-    pub fn init_mmap(mmap: Mmap) -> Self {
+    /// Creates a new [Context] using the buffer provided as memory
+    pub fn init_buffer(buffer: Buffer) -> Self {
         let raw = unsafe {
             sys::ggml_init(sys::ggml_init_params {
-                mem_size: mmap.len(),
-                // Null here means we want ggml to own this memory. We don't
-                // support passing an owned buffer from the Rust side.
-                mem_buffer: std::ptr::null_mut(),
-                no_alloc: true,
+                mem_size: buffer.size(),
+                mem_buffer: buffer.data,
+                no_alloc: false,
             })
         };
 
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
-            owned_memory: Mutex::new(RefCell::new(vec![])),
+            mmap: None,
+            buffer: Some(buffer),
+        }
+    }
+
+    /// Creates a new [Context] with the memory mapped file provided
+    pub fn init_mmap(mmap: Mmap) -> Self {
+        let raw = unsafe {
+            sys::ggml_init(sys::ggml_init_params {
+                mem_size: mmap.len(),
+                mem_buffer: std::ptr::null_mut(),
+                no_alloc: true, // We are mmapping so ggml does not need to allocate any memory for us
+            })
+        };
+
+        Self {
+            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             mmap: Some(mmap),
+            buffer: None,
         }
     }
 
@@ -51,8 +60,7 @@ impl Context {
         let raw = unsafe {
             sys::ggml_init(sys::ggml_init_params {
                 mem_size,
-                // Null here means we want ggml to own this memory. We don't
-                // support passing an owned buffer from the Rust side.
+                // Null here means we want ggml to own this memory.
                 mem_buffer: std::ptr::null_mut(),
                 no_alloc: !alloc,
             })
@@ -60,8 +68,8 @@ impl Context {
 
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
-            owned_memory: Mutex::new(RefCell::new(vec![])),
             mmap: None,
+            buffer: None,
         }
     }
 
@@ -423,7 +431,7 @@ impl Context {
     /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
     pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a mut Buffer>) {
         let (size, data) = if let Some(buffer) = scratch_buffer {
-            (buffer.data.len(), buffer.data.as_ptr() as *mut c_void)
+            (buffer.size(), buffer.data)
         } else {
             (0, std::ptr::null_mut())
         };
@@ -467,9 +475,6 @@ impl Drop for Context {
         // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
             sys::ggml_free(self.ptr.as_ptr());
-            for (ptr, layout) in self.owned_memory.lock().unwrap().borrow_mut().drain(..) {
-                std::alloc::dealloc(ptr, layout);
-            }
         }
     }
 }
