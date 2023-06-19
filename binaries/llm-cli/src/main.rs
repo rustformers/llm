@@ -250,11 +250,6 @@ fn interactive<M: llm::KnownModel + 'static>(
         let readline = rl.readline(">> ");
         match readline {
             Ok(raw_line) => {
-                let session_backup = if chat_mode {
-                    None
-                } else {
-                    Some(session.clone())
-                };
                 let line = raw_line.replace("\\\n", "\n");
 
                 let prompt = prompt_file
@@ -302,8 +297,14 @@ fn interactive<M: llm::KnownModel + 'static>(
                     log::error!("Reply exceeds context window length");
                 }
 
-                if let Some(session_backup) = session_backup {
-                    session = session_backup;
+                // Reload session in REPL mode
+                if !chat_mode {
+                    (session, session_loaded) = snapshot::read_or_create_session(
+                        model.as_ref(),
+                        None,
+                        args.generate.load_session.as_deref(),
+                        inference_session_config,
+                    );
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
