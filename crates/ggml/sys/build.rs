@@ -180,7 +180,7 @@ fn enable_metal(build: &mut cc::Build) {
     build.file("llama-cpp/ggml-metal.m");
     build.flag("-DGGML_USE_METAL");
 
-    #[cfg(debug_assertions)]
+    #[cfg(not(debug_assertions))]
     build.flag("-DGGML_METAL_NDEBUG");
 }
 
