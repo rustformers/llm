@@ -249,6 +249,14 @@ impl Buffer {
     }
 }
 
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self.data.cast(), self.layout);
+        }
+    }
+}
+
 /// A `ggml` computation graph. Keeps track of all state during computation.
 pub struct ComputationGraph {
     inner: sys::ggml_cgraph,
