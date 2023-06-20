@@ -131,7 +131,7 @@ impl KnownModel for Gpt2 {
 
         let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
 
-        let position_buf: Vec<usize> = (0..input_len).map(|i| session_len + i).collect();
+        let position_buf: Vec<i32> = (0..input_len).map(|i| (session_len + i) as i32).collect();
 
         let mut position = ctx0.new_tensor_1d(ggml::Type::I32, input_len);
         unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
@@ -149,6 +149,8 @@ impl KnownModel for Gpt2 {
 
         let mut gf = ggml::ComputationGraph::new(num_threads);
         for il in 0..n_layer {
+            ctx0.use_scratch(Some(&mut session.scratch[0]));
+
             // norm
             let mut current = ctx0.op_norm(&input_layer);
             current = ctx0.op_add(
@@ -260,6 +262,8 @@ impl KnownModel for Gpt2 {
             // feed-forward
             let ff_in = current.share();
 
+            ctx0.use_scratch(Some(&mut session.scratch[1]));
+
             // feed-forward normalization
             current = ctx0.op_norm(&ff_in);
             current = ctx0.op_add(
@@ -288,12 +292,16 @@ impl KnownModel for Gpt2 {
             input_layer = ctx0.op_add(&current, &ff_in);
         }
 
+        ctx0.use_scratch(Some(&mut session.scratch[0]));
+
         // normalization
         input_layer = ctx0.op_norm(&input_layer);
         input_layer = ctx0.op_add(
             &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
             &ctx0.op_repeat(&self.ln_f_b, &input_layer),
         );
+
+        ctx0.use_scratch(None);
 
         let embeddings_tensor: ggml::Tensor = input_layer.share();
 
