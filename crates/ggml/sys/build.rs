@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // By default, this crate will attempt to compile ggml with the features of your host system if
 // the host and target are the same. If they are not, it will turn off auto-feature-detection,
@@ -179,6 +179,26 @@ fn enable_metal(build: &mut cc::Build) {
 
     build.file("llama-cpp/ggml-metal.m");
     build.flag("-DGGML_USE_METAL");
+
+    // The following code can be removed once ggml-metal.metal is inlined into ggml-metal.c
+    // See https://github.com/rustformers/llm/pull/324#issuecomment-1602992869
+    println!("cargo:rerun-if-changed=llama-cpp/ggml-metal.metal");
+
+    let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let build_type = env::var("PROFILE").unwrap();
+    // Go up 3 directories from manifest dir to get to root, then go to target/<profile>
+    let output_path = Path::new(&manifest_dir_string)
+        .ancestors()
+        .nth(3)
+        .unwrap()
+        .join("target")
+        .join(build_type);
+
+    let input_path =
+        Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("llama-cpp/ggml-metal.metal");
+    let output_path = Path::new(&output_path).join("ggml-metal.metal");
+    std::fs::copy(input_path, output_path).unwrap();
+    // End of code that can be removed
 
     #[cfg(not(debug_assertions))]
     build.flag("-DGGML_METAL_NDEBUG");
