@@ -129,7 +129,7 @@ impl KnownModel for Gpt2 {
             ..
         } = self.hyperparameters;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
             let ctx0 = builder.ctx0;
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
@@ -137,7 +137,7 @@ impl KnownModel for Gpt2 {
             );
             let embd = &builder.embd;
 
-            let position_buf: Vec<usize> = (0..input_len).map(|i| session_len + i).collect();
+            let position_buf: Vec<i32> = (0..input_len).map(|i| (session_len + i) as i32).collect();
 
             let mut position = ctx0.new_tensor_1d(ggml::Type::I32, input_len);
             unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
@@ -149,6 +149,8 @@ impl KnownModel for Gpt2 {
 
             let mut gf = ggml::ComputationGraph::new(num_threads);
             for il in 0..n_layer {
+                builder.use_scratch(Some(0));
+
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
@@ -261,6 +263,8 @@ impl KnownModel for Gpt2 {
                 // feed-forward
                 let ff_in = current.share();
 
+                builder.use_scratch(Some(1));
+
                 // feed-forward normalization
                 current = ctx0.op_norm(&ff_in);
                 current = ctx0.op_add(
@@ -289,12 +293,16 @@ impl KnownModel for Gpt2 {
                 input_layer = ctx0.op_add(&current, &ff_in);
             }
 
+            builder.use_scratch(Some(0));
+
             // normalization
             input_layer = ctx0.op_norm(&input_layer);
             input_layer = ctx0.op_add(
                 &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
                 &ctx0.op_repeat(&self.ln_f_b, &input_layer),
             );
+
+            builder.use_scratch(None);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 

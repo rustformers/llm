@@ -9,6 +9,7 @@ but this work is ongoing.
 
 - <https://huggingface.co/lxe/Cerebras-GPT-2.7B-Alpaca-SP-ggml>: note that this is `f16`-only and
   we recommend you quantize it using `llm` for best performance.
+- <https://huggingface.co/TheBloke/WizardCoder-15B-1.0-GGML>
 
 ## GPT-J
 
