@@ -7,7 +7,10 @@
 //! All [Tensor]s are nodes in this computational graph, and values cannot be retrieved until computation is completed.
 #![deny(missing_docs)]
 
-use std::os::raw::{c_int, c_void};
+use std::{
+    alloc::Layout,
+    os::raw::{c_int, c_void},
+};
 
 mod context;
 mod tensor;
@@ -22,6 +25,9 @@ pub(crate) use ggml_sys as sys;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "metal")]
+pub mod metal;
 
 /// The type of a tensor element.
 pub type ElementType = Type;
@@ -218,23 +224,35 @@ impl Type {
 ///
 /// See [Context::use_scratch].
 pub struct Buffer {
-    data: Box<[u8]>,
+    data: *mut c_void,
+    layout: Layout,
 }
+
+const BUFFER_ALIGN: usize = 16384;
 
 impl Buffer {
     /// Creates a new buffer of the specified size.
     pub fn new(size: usize) -> Self {
-        let mut data: Vec<u8> = Vec::with_capacity(size);
+        let layout = Layout::from_size_align(size, BUFFER_ALIGN).unwrap();
 
-        // SAFETY: The contents are intentionally uninitialized, as they will be passed to
-        // the ggml C API which will fill them with data.
-        #[allow(clippy::uninit_vec)]
         unsafe {
-            data.set_len(size);
+            Buffer {
+                data: std::alloc::alloc(layout).cast(),
+                layout,
+            }
         }
+    }
 
-        Buffer {
-            data: data.into_boxed_slice(),
+    /// Returns the size of the buffer in bytes
+    pub fn size(&self) -> usize {
+        self.layout.size()
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self.data.cast(), self.layout);
         }
     }
 }

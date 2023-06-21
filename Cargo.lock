@@ -883,6 +883,7 @@ version = "0.2.0-dev"
 dependencies = [
  "anyhow",
  "ggml-sys",
+ "memmap2",
  "rand",
  "thiserror",
 ]

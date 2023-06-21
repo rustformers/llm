@@ -188,6 +188,8 @@ pub struct ModelParameters {
     pub context_size: usize,
     /// The [LoRA](https://arxiv.org/abs/2106.09685) adapters to use when loading the model. If `None`, no adapters will be used.
     pub lora_adapters: Option<Vec<PathBuf>>,
+    /// Whether to use GPU acceleration when available
+    pub use_gpu: bool,
 }
 
 impl Default for ModelParameters {
@@ -196,6 +198,7 @@ impl Default for ModelParameters {
             prefer_mmap: true,
             context_size: 2048,
             lora_adapters: None,
+            use_gpu: false,
         }
     }
 }

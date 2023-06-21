@@ -342,7 +342,7 @@ pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
+    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>);
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -467,16 +467,15 @@ pub fn load<M: KnownModel>(
     }
 
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
-    let context = Context::init(ctx_size, !use_mmap);
-
-    let (mmap, file_size) = {
+    let (context, file_size) = if use_mmap {
         let file = File::open(path)?;
-        let mmap = if use_mmap {
-            Some(unsafe { Mmap::map(&file)? })
-        } else {
-            None
-        };
-        (mmap, file.metadata()?.len())
+        unsafe {
+            let mmap = Mmap::map(&file)?;
+            let file_size = mmap.len() as u64;
+            (Context::init_mmap(mmap), file_size)
+        }
+    } else {
+        (Context::init(ctx_size, true), file.metadata()?.len())
     };
 
     let tensors_len = tensors.len();
@@ -485,7 +484,6 @@ pub fn load<M: KnownModel>(
         file,
         tensors,
         context,
-        mmap,
         lora_adapters,
         load_progress_callback: &mut load_progress_callback,
         loaded_tensors: Default::default(),
@@ -578,7 +576,6 @@ struct MmapCompatibleLoader<'a> {
     file: File,
     tensors: HashMap<String, TensorLoadInfo>,
     context: Context,
-    mmap: Option<Mmap>,
     lora_adapters: Option<Vec<LoraAdapter>>,
     load_progress_callback: &'a mut dyn FnMut(LoadProgress),
     loaded_tensors: HashMap<String, ggml::Tensor>,
@@ -594,7 +591,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             &self.context,
             &mut self.file,
             &self.path,
-            self.mmap.as_ref(),
+            self.context.mmap.as_ref(),
         );
 
         let mut tensor = main_context.get_tensor(info)?;
@@ -618,8 +615,8 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
-        (self.context, self.loaded_tensors, self.mmap)
+    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>) {
+        (self.context, self.loaded_tensors)
     }
 }
 

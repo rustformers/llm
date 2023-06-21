@@ -32,7 +32,7 @@ cargo run --release --package generate-ggml-bindings
 
 ## Acceleration Support for Building
 
-The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored. 
+The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored.
 
 | Platform/OS | `cublas`           | `clblast`          | `metal`            |
 | ----------- | ------------------ | ------------------ | ------------------ |
@@ -62,7 +62,6 @@ set OPENCL_PATH=....\vcpkg\packages\opencl_x64-windows
 set CLBLAST_PATH=....\vcpkg\packages\clblast_x64-windows
 ```
 
-
 ⚠️ When working with MSVC in a Windows environment, it is essential to set the `-Ctarget-feature=+crt-static` Rust flag. This flag is critical as it enables the static linking of the C runtime, which can be paramount for certain deployment scenarios or specific runtime environments.
 
 To set this flag, you can modify the .cargo\config file in your project directory. Please add the following configuration snippet:
@@ -76,7 +75,6 @@ This will ensure the Rust flag is appropriately set for your compilation process
 
 For a comprehensive guide on the usage of Rust flags, including other possible ways to set them, please refer to this detailed [StackOverflow discussion](https://stackoverflow.com/questions/38040327/how-to-pass-rustc-flags-to-cargo). Make sure to choose an option that best fits your project requirements and development environment.
 
-
 ⚠️ For `llm` to function properly, it requires the `clblast.dll` and `OpenCL.dll` files. These files can be found within the `bin` subdirectory of their respective vcpkg packages. There are two options to ensure `llm` can access these files:
 
 1. Amend your `PATH` environment variable to include the `bin` directories of each respective package.
@@ -84,8 +82,6 @@ For a comprehensive guide on the usage of Rust flags, including other possible w
 2. Manually copy the `clblast.dll` and `OpenCL.dll` files into the `./target/release` or `./target/debug` directories. The destination directory will depend on the profile that was active during the compilation process.
 
 Please choose the option that best suits your needs and environment configuration.
-
-
 
 ### Linux
 
@@ -102,6 +98,16 @@ CLBlast can be installed on Linux through various package managers. For example,
 #### Metal
 
 Xcode and the associated command-line tools should be installed on your system, and you should be running a version of MacOS that supports Metal. For more detailed information, please consult the [official Metal documentation](https://developer.apple.com/metal/).
+
+To enable Metal using the CLI, ensure it was built successfully using `--features=metal` and then pass the `--use-gpu` flag.
+
+The current underlying implementation of Metal in GGML is still in flux and has some limitations:
+
+- Metal for GGML requires the `ggml-metal.metal` file to be located in the same directory as the binary (i.e., `target/release/`). In future versions, this will likely be embedded in the binary itself.
+- Evaluating a model with more than one token at a time is not currently supported in GGML's Metal implementation. An `llm` inference session will fall back to the CPU implementation (typically during the 'feed prompt' phase) but will automatically use the GPU once a single token is passed per evaluation (typically after prompt feeding).
+- Not all model architectures will be equally stable when used with Metal due to ongoing work in the underlying implementation. Expect `llama` models to work fine though.
+- With Metal, it is possible but not required to use `mmap`. As buffers do not need to be copied to VRAM on M1, `mmap` is the most efficient however.
+- Debug messages may be logged by the underlying GGML Metal implementation. This will likely go away in the future for release builds of `llm`.
 
 ## Debugging
 
