@@ -18,6 +18,9 @@ pub struct Context {
 
     /// Backing buffer (in case we own it)
     pub buffer: Option<Buffer>,
+
+    /// Whether the context can offload tensors to the GPU
+    pub can_offload: bool,
 }
 
 impl Context {
@@ -35,6 +38,7 @@ impl Context {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             mmap: None,
             buffer: Some(buffer),
+            can_offload: false,
         }
     }
 
@@ -52,6 +56,7 @@ impl Context {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             mmap: Some(mmap),
             buffer: None,
+            can_offload: false,
         }
     }
 
@@ -70,15 +75,31 @@ impl Context {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
             mmap: None,
             buffer: None,
+            can_offload: false,
         }
+    }
+
+    /// If offloading is enabled, all tensors created by this context will be offloaded to the GPU
+    pub fn enable_offloading(&mut self) {
+        self.can_offload = true;
+    }
+
+    /// Disables the offloading of tensors to the GPU
+    pub fn disable_offloading(&mut self) {
+        self.can_offload = false;
     }
 
     /// Wraps a raw tensor with a weak pointer to the context.
     fn new_tensor_raw(&self, raw: *mut sys::ggml_tensor) -> Tensor {
-        Tensor {
+        let tensor = Tensor {
             ptr: NonNull::new(raw).expect("Should not be null"),
             ctx: Arc::downgrade(&self.ptr),
+        };
+
+        if self.can_offload {
+            crate::accelerator_offload_tensor(&tensor);
         }
+        tensor
     }
 
     /// Creates a new 1D tensor.
@@ -429,7 +450,7 @@ impl Context {
     /// Sets the scratch buffer to be used by this [Context].
     ///
     /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
-    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a mut Buffer>) {
+    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a Buffer>) {
         let (size, data) = if let Some(buffer) = scratch_buffer {
             (buffer.size(), buffer.data)
         } else {

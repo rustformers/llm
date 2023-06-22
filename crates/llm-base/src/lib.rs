@@ -65,15 +65,6 @@ pub struct InferenceParameters {
     /// A reasonable default value is 8, as most modern high-performance computers have
     /// 8 physical cores. Adjust to your needs.
     pub n_threads: usize,
-    /// Controls batch/chunk size for prompt ingestion in [InferenceSession::feed_prompt].
-    ///
-    /// This is the number of tokens that will be ingested at once. This is useful for
-    /// trying to speed up the ingestion of prompts, as it allows for parallelization.
-    /// However, you will be fundamentally limited by your machine's ability to evaluate
-    /// the transformer model, so increasing the batch size will not always help.
-    ///
-    /// A reasonable default value is 8.
-    pub n_batch: usize,
     /// The sampler to use for sampling tokens from the model's probabilities.
     ///
     /// Each time the model runs, it generates a distribution of probabilities; each token
@@ -94,7 +85,6 @@ impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
             n_threads: 8,
-            n_batch: 8,
             sampler: Arc::new(samplers::TopPTopK::default()),
         }
     }

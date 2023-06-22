@@ -190,6 +190,8 @@ pub struct ModelParameters {
     pub lora_adapters: Option<Vec<PathBuf>>,
     /// Whether to use GPU acceleration when available
     pub use_gpu: bool,
+    /// The number of layers to offload to the gpu. If `None`, all layers will be offloaded.
+    pub gpu_layers: Option<usize>,
 }
 
 impl Default for ModelParameters {
@@ -199,6 +201,20 @@ impl Default for ModelParameters {
             context_size: 2048,
             lora_adapters: None,
             use_gpu: false,
+            gpu_layers: None,
+        }
+    }
+}
+
+impl ModelParameters {
+    /// Returns true if the model should offload the given layer to the accelerator.
+    pub fn should_offload(&self, layer: usize) -> bool {
+        if !self.use_gpu {
+            false
+        } else if let Some(offloadable_layers) = self.gpu_layers {
+            layer < offloadable_layers
+        } else {
+            true
         }
     }
 }

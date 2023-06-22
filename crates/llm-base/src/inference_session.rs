@@ -1,5 +1,5 @@
 use ggml::{Buffer, ComputationGraph, Context, Tensor};
-use std::{fmt::Display, sync::Arc};
+use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
 
 #[cfg(feature = "metal")]
@@ -23,6 +23,24 @@ fn scratch_buffers() -> ScratchBuffers {
         ggml::Buffer::new(SCRATCH_SIZE),
         ggml::Buffer::new(SCRATCH_SIZE),
     ]
+}
+
+fn kv_memory(
+    context: &Context,
+    config: &InferenceSessionConfig,
+    n_elements: usize,
+) -> (Tensor, Tensor) {
+    let memory_k = context.new_tensor_1d(config.memory_k_type.into(), n_elements);
+    let memory_v = context.new_tensor_1d(config.memory_v_type.into(), n_elements);
+    ggml::set_name(&memory_k, "memory_k");
+    ggml::set_name(&memory_v, "memory_v");
+
+    if config.use_gpu {
+        ggml::accelerator_offload_tensor_no_scratch(&memory_k);
+        ggml::accelerator_offload_tensor_no_scratch(&memory_v);
+    }
+
+    (memory_k, memory_v)
 }
 
 /// Result of graph building
@@ -92,19 +110,27 @@ pub struct InferenceSession {
 }
 
 pub struct BuildContext<'session> {
-    pub ctx0: &'session Context,
+    //FIXME: Borrowing issue, dont know how to fix it
+    pub ctx0: RefCell<&'session mut Context>,
     pub embd: &'session Tensor,
     pub memory_k: &'session Tensor,
     pub memory_v: &'session Tensor,
-    pub scratch: &'session mut ScratchBuffers,
+    pub scratch: &'session ScratchBuffers,
 }
 
 impl<'session> BuildContext<'session> {
-    pub fn use_scratch(&mut self, idx: Option<usize>) {
-        self.ctx0.use_scratch(match idx {
-            None => None,
-            Some(idx) => Some(&mut self.scratch[idx]),
-        })
+    pub fn get_scratch(&self, idx: usize) -> Option<&Buffer> {
+        Some(&self.scratch[idx])
+    }
+
+    pub fn enable_offloading(&self) {
+        let mut ctx0 = self.ctx0.borrow_mut();
+        ctx0.enable_offloading();
+    }
+
+    pub fn disable_offloading(&self) {
+        let mut ctx0 = self.ctx0.borrow_mut();
+        ctx0.disable_offloading();
     }
 }
 
@@ -137,15 +163,18 @@ impl InferenceSession {
             ctx_size
         };
 
+        //TODO: check if this is needed and the right place to put it
+        if config.use_gpu {
+            ggml::accelerator_initialize(0);
+            ggml::accelerator_set_scratch_size(config.n_batch * 1024 * 1024);
+        }
+
         let session_ctx = Arc::new(ggml::Context::init(ctx_size, true));
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
-        ggml::set_name(&memory_k, "memory_k");
-        ggml::set_name(&memory_v, "memory_v");
+        let (memory_k, memory_v) = kv_memory(&session_ctx, &config, n_elements);
 
         let scratch = scratch_buffers();
 
@@ -216,12 +245,12 @@ impl InferenceSession {
     {
         // Build a graph
         self.ctx0 = ggml::Context::init_buffer(self.ctx0.buffer.take().unwrap());
-        let ctx0 = &self.ctx0;
+        let ctx0 = &mut self.ctx0;
         let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
         ggml::set_name(&embd, "embd");
 
         let bc = BuildContext {
-            ctx0,
+            ctx0: RefCell::new(ctx0),
             embd: &embd,
             memory_k: &self.memory_k,
             memory_v: &self.memory_v,
@@ -296,7 +325,7 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        for batch in prompt_tokens.chunks(params.n_batch) {
+        for batch in prompt_tokens.chunks(self.config.n_batch) {
             model.evaluate(self, params, batch, output_request);
             for &tk in batch {
                 let should_call_callback = Some(tk) != model.bot_token_id();
@@ -480,7 +509,7 @@ impl InferenceSession {
         let n_ctx = model.context_size();
         let n_chunk = tokens.len() / n_ctx;
         let n_vocab = model.vocabulary().len();
-        let n_batch = parameters.n_batch;
+        let n_batch = self.config.n_batch;
 
         let mut nll = 0.0;
 
@@ -705,13 +734,24 @@ pub struct InferenceSessionConfig {
 
     /// Whether to use GPU acceleration
     pub use_gpu: bool,
+    /// Controls batch/chunk size for prompt ingestion in [InferenceSession::feed_prompt].
+    ///
+    /// This is the number of tokens that will be ingested at once. This is useful for
+    /// trying to speed up the ingestion of prompts, as it allows for parallelization.
+    /// However, you will be fundamentally limited by your machine's ability to evaluate
+    /// the transformer model, so increasing the batch size will not always help.
+    ///
+    /// A reasonable default value is 8.
+    pub n_batch: usize,
 }
+
 impl Default for InferenceSessionConfig {
     fn default() -> Self {
         Self {
             memory_k_type: ModelKVMemoryType::Float16,
             memory_v_type: ModelKVMemoryType::Float16,
             use_gpu: false,
+            n_batch: 8,
         }
     }
 }

@@ -147,8 +147,8 @@ impl KnownModel for GptNeoX {
             ..
         } = self.hyperparameters;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let ctx0 = builder.ctx0.borrow();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
             let (memory_k_size, memory_v_size) = (
@@ -160,7 +160,7 @@ impl KnownModel for GptNeoX {
 
             for il in 0..n_layer {
                 // attention uses first scratch buffer
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
@@ -280,12 +280,12 @@ impl KnownModel for GptNeoX {
                 );
 
                 // use the second scratch for the feed forward
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 let feedforward_input: Tensor;
                 if !use_parallel_residual {
                     feedforward_input = ctx0.op_add(&current, &input_layer);
-                    current = feed_forward_network(ctx0, &self.layers[il], &feedforward_input);
+                    current = feed_forward_network(&ctx0, &self.layers[il], &feedforward_input);
                     // input for next layer
                     input_layer = ctx0.op_add(&current, &feedforward_input);
                 } else {
@@ -294,7 +294,7 @@ impl KnownModel for GptNeoX {
 
                     // this is independent of the self-attention result, so it could be done in parallel to the self-attention
                     // note here we pass inpL instead of cur
-                    current = feed_forward_network(ctx0, &self.layers[il], &input_layer);
+                    current = feed_forward_network(&ctx0, &self.layers[il], &input_layer);
 
                     // layer input + FF
                     current = ctx0.op_add(&current, &feedforward_input);
@@ -305,7 +305,7 @@ impl KnownModel for GptNeoX {
             }
 
             // use the first scratch for the norm
-            builder.use_scratch(Some(1));
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // normalize the output
             input_layer = ctx0.op_norm(&input_layer);

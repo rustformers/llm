@@ -15,6 +15,36 @@ impl Tensor {
     /// Exposed for purposes of determining context size.
     pub const C_TYPE_SIZE: usize = std::mem::size_of::<sys::ggml_tensor>();
 
+    ///Sets the name of the tensor
+    pub fn set_name(&mut self, name: &str) -> &Tensor {
+        assert!(name.len() <= 32, "Name is too long!");
+
+        let bytes = name.as_bytes();
+        let mut array = [0i8; 32];
+        array[..bytes.len()].copy_from_slice(&bytes.iter().map(|&x| x as i8).collect::<Vec<_>>());
+
+        unsafe { self.ptr.as_mut().name = array }
+        self
+    }
+
+    ///Gets the name of the tensor
+    pub fn get_name(&self) -> String {
+        let name = unsafe { self.ptr.as_ref().name };
+        let mut name = name.iter().map(|&x| x as u8).collect::<Vec<_>>();
+        name.retain(|&x| x != 0);
+        String::from_utf8(name).unwrap()
+    }
+
+    ///Sets the acceleration backend of the tensor
+    pub fn set_backend(&mut self, backend: crate::Backend) {
+        unsafe { crate::set_tensor_backend(self.ptr.as_mut(), backend) }
+    }
+
+    ///Gets the acceleration backend of the tensor
+    pub fn get_backend(&self) -> crate::Backend {
+        unsafe { crate::get_tensor_backend(self.ptr.as_ref()) }
+    }
+
     /// Creates a shared copy of this tensor pointer.
     pub fn share(&self) -> Self {
         Tensor {
