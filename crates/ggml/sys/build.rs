@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // By default, this crate will attempt to compile ggml with the features of your host system if
 // the host and target are the same. If they are not, it will turn off auto-feature-detection,
@@ -19,13 +19,14 @@ fn main() {
     let compiler = build.get_compiler();
 
     // Enable accelerators
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is not defined"));
     if cfg_cublas() && !cfg!(target_os = "macos") {
-        enable_cublas(build);
+        enable_cublas(build, &out_dir);
     } else if cfg_clblast() {
         enable_clblast(build);
     } else if cfg!(target_os = "macos") {
         if cfg_metal() {
-            enable_metal(build);
+            enable_metal(build, &out_dir);
         } else {
             println!("cargo:rustc-link-lib=framework=Accelerate");
 
@@ -171,13 +172,48 @@ fn enable_clblast(build: &mut cc::Build) {
     build.flag(&format!(r"-I{opencl_include_path}"));
 }
 
-fn enable_metal(build: &mut cc::Build) {
+fn enable_metal(build: &mut cc::Build, out_dir: &Path) {
+    const GGML_METAL_METAL_PATH: &str = "llama-cpp/ggml-metal.metal";
+    const GGML_METAL_PATH: &str = "llama-cpp/ggml-metal.m";
+
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!("cargo:rustc-link-lib=framework=Metal");
     println!("cargo:rustc-link-lib=framework=MetalKit");
     println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
+    println!("cargo:rerun-if-changed={GGML_METAL_METAL_PATH}");
+    println!("cargo:rerun-if-changed={GGML_METAL_PATH}");
 
-    build.file("llama-cpp/ggml-metal.m");
+    // HACK: patch ggml-metal.m so that it includes ggml-metal.metal, so that
+    // a runtime dependency is not necessary
+    let ggml_metal_path = {
+        let ggml_metal_metal = std::fs::read_to_string(GGML_METAL_METAL_PATH)
+            .expect("Could not read ggml-metal.metal")
+            .replace('\\', "\\\\")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\"', "\\\"");
+
+        let ggml_metal =
+            std::fs::read_to_string(GGML_METAL_PATH).expect("Could not read ggml-metal.m");
+
+        let needle = r#"NSString * src  = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];"#;
+        if !ggml_metal.contains(needle) {
+            panic!("ggml-metal.m does not contain the needle to be replaced; the patching logic needs to be reinvestigated. Contact a `llm` developer!");
+        }
+
+        let ggml_metal = ggml_metal.replace(
+            needle,
+            &format!(r#"NSString * src  = @"{ggml_metal_metal}";"#),
+        );
+
+        let patched_ggml_metal_path = out_dir.join("ggml-metal.m");
+        std::fs::write(&patched_ggml_metal_path, ggml_metal)
+            .expect("Could not write temporary patched ggml-metal.m");
+
+        patched_ggml_metal_path
+    };
+
+    build.file(ggml_metal_path);
     build.flag("-DGGML_USE_METAL");
 
     #[cfg(not(debug_assertions))]
@@ -223,10 +259,8 @@ fn cuda_lib_path() -> String {
     .to_string()
 }
 
-fn enable_cublas(build: &mut cc::Build) {
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR is not defined");
-
-    let object_file = PathBuf::from(out_dir)
+fn enable_cublas(build: &mut cc::Build, out_dir: &Path) {
+    let object_file = out_dir
         .join("llama-cpp")
         .join("ggml-cuda.o")
         .to_str()
