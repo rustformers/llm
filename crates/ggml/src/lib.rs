@@ -19,6 +19,7 @@ pub mod format;
 pub mod util;
 
 pub use context::Context;
+use sys::ggml_tensor;
 pub use tensor::Tensor;
 
 pub(crate) use ggml_sys as sys;
@@ -137,6 +138,21 @@ pub enum Type {
     Q8_0,
     /// Quantized 8-bit (type 1).
     Q8_1,
+    /// K-Quantized 2-bit.
+    #[allow(non_camel_case_types)]
+    Q2_K,
+    /// K-Quantized 3-bit.
+    #[allow(non_camel_case_types)]
+    Q3_K,
+    /// K-Quantized 4-bit.
+    #[allow(non_camel_case_types)]
+    Q4_K,
+    /// K-Quantized 5-bit.
+    #[allow(non_camel_case_types)]
+    Q5_K,
+    /// K-Quantized 6-bit.
+    #[allow(non_camel_case_types)]
+    Q6_K,
     /// Integer 32-bit.
     I32,
     /// Float 16-bit.
@@ -157,6 +173,11 @@ impl From<Type> for sys::ggml_type {
             Type::Q5_1 => sys::ggml_type_GGML_TYPE_Q5_1,
             Type::Q8_0 => sys::ggml_type_GGML_TYPE_Q8_0,
             Type::Q8_1 => sys::ggml_type_GGML_TYPE_Q8_1,
+            Type::Q2_K => sys::ggml_type_GGML_TYPE_Q2_K,
+            Type::Q3_K => sys::ggml_type_GGML_TYPE_Q3_K,
+            Type::Q4_K => sys::ggml_type_GGML_TYPE_Q4_K,
+            Type::Q5_K => sys::ggml_type_GGML_TYPE_Q5_K,
+            Type::Q6_K => sys::ggml_type_GGML_TYPE_Q6_K,
             Type::I32 => sys::ggml_type_GGML_TYPE_I32,
             Type::F16 => sys::ggml_type_GGML_TYPE_F16,
             Type::F32 => sys::ggml_type_GGML_TYPE_F32,
@@ -175,6 +196,11 @@ impl TryFrom<sys::ggml_type> for Type {
             sys::ggml_type_GGML_TYPE_Q5_1 => Ok(Type::Q5_1),
             sys::ggml_type_GGML_TYPE_Q8_0 => Ok(Type::Q8_0),
             sys::ggml_type_GGML_TYPE_Q8_1 => Ok(Type::Q8_1),
+            sys::ggml_type_GGML_TYPE_Q2_K => Ok(Type::Q2_K),
+            sys::ggml_type_GGML_TYPE_Q3_K => Ok(Type::Q3_K),
+            sys::ggml_type_GGML_TYPE_Q4_K => Ok(Type::Q4_K),
+            sys::ggml_type_GGML_TYPE_Q5_K => Ok(Type::Q5_K),
+            sys::ggml_type_GGML_TYPE_Q6_K => Ok(Type::Q6_K),
             sys::ggml_type_GGML_TYPE_I32 => Ok(Type::I32),
             sys::ggml_type_GGML_TYPE_F16 => Ok(Type::F16),
             sys::ggml_type_GGML_TYPE_F32 => Ok(Type::F32),
@@ -194,6 +220,11 @@ impl std::fmt::Display for Type {
             Type::Q5_1 => write!(f, "q5_1"),
             Type::Q8_0 => write!(f, "q8_0"),
             Type::Q8_1 => write!(f, "q8_1"),
+            Type::Q2_K => write!(f, "q2_k"),
+            Type::Q3_K => write!(f, "q3_k"),
+            Type::Q4_K => write!(f, "q4_k"),
+            Type::Q5_K => write!(f, "q5_k"),
+            Type::Q6_K => write!(f, "q6_k"),
             Type::I32 => write!(f, "i32"),
             Type::F16 => write!(f, "f16"),
             Type::F32 => write!(f, "f32"),
@@ -212,6 +243,11 @@ impl Type {
             Type::Q5_1 => true,
             Type::Q8_0 => true,
             Type::Q8_1 => true,
+            Type::Q2_K => true,
+            Type::Q3_K => true,
+            Type::Q4_K => true,
+            Type::Q5_K => true,
+            Type::Q6_K => true,
             Type::I32 => false,
             Type::F16 => false,
             Type::F32 => false,
@@ -397,7 +433,7 @@ pub fn cpu_has_gpublas() -> bool {
 }
 
 /// Sets the name of a tensor.
-pub fn set_name(tensor: &Tensor, name: &str) {
+pub fn set_name(tensor: &Tensor, name: &str) -> *mut ggml_tensor {
     let c_name = std::ffi::CString::new(name).unwrap();
     unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) }
 }

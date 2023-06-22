@@ -40,6 +40,11 @@ impl From<FileType> for i32 {
                 FileTypeFormat::MostlyQ8_0 => 7,
                 FileTypeFormat::MostlyQ5_0 => 8,
                 FileTypeFormat::MostlyQ5_1 => 9,
+                FileTypeFormat::MostlyQ2_K => 10,
+                FileTypeFormat::MostlyQ3_K => 11,
+                FileTypeFormat::MostlyQ4_K => 12,
+                FileTypeFormat::MostlyQ5_K => 13,
+                FileTypeFormat::MostlyQ6_K => 14,
             }
     }
 }
@@ -57,6 +62,11 @@ impl TryFrom<i32> for FileType {
             7 => FileTypeFormat::MostlyQ8_0,
             8 => FileTypeFormat::MostlyQ5_0,
             9 => FileTypeFormat::MostlyQ5_1,
+            10 => FileTypeFormat::MostlyQ2_K,
+            11 => FileTypeFormat::MostlyQ3_K,
+            12 => FileTypeFormat::MostlyQ4_K,
+            13 => FileTypeFormat::MostlyQ5_K,
+            14 => FileTypeFormat::MostlyQ6_K,
             _ => return Err(()),
         };
 
@@ -78,6 +88,11 @@ impl Display for FileType {
             FileTypeFormat::MostlyQ8_0 => write!(f, "q8_0"),
             FileTypeFormat::MostlyQ5_0 => write!(f, "q5_0"),
             FileTypeFormat::MostlyQ5_1 => write!(f, "q5_1"),
+            FileTypeFormat::MostlyQ2_K => write!(f, "q2_k"),
+            FileTypeFormat::MostlyQ3_K => write!(f, "q3_k"),
+            FileTypeFormat::MostlyQ4_K => write!(f, "q4_k"),
+            FileTypeFormat::MostlyQ5_K => write!(f, "q5_k"),
+            FileTypeFormat::MostlyQ6_K => write!(f, "q6_k"),
         }?;
 
         write!(f, "_qnt{}", self.quantization_version)?;
@@ -109,6 +124,21 @@ pub enum FileTypeFormat {
     MostlyQ5_0,
     /// All tensors are mostly stored as `Q5_1`, except for the 1D tensors (32-bit).
     MostlyQ5_1,
+    /// All tensors are mostly stored as `Q2_K`, except for the 1D tensors (32-bit).
+    #[allow(non_camel_case_types)]
+    MostlyQ2_K,
+    /// All tensors are mostly stored as `Q3_K`, except for the 1D tensors (32-bit).
+    #[allow(non_camel_case_types)]
+    MostlyQ3_K,
+    /// All tensors are mostly stored as `Q4_K`, except for the 1D tensors (32-bit).
+    #[allow(non_camel_case_types)]
+    MostlyQ4_K,
+    /// All tensors are mostly stored as `Q5_K`, except for the 1D tensors (32-bit).
+    #[allow(non_camel_case_types)]
+    MostlyQ5_K,
+    /// All tensors are mostly stored as `Q6_K`, except for the 1D tensors (32-bit).
+    #[allow(non_camel_case_types)]
+    MostlyQ6_K,
 }
 impl TryFrom<ggml::Type> for FileTypeFormat {
     type Error = ();
@@ -121,6 +151,11 @@ impl TryFrom<ggml::Type> for FileTypeFormat {
             ggml::Type::Q5_1 => Self::MostlyQ5_1,
             ggml::Type::Q8_0 => Self::MostlyQ8_0,
             ggml::Type::Q8_1 => return Err(()),
+            ggml::Type::Q2_K => Self::MostlyQ2_K,
+            ggml::Type::Q3_K => Self::MostlyQ3_K,
+            ggml::Type::Q4_K => Self::MostlyQ4_K,
+            ggml::Type::Q5_K => Self::MostlyQ5_K,
+            ggml::Type::Q6_K => Self::MostlyQ6_K,
             ggml::Type::I32 => return Err(()),
             ggml::Type::F16 => Self::MostlyF16,
             ggml::Type::F32 => Self::F32,

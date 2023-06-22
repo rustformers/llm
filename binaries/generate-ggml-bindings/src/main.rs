@@ -12,8 +12,8 @@ fn main() {
     let src_path = sys_path.join("src");
 
     let bindings = bindgen::Builder::default()
-        .header(ggml_path.join("ggml.h").to_str().unwrap().to_string())
-        .allowlist_file(r".*ggml.h")
+        .header(ggml_path.join("k_quants.h").to_str().unwrap().to_string())
+        .allowlist_file(r".*k_quants.h")
         // Suppress some warnings
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_camel_case_types)]")
