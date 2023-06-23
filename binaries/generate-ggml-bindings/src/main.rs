@@ -16,6 +16,7 @@ fn main() {
     generate_cuda(&ggml_path, &src_path);
     generate_opencl(&ggml_path, &src_path);
     generate_metal(&ggml_path, &src_path);
+    generate_llama(&ggml_path, &src_path);
 
     println!("Successfully updated bindings");
 }
@@ -35,6 +36,7 @@ fn generate_main(ggml_path: &Path, src_path: &Path) {
         .raw_line("pub mod metal;")
         .raw_line(r#"#[cfg(feature = "clblast")]"#)
         .raw_line("pub mod opencl;")
+        .raw_line("pub mod llama;")
         // Only generate code if it's from GGML
         .allowlist_file("crates/ggml/.*")
         .generate()
@@ -83,6 +85,18 @@ fn generate_metal(ggml_path: &Path, src_path: &Path) {
     generate_extra("metal", ggml_path, src_path, |b| {
         b.header(ggml_path.join("ggml-metal.h").to_string_lossy())
             .allowlist_file(r".*ggml-metal\.h")
+    });
+}
+
+fn generate_llama(ggml_path: &Path, src_path: &Path) {
+    // We do not use `llama.cpp` for its implementation at all;
+    // we only use it for its header file and its associated constants.
+    generate_extra("llama", ggml_path, src_path, |b| {
+        b.header(ggml_path.join("llama.h").to_string_lossy())
+            .allowlist_type("llama_ftype")
+            .allowlist_var("LLAMA_.*")
+            .prepend_enum_name(false)
+            .ignore_functions()
     });
 }
 
