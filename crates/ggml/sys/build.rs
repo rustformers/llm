@@ -9,7 +9,10 @@ fn main() {
 
     let mut builder = cc::Build::new();
 
-    let build = builder.files(["llama-cpp/ggml.c"]).includes(["llama-cpp"]);
+    let build = builder
+        .files(["llama-cpp/ggml.c", "llama-cpp/k_quants.c"])
+        .define("GGML_USE_K_QUANTS", None)
+        .includes(["llama-cpp"]);
 
     // This is a very basic heuristic for applying compile flags.
     // Feel free to update this to fit your operating system.
