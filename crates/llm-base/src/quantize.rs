@@ -1,8 +1,8 @@
 //! Implements quantization of weights.
 
 use crate::{
-    model::HyperparametersWriteError, Hyperparameters, KnownModel, LoadError, LoadProgress, Loader,
-    Vocabulary,
+    loader::FileTypeFormat, model::HyperparametersWriteError, Hyperparameters, KnownModel,
+    LoadError, LoadProgress, Loader, Vocabulary,
 };
 use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
@@ -175,7 +175,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
 
     if let Some(ft) = hyperparameters.file_type_mut() {
         ft.quantization_version = ggml::QNT_VERSION;
-        ft.format = quantization_type
+        ft.format = quantization_target
             .try_into()
             .expect("format has no corresponding ftype");
     }
@@ -255,6 +255,17 @@ impl From<QuantizationTarget> for ggml::Type {
             QuantizationTarget::Q5_0 => ggml::Type::Q5_0,
             QuantizationTarget::Q5_1 => ggml::Type::Q5_1,
             QuantizationTarget::Q8_0 => ggml::Type::Q8_0,
+        }
+    }
+}
+impl From<QuantizationTarget> for FileTypeFormat {
+    fn from(value: QuantizationTarget) -> Self {
+        match value {
+            QuantizationTarget::Q4_0 => FileTypeFormat::MostlyQ4_0,
+            QuantizationTarget::Q4_1 => FileTypeFormat::MostlyQ4_1,
+            QuantizationTarget::Q5_0 => FileTypeFormat::MostlyQ5_0,
+            QuantizationTarget::Q5_1 => FileTypeFormat::MostlyQ5_1,
+            QuantizationTarget::Q8_0 => FileTypeFormat::MostlyQ8_0,
         }
     }
 }

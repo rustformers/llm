@@ -30,45 +30,16 @@ pub struct FileType {
 impl From<FileType> for i32 {
     fn from(value: FileType) -> Self {
         (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
-            + match value.format {
-                FileTypeFormat::F32 => 0,
-                FileTypeFormat::MostlyF16 => 1,
-                FileTypeFormat::MostlyQ4_0 => 2,
-                FileTypeFormat::MostlyQ4_1 => 3,
-                FileTypeFormat::MostlyQ4_1SomeF16 => 4,
-                FileTypeFormat::MostlyQ4_2 => 5,
-                FileTypeFormat::MostlyQ8_0 => 7,
-                FileTypeFormat::MostlyQ5_0 => 8,
-                FileTypeFormat::MostlyQ5_1 => 9,
-                FileTypeFormat::MostlyQ2_K => 10,
-                FileTypeFormat::MostlyQ3_K => 11,
-                FileTypeFormat::MostlyQ4_K => 12,
-                FileTypeFormat::MostlyQ5_K => 13,
-                FileTypeFormat::MostlyQ6_K => 14,
-            }
+            + ggml::sys::llama::llama_ftype::from(value.format) as i32
     }
 }
 impl TryFrom<i32> for FileType {
     type Error = ();
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let format = match (value as u32) % ggml::QNT_VERSION_FACTOR {
-            0 => FileTypeFormat::F32,
-            1 => FileTypeFormat::MostlyF16,
-            2 => FileTypeFormat::MostlyQ4_0,
-            3 => FileTypeFormat::MostlyQ4_1,
-            4 => FileTypeFormat::MostlyQ4_1SomeF16,
-            5 => FileTypeFormat::MostlyQ4_2,
-            7 => FileTypeFormat::MostlyQ8_0,
-            8 => FileTypeFormat::MostlyQ5_0,
-            9 => FileTypeFormat::MostlyQ5_1,
-            10 => FileTypeFormat::MostlyQ2_K,
-            11 => FileTypeFormat::MostlyQ3_K,
-            12 => FileTypeFormat::MostlyQ4_K,
-            13 => FileTypeFormat::MostlyQ5_K,
-            14 => FileTypeFormat::MostlyQ6_K,
-            _ => return Err(()),
-        };
+        let format = FileTypeFormat::try_from(
+            ((value as u32) % ggml::QNT_VERSION_FACTOR) as ggml::sys::llama::llama_ftype,
+        )?;
 
         Ok(Self {
             format,
@@ -78,31 +49,13 @@ impl TryFrom<i32> for FileType {
 }
 impl Display for FileType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            FileTypeFormat::F32 => write!(f, "f32"),
-            FileTypeFormat::MostlyF16 => write!(f, "f16"),
-            FileTypeFormat::MostlyQ4_0 => write!(f, "q4_0"),
-            FileTypeFormat::MostlyQ4_1 => write!(f, "q4_1"),
-            FileTypeFormat::MostlyQ4_1SomeF16 => write!(f, "q4_1_with_f16"),
-            FileTypeFormat::MostlyQ4_2 => write!(f, "q4_2"),
-            FileTypeFormat::MostlyQ8_0 => write!(f, "q8_0"),
-            FileTypeFormat::MostlyQ5_0 => write!(f, "q5_0"),
-            FileTypeFormat::MostlyQ5_1 => write!(f, "q5_1"),
-            FileTypeFormat::MostlyQ2_K => write!(f, "q2_k"),
-            FileTypeFormat::MostlyQ3_K => write!(f, "q3_k"),
-            FileTypeFormat::MostlyQ4_K => write!(f, "q4_k"),
-            FileTypeFormat::MostlyQ5_K => write!(f, "q5_k"),
-            FileTypeFormat::MostlyQ6_K => write!(f, "q6_k"),
-        }?;
-
-        write!(f, "_qnt{}", self.quantization_version)?;
-
-        Ok(())
+        write!(f, "{}_qnt{}", self.format, self.quantization_version)
     }
 }
 
 /// How the tensors are stored in GGML LLM models.
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
+#[allow(non_camel_case_types)]
 pub enum FileTypeFormat {
     /// All tensors are stored as f32.
     F32,
@@ -116,50 +69,107 @@ pub enum FileTypeFormat {
     /// All tensors are mostly stored as `Q4_1`, except for the 1D tensors (32-bit)
     /// and the `tok_embeddings.weight` (f16) and `output.weight` tensors (f16).
     MostlyQ4_1SomeF16,
-    /// All tensors are mostly stored as `Q4_2`, except for the 1D tensors (32-bit).
-    MostlyQ4_2,
     /// All tensors are mostly stored as `Q8_0`, except for the 1D tensors (32-bit).
     MostlyQ8_0,
     /// All tensors are mostly stored as `Q5_0`, except for the 1D tensors (32-bit).
     MostlyQ5_0,
     /// All tensors are mostly stored as `Q5_1`, except for the 1D tensors (32-bit).
     MostlyQ5_1,
-    /// All tensors are mostly stored as `Q2_K`, except for the 1D tensors (32-bit).
-    #[allow(non_camel_case_types)]
+    /// The tensors are stored using the `Q2_K` quantization scheme.
     MostlyQ2_K,
-    /// All tensors are mostly stored as `Q3_K`, except for the 1D tensors (32-bit).
-    #[allow(non_camel_case_types)]
-    MostlyQ3_K,
-    /// All tensors are mostly stored as `Q4_K`, except for the 1D tensors (32-bit).
-    #[allow(non_camel_case_types)]
-    MostlyQ4_K,
-    /// All tensors are mostly stored as `Q5_K`, except for the 1D tensors (32-bit).
-    #[allow(non_camel_case_types)]
-    MostlyQ5_K,
-    /// All tensors are mostly stored as `Q6_K`, except for the 1D tensors (32-bit).
-    #[allow(non_camel_case_types)]
+    /// The tensors are stored using the `Q3_K_S` quantization scheme.
+    MostlyQ3_K_S,
+    /// The tensors are stored using the `Q3_K_M` quantization scheme.
+    MostlyQ3_K_M,
+    /// The tensors are stored using the `Q3_K_L` quantization scheme.
+    MostlyQ3_K_L,
+    /// The tensors are stored using the `Q4_K_S` quantization scheme.
+    MostlyQ4_K_S,
+    /// The tensors are stored using the `Q4_K_M` quantization scheme.
+    MostlyQ4_K_M,
+    /// The tensors are stored using the `Q5_K_S` quantization scheme.
+    MostlyQ5_K_S,
+    /// The tensors are stored using the `Q5_K_M` quantization scheme.
+    MostlyQ5_K_M,
+    /// The tensors are stored using the `Q6_K` quantization scheme.
     MostlyQ6_K,
 }
-impl TryFrom<ggml::Type> for FileTypeFormat {
+impl TryFrom<ggml::sys::llama::llama_ftype> for FileTypeFormat {
     type Error = ();
 
-    fn try_from(value: ggml::Type) -> Result<Self, Self::Error> {
-        Ok(match value {
-            ggml::Type::Q4_0 => Self::MostlyQ4_0,
-            ggml::Type::Q4_1 => Self::MostlyQ4_1,
-            ggml::Type::Q5_0 => Self::MostlyQ5_0,
-            ggml::Type::Q5_1 => Self::MostlyQ5_1,
-            ggml::Type::Q8_0 => Self::MostlyQ8_0,
-            ggml::Type::Q8_1 => return Err(()),
-            ggml::Type::Q2_K => Self::MostlyQ2_K,
-            ggml::Type::Q3_K => Self::MostlyQ3_K,
-            ggml::Type::Q4_K => Self::MostlyQ4_K,
-            ggml::Type::Q5_K => Self::MostlyQ5_K,
-            ggml::Type::Q6_K => Self::MostlyQ6_K,
-            ggml::Type::I32 => return Err(()),
-            ggml::Type::F16 => Self::MostlyF16,
-            ggml::Type::F32 => Self::F32,
-        })
+    fn try_from(value: ggml::sys::llama::llama_ftype) -> Result<Self, Self::Error> {
+        use ggml::sys::llama::*;
+        match value {
+            LLAMA_FTYPE_ALL_F32 => Ok(FileTypeFormat::F32),
+            LLAMA_FTYPE_MOSTLY_F16 => Ok(FileTypeFormat::MostlyF16),
+            LLAMA_FTYPE_MOSTLY_Q4_0 => Ok(FileTypeFormat::MostlyQ4_0),
+            LLAMA_FTYPE_MOSTLY_Q4_1 => Ok(FileTypeFormat::MostlyQ4_1),
+            LLAMA_FTYPE_MOSTLY_Q4_1_SOME_F16 => Ok(FileTypeFormat::MostlyQ4_1SomeF16),
+            LLAMA_FTYPE_MOSTLY_Q8_0 => Ok(FileTypeFormat::MostlyQ8_0),
+            LLAMA_FTYPE_MOSTLY_Q5_0 => Ok(FileTypeFormat::MostlyQ5_0),
+            LLAMA_FTYPE_MOSTLY_Q5_1 => Ok(FileTypeFormat::MostlyQ5_1),
+            LLAMA_FTYPE_MOSTLY_Q2_K => Ok(FileTypeFormat::MostlyQ2_K),
+            LLAMA_FTYPE_MOSTLY_Q3_K_S => Ok(FileTypeFormat::MostlyQ3_K_S),
+            LLAMA_FTYPE_MOSTLY_Q3_K_M => Ok(FileTypeFormat::MostlyQ3_K_M),
+            LLAMA_FTYPE_MOSTLY_Q3_K_L => Ok(FileTypeFormat::MostlyQ3_K_L),
+            LLAMA_FTYPE_MOSTLY_Q4_K_S => Ok(FileTypeFormat::MostlyQ4_K_S),
+            LLAMA_FTYPE_MOSTLY_Q4_K_M => Ok(FileTypeFormat::MostlyQ4_K_M),
+            LLAMA_FTYPE_MOSTLY_Q5_K_S => Ok(FileTypeFormat::MostlyQ5_K_S),
+            LLAMA_FTYPE_MOSTLY_Q5_K_M => Ok(FileTypeFormat::MostlyQ5_K_M),
+            LLAMA_FTYPE_MOSTLY_Q6_K => Ok(FileTypeFormat::MostlyQ6_K),
+            _ => Err(()),
+        }
+    }
+}
+impl From<FileTypeFormat> for ggml::sys::llama::llama_ftype {
+    fn from(value: FileTypeFormat) -> Self {
+        use ggml::sys::llama::*;
+        match value {
+            FileTypeFormat::F32 => LLAMA_FTYPE_ALL_F32,
+            FileTypeFormat::MostlyF16 => LLAMA_FTYPE_MOSTLY_F16,
+            FileTypeFormat::MostlyQ4_0 => LLAMA_FTYPE_MOSTLY_Q4_0,
+            FileTypeFormat::MostlyQ4_1 => LLAMA_FTYPE_MOSTLY_Q4_1,
+            FileTypeFormat::MostlyQ4_1SomeF16 => LLAMA_FTYPE_MOSTLY_Q4_1_SOME_F16,
+            FileTypeFormat::MostlyQ8_0 => LLAMA_FTYPE_MOSTLY_Q8_0,
+            FileTypeFormat::MostlyQ5_0 => LLAMA_FTYPE_MOSTLY_Q5_0,
+            FileTypeFormat::MostlyQ5_1 => LLAMA_FTYPE_MOSTLY_Q5_1,
+            FileTypeFormat::MostlyQ2_K => LLAMA_FTYPE_MOSTLY_Q2_K,
+            FileTypeFormat::MostlyQ3_K_S => LLAMA_FTYPE_MOSTLY_Q3_K_S,
+            FileTypeFormat::MostlyQ3_K_M => LLAMA_FTYPE_MOSTLY_Q3_K_M,
+            FileTypeFormat::MostlyQ3_K_L => LLAMA_FTYPE_MOSTLY_Q3_K_L,
+            FileTypeFormat::MostlyQ4_K_S => LLAMA_FTYPE_MOSTLY_Q4_K_S,
+            FileTypeFormat::MostlyQ4_K_M => LLAMA_FTYPE_MOSTLY_Q4_K_M,
+            FileTypeFormat::MostlyQ5_K_S => LLAMA_FTYPE_MOSTLY_Q5_K_S,
+            FileTypeFormat::MostlyQ5_K_M => LLAMA_FTYPE_MOSTLY_Q5_K_M,
+            FileTypeFormat::MostlyQ6_K => LLAMA_FTYPE_MOSTLY_Q6_K,
+        }
+    }
+}
+impl Display for FileTypeFormat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FileTypeFormat::F32 => "f32",
+                FileTypeFormat::MostlyF16 => "f16",
+                FileTypeFormat::MostlyQ4_0 => "q4_0",
+                FileTypeFormat::MostlyQ4_1 => "q4_1",
+                FileTypeFormat::MostlyQ4_1SomeF16 => "q4_1_with_f16",
+                FileTypeFormat::MostlyQ8_0 => "q8_0",
+                FileTypeFormat::MostlyQ5_0 => "q5_0",
+                FileTypeFormat::MostlyQ5_1 => "q5_1",
+                FileTypeFormat::MostlyQ2_K => "q2_k",
+                FileTypeFormat::MostlyQ3_K_S => "q3_K_S",
+                FileTypeFormat::MostlyQ3_K_M => "q3_K_M",
+                FileTypeFormat::MostlyQ3_K_L => "q3_K_L",
+                FileTypeFormat::MostlyQ4_K_S => "q4_K_S",
+                FileTypeFormat::MostlyQ4_K_M => "q4_K_M",
+                FileTypeFormat::MostlyQ5_K_S => "q5_K_S",
+                FileTypeFormat::MostlyQ5_K_M => "q5_K_M",
+                FileTypeFormat::MostlyQ6_K => "q6_k",
+            }
+        )
     }
 }
 

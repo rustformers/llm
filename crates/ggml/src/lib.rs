@@ -21,7 +21,7 @@ pub mod util;
 pub use context::Context;
 pub use tensor::Tensor;
 
-pub(crate) use ggml_sys as sys;
+pub use ggml_sys as sys;
 
 #[cfg(test)]
 mod tests;
