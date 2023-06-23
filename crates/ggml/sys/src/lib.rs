@@ -4,13 +4,14 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(unused)]
+pub mod llama;
+
 #[cfg(feature = "cublas")]
 pub mod cuda;
 #[cfg(feature = "metal")]
 pub mod metal;
 #[cfg(feature = "clblast")]
 pub mod opencl;
-pub mod llama;
 
 pub const GGML_FILE_MAGIC: u32 = 1734831468;
 pub const GGML_FILE_VERSION: u32 = 1;
