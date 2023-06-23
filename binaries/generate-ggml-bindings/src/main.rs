@@ -2,17 +2,27 @@
 //!
 //! Assumed to be run from the root of the workspace.
 
-use std::fs;
-use std::path::PathBuf;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     let sys_path = PathBuf::from("crates").join("ggml").join("sys");
     let ggml_path = sys_path.join("llama-cpp");
-    let include_path = ggml_path.to_str().unwrap().to_string();
     let src_path = sys_path.join("src");
 
+    generate_main(&ggml_path, &src_path);
+    generate_cuda(&ggml_path, &src_path);
+    generate_opencl(&ggml_path, &src_path);
+    generate_metal(&ggml_path, &src_path);
+
+    println!("Successfully updated bindings");
+}
+
+fn generate_main(ggml_path: &Path, src_path: &Path) {
     let bindings = bindgen::Builder::default()
-        .header(ggml_path.join("k_quants.h").to_str().unwrap().to_string())
+        .header(ggml_path.join("k_quants.h").to_string_lossy())
         .allowlist_file(r".*k_quants.h")
         // Suppress some warnings
         .raw_line("#![allow(non_upper_case_globals)]")
@@ -30,50 +40,7 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings");
 
-    bindgen::Builder::default()
-        .header(ggml_path.join("ggml-cuda.h").to_str().unwrap().to_string())
-        .allowlist_file(r".*ggml-cuda\.h")
-        .allowlist_recursively(false)
-        .clang_arg("-I")
-        .clang_arg(&include_path)
-        .raw_line("use super::ggml_compute_params;")
-        .raw_line("use super::ggml_tensor;")
-        .generate()
-        .expect("Unable to generate cuda bindings")
-        .write_to_file(src_path.join("cuda.rs"))
-        .expect("Couldn't write cuda bindings");
-
-    bindgen::Builder::default()
-        .header(
-            ggml_path
-                .join("ggml-opencl.h")
-                .to_str()
-                .unwrap()
-                .to_string(),
-        )
-        .allowlist_file(r".*ggml-opencl\.h")
-        .allowlist_recursively(false)
-        .clang_arg("-I")
-        .clang_arg(&include_path)
-        .raw_line("use super::ggml_tensor;")
-        .generate()
-        .expect("Unable to generate opencl bindings")
-        .write_to_file(src_path.join("opencl.rs"))
-        .expect("Couldn't write opencl bindings");
-
-    bindgen::Builder::default()
-        .header(ggml_path.join("ggml-metal.h").to_str().unwrap().to_string())
-        .allowlist_file(r".*ggml-metal\.h")
-        .allowlist_recursively(false)
-        .clang_arg("-I")
-        .clang_arg(&include_path)
-        .generate()
-        .expect("Unable to generate metal bindings")
-        .write_to_file(src_path.join("metal.rs"))
-        .expect("Couldn't write metal bindings");
-
     let mut generated_bindings = bindings.to_string();
-
     if cfg!(windows) {
         // windows generates all ::std::os::raw::c_* enum types as i32.
         // We need to replace some of them with c_uint as the rust bindings expect them to be unsigned.
@@ -92,8 +59,49 @@ fn main() {
             );
         }
     }
-
     fs::write(src_path.join("lib.rs"), generated_bindings).expect("Couldn't write bindings");
+}
 
-    println!("Successfully updated bindings");
+fn generate_cuda(ggml_path: &Path, src_path: &Path) {
+    generate_extra("cuda", ggml_path, src_path, |b| {
+        b.header(ggml_path.join("ggml-cuda.h").to_string_lossy())
+            .allowlist_file(r".*ggml-cuda\.h")
+            .raw_line("use super::ggml_compute_params;")
+            .raw_line("use super::ggml_tensor;")
+    })
+}
+
+fn generate_opencl(ggml_path: &Path, src_path: &Path) {
+    generate_extra("opencl", ggml_path, src_path, |b| {
+        b.header(ggml_path.join("ggml-opencl.h").to_string_lossy())
+            .allowlist_file(r".*ggml-opencl\.h")
+            .raw_line("use super::ggml_tensor;")
+    })
+}
+
+fn generate_metal(ggml_path: &Path, src_path: &Path) {
+    generate_extra("metal", ggml_path, src_path, |b| {
+        b.header(ggml_path.join("ggml-metal.h").to_string_lossy())
+            .allowlist_file(r".*ggml-metal\.h")
+    });
+}
+
+fn generate_extra(
+    name: &str,
+    ggml_path: &Path,
+    src_path: &Path,
+    mut callback: impl FnMut(bindgen::Builder) -> bindgen::Builder,
+) {
+    let builder = callback(
+        bindgen::Builder::default()
+            .allowlist_recursively(false)
+            .clang_arg("-I")
+            .clang_arg(ggml_path.to_string_lossy()),
+    );
+
+    builder
+        .generate()
+        .expect(&format!("Unable to generate {name} bindings"))
+        .write_to_file(src_path.join(format!("{name}.rs")))
+        .expect(&format!("Couldn't write {name} bindings"));
 }
