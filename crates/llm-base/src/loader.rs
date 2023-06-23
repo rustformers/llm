@@ -159,7 +159,6 @@ impl TryFrom<ggml::Type> for FileTypeFormat {
             ggml::Type::I32 => return Err(()),
             ggml::Type::F16 => Self::MostlyF16,
             ggml::Type::F32 => Self::F32,
-            ggml::Type::LegacyQ4_2 => Self::MostlyQ4_2,
         })
     }
 }
