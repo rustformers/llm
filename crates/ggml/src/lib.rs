@@ -560,5 +560,4 @@ pub fn accelerator_initialize(device: i32) {
     unsafe {
         sys::opencl::ggml_cl_init();
     }
-    
 }
