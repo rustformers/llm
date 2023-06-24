@@ -484,3 +484,81 @@ pub fn set_name(tensor: &Tensor, name: &str) {
     let c_name = std::ffi::CString::new(name).unwrap();
     unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) };
 }
+
+/// Gets the acceleration backend of a tensor.
+pub fn get_tensor_backend(tensor: &sys::ggml_tensor) -> Backend {
+    (tensor.backend as sys::ggml_backend).try_into().unwrap()
+}
+
+/// Sets the acceleration backend of a tensor.
+/// # Safety
+/// This function assumes that the tensor is valid.
+pub unsafe fn set_tensor_backend(tensor: *mut sys::ggml_tensor, backend: Backend) {
+    unsafe {
+        (*tensor).backend = backend.try_into().unwrap();
+    }
+}
+
+/// If ggml-sys is compiled with CUDA or ClBlast support, this function will tranform and offload the tensor. If not this is a no-op.
+#[allow(unused_variables)]
+pub fn accelerator_transform_tensor(tensor: &mut Tensor) {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        sys::cuda::ggml_cuda_transform_tensor(tensor.data(), tensor.ptr.as_ptr());
+    }
+    #[cfg(feature = "clblast")]
+    unsafe {
+        sys::opencl::ggml_cl_transform_tensor(tensor.data(), tensor.ptr.as_ptr());
+    }
+}
+
+/// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU. If not this is a no-op.
+pub fn accelerator_offload_tensor(tensor: &Tensor) {
+    accelerator_offload_raw_tensor(tensor.ptr.as_ptr());
+}
+
+/// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU. If not this is a no-op.
+#[allow(unused_variables)]
+pub fn accelerator_offload_raw_tensor(tensor: *mut sys::ggml_tensor) {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        sys::cuda::ggml_cuda_assign_buffers(tensor);
+    }
+}
+
+/// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU. If not this is a no-op.
+#[allow(unused_variables)]
+pub fn accelerator_offload_tensor_no_scratch(tensor: &Tensor) {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        sys::cuda::ggml_cuda_assign_buffers_no_scratch(tensor.ptr.as_ptr());
+    }
+}
+
+///  Sets the scratch size for the GPU. If ggml-sys is compiled with CUDA support, this function will set the scratch size. If not this is a no-op.
+#[allow(unused_variables)]
+pub fn accelerator_set_scratch_size(size: usize) {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        sys::cuda::ggml_cuda_set_scratch_size(size);
+    }
+}
+
+///Initialize the accelerator. If ggml-sys is compiled with CUDA or ClBlast support, this function will initialize the accelerator. If not this is a no-op.
+#[allow(unused_variables)]
+pub fn accelerator_initialize(device: i32) {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        //TODO: Make this configurable
+        sys::cuda::ggml_init_cublas();
+        sys::cuda::ggml_cuda_set_main_device(device);
+        let split = 1.0f32;
+        sys::cuda::ggml_cuda_set_tensor_split(&split as *const f32);
+    }
+
+    #[cfg(feature = "clblast")]
+    unsafe {
+        sys::opencl::ggml_cl_init();
+    }
+    
+}
