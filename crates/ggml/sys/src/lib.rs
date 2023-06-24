@@ -4,6 +4,8 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(unused)]
+pub mod llama;
+
 #[cfg(feature = "cublas")]
 pub mod cuda;
 #[cfg(feature = "metal")]
@@ -22,6 +24,7 @@ pub const GGML_MAX_CONTEXTS: u32 = 64;
 pub const GGML_MAX_OPT: u32 = 4;
 pub const GGML_MAX_NAME: u32 = 32;
 pub const GGML_DEFAULT_N_THREADS: u32 = 4;
+pub const QK_K: u32 = 256;
 pub type ggml_fp16_t = u16;
 extern "C" {
     pub fn ggml_fp16_to_fp32(x: ggml_fp16_t) -> f32;
@@ -2665,4 +2668,545 @@ fn bindgen_test_layout_quantize_fns_t() {
 }
 extern "C" {
     pub fn ggml_internal_get_quantize_fn(i: usize) -> quantize_fns_t;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct block_q2_K {
+    pub scales: [u8; 16usize],
+    pub qs: [u8; 64usize],
+    pub d: ggml_fp16_t,
+    pub dmin: ggml_fp16_t,
+}
+#[test]
+fn bindgen_test_layout_block_q2_K() {
+    const UNINIT: ::std::mem::MaybeUninit<block_q2_K> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<block_q2_K>(),
+        84usize,
+        concat!("Size of: ", stringify!(block_q2_K))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<block_q2_K>(),
+        2usize,
+        concat!("Alignment of ", stringify!(block_q2_K))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).scales) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q2_K),
+            "::",
+            stringify!(scales)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qs) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q2_K),
+            "::",
+            stringify!(qs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).d) as usize - ptr as usize },
+        80usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q2_K),
+            "::",
+            stringify!(d)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).dmin) as usize - ptr as usize },
+        82usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q2_K),
+            "::",
+            stringify!(dmin)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct block_q3_K {
+    pub hmask: [u8; 32usize],
+    pub qs: [u8; 64usize],
+    pub scales: [u8; 12usize],
+    pub d: ggml_fp16_t,
+}
+#[test]
+fn bindgen_test_layout_block_q3_K() {
+    const UNINIT: ::std::mem::MaybeUninit<block_q3_K> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<block_q3_K>(),
+        110usize,
+        concat!("Size of: ", stringify!(block_q3_K))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<block_q3_K>(),
+        2usize,
+        concat!("Alignment of ", stringify!(block_q3_K))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hmask) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q3_K),
+            "::",
+            stringify!(hmask)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qs) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q3_K),
+            "::",
+            stringify!(qs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).scales) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q3_K),
+            "::",
+            stringify!(scales)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).d) as usize - ptr as usize },
+        108usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q3_K),
+            "::",
+            stringify!(d)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct block_q4_K {
+    pub d: ggml_fp16_t,
+    pub dmin: ggml_fp16_t,
+    pub scales: [u8; 12usize],
+    pub qs: [u8; 128usize],
+}
+#[test]
+fn bindgen_test_layout_block_q4_K() {
+    const UNINIT: ::std::mem::MaybeUninit<block_q4_K> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<block_q4_K>(),
+        144usize,
+        concat!("Size of: ", stringify!(block_q4_K))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<block_q4_K>(),
+        2usize,
+        concat!("Alignment of ", stringify!(block_q4_K))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).d) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q4_K),
+            "::",
+            stringify!(d)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).dmin) as usize - ptr as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q4_K),
+            "::",
+            stringify!(dmin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).scales) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q4_K),
+            "::",
+            stringify!(scales)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qs) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q4_K),
+            "::",
+            stringify!(qs)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct block_q5_K {
+    pub d: ggml_fp16_t,
+    pub dmin: ggml_fp16_t,
+    pub scales: [u8; 12usize],
+    pub qh: [u8; 32usize],
+    pub qs: [u8; 128usize],
+}
+#[test]
+fn bindgen_test_layout_block_q5_K() {
+    const UNINIT: ::std::mem::MaybeUninit<block_q5_K> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<block_q5_K>(),
+        176usize,
+        concat!("Size of: ", stringify!(block_q5_K))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<block_q5_K>(),
+        2usize,
+        concat!("Alignment of ", stringify!(block_q5_K))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).d) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q5_K),
+            "::",
+            stringify!(d)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).dmin) as usize - ptr as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q5_K),
+            "::",
+            stringify!(dmin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).scales) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q5_K),
+            "::",
+            stringify!(scales)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qh) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q5_K),
+            "::",
+            stringify!(qh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qs) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q5_K),
+            "::",
+            stringify!(qs)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct block_q6_K {
+    pub ql: [u8; 128usize],
+    pub qh: [u8; 64usize],
+    pub scales: [i8; 16usize],
+    pub d: ggml_fp16_t,
+}
+#[test]
+fn bindgen_test_layout_block_q6_K() {
+    const UNINIT: ::std::mem::MaybeUninit<block_q6_K> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<block_q6_K>(),
+        210usize,
+        concat!("Size of: ", stringify!(block_q6_K))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<block_q6_K>(),
+        2usize,
+        concat!("Alignment of ", stringify!(block_q6_K))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ql) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q6_K),
+            "::",
+            stringify!(ql)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qh) as usize - ptr as usize },
+        128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q6_K),
+            "::",
+            stringify!(qh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).scales) as usize - ptr as usize },
+        192usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q6_K),
+            "::",
+            stringify!(scales)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).d) as usize - ptr as usize },
+        208usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q6_K),
+            "::",
+            stringify!(d)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct block_q8_K {
+    pub d: f32,
+    pub qs: [i8; 256usize],
+    pub bsums: [i16; 16usize],
+}
+#[test]
+fn bindgen_test_layout_block_q8_K() {
+    const UNINIT: ::std::mem::MaybeUninit<block_q8_K> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<block_q8_K>(),
+        292usize,
+        concat!("Size of: ", stringify!(block_q8_K))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<block_q8_K>(),
+        4usize,
+        concat!("Alignment of ", stringify!(block_q8_K))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).d) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q8_K),
+            "::",
+            stringify!(d)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).qs) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q8_K),
+            "::",
+            stringify!(qs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).bsums) as usize - ptr as usize },
+        260usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(block_q8_K),
+            "::",
+            stringify!(bsums)
+        )
+    );
+}
+extern "C" {
+    pub fn quantize_row_q2_K_reference(x: *const f32, y: *mut block_q2_K, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn quantize_row_q3_K_reference(x: *const f32, y: *mut block_q3_K, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn quantize_row_q4_K_reference(x: *const f32, y: *mut block_q4_K, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn quantize_row_q5_K_reference(x: *const f32, y: *mut block_q5_K, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn quantize_row_q6_K_reference(x: *const f32, y: *mut block_q6_K, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn quantize_row_q8_K_reference(x: *const f32, y: *mut block_q8_K, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn quantize_row_q2_K(
+        x: *const f32,
+        y: *mut ::std::os::raw::c_void,
+        k: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    pub fn quantize_row_q3_K(
+        x: *const f32,
+        y: *mut ::std::os::raw::c_void,
+        k: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    pub fn quantize_row_q4_K(
+        x: *const f32,
+        y: *mut ::std::os::raw::c_void,
+        k: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    pub fn quantize_row_q5_K(
+        x: *const f32,
+        y: *mut ::std::os::raw::c_void,
+        k: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    pub fn quantize_row_q6_K(
+        x: *const f32,
+        y: *mut ::std::os::raw::c_void,
+        k: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    pub fn quantize_row_q8_K(
+        x: *const f32,
+        y: *mut ::std::os::raw::c_void,
+        k: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    pub fn dequantize_row_q2_K(x: *const block_q2_K, y: *mut f32, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn dequantize_row_q3_K(x: *const block_q3_K, y: *mut f32, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn dequantize_row_q4_K(x: *const block_q4_K, y: *mut f32, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn dequantize_row_q5_K(x: *const block_q5_K, y: *mut f32, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn dequantize_row_q6_K(x: *const block_q6_K, y: *mut f32, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn dequantize_row_q8_K(x: *const block_q8_K, y: *mut f32, k: ::std::os::raw::c_int);
+}
+extern "C" {
+    pub fn ggml_vec_dot_q2_K_q8_K(
+        n: ::std::os::raw::c_int,
+        s: *mut f32,
+        vx: *const ::std::os::raw::c_void,
+        vy: *const ::std::os::raw::c_void,
+    );
+}
+extern "C" {
+    pub fn ggml_vec_dot_q3_K_q8_K(
+        n: ::std::os::raw::c_int,
+        s: *mut f32,
+        vx: *const ::std::os::raw::c_void,
+        vy: *const ::std::os::raw::c_void,
+    );
+}
+extern "C" {
+    pub fn ggml_vec_dot_q4_K_q8_K(
+        n: ::std::os::raw::c_int,
+        s: *mut f32,
+        vx: *const ::std::os::raw::c_void,
+        vy: *const ::std::os::raw::c_void,
+    );
+}
+extern "C" {
+    pub fn ggml_vec_dot_q5_K_q8_K(
+        n: ::std::os::raw::c_int,
+        s: *mut f32,
+        vx: *const ::std::os::raw::c_void,
+        vy: *const ::std::os::raw::c_void,
+    );
+}
+extern "C" {
+    pub fn ggml_vec_dot_q6_K_q8_K(
+        n: ::std::os::raw::c_int,
+        s: *mut f32,
+        vx: *const ::std::os::raw::c_void,
+        vy: *const ::std::os::raw::c_void,
+    );
+}
+extern "C" {
+    pub fn ggml_quantize_q2_K(
+        src: *const f32,
+        dst: *mut ::std::os::raw::c_void,
+        n: ::std::os::raw::c_int,
+        k: ::std::os::raw::c_int,
+        hist: *mut i64,
+    ) -> usize;
+}
+extern "C" {
+    pub fn ggml_quantize_q3_K(
+        src: *const f32,
+        dst: *mut ::std::os::raw::c_void,
+        n: ::std::os::raw::c_int,
+        k: ::std::os::raw::c_int,
+        hist: *mut i64,
+    ) -> usize;
+}
+extern "C" {
+    pub fn ggml_quantize_q4_K(
+        src: *const f32,
+        dst: *mut ::std::os::raw::c_void,
+        n: ::std::os::raw::c_int,
+        k: ::std::os::raw::c_int,
+        hist: *mut i64,
+    ) -> usize;
+}
+extern "C" {
+    pub fn ggml_quantize_q5_K(
+        src: *const f32,
+        dst: *mut ::std::os::raw::c_void,
+        n: ::std::os::raw::c_int,
+        k: ::std::os::raw::c_int,
+        hist: *mut i64,
+    ) -> usize;
+}
+extern "C" {
+    pub fn ggml_quantize_q6_K(
+        src: *const f32,
+        dst: *mut ::std::os::raw::c_void,
+        n: ::std::os::raw::c_int,
+        k: ::std::os::raw::c_int,
+        hist: *mut i64,
+    ) -> usize;
 }
