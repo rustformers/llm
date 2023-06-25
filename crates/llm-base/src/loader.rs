@@ -326,7 +326,7 @@ pub enum LoadError {
         paths: Vec<PathBuf>,
     },
     /// The vocab file for the tokenizer could not be loaded.
-    #[error("could not load vocabulary file {path:?}")]
+    #[error("could not load vocabulary file {path:?}: {error}")]
     VocabularyLoadError {
         /// The invalid vocabulary path
         path: PathBuf,
