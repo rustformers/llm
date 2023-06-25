@@ -28,4 +28,4 @@ pub const LLAMA_FTYPE_MOSTLY_Q4_K_M: llama_ftype = 15;
 pub const LLAMA_FTYPE_MOSTLY_Q5_K_S: llama_ftype = 16;
 pub const LLAMA_FTYPE_MOSTLY_Q5_K_M: llama_ftype = 17;
 pub const LLAMA_FTYPE_MOSTLY_Q6_K: llama_ftype = 18;
-pub type llama_ftype = ::std::os::raw::c_uint;
+pub type llama_ftype = ::std::os::raw::c_int;

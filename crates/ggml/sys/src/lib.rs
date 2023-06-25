@@ -140,9 +140,12 @@ pub const ggml_op_GGML_OP_WIN_PART: ggml_op = 55;
 pub const ggml_op_GGML_OP_WIN_UNPART: ggml_op = 56;
 pub const ggml_op_GGML_OP_MAP_UNARY: ggml_op = 57;
 pub const ggml_op_GGML_OP_MAP_BINARY: ggml_op = 58;
-pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS: ggml_op = 59;
-pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS_BACK: ggml_op = 60;
-pub const ggml_op_GGML_OP_COUNT: ggml_op = 61;
+pub const ggml_op_GGML_OP_MAP_CUSTOM1: ggml_op = 59;
+pub const ggml_op_GGML_OP_MAP_CUSTOM2: ggml_op = 60;
+pub const ggml_op_GGML_OP_MAP_CUSTOM3: ggml_op = 61;
+pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS: ggml_op = 62;
+pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS_BACK: ggml_op = 63;
+pub const ggml_op_GGML_OP_COUNT: ggml_op = 64;
 pub type ggml_op = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -952,6 +955,13 @@ extern "C" {
     ) -> *mut ggml_tensor;
 }
 extern "C" {
+    pub fn ggml_format_name(
+        tensor: *mut ggml_tensor,
+        fmt: *const ::std::os::raw::c_char,
+        ...
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
     pub fn ggml_dup(ctx: *mut ggml_context, a: *mut ggml_tensor) -> *mut ggml_tensor;
 }
 extern "C" {
@@ -1541,8 +1551,32 @@ pub type ggml_binary_op_f32_t = ::std::option::Option<
         arg4: *const f32,
     ),
 >;
+pub type ggml_custom1_op_f32_t =
+    ::std::option::Option<unsafe extern "C" fn(arg1: *mut ggml_tensor, arg2: *const ggml_tensor)>;
+pub type ggml_custom2_op_f32_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        arg1: *mut ggml_tensor,
+        arg2: *const ggml_tensor,
+        arg3: *const ggml_tensor,
+    ),
+>;
+pub type ggml_custom3_op_f32_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        arg1: *mut ggml_tensor,
+        arg2: *const ggml_tensor,
+        arg3: *const ggml_tensor,
+        arg4: *const ggml_tensor,
+    ),
+>;
 extern "C" {
     pub fn ggml_map_unary_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        fun: ggml_unary_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_unary_inplace_f32(
         ctx: *mut ggml_context,
         a: *mut ggml_tensor,
         fun: ggml_unary_op_f32_t,
@@ -1554,6 +1588,62 @@ extern "C" {
         a: *mut ggml_tensor,
         b: *mut ggml_tensor,
         fun: ggml_binary_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_binary_inplace_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        b: *mut ggml_tensor,
+        fun: ggml_binary_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_custom1_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        fun: ggml_custom1_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_custom1_inplace_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        fun: ggml_custom1_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_custom2_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        b: *mut ggml_tensor,
+        fun: ggml_custom2_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_custom2_inplace_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        b: *mut ggml_tensor,
+        fun: ggml_custom2_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_custom3_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        b: *mut ggml_tensor,
+        c: *mut ggml_tensor,
+        fun: ggml_custom3_op_f32_t,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_map_custom3_inplace_f32(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        b: *mut ggml_tensor,
+        c: *mut ggml_tensor,
+        fun: ggml_custom3_op_f32_t,
     ) -> *mut ggml_tensor;
 }
 extern "C" {
