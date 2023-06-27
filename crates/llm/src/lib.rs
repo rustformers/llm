@@ -79,7 +79,7 @@ pub use llm_base::{
     feed_prompt_callback, ggml::format as ggml_format, load, load_progress_callback_stdout,
     quantize, samplers, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
+    InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats, InvalidTokenBias, KnownModel,
     LoadError, LoadProgress, Loader, Model, ModelKVMemoryType, ModelParameters, OutputRequest,
     Prompt, QuantizeError, QuantizeProgress, Sampler, SnapshotError, TokenBias, TokenId,
     TokenUtf8Buffer, TokenizationError, Vocabulary, VocabularySource,
