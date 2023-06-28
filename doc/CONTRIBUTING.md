@@ -9,16 +9,10 @@ or on [Discord](https://discord.gg/YB9WaXYAWU)!
 ## Checking Changes
 
 This project uses a [GitHub workflow](../.github/workflows/rust.yml) to enforce
-code standards - it will execute the following commands, which can be performed
-locally for faster turnaround and a better developer experience:
+code standards.
 
-```shell
-cargo check
-cargo test
-cargo fmt --all
-cargo doc --workspace --exclude llm-cli
-cargo clippy --fix --allow-dirty -- -Dclippy::all
-```
+The `rusty-hook` project is used to run a similar set of checks automatically before committing.
+If you would like to run these checks locally, use `cargo run -p precommit-check`.
 
 ## Regenerating GGML Bindings
 
