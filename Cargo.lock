@@ -1278,6 +1278,7 @@ dependencies = [
  "clap",
  "llm-base",
  "llm-bloom",
+ "llm-falcon",
  "llm-gpt2",
  "llm-gptj",
  "llm-gptneox",
@@ -1333,6 +1334,14 @@ dependencies = [
  "rustyline",
  "spinoff",
  "zstd 0.12.3+zstd.1.5.2",
+]
+
+[[package]]
+name = "llm-falcon"
+version = "0.2.0-dev"
+dependencies = [
+ "bytemuck",
+ "llm-base",
 ]
 
 [[package]]

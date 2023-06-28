@@ -33,6 +33,8 @@ fn main() -> Result<()> {
         Args::GptJ { args } => handle_args::<llm::models::GptJ>(args),
         Args::GptNeoX { args } => handle_args::<llm::models::GptNeoX>(args),
         Args::Mpt { args } => handle_args::<llm::models::Mpt>(args),
+        #[cfg(feature = "falcon")]
+        Args::Falcon { args } => handle_args::<llm::models::Falcon>(args),
     }
 }
 

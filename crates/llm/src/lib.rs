@@ -7,6 +7,7 @@
 //! - [GPT-NeoX](llm_gptneox)
 //! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
+//! - Falcon (currently disabled due to incompleteness)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -92,6 +93,8 @@ use serde::Serialize;
 pub mod models {
     #[cfg(feature = "bloom")]
     pub use llm_bloom::{self as bloom, Bloom};
+    #[cfg(feature = "falcon")]
+    pub use llm_falcon::{self as falcon, Falcon};
     #[cfg(feature = "gpt2")]
     pub use llm_gpt2::{self as gpt2, Gpt2};
     #[cfg(feature = "gptj")]
@@ -125,6 +128,9 @@ pub enum ModelArchitecture {
     #[cfg(feature = "mpt")]
     /// [MPT](llm_mpt)
     Mpt,
+    #[cfg(feature = "falcon")]
+    /// [Falcon](llm_falcon)
+    Falcon,
 }
 
 impl ModelArchitecture {
@@ -142,6 +148,8 @@ impl ModelArchitecture {
         Self::Llama,
         #[cfg(feature = "mpt")]
         Self::Mpt,
+        #[cfg(feature = "falcon")]
+        Self::Falcon,
     ];
 }
 
@@ -185,6 +193,8 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "mpt")]
             "mpt" => Ok(Mpt),
+            #[cfg(feature = "falcon")]
+            "falcon" => Ok(Falcon),
 
             _ => Err(UnsupportedModelArchitecture(format!(
                 "{s} is not a supported model architecture"
@@ -210,6 +220,8 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
+            #[cfg(feature = "falcon")]
+            Falcon => write!(f, "Falcon"),
         }
     }
 }
@@ -264,6 +276,10 @@ pub fn load_dynamic(
         }
         #[cfg(feature = "mpt")]
         Mpt => load_model::<models::Mpt>(path, vocabulary_source, params, load_progress_callback)?,
+        #[cfg(feature = "falcon")]
+        Falcon => {
+            load_model::<models::Falcon>(path, vocabulary_source, params, load_progress_callback)?
+        }
     };
 
     Ok(model)
