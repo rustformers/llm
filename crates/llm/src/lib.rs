@@ -7,7 +7,7 @@
 //! - [GPT-NeoX](llm_gptneox)
 //! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
-//! - [Falcon](llm_falcon) (disabled by default)
+//! - Falcon (currently disabled due to incompleteness)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
