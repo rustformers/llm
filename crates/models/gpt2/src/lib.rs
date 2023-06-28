@@ -1,12 +1,14 @@
 //! An implementation of [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
+use std::sync::Arc;
+
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, Mmap, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -35,8 +37,7 @@ pub struct Gpt2 {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    _context: ggml::Context,
-    _mmap: Option<Mmap>,
+    context: Arc<ggml::Context>,
 }
 
 unsafe impl Send for Gpt2 {}
@@ -80,7 +81,7 @@ impl KnownModel for Gpt2 {
             layers.push(layer);
         }
 
-        let (_context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -94,8 +95,7 @@ impl KnownModel for Gpt2 {
             wte,
             wpe,
             lm_head,
-            _context,
-            _mmap,
+            context: Arc::new(context),
         })
     }
 
@@ -129,185 +129,198 @@ impl KnownModel for Gpt2 {
             ..
         } = self.hyperparameters;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
+            let ctx0 = builder.ctx0;
+            let (memory_k_size, memory_v_size) = (
+                builder.memory_k.element_size(),
+                builder.memory_v.element_size(),
+            );
+            let embd = &builder.embd;
 
-        let position_buf: Vec<usize> = (0..input_len).map(|i| session_len + i).collect();
+            let position_buf: Vec<i32> = (0..input_len).map(|i| (session_len + i) as i32).collect();
 
-        let mut position = ctx0.new_tensor_1d(ggml::Type::I32, input_len);
-        unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
+            let mut position = ctx0.new_tensor_1d(ggml::Type::I32, input_len);
+            unsafe { position.write_data(bytemuck::cast_slice(&position_buf)) };
 
-        let mut input_layer = ctx0.op_add(
-            &ctx0.op_get_rows(&self.wte, &embd),
-            &ctx0.op_get_rows(&self.wpe, &position),
-        );
-
-        let memory_k = &session.memory_k;
-        let memory_k_size = memory_k.element_size();
-
-        let memory_v = &session.memory_v;
-        let memory_v_size = memory_v.element_size();
-
-        let mut gf = ggml::ComputationGraph::new(num_threads);
-        for il in 0..n_layer {
-            // norm
-            let mut current = ctx0.op_norm(&input_layer);
-            current = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_1_g, &current), &current),
-                &ctx0.op_repeat(&self.layers[il].ln_1_b, &current),
+            let mut input_layer = ctx0.op_add(
+                &ctx0.op_get_rows(&self.wte, embd),
+                &ctx0.op_get_rows(&self.wpe, &position),
             );
 
-            // attn
-            current = ctx0.op_mul_mat(&self.layers[il].c_attn_attn_w, &current);
-            current = ctx0.op_add(
-                &ctx0.op_repeat(&self.layers[il].c_attn_attn_b, &current),
-                &current,
-            );
+            let mut gf = ggml::ComputationGraph::new(num_threads);
+            for il in 0..n_layer {
+                builder.use_scratch(Some(0));
 
-            // self-attn
-            let nb = current.get_nb()[1];
-            let f32_size = std::mem::size_of::<f32>();
-            let qcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, 0);
-            let kcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, f32_size * n_embd);
-            let vcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, f32_size * n_embd * 2);
-
-            if input_len >= 1 {
-                let k = ctx0.op_view_1d(
-                    memory_k,
-                    input_len * n_embd,
-                    (memory_k_size * n_embd) * (il * ctx_size + session_len),
-                );
-                let v = ctx0.op_view_1d(
-                    memory_v,
-                    input_len * n_embd,
-                    (memory_v_size * n_embd) * (il * ctx_size + session_len),
+                // norm
+                let mut current = ctx0.op_norm(&input_layer);
+                current = ctx0.op_add(
+                    &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_1_g, &current), &current),
+                    &ctx0.op_repeat(&self.layers[il].ln_1_b, &current),
                 );
 
-                gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
-                gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
-            }
+                // attn
+                current = ctx0.op_mul_mat(&self.layers[il].c_attn_attn_w, &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.layers[il].c_attn_attn_b, &current),
+                    &current,
+                );
 
-            let q = ctx0.op_permute(
-                &ctx0.op_cpy(
-                    &qcur,
-                    &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
-                ),
-                (0, 2, 1, 3),
-            );
+                // self-attn
+                let nb = current.get_nb()[1];
+                let f32_size = std::mem::size_of::<f32>();
+                let qcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, 0);
+                let kcur = ctx0.op_view_2d(&current, (n_embd, input_len), nb, f32_size * n_embd);
+                let vcur =
+                    ctx0.op_view_2d(&current, (n_embd, input_len), nb, f32_size * n_embd * 2);
 
-            let k = ctx0.op_permute(
-                &ctx0.op_reshape_3d(
-                    &ctx0.op_view_1d(
-                        &session.memory_k,
-                        (session_len + input_len) * n_embd,
-                        il * ctx_size * memory_k_size * n_embd,
+                if input_len >= 1 {
+                    let k = ctx0.op_view_1d(
+                        builder.memory_k,
+                        input_len * n_embd,
+                        (memory_k_size * n_embd) * (il * ctx_size + session_len),
+                    );
+                    let v = ctx0.op_view_1d(
+                        builder.memory_v,
+                        input_len * n_embd,
+                        (memory_v_size * n_embd) * (il * ctx_size + session_len),
+                    );
+
+                    gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
+                    gf.build_forward_expand(&ctx0.op_cpy(&vcur, &v));
+                }
+
+                let q = ctx0.op_permute(
+                    &ctx0.op_cpy(
+                        &qcur,
+                        &ctx0.new_tensor_3d(ggml::Type::F32, n_embd / n_head, n_head, input_len),
                     ),
-                    n_embd / n_head,
-                    n_head,
-                    session_len + input_len,
-                ),
-                (0, 2, 1, 3),
-            );
+                    (0, 2, 1, 3),
+                );
 
-            let kq = ctx0.op_mul_mat(&k, &q);
-            let kq_scaled = ctx0.op_scale_inplace(
-                &kq,
-                &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
-            );
-
-            let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, session_len);
-            let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
-
-            let v_trans = ctx0.op_cpy(
-                &ctx0.op_permute(
+                let k = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
-                            memory_v,
+                            builder.memory_k,
                             (session_len + input_len) * n_embd,
-                            il * ctx_size * memory_v_size * n_embd,
+                            il * ctx_size * memory_k_size * n_embd,
                         ),
                         n_embd / n_head,
                         n_head,
                         session_len + input_len,
                     ),
-                    (1, 2, 0, 3),
-                ),
-                &ctx0.new_tensor_3d(
-                    memory_v.get_type(),
-                    session_len + input_len,
-                    n_embd / n_head,
-                    n_head,
-                ),
+                    (0, 2, 1, 3),
+                );
+
+                let kq = ctx0.op_mul_mat(&k, &q);
+                let kq_scaled = ctx0.op_scale_inplace(
+                    &kq,
+                    &ctx0.new_f32(1f32 / f32::sqrt(n_embd as f32 / n_head as f32)),
+                );
+
+                let kq_masked = ctx0.op_diag_mask_inf_inplace(&kq_scaled, session_len);
+                let kq_softmax = ctx0.op_soft_max_inplace(&kq_masked);
+
+                let v_trans = ctx0.op_cpy(
+                    &ctx0.op_permute(
+                        &ctx0.op_reshape_3d(
+                            &ctx0.op_view_1d(
+                                builder.memory_v,
+                                (session_len + input_len) * n_embd,
+                                il * ctx_size * memory_v_size * n_embd,
+                            ),
+                            n_embd / n_head,
+                            n_head,
+                            session_len + input_len,
+                        ),
+                        (1, 2, 0, 3),
+                    ),
+                    &ctx0.new_tensor_3d(
+                        builder.memory_v.get_type(),
+                        session_len + input_len,
+                        n_embd / n_head,
+                        n_head,
+                    ),
+                );
+
+                let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
+                let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
+
+                current = ctx0.op_cpy(
+                    &kqv_merged,
+                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
+                );
+
+                // projection
+                current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.layers[il].c_attn_proj_b, &current),
+                    &current,
+                );
+
+                // add input
+                current = ctx0.op_add(&current, &input_layer);
+
+                // feed-forward
+                let ff_in = current.share();
+
+                builder.use_scratch(Some(1));
+
+                // feed-forward normalization
+                current = ctx0.op_norm(&ff_in);
+                current = ctx0.op_add(
+                    &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_2_g, &current), &current),
+                    &ctx0.op_repeat(&self.layers[il].ln_2_b, &current),
+                );
+
+                // feed-forward fully connected
+                current = ctx0.op_mul_mat(&self.layers[il].c_mlp_fc_w, &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.layers[il].c_mlp_fc_b, &current),
+                    &current,
+                );
+
+                // feed-forward activation
+                current = ctx0.op_gelu(&current);
+
+                // feed-forward projection
+                current = ctx0.op_mul_mat(&self.layers[il].c_mlp_proj_w, &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.layers[il].c_mlp_proj_b, &current),
+                    &current,
+                );
+
+                // input for next layer
+                input_layer = ctx0.op_add(&current, &ff_in);
+            }
+
+            builder.use_scratch(Some(0));
+
+            // normalization
+            input_layer = ctx0.op_norm(&input_layer);
+            input_layer = ctx0.op_add(
+                &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
+                &ctx0.op_repeat(&self.ln_f_b, &input_layer),
             );
 
-            let kqv = ctx0.op_mul_mat(&v_trans, &kq_softmax);
-            let kqv_merged = ctx0.op_permute(&kqv, (0, 2, 1, 3));
+            builder.use_scratch(None);
 
-            current = ctx0.op_cpy(
-                &kqv_merged,
-                &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
-            );
+            let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            // projection
-            current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
-            current = ctx0.op_add(
-                &ctx0.op_repeat(&self.layers[il].c_attn_proj_b, &current),
-                &current,
-            );
+            input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);
 
-            // add input
-            current = ctx0.op_add(&current, &input_layer);
-
-            // feed-forward
-            let ff_in = current.share();
-
-            // feed-forward normalization
-            current = ctx0.op_norm(&ff_in);
-            current = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_2_g, &current), &current),
-                &ctx0.op_repeat(&self.layers[il].ln_2_b, &current),
-            );
-
-            // feed-forward fully connected
-            current = ctx0.op_mul_mat(&self.layers[il].c_mlp_fc_w, &current);
-            current = ctx0.op_add(
-                &ctx0.op_repeat(&self.layers[il].c_mlp_fc_b, &current),
-                &current,
-            );
-
-            // feed-forward activation
-            current = ctx0.op_gelu(&current);
-
-            // feed-forward projection
-            current = ctx0.op_mul_mat(&self.layers[il].c_mlp_proj_w, &current);
-            current = ctx0.op_add(
-                &ctx0.op_repeat(&self.layers[il].c_mlp_proj_b, &current),
-                &current,
-            );
-
-            // input for next layer
-            input_layer = ctx0.op_add(&current, &ff_in);
-        }
-
-        // normalization
-        input_layer = ctx0.op_norm(&input_layer);
-        input_layer = ctx0.op_add(
-            &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
-            &ctx0.op_repeat(&self.ln_f_b, &input_layer),
-        );
-
-        let embeddings_tensor: ggml::Tensor = input_layer.share();
-
-        input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);
-
-        // run the computation
-        gf.build_forward_expand(&input_layer);
-        ctx0.graph_compute(&mut gf);
+            (
+                gf,
+                GraphOutputs {
+                    result: input_layer,
+                    embedding_result: embeddings_tensor,
+                },
+            )
+        });
 
         // finish evaluation
-        common::read_last_token(session, &input_layer, n_vocab, input_len);
-        common::extract_logits(output_request, &input_layer, n_vocab, input_len);
-        common::extract_embeddings(output_request, &embeddings_tensor, n_embd, input_len);
-        common::update_session(session, &ctx0, input_tokens.len(), input_len);
+        common::read_last_token(session, &outputs.result, n_vocab, input_len);
+        common::extract_logits(output_request, &outputs.result, n_vocab, input_len);
+        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
     fn vocabulary(&self) -> &Vocabulary {

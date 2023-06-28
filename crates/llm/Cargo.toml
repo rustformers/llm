@@ -30,6 +30,7 @@ clap = { workspace = true }
 
 [features]
 default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt", "falcon"]
+
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
@@ -37,3 +38,7 @@ bloom = ["dep:llm-bloom"]
 gptneox = ["dep:llm-gptneox"]
 mpt = ["dep:llm-mpt"]
 falcon = ["dep:llm-falcon"]
+
+cublas = ["llm-base/cublas"]
+clblast = ["llm-base/clblast"]
+metal = ["llm-base/metal"]

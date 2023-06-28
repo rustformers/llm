@@ -9,8 +9,13 @@ license = "MIT"
 [dependencies]
 thiserror = { workspace = true }
 ggml-sys = { path = "sys", version = "0.2.0-dev" }
+memmap2 = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
 anyhow = { workspace = true }
 
+[features]
+cublas = ["ggml-sys/cublas"]
+clblast = ["ggml-sys/clblast"]
+metal = ["ggml-sys/metal"]

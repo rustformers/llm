@@ -120,7 +120,7 @@ fn get_embeddings(
     let vocab = model.vocabulary();
     let beginning_of_sentence = true;
     let query_token_ids = vocab
-        .tokenize(&format!("{}", query), beginning_of_sentence)
+        .tokenize(query, beginning_of_sentence)
         .unwrap()
         .iter()
         .map(|(_, tok)| *tok)

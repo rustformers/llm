@@ -1,5 +1,9 @@
-use std::fmt::Display;
+use ggml::{Buffer, ComputationGraph, Context, Tensor};
+use std::{fmt::Display, sync::Arc};
 use thiserror::Error;
+
+#[cfg(feature = "metal")]
+use ggml::metal::MetalContext;
 
 use crate::{
     mulf, util, InferenceParameters, Model, OutputRequest, Prompt, TokenId, TokenUtf8Buffer,
@@ -11,6 +15,24 @@ use crate::{
 //
 // The specific value was copied from `llama.cpp`.
 const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
+
+type ScratchBuffers = [ggml::Buffer; 2];
+
+fn scratch_buffers() -> ScratchBuffers {
+    [
+        ggml::Buffer::new(SCRATCH_SIZE),
+        ggml::Buffer::new(SCRATCH_SIZE),
+    ]
+}
+
+/// Result of graph building
+pub struct GraphOutputs {
+    /// The output containing the model's result
+    pub result: Tensor,
+
+    /// The output containing embeddings
+    pub embedding_result: Tensor,
+}
 
 /// An inference session represents the state of the text generation. This holds
 /// the full context window, as well as several additional parameters used
@@ -24,10 +46,10 @@ const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
 /// to use it from multiple threads.
 pub struct InferenceSession {
     // Must be kept alive for the model
-    pub(crate) _session_ctx: ggml::Context,
+    _session_ctx: Arc<ggml::Context>,
 
     // Original size of the memory used to create this context.
-    pub(crate) memory_size: usize,
+    _memory_size: usize,
 
     // Configuration for the session.
     pub(crate) config: InferenceSessionConfig,
@@ -59,15 +81,203 @@ pub struct InferenceSession {
     #[doc(hidden)]
     pub last_logits: Vec<f32>,
 
-    /// Scratch buffers used during inference.
-    ///
-    /// The number of scratch buffers was copied from `llama.cpp`.
-    /// There is no specific reason for this number, but one is insufficient.
-    #[doc(hidden)]
-    pub scratch: [ggml::Buffer; 2],
+    #[cfg(feature = "metal")]
+    metal_context: Option<MetalContext>,
+
+    ctx0: Context,
+
+    n_embd: usize,
+
+    scratch: ScratchBuffers,
 }
+
+pub struct BuildContext<'session> {
+    pub ctx0: &'session Context,
+    pub embd: &'session Tensor,
+    pub memory_k: &'session Tensor,
+    pub memory_v: &'session Tensor,
+    pub scratch: &'session mut ScratchBuffers,
+}
+
+impl<'session> BuildContext<'session> {
+    pub fn use_scratch(&mut self, idx: Option<usize>) {
+        self.ctx0.use_scratch(match idx {
+            None => None,
+            Some(idx) => Some(&mut self.scratch[idx]),
+        })
+    }
+}
+
 unsafe impl Send for InferenceSession {}
 impl InferenceSession {
+    /// Create a new InferenceSession
+    pub fn new(
+        config: InferenceSessionConfig,
+        n_ctx: usize,
+        n_layer: usize,
+        n_embd: usize,
+        n_vocab: usize,
+    ) -> InferenceSession {
+        let ctx_size = {
+            let mut ctx_size = 0;
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(config.memory_k_type.into())
+            ); // memory_k
+            ctx_size += mulf!(
+                n_ctx,
+                n_layer,
+                n_embd,
+                ggml::type_sizef(config.memory_v_type.into())
+            ); // memory_v
+            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+
+            ctx_size
+        };
+
+        let session_ctx = Arc::new(ggml::Context::init(ctx_size, true));
+
+        // Initialize key + value memory tensors
+        let n_mem = n_layer * n_ctx;
+        let n_elements = n_embd * n_mem;
+        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
+        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
+        ggml::set_name(&memory_k, "memory_k");
+        ggml::set_name(&memory_v, "memory_v");
+
+        let scratch = scratch_buffers();
+
+        // Allocate buffer for storing intermediate values during evaluation (ctx0 backing)
+        // For the first run, we need to guess a maximum buffer size so we can measure
+        // the actual memory consumption of the temporary ggml context.
+        //
+        // These numbers are from `llama.cpp`, and could potentially be more efficient.
+        let buf_size = {
+            let buf_size_mb = if n_layer >= 80 {
+                1536
+            } else if n_layer >= 60 {
+                1280
+            } else {
+                1024
+            };
+            buf_size_mb * 1024 * 1024
+        };
+
+        let eval = Buffer::new(buf_size);
+        let ctx0 = ggml::Context::init_buffer(eval);
+
+        // Set up Metal support
+        #[cfg(feature = "metal")]
+        let metal_context = {
+            if config.use_gpu {
+                let mut metal_context = MetalContext::new();
+                metal_context.add_scratch_buffer(ctx0.buffer.as_ref().unwrap());
+
+                for buf in scratch.iter() {
+                    metal_context.add_scratch_buffer(buf);
+                }
+                metal_context.add_context(session_ctx.clone());
+                Some(metal_context)
+            } else {
+                None
+            }
+        };
+
+        InferenceSession {
+            _session_ctx: session_ctx,
+            _memory_size: ctx_size,
+            config,
+            memory_k,
+            memory_v,
+            n_past: 0,
+            mem_per_token: 0,
+            tokens: vec![],
+            decoded_tokens: vec![],
+            last_logits: vec![0.0; n_vocab],
+            #[cfg(feature = "metal")]
+            metal_context,
+            ctx0,
+            n_embd,
+            scratch,
+        }
+    }
+
+    /// Compute a model (possibly building a graph in the provided closure when called for the first time and/or when parameters have)
+    pub fn compute<F>(
+        &mut self,
+        #[allow(unused_variables)] model_context: Arc<Context>,
+        input_tokens: &[TokenId],
+        builder: F,
+    ) -> GraphOutputs
+    where
+        F: FnOnce(BuildContext) -> (ComputationGraph, GraphOutputs),
+    {
+        // Build a graph
+        self.ctx0 = ggml::Context::init_buffer(self.ctx0.buffer.take().unwrap());
+        let ctx0 = &self.ctx0;
+        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
+        ggml::set_name(&embd, "embd");
+
+        let bc = BuildContext {
+            ctx0,
+            embd: &embd,
+            memory_k: &self.memory_k,
+            memory_v: &self.memory_v,
+            scratch: &mut self.scratch,
+        };
+        let (mut built_gf, built_result) = builder(bc);
+
+        // Do Metal'y stuff
+        #[cfg(feature = "metal")]
+        {
+            if let Some(ref mut metal_context) = self.metal_context {
+                metal_context.add_context(model_context);
+            }
+        }
+
+        // Write input tokens
+        unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
+
+        // Compute the graph
+        built_gf.build_forward_expand(&built_result.result);
+
+        #[cfg(feature = "metal")]
+        {
+            // FIXME can only process one token at a time currently
+            // See https://github.com/ggerganov/llama.cpp/blob/e1886cf4fe0d0f31661dda52a4a9f34bd9b9009a/llama.cpp#L1692
+            if input_tokens.len() == 1 {
+                if let Some(ref metal_context) = self.metal_context {
+                    metal_context.graph_compute(&mut built_gf);
+                    metal_context.get_tensor(&built_result.result);
+                } else {
+                    ctx0.graph_compute(&mut built_gf);
+                }
+            } else {
+                ctx0.graph_compute(&mut built_gf);
+            }
+        }
+        #[cfg(not(feature = "metal"))]
+        {
+            ctx0.graph_compute(&mut built_gf);
+        }
+
+        // Adjust the required memory per token if we didn't know that already
+        if self.mem_per_token == 0 {
+            self.mem_per_token = ctx0.used_mem() / self.n_embd;
+        }
+
+        // Adjust n_past to new length.
+        self.n_past += input_tokens.len();
+
+        // Safety: ctx0 will linger around
+        GraphOutputs {
+            result: built_result.result.share(),
+            embedding_result: built_result.embedding_result.share(),
+        }
+    }
+
     /// Feed a prompt to the model for this session.
     pub fn feed_prompt<'a, E: std::error::Error + 'static, P: Into<Prompt<'a>>>(
         &mut self,
@@ -384,77 +594,6 @@ impl InferenceSession {
         Ok(session)
     }
 }
-impl InferenceSession {
-    /// Create a new InferenceSession
-    pub fn new(
-        config: InferenceSessionConfig,
-        n_ctx: usize,
-        n_layer: usize,
-        n_embd: usize,
-        n_vocab: usize,
-    ) -> InferenceSession {
-        let ctx_size = {
-            let mut ctx_size = 0;
-            ctx_size += mulf!(
-                n_ctx,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_k_type.into())
-            ); // memory_k
-            ctx_size += mulf!(
-                n_ctx,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_v_type.into())
-            ); // memory_v
-            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
-            ctx_size
-        };
-
-        let session_ctx = ggml::Context::init(ctx_size, true);
-
-        // Initialize key + value memory tensors
-        let n_mem = n_layer * n_ctx;
-        let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
-
-        InferenceSession {
-            _session_ctx: session_ctx,
-            memory_size: ctx_size,
-            config,
-            memory_k,
-            memory_v,
-            n_past: 0,
-            mem_per_token: 0,
-            tokens: vec![],
-            decoded_tokens: vec![],
-            last_logits: vec![0.0; n_vocab],
-            scratch: scratch_buffers(),
-        }
-    }
-}
-impl Clone for InferenceSession {
-    fn clone(&self) -> Self {
-        let context = ggml::Context::init(self.memory_size, true);
-        let memory_k = context.new_tensor_1d(self.memory_k.get_type(), self.memory_k.nelements());
-        let memory_v = context.new_tensor_1d(self.memory_v.get_type(), self.memory_v.nelements());
-
-        Self {
-            _session_ctx: context,
-            memory_size: self.memory_size,
-            config: self.config,
-            memory_k,
-            memory_v,
-            n_past: self.n_past,
-            mem_per_token: self.mem_per_token,
-            tokens: self.tokens.clone(),
-            decoded_tokens: self.decoded_tokens.clone(),
-            last_logits: self.last_logits.clone(),
-            scratch: scratch_buffers(),
-        }
-    }
-}
 
 #[derive(Error, Debug)]
 /// Errors encountered during the inference process.
@@ -560,14 +699,19 @@ pub struct InferenceSnapshot {
 pub struct InferenceSessionConfig {
     /// The type of the memory K tensor.
     pub memory_k_type: ModelKVMemoryType,
+
     /// The type of the memory V tensor.
     pub memory_v_type: ModelKVMemoryType,
+
+    /// Whether to use GPU acceleration
+    pub use_gpu: bool,
 }
 impl Default for InferenceSessionConfig {
     fn default() -> Self {
         Self {
             memory_k_type: ModelKVMemoryType::Float16,
             memory_v_type: ModelKVMemoryType::Float16,
+            use_gpu: false,
         }
     }
 }
@@ -685,11 +829,4 @@ pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
         Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
         None => Ok(InferenceFeedback::Continue),
     }
-}
-
-fn scratch_buffers() -> [ggml::Buffer; 2] {
-    [
-        ggml::Buffer::new(SCRATCH_SIZE),
-        ggml::Buffer::new(SCRATCH_SIZE),
-    ]
 }
