@@ -1,4 +1,10 @@
-//! An implementation of [Falcon](https://falconllm.tii.ae/) model for the `llm` ecosystem.
+//! An implementation of the [Falcon](https://falconllm.tii.ae/) model for the `llm` ecosystem.
+//!
+//! This implementation only works for Falcon 7B, and with 32-bit memory tensors (i.e. your inference session
+//! must be configured with a 32-bit [InferenceSessionConfig]).
+//!
+//! This model will not be generally available in the `llm` ecosystem until Falcon 40B and 16-bit memory is
+//! supported. It is currently only available as a preview.
 #![deny(missing_docs)]
 
 use std::sync::Arc;

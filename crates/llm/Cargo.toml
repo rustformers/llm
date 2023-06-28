@@ -29,7 +29,7 @@ serde_json = { workspace = true }
 clap = { workspace = true }
 
 [features]
-default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt", "falcon"]
+default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
 
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
@@ -37,6 +37,7 @@ gptj = ["dep:llm-gptj"]
 bloom = ["dep:llm-bloom"]
 gptneox = ["dep:llm-gptneox"]
 mpt = ["dep:llm-mpt"]
+# Falcon is off by default. See `llm_falcon`'s module documentation for more information.
 falcon = ["dep:llm-falcon"]
 
 cublas = ["llm-base/cublas"]

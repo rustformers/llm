@@ -46,6 +46,7 @@ pub enum Args {
     },
     /// Use a Falcon model
     #[clap(id = "falcon")]
+    #[cfg(feature = "falcon")]
     Falcon {
         #[command(subcommand)]
         args: BaseArgs,
