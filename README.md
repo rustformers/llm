@@ -52,6 +52,8 @@ Currently, the following models are supported:
   [Wizard](https://github.com/nlpxucan/WizardLM))
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
+See [getting models](#getting-models) for more information on how to download supported models.
+
 ## Using `llm` in a Rust Project
 
 This project depends on Rust v1.65.0 or above and a modern C toolchain.
@@ -86,7 +88,7 @@ opt-level = 3
 ```
 ## Leverage Accelerators with `llm`
 
-The `llm` library is engineered to take advantage of hardware accelerators such as `cuda` and `metal` for optimized performance. 
+The `llm` library is engineered to take advantage of hardware accelerators such as `cuda` and `metal` for optimized performance.
 
 To enable `llm` to harness these accelerators, some preliminary configuration steps are necessary, which vary based on your operating system. For comprehensive guidance, please refer to the [Acceleration Support for Building section](doc/CONTRIBUTING.md#acceleration-support-for-building) in our documentation.
 
