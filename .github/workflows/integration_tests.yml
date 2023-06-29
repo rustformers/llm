@@ -15,7 +15,7 @@ env:
 
 
 jobs:
-    build:
+    test:
         strategy:
             # Don't stop testing if an architecture fails
             fail-fast: false

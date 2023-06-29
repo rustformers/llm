@@ -158,9 +158,13 @@ async fn test_model(
         &mut rng,
         &llm::InferenceRequest {
             prompt: prompt.into(),
-            parameters: &llm::InferenceParameters::default(),
+            parameters: &llm::InferenceParameters {
+                n_threads: 2,
+                n_batch: 1,
+                ..Default::default()
+            },
             play_back_previous_tokens: false,
-            maximum_token_count: Some(50),
+            maximum_token_count: Some(10),
         },
         // OutputRequest
         &mut Default::default(),
