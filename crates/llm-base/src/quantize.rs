@@ -181,12 +181,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     }
 
     let tokenizer = match tokenizer {
-        Tokenizer::Embedded(v) => v
-            .id_to_token
-            .iter()
-            .cloned()
-            .zip(v.id_to_token_score)
-            .collect::<Vec<_>>(),
+        Tokenizer::Embedded(v) => v.iter().collect::<Vec<_>>(),
         Tokenizer::HuggingFace(_) => vec![],
     };
 
