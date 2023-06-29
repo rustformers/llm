@@ -147,7 +147,7 @@ pub fn load<E: Error, R: BufRead + Seek>(
     match container_type {
         ContainerType::Ggml
         | ContainerType::Ggmf(1 | 100)
-        | ContainerType::Ggjt(1 | 2 | 100)
+        | ContainerType::Ggjt(1 | 2 | 3 | 100)
         | ContainerType::Ggla(1) => {}
         _ => return Err(LoadError::InvalidFormatVersion(container_type)),
     }

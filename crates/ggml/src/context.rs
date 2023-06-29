@@ -1,8 +1,6 @@
-use std::{
-    os::raw::{c_int, c_void},
-    ptr::NonNull,
-    sync::Arc,
-};
+use std::{os::raw::c_int, ptr::NonNull, sync::Arc};
+
+use memmap2::Mmap;
 
 use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
 
@@ -13,23 +11,65 @@ pub struct Context {
     /// allocated tensors. Tensors are owned by the object, so a [`Tensor`]
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
-    ptr: Arc<NonNull<sys::ggml_context>>,
+    pub ptr: Arc<NonNull<sys::ggml_context>>,
+
+    /// Memory mapping information
+    pub mmap: Option<Mmap>,
+
+    /// Backing buffer (in case we own it)
+    pub buffer: Option<Buffer>,
 }
 
 impl Context {
+    /// Creates a new [Context] using the buffer provided as memory
+    pub fn init_buffer(buffer: Buffer) -> Self {
+        let raw = unsafe {
+            sys::ggml_init(sys::ggml_init_params {
+                mem_size: buffer.size(),
+                mem_buffer: buffer.data,
+                no_alloc: false,
+            })
+        };
+
+        Self {
+            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            mmap: None,
+            buffer: Some(buffer),
+        }
+    }
+
+    /// Creates a new [Context] with the memory mapped file provided
+    pub fn init_mmap(mmap: Mmap) -> Self {
+        let raw = unsafe {
+            sys::ggml_init(sys::ggml_init_params {
+                mem_size: mmap.len(),
+                mem_buffer: std::ptr::null_mut(),
+                no_alloc: true, // We are mmapping so ggml does not need to allocate any memory for us
+            })
+        };
+
+        Self {
+            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            mmap: Some(mmap),
+            buffer: None,
+        }
+    }
+
     /// Creates a new [Context] with the specified `mem_size` as a working area.
     pub fn init(mem_size: usize, alloc: bool) -> Self {
         let raw = unsafe {
             sys::ggml_init(sys::ggml_init_params {
                 mem_size,
-                // Null here means we want ggml to own this memory. We don't
-                // support passing an owned buffer from the Rust side.
+                // Null here means we want ggml to own this memory.
                 mem_buffer: std::ptr::null_mut(),
                 no_alloc: !alloc,
             })
         };
+
         Self {
             ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            mmap: None,
+            buffer: None,
         }
     }
 
@@ -316,22 +356,15 @@ impl Context {
     }
 
     /// Creates a new tensor with the axes of `a` permuted as described by the parameters.
-    pub fn op_permute(
-        &self,
-        a: &Tensor,
-        axis0: usize,
-        axis1: usize,
-        axis2: usize,
-        axis3: usize,
-    ) -> Tensor {
+    pub fn op_permute(&self, a: &Tensor, axes: (usize, usize, usize, usize)) -> Tensor {
         let tensor = unsafe {
             sys::ggml_permute(
                 self.ptr.as_ptr(),
                 a.ptr.as_ptr(),
-                usize_to_i32(axis0),
-                usize_to_i32(axis1),
-                usize_to_i32(axis2),
-                usize_to_i32(axis3),
+                usize_to_i32(axes.0),
+                usize_to_i32(axes.1),
+                usize_to_i32(axes.2),
+                usize_to_i32(axes.3),
             )
         };
         self.new_tensor_raw(tensor)
@@ -422,7 +455,7 @@ impl Context {
     /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
     pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a mut Buffer>) {
         let (size, data) = if let Some(buffer) = scratch_buffer {
-            (buffer.data.len(), buffer.data.as_ptr() as *mut c_void)
+            (buffer.size(), buffer.data)
         } else {
             (0, std::ptr::null_mut())
         };
@@ -463,8 +496,7 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        // SAFETY: The only non-weak copy of ptr is no longer accessible after
-        // this drop call.
+        // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
             sys::ggml_free(self.ptr.as_ptr());
         }

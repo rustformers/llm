@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "llm-cli"
-version = "0.1.1"
+version = "0.2.0-dev"
 repository = { workspace = true }
 license = { workspace = true }
 description = "A CLI for running inference on supported Large Language Models. Powered by the `llm` library."
@@ -12,7 +12,7 @@ name = "llm"
 path = "src/main.rs"
 
 [dependencies]
-llm = { path = "../../crates/llm", version = "0.1.1" }
+llm = { path = "../../crates/llm", version = "0.2.0-dev" }
 
 bytesize = { workspace = true }
 log = { workspace = true }
@@ -27,3 +27,17 @@ num_cpus = "1.15.0"
 
 color-eyre = { version = "0.6.2", default-features = false }
 zstd = { version = "0.12", default-features = false }
+
+[dev-dependencies]
+rusty-hook = "^0.11.2"
+
+[features]
+cublas = ["llm/cublas"]
+clblast = ["llm/clblast"]
+metal = ["llm/metal"]
+
+# Falcon is off by default. See `llm_falcon`'s module documentation for more information.
+falcon = ["llm/falcon"]
+
+# RWKV is off by default. See `llm_rwkv`'s module documentation for more information.
+rwkv = ["llm/rwkv"]

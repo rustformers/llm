@@ -1,42 +1,41 @@
 use clap::Parser;
-use llm::{
-    InferenceFeedback, InferenceRequest, InferenceResponse, InferenceStats, LoadProgress,
-    ModelArchitecture,
-};
 use rustyline::error::ReadlineError;
-use spinoff::{spinners::Dots2, Spinner};
-use std::{convert::Infallible, io::Write, path::PathBuf, time::Instant};
+use std::{convert::Infallible, io::Write, path::PathBuf};
 
 #[derive(Parser)]
 struct Args {
-    model_architecture: String,
+    model_architecture: llm::ModelArchitecture,
     model_path: PathBuf,
-
-    #[arg(short, long)]
-    overrides: Option<String>,
-
-    #[arg(short, long)]
-    vocabulary_path: Option<PathBuf>,
+    #[arg(long, short = 'v')]
+    pub vocabulary_path: Option<PathBuf>,
+    #[arg(long, short = 'r')]
+    pub vocabulary_repository: Option<String>,
+}
+impl Args {
+    pub fn to_vocabulary_source(&self) -> llm::VocabularySource {
+        match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                panic!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => llm::VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => llm::VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => llm::VocabularySource::Model,
+        }
+    }
 }
 
 fn main() {
     let args = Args::parse();
 
-    let model_architecture: ModelArchitecture = args.model_architecture.parse().unwrap();
+    let vocabulary_source = args.to_vocabulary_source();
+    let model_architecture = args.model_architecture;
     let model_path = args.model_path;
-    let overrides = args.overrides.map(|s| serde_json::from_str(&s).unwrap());
-    let sp = Some(Spinner::new(Dots2, "Loading model...", None));
-
-    let now = Instant::now();
-    let prev_load_time = now;
-
     let model = llm::load_dynamic(
         model_architecture,
         &model_path,
-        args.vocabulary_path.as_deref(),
+        vocabulary_source,
         Default::default(),
-        overrides,
-        load_progress_callback(sp, now, prev_load_time),
+        llm::load_progress_callback_stdout,
     )
     .unwrap_or_else(|err| {
         panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
@@ -49,24 +48,30 @@ fn main() {
     let persona = "A chat between a human and an assistant.";
     let history = format!(
         "{character_name}: Hello - How may I help you today?\n\
-         {user_name}: What is the capital or France?\n\
+         {user_name}: What is the capital of France?\n\
          {character_name}:  Paris is the capital of France."
     );
+
+    let inference_parameters = llm::InferenceParameters::default();
 
     session
         .feed_prompt(
             model.as_ref(),
-            &Default::default(),
+            &inference_parameters,
             format!("{persona}\n{history}").as_str(),
             &mut Default::default(),
-            llm::feed_prompt_callback(prompt_callback),
+            llm::feed_prompt_callback(|resp| match resp {
+                llm::InferenceResponse::PromptToken(t)
+                | llm::InferenceResponse::InferredToken(t) => print_token(t),
+                _ => Ok(llm::InferenceFeedback::Continue),
+            }),
         )
         .expect("Failed to ingest initial prompt.");
 
     let mut rl = rustyline::DefaultEditor::new().expect("Failed to create input reader");
 
     let mut rng = rand::thread_rng();
-    let mut res = InferenceStats::default();
+    let mut res = llm::InferenceStats::default();
     let mut buf = String::new();
 
     loop {
@@ -79,9 +84,13 @@ fn main() {
                     .infer(
                         model.as_ref(),
                         &mut rng,
-                        &InferenceRequest {
-                            prompt: format!("{user_name}: {line}\n{character_name}:").as_str(),
-                            ..Default::default()
+                        &llm::InferenceRequest {
+                            prompt: format!("{user_name}: {line}\n{character_name}:")
+                                .as_str()
+                                .into(),
+                            parameters: &inference_parameters,
+                            play_back_previous_tokens: false,
+                            maximum_token_count: None,
                         },
                         &mut Default::default(),
                         inference_callback(String::from(user_name), &mut buf),
@@ -107,86 +116,20 @@ fn main() {
     println!("\n\nInference stats:\n{res}");
 }
 
-fn load_progress_callback(
-    mut sp: Option<Spinner>,
-    now: Instant,
-    mut prev_load_time: Instant,
-) -> impl FnMut(LoadProgress) {
-    move |progress| match progress {
-        LoadProgress::HyperparametersLoaded => {
-            if let Some(sp) = sp.as_mut() {
-                sp.update_text("Loaded hyperparameters")
-            };
-        }
-        LoadProgress::ContextSize { bytes } => log::debug!(
-            "ggml ctx size = {}",
-            bytesize::to_string(bytes as u64, false)
-        ),
-        LoadProgress::TensorLoaded {
-            current_tensor,
-            tensor_count,
-            ..
-        } => {
-            if prev_load_time.elapsed().as_millis() > 500 {
-                // We don't want to re-render this on every message, as that causes the
-                // spinner to constantly reset and not look like it's spinning (and
-                // it's obviously wasteful).
-                if let Some(sp) = sp.as_mut() {
-                    sp.update_text(format!(
-                        "Loaded tensor {}/{}",
-                        current_tensor + 1,
-                        tensor_count
-                    ));
-                };
-                prev_load_time = std::time::Instant::now();
-            }
-        }
-        LoadProgress::LoraApplied { name, source } => {
-            if let Some(sp) = sp.as_mut() {
-                sp.update_text(format!(
-                    "Applied LoRA: {} from '{}'",
-                    name,
-                    source.file_name().unwrap().to_str().unwrap()
-                ));
-            };
-        }
-        LoadProgress::Loaded {
-            file_size,
-            tensor_count,
-        } => {
-            if let Some(sp) = sp.take() {
-                sp.success(&format!(
-                    "Loaded {tensor_count} tensors ({}) after {}ms",
-                    bytesize::to_string(file_size, false),
-                    now.elapsed().as_millis()
-                ));
-            };
-        }
-    }
-}
-
-fn prompt_callback(resp: InferenceResponse) -> Result<InferenceFeedback, Infallible> {
-    match resp {
-        InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => print_token(t),
-        _ => Ok(InferenceFeedback::Continue),
-    }
-}
-
-#[allow(clippy::needless_lifetimes)]
-fn inference_callback<'a>(
+fn inference_callback(
     stop_sequence: String,
-    buf: &'a mut String,
-) -> impl FnMut(InferenceResponse) -> Result<InferenceFeedback, Infallible> + 'a {
+    buf: &mut String,
+) -> impl FnMut(llm::InferenceResponse) -> Result<llm::InferenceFeedback, Infallible> + '_ {
     move |resp| match resp {
-        InferenceResponse::InferredToken(t) => {
+        llm::InferenceResponse::InferredToken(t) => {
             let mut reverse_buf = buf.clone();
             reverse_buf.push_str(t.as_str());
             if stop_sequence.as_str().eq(reverse_buf.as_str()) {
                 buf.clear();
-                return Ok(InferenceFeedback::Halt);
+                return Ok(llm::InferenceFeedback::Halt);
             } else if stop_sequence.as_str().starts_with(reverse_buf.as_str()) {
                 buf.push_str(t.as_str());
-                return Ok(InferenceFeedback::Continue);
+                return Ok(llm::InferenceFeedback::Continue);
             }
 
             if buf.is_empty() {
@@ -195,14 +138,14 @@ fn inference_callback<'a>(
                 print_token(reverse_buf)
             }
         }
-        InferenceResponse::EotToken => Ok(InferenceFeedback::Halt),
-        _ => Ok(InferenceFeedback::Continue),
+        llm::InferenceResponse::EotToken => Ok(llm::InferenceFeedback::Halt),
+        _ => Ok(llm::InferenceFeedback::Continue),
     }
 }
 
-fn print_token(t: String) -> Result<InferenceFeedback, Infallible> {
+fn print_token(t: String) -> Result<llm::InferenceFeedback, Infallible> {
     print!("{t}");
     std::io::stdout().flush().unwrap();
 
-    Ok(InferenceFeedback::Continue)
+    Ok(llm::InferenceFeedback::Continue)
 }

@@ -1,43 +1,49 @@
 use clap::Parser;
-use llm::{
-    load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceRequest,
-    InferenceResponse, ModelArchitecture,
-};
 use std::{convert::Infallible, io::Write, path::PathBuf};
 
 #[derive(Parser)]
 struct Args {
-    model_architecture: ModelArchitecture,
+    model_architecture: llm::ModelArchitecture,
     model_path: PathBuf,
+    #[arg(long, short = 'p')]
     prompt: Option<String>,
-
-    #[arg(short, long)]
-    overrides: Option<String>,
-
-    #[arg(short, long)]
+    #[arg(long, short = 'v')]
     vocabulary_path: Option<PathBuf>,
+    #[arg(long, short = 'r')]
+    vocabulary_repository: Option<String>,
+}
+impl Args {
+    pub fn to_vocabulary_source(&self) -> llm::VocabularySource {
+        match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                panic!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => llm::VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => llm::VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => llm::VocabularySource::Model,
+        }
+    }
 }
 
 fn main() {
     let args = Args::parse();
 
-    let model_architecture: ModelArchitecture = args.model_architecture;
+    let vocabulary_source = args.to_vocabulary_source();
+    let model_architecture = args.model_architecture;
     let model_path = args.model_path;
     let prompt = args
         .prompt
         .as_deref()
         .unwrap_or("Rust is a cool programming language because");
-    let overrides = args.overrides.map(|s| serde_json::from_str(&s).unwrap());
 
     let now = std::time::Instant::now();
 
     let model = llm::load_dynamic(
         model_architecture,
         &model_path,
-        args.vocabulary_path.as_deref(),
+        vocabulary_source,
         Default::default(),
-        overrides,
-        load_callback,
+        llm::load_progress_callback_stdout,
     )
     .unwrap_or_else(|err| {
         panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
@@ -53,20 +59,22 @@ fn main() {
     let res = session.infer::<Infallible>(
         model.as_ref(),
         &mut rand::thread_rng(),
-        &InferenceRequest {
-            prompt,
-            ..Default::default()
+        &llm::InferenceRequest {
+            prompt: prompt.into(),
+            parameters: &llm::InferenceParameters::default(),
+            play_back_previous_tokens: false,
+            maximum_token_count: None,
         },
         // OutputRequest
         &mut Default::default(),
         |r| match r {
-            InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+            llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
                 print!("{t}");
                 std::io::stdout().flush().unwrap();
 
-                Ok(InferenceFeedback::Continue)
+                Ok(llm::InferenceFeedback::Continue)
             }
-            _ => Ok(InferenceFeedback::Continue),
+            _ => Ok(llm::InferenceFeedback::Continue),
         },
     );
 

@@ -1,65 +1,58 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, InferenceParameters, InferenceSession, InferenceSessionConfig, KnownModel,
-    LoadError, LoadProgress, Mmap, ModelParameters, OutputRequest, TensorLoader, TokenId,
+    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId,
     Vocabulary,
 };
-
-#[cfg(feature = "convert")]
-pub mod convert;
-
-use tokenizers::Tokenizer;
-
-mod old_loader;
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Llama {
+    // the context size ("memory") the model should use when evaluating a prompt
+    context_size: usize,
+
     hyperparameters: Hyperparameters,
-    n_context_tokens: usize,
+    vocabulary: Vocabulary,
 
-    tokenizer: Tokenizer,
-
-    tok_embeddings: ggml::Tensor,
-
+    // model-global weights
+    // weighted token embeddings
+    wte: ggml::Tensor,
+    // normalization
     norm: ggml::Tensor,
+    // output weight
     output: ggml::Tensor,
 
+    // weights for the model
     layers: Vec<Layer>,
 
-    inference_parameters: InferenceParameters,
-
-    /// Needs to kept alive while the model is alive
-    _mmap: Option<Mmap>,
-
-    // Must be kept alive for the model
-    _context: ggml::Context,
+    // must be kept alive for the model
+    context: Arc<ggml::Context>,
 }
+
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
 
 impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        tokenizer: Tokenizer,
-        _overrides: Option<Self::Overrides>,
+        vocabulary: Vocabulary,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
 
-        let tok_embeddings = tl.load("tok_embeddings.weight")?;
+        // model-global weights
+        let wte = tl.load("tok_embeddings.weight")?;
         let norm = tl.load("norm.weight")?;
         let output = tl.load("output.weight")?;
 
@@ -80,25 +73,19 @@ impl KnownModel for Llama {
             layers.push(layer);
         }
 
-        let (_context, _tensors, _mmap) = tl.finish();
+        let (context, _tensors) = tl.finish();
 
-        let ModelParameters {
-            n_context_tokens,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         Ok(Self {
             hyperparameters,
-            n_context_tokens,
-            tokenizer,
-            tok_embeddings,
+            context_size,
+            vocabulary,
+            wte,
             norm,
             output,
             layers,
-            inference_parameters,
-            _context,
-            _mmap,
+            context: Arc::new(context),
         })
     }
 
@@ -106,7 +93,7 @@ impl KnownModel for Llama {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.n_context_tokens,
+            self.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -121,12 +108,10 @@ impl KnownModel for Llama {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let n_past = session.n_past;
-        let n_threads = params.n_threads;
-
-        let memk_elsize = session.memory_k.element_size();
-        let memv_elsize = session.memory_v.element_size();
+        let input_len = input_tokens.len();
+        let session_len = session.n_past;
+        let num_threads = params.n_threads;
+        let ctx_size = self.context_size;
 
         let Hyperparameters {
             n_vocab,
@@ -137,157 +122,161 @@ impl KnownModel for Llama {
             n_rot,
             file_type: _,
         } = self.hyperparameters;
-        let n_ctx = self.n_context_tokens;
 
-        let (ctx0, embd) = common::prepare_for_evaluate(n_layer, session, input_tokens);
+        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
+            let ctx0 = builder.ctx0;
+            let embd = builder.embd;
+            let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
-        let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, &embd);
+            // for big prompts, if BLAS is enabled, it is better to use only one thread
+            // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
+            let mut gf = ggml::ComputationGraph::new(
+                if input_len >= 32 && ggml::cpu_has_blas() && !ggml::cpu_has_gpublas() {
+                    1
+                } else {
+                    num_threads
+                },
+            );
+            for il in 0..n_layer {
+                let input_self_attention = input_layer.share();
+                let mut current: ggml::Tensor;
 
-        let mut gf = ggml::ComputationGraph::new(n_threads);
+                builder.use_scratch(Some(0));
 
-        for il in 0..n_layer {
-            let input_self_attention = input_layer.share();
-            let mut current: ggml::Tensor;
-
-            ctx0.use_scratch(Some(&mut session.scratch[0]));
-
-            // norm
-            {
+                // norm
                 current = ctx0.op_rms_norm(&input_layer);
 
                 // cur = attention_norm * cur
-                current = ctx0.op_mul(
-                    &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
-                    &current,
-                );
-            }
+                current = ctx0.op_mul(&current, &self.layers[il].attention_norm);
 
-            // self-attention
-            {
+                // self-attention
                 // compute Q and K and RoPE them
-                let q_current = ctx0.op_rope(
+                let q_current = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_mul_mat(&self.layers[il].wq, &current),
                         n_embd / n_head,
                         n_head,
-                        n,
+                        input_len,
                     ),
-                    n_past,
+                    session_len,
                     n_rot,
                     0,
                 );
-                let k_current = ctx0.op_rope(
+                ggml::set_name(&q_current, "Qcur");
+                let k_current = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_mul_mat(&self.layers[il].wk, &current),
                         n_embd / n_head,
                         n_head,
-                        n,
+                        input_len,
                     ),
-                    n_past,
+                    session_len,
                     n_rot,
                     0,
                 );
+                ggml::set_name(&k_current, "Kcur");
 
                 // store key and value to memory
-                {
-                    // compute the transposed [N, n_embd] V matrix
-                    let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
-                        &ctx0.op_mul_mat(&self.layers[il].wv, &current),
-                        n_embd,
-                        n,
-                    ));
+                // compute the transposed [N, n_embd] V matrix
+                let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
+                    &ctx0.op_mul_mat(&self.layers[il].wv, &current),
+                    n_embd,
+                    input_len,
+                ));
 
-                    let k = ctx0.op_view_1d(
-                        &session.memory_k,
-                        n * n_embd,
-                        (memk_elsize * n_embd) * (il * n_ctx + n_past),
-                    );
+                let k = ctx0.op_view_1d(
+                    builder.memory_k,
+                    input_len * n_embd,
+                    (builder.memory_k.element_size() * n_embd) * (il * ctx_size + session_len),
+                );
 
-                    let v = ctx0.op_view_2d(
-                        &session.memory_v,
-                        (n, n_embd),
-                        n_ctx * memv_elsize,
-                        (il * n_ctx) * memv_elsize * n_embd + n_past * memv_elsize,
-                    );
+                let v = ctx0.op_view_2d(
+                    builder.memory_v,
+                    (input_len, n_embd),
+                    ctx_size * builder.memory_v.element_size(),
+                    (il * ctx_size) * builder.memory_v.element_size() * n_embd
+                        + session_len * builder.memory_v.element_size(),
+                );
 
-                    // important: storing RoPE-ed version of K in the KV cache!
-                    gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
-                    gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
-                }
+                // important: storing RoPE-ed version of K in the KV cache!
+                gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
+                gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
 
-                let q = ctx0.op_permute(&q_current, 0, 2, 1, 3);
+                let q = ctx0.op_permute(&q_current, (0, 2, 1, 3));
+                ggml::set_name(&q, "Q");
 
                 let k = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
-                            &session.memory_k,
-                            (n_past + n) * n_embd,
-                            il * n_ctx * memk_elsize * n_embd,
+                            builder.memory_k,
+                            (session_len + input_len) * n_embd,
+                            il * ctx_size * builder.memory_k.element_size() * n_embd,
                         ),
                         n_embd / n_head,
                         n_head,
-                        n_past + n,
+                        session_len + input_len,
                     ),
-                    0,
-                    2,
-                    1,
-                    3,
+                    (0, 2, 1, 3),
                 );
+                ggml::set_name(&k, "K");
 
                 // K * Q
                 let k_q = ctx0.op_mul_mat(&k, &q);
+                ggml::set_name(&k_q, "KQ");
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
-                let k_q_scaled = ctx0.op_scale(
-                    &k_q,
-                    &ctx0.new_f32(1.0 / f32::sqrt(n_embd as f32 / n_head as f32)),
-                );
+                let kq_scale = ctx0.new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()));
+                ggml::set_name(&kq_scale, "1/sqrt(n_embd/n_head)");
+                let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale);
+                ggml::set_name(&k_q_scaled, "KQ_scaled");
 
                 // KQ_masked = mask_past(KQ_scaled)
-                let k_q_masked = ctx0.op_diag_mask_inf(&k_q_scaled, n_past);
+                let k_q_masked = ctx0.op_diag_mask_inf_inplace(&k_q_scaled, session_len);
+                ggml::set_name(&k_q_masked, "KQ_masked");
 
                 // KQ = soft_max(KQ_masked)
-                let k_q_soft_max = ctx0.op_soft_max(&k_q_masked);
+                let k_q_soft_max = ctx0.op_soft_max_inplace(&k_q_masked);
+                ggml::set_name(&k_q_soft_max, "KQ_soft_max");
 
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(
-                    &session.memory_v,
-                    (n_past + n, n_embd / n_head, n_head),
-                    (n_ctx * memv_elsize, n_ctx * memv_elsize * n_embd / n_head),
-                    il * n_ctx * memv_elsize * n_embd,
+                    builder.memory_v,
+                    (session_len + input_len, n_embd / n_head, n_head),
+                    (
+                        ctx_size * builder.memory_v.element_size(),
+                        ctx_size * builder.memory_v.element_size() * n_embd / n_head,
+                    ),
+                    il * ctx_size * builder.memory_v.element_size() * n_embd,
                 );
+                ggml::set_name(&v, "V");
 
                 let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
+                ggml::set_name(&k_q_v, "KQV");
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
-                let k_q_v_merged = ctx0.op_permute(&k_q_v, 0, 2, 1, 3);
+                let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
+                ggml::set_name(&k_q_v_merged, "KQV_merged");
 
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n),
+                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
                 );
+                ggml::set_name(&current, "KQV_merged_contiguous");
 
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
-            }
 
-            ctx0.use_scratch(Some(&mut session.scratch[1]));
+                builder.use_scratch(Some(1));
 
-            let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
+                let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
-            // feed-forward network
-            {
+                // feed-forward network
                 // norm
-                {
-                    current = ctx0.op_rms_norm(&input_feed_forward);
+                current = ctx0.op_rms_norm(&input_feed_forward);
 
-                    // cur = ffn_norm*cur
-                    current = ctx0.op_mul(
-                        &ctx0.op_repeat(&self.layers[il].ffn_norm, &current),
-                        &current,
-                    );
-                }
+                // cur = cur*ffn_norm(broadcasted)
+                current = ctx0.op_mul(&current, &self.layers[il].ffn_norm);
 
                 let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &current);
 
@@ -299,51 +288,48 @@ impl KnownModel for Llama {
                 current = ctx0.op_mul(&current, &tmp);
 
                 current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
+
+                current = ctx0.op_add(&current, &input_feed_forward);
+
+                // input for next layer
+                input_layer = current;
             }
+            builder.use_scratch(Some(0));
 
-            current = ctx0.op_add(&current, &input_feed_forward);
-
-            // input for next layer
-            input_layer = current;
-        }
-
-        ctx0.use_scratch(Some(&mut session.scratch[0]));
-
-        // Used at the end to optionally extract the embeddings.
-
-        // norm
-        {
+            // norm
             input_layer = ctx0.op_rms_norm(&input_layer);
 
-            // inpL = norm*inpL
-            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
-        }
+            // inpL = inpL*norm(broadcasted)
+            input_layer = ctx0.op_mul(&input_layer, &self.norm);
 
-        // lm_head
-        {
+            let embedding_result: ggml::Tensor = input_layer.share();
+
+            // lm_head
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
-        }
 
-        ctx0.use_scratch(None);
-
-        // run the computation
-        gf.build_forward_expand(&input_layer);
-        ctx0.graph_compute(&mut gf);
+            ctx0.use_scratch(None);
+            (
+                gf,
+                GraphOutputs {
+                    result: input_layer,
+                    embedding_result,
+                },
+            )
+        });
 
         // finish evaluation
-        common::read_last_token(session, &input_layer, n_vocab, n);
-        common::extract_logits(output_request, &input_layer, n_vocab, n);
-        common::extract_embeddings(output_request, &embd, n_embd, n);
-        common::update_session(session, &ctx0, input_tokens.len(), n);
+        common::read_last_token(session, &outputs.result, n_vocab, input_len);
+        common::extract_logits(output_request, &outputs.result, n_vocab, input_len);
+        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
     /// Returns the vocabulary used by this model.
-    fn tokenizer(&self) -> &Tokenizer {
-        &self.tokenizer
+    fn vocabulary(&self) -> &Vocabulary {
+        &self.vocabulary
     }
 
-    fn n_context_tokens(&self) -> usize {
-        self.n_context_tokens
+    fn context_size(&self) -> usize {
+        self.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
@@ -354,32 +340,12 @@ impl KnownModel for Llama {
         2
     }
 
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
+    fn quantize_tensors() -> Vec<Regex> {
+        vec![Regex::new(".*weight").unwrap()]
     }
-}
-#[cfg(test)]
-impl Llama {
-    /// This does *not* construct a valid model. All of the tensors are entirely
-    /// empty. However, it can be used to determine if some code will compile.
-    fn new_empty() -> Self {
-        let context = ggml::Context::init(1024 * 1024, true);
-        let tok_embeddings = context.new_f32(0.0);
-        let norm = context.new_f32(0.0);
-        let output = context.new_f32(0.0);
 
-        Self {
-            hyperparameters: Default::default(),
-            n_context_tokens: 0,
-            tokenizer: Tokenizer::from_pretrained("", None).unwrap(),
-            tok_embeddings,
-            norm,
-            output,
-            layers: Default::default(),
-            _mmap: Default::default(),
-            _context: context,
-            inference_parameters: Default::default(),
-        }
+    fn skip_quantize_tensors() -> Vec<Regex> {
+        vec![]
     }
 }
 
@@ -401,6 +367,7 @@ pub struct Hyperparameters {
     /// file_type
     pub file_type: FileType,
 }
+
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
         Ok(Hyperparameters {
@@ -453,27 +420,4 @@ struct Layer {
     w1: ggml::Tensor,
     w2: ggml::Tensor,
     w3: ggml::Tensor,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[test]
-    fn can_share_model_between_threads() {
-        let model = Arc::new(Llama::new_empty());
-
-        for _ in 0..4 {
-            let model = model.clone();
-            std::thread::spawn(move || {
-                let _session = model.start_session(Default::default());
-            });
-        }
-
-        let session = model.start_session(Default::default());
-        std::thread::spawn(move || {
-            let _session = session;
-        });
-    }
 }

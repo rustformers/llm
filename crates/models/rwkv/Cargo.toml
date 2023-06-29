@@ -1,6 +1,6 @@
 [package]
 name = "llm-rwkv"
-version = "0.1.1"
+version = "0.2.0-dev"
 license = { workspace = true }
 repository = { workspace = true }
 description = "An implementation of RWKV for the `llm` ecosystem."
@@ -9,7 +9,3 @@ readme = "../../../README.md"
 
 [dependencies]
 llm-base = { path = "../../llm-base" }
-ggml = { path = "../../ggml" }
-
-bytemuck = { workspace = true }
-tokenizers = { workspace = true }

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    error::Error,
     fmt::{Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
@@ -7,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
-    Vocabulary,
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters,
+    ModelVocabulary, TokenId, Vocabulary, VocabularyLoadError, VocabularySource,
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -17,9 +18,6 @@ use ggml::{
 };
 use memmap2::Mmap;
 use thiserror::Error;
-
-use tokenizers::models::bpe::BpeBuilder;
-use tokenizers::Tokenizer;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
 /// Information about the file.
@@ -32,35 +30,16 @@ pub struct FileType {
 impl From<FileType> for i32 {
     fn from(value: FileType) -> Self {
         (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
-            + match value.format {
-                FileTypeFormat::F32 => 0,
-                FileTypeFormat::MostlyF16 => 1,
-                FileTypeFormat::MostlyQ4_0 => 2,
-                FileTypeFormat::MostlyQ4_1 => 3,
-                FileTypeFormat::MostlyQ4_1SomeF16 => 4,
-                FileTypeFormat::MostlyQ4_2 => 5,
-                FileTypeFormat::MostlyQ8_0 => 7,
-                FileTypeFormat::MostlyQ5_0 => 8,
-                FileTypeFormat::MostlyQ5_1 => 9,
-            }
+            + ggml::sys::llama::llama_ftype::from(value.format) as i32
     }
 }
 impl TryFrom<i32> for FileType {
     type Error = ();
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let format = match (value as u32) % ggml::QNT_VERSION_FACTOR {
-            0 => FileTypeFormat::F32,
-            1 => FileTypeFormat::MostlyF16,
-            2 => FileTypeFormat::MostlyQ4_0,
-            3 => FileTypeFormat::MostlyQ4_1,
-            4 => FileTypeFormat::MostlyQ4_1SomeF16,
-            5 => FileTypeFormat::MostlyQ4_2,
-            7 => FileTypeFormat::MostlyQ8_0,
-            8 => FileTypeFormat::MostlyQ5_0,
-            9 => FileTypeFormat::MostlyQ5_1,
-            _ => return Err(()),
-        };
+        let format = FileTypeFormat::try_from(
+            ((value as u32) % ggml::QNT_VERSION_FACTOR) as ggml::sys::llama::llama_ftype,
+        )?;
 
         Ok(Self {
             format,
@@ -70,26 +49,13 @@ impl TryFrom<i32> for FileType {
 }
 impl Display for FileType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            FileTypeFormat::F32 => write!(f, "f32"),
-            FileTypeFormat::MostlyF16 => write!(f, "f16"),
-            FileTypeFormat::MostlyQ4_0 => write!(f, "q4_0"),
-            FileTypeFormat::MostlyQ4_1 => write!(f, "q4_1"),
-            FileTypeFormat::MostlyQ4_1SomeF16 => write!(f, "q4_1_with_f16"),
-            FileTypeFormat::MostlyQ4_2 => write!(f, "q4_2"),
-            FileTypeFormat::MostlyQ8_0 => write!(f, "q8_0"),
-            FileTypeFormat::MostlyQ5_0 => write!(f, "q5_0"),
-            FileTypeFormat::MostlyQ5_1 => write!(f, "q5_1"),
-        }?;
-
-        write!(f, "_qnt{}", self.quantization_version)?;
-
-        Ok(())
+        write!(f, "{}_qnt{}", self.format, self.quantization_version)
     }
 }
 
 /// How the tensors are stored in GGML LLM models.
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
+#[allow(non_camel_case_types)]
 pub enum FileTypeFormat {
     /// All tensors are stored as f32.
     F32,
@@ -103,31 +69,107 @@ pub enum FileTypeFormat {
     /// All tensors are mostly stored as `Q4_1`, except for the 1D tensors (32-bit)
     /// and the `tok_embeddings.weight` (f16) and `output.weight` tensors (f16).
     MostlyQ4_1SomeF16,
-    /// All tensors are mostly stored as `Q4_2`, except for the 1D tensors (32-bit).
-    MostlyQ4_2,
     /// All tensors are mostly stored as `Q8_0`, except for the 1D tensors (32-bit).
     MostlyQ8_0,
     /// All tensors are mostly stored as `Q5_0`, except for the 1D tensors (32-bit).
     MostlyQ5_0,
     /// All tensors are mostly stored as `Q5_1`, except for the 1D tensors (32-bit).
     MostlyQ5_1,
+    /// The tensors are stored using the `Q2_K` quantization scheme.
+    MostlyQ2_K,
+    /// The tensors are stored using the `Q3_K_S` quantization scheme.
+    MostlyQ3_K_S,
+    /// The tensors are stored using the `Q3_K_M` quantization scheme.
+    MostlyQ3_K_M,
+    /// The tensors are stored using the `Q3_K_L` quantization scheme.
+    MostlyQ3_K_L,
+    /// The tensors are stored using the `Q4_K_S` quantization scheme.
+    MostlyQ4_K_S,
+    /// The tensors are stored using the `Q4_K_M` quantization scheme.
+    MostlyQ4_K_M,
+    /// The tensors are stored using the `Q5_K_S` quantization scheme.
+    MostlyQ5_K_S,
+    /// The tensors are stored using the `Q5_K_M` quantization scheme.
+    MostlyQ5_K_M,
+    /// The tensors are stored using the `Q6_K` quantization scheme.
+    MostlyQ6_K,
 }
-impl TryFrom<ggml::Type> for FileTypeFormat {
+impl TryFrom<ggml::sys::llama::llama_ftype> for FileTypeFormat {
     type Error = ();
 
-    fn try_from(value: ggml::Type) -> Result<Self, Self::Error> {
-        Ok(match value {
-            ggml::Type::Q4_0 => Self::MostlyQ4_0,
-            ggml::Type::Q4_1 => Self::MostlyQ4_1,
-            ggml::Type::Q5_0 => Self::MostlyQ5_0,
-            ggml::Type::Q5_1 => Self::MostlyQ5_1,
-            ggml::Type::Q8_0 => Self::MostlyQ8_0,
-            ggml::Type::Q8_1 => return Err(()),
-            ggml::Type::I32 => return Err(()),
-            ggml::Type::F16 => Self::MostlyF16,
-            ggml::Type::F32 => Self::F32,
-            ggml::Type::LegacyQ4_2 => Self::MostlyQ4_2,
-        })
+    fn try_from(value: ggml::sys::llama::llama_ftype) -> Result<Self, Self::Error> {
+        use ggml::sys::llama::*;
+        match value {
+            LLAMA_FTYPE_ALL_F32 => Ok(FileTypeFormat::F32),
+            LLAMA_FTYPE_MOSTLY_F16 => Ok(FileTypeFormat::MostlyF16),
+            LLAMA_FTYPE_MOSTLY_Q4_0 => Ok(FileTypeFormat::MostlyQ4_0),
+            LLAMA_FTYPE_MOSTLY_Q4_1 => Ok(FileTypeFormat::MostlyQ4_1),
+            LLAMA_FTYPE_MOSTLY_Q4_1_SOME_F16 => Ok(FileTypeFormat::MostlyQ4_1SomeF16),
+            LLAMA_FTYPE_MOSTLY_Q8_0 => Ok(FileTypeFormat::MostlyQ8_0),
+            LLAMA_FTYPE_MOSTLY_Q5_0 => Ok(FileTypeFormat::MostlyQ5_0),
+            LLAMA_FTYPE_MOSTLY_Q5_1 => Ok(FileTypeFormat::MostlyQ5_1),
+            LLAMA_FTYPE_MOSTLY_Q2_K => Ok(FileTypeFormat::MostlyQ2_K),
+            LLAMA_FTYPE_MOSTLY_Q3_K_S => Ok(FileTypeFormat::MostlyQ3_K_S),
+            LLAMA_FTYPE_MOSTLY_Q3_K_M => Ok(FileTypeFormat::MostlyQ3_K_M),
+            LLAMA_FTYPE_MOSTLY_Q3_K_L => Ok(FileTypeFormat::MostlyQ3_K_L),
+            LLAMA_FTYPE_MOSTLY_Q4_K_S => Ok(FileTypeFormat::MostlyQ4_K_S),
+            LLAMA_FTYPE_MOSTLY_Q4_K_M => Ok(FileTypeFormat::MostlyQ4_K_M),
+            LLAMA_FTYPE_MOSTLY_Q5_K_S => Ok(FileTypeFormat::MostlyQ5_K_S),
+            LLAMA_FTYPE_MOSTLY_Q5_K_M => Ok(FileTypeFormat::MostlyQ5_K_M),
+            LLAMA_FTYPE_MOSTLY_Q6_K => Ok(FileTypeFormat::MostlyQ6_K),
+            _ => Err(()),
+        }
+    }
+}
+impl From<FileTypeFormat> for ggml::sys::llama::llama_ftype {
+    fn from(value: FileTypeFormat) -> Self {
+        use ggml::sys::llama::*;
+        match value {
+            FileTypeFormat::F32 => LLAMA_FTYPE_ALL_F32,
+            FileTypeFormat::MostlyF16 => LLAMA_FTYPE_MOSTLY_F16,
+            FileTypeFormat::MostlyQ4_0 => LLAMA_FTYPE_MOSTLY_Q4_0,
+            FileTypeFormat::MostlyQ4_1 => LLAMA_FTYPE_MOSTLY_Q4_1,
+            FileTypeFormat::MostlyQ4_1SomeF16 => LLAMA_FTYPE_MOSTLY_Q4_1_SOME_F16,
+            FileTypeFormat::MostlyQ8_0 => LLAMA_FTYPE_MOSTLY_Q8_0,
+            FileTypeFormat::MostlyQ5_0 => LLAMA_FTYPE_MOSTLY_Q5_0,
+            FileTypeFormat::MostlyQ5_1 => LLAMA_FTYPE_MOSTLY_Q5_1,
+            FileTypeFormat::MostlyQ2_K => LLAMA_FTYPE_MOSTLY_Q2_K,
+            FileTypeFormat::MostlyQ3_K_S => LLAMA_FTYPE_MOSTLY_Q3_K_S,
+            FileTypeFormat::MostlyQ3_K_M => LLAMA_FTYPE_MOSTLY_Q3_K_M,
+            FileTypeFormat::MostlyQ3_K_L => LLAMA_FTYPE_MOSTLY_Q3_K_L,
+            FileTypeFormat::MostlyQ4_K_S => LLAMA_FTYPE_MOSTLY_Q4_K_S,
+            FileTypeFormat::MostlyQ4_K_M => LLAMA_FTYPE_MOSTLY_Q4_K_M,
+            FileTypeFormat::MostlyQ5_K_S => LLAMA_FTYPE_MOSTLY_Q5_K_S,
+            FileTypeFormat::MostlyQ5_K_M => LLAMA_FTYPE_MOSTLY_Q5_K_M,
+            FileTypeFormat::MostlyQ6_K => LLAMA_FTYPE_MOSTLY_Q6_K,
+        }
+    }
+}
+impl Display for FileTypeFormat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FileTypeFormat::F32 => "f32",
+                FileTypeFormat::MostlyF16 => "f16",
+                FileTypeFormat::MostlyQ4_0 => "q4_0",
+                FileTypeFormat::MostlyQ4_1 => "q4_1",
+                FileTypeFormat::MostlyQ4_1SomeF16 => "q4_1_with_f16",
+                FileTypeFormat::MostlyQ8_0 => "q8_0",
+                FileTypeFormat::MostlyQ5_0 => "q5_0",
+                FileTypeFormat::MostlyQ5_1 => "q5_1",
+                FileTypeFormat::MostlyQ2_K => "q2_k",
+                FileTypeFormat::MostlyQ3_K_S => "q3_K_S",
+                FileTypeFormat::MostlyQ3_K_M => "q3_K_M",
+                FileTypeFormat::MostlyQ3_K_L => "q3_K_L",
+                FileTypeFormat::MostlyQ4_K_S => "q4_K_S",
+                FileTypeFormat::MostlyQ4_K_M => "q4_K_M",
+                FileTypeFormat::MostlyQ5_K_S => "q5_K_S",
+                FileTypeFormat::MostlyQ5_K_M => "q5_K_M",
+                FileTypeFormat::MostlyQ6_K => "q6_k",
+            }
+        )
     }
 }
 
@@ -283,14 +325,14 @@ pub enum LoadError {
         /// The paths that were found.
         paths: Vec<PathBuf>,
     },
-
     /// The vocab file for the tokenizer could not be loaded.
-    ///
-    ///
-    #[error("could not load vocab file {path:?}")]
-    TokenizerLoadFailed {
-        /// The path that failed.
+    #[error("could not load vocabulary file {path:?}: {error}")]
+    VocabularyLoadError {
+        /// The invalid vocabulary path
         path: PathBuf,
+
+        /// The error that occurred.
+        error: Box<dyn Error + Send + Sync>,
     },
 }
 impl From<util::FindAllModelFilesError> for LoadError {
@@ -298,6 +340,14 @@ impl From<util::FindAllModelFilesError> for LoadError {
         match value {
             util::FindAllModelFilesError::NoParentPath { path } => LoadError::NoParentPath { path },
             util::FindAllModelFilesError::IO(err) => LoadError::Io(err),
+        }
+    }
+}
+impl From<VocabularyLoadError> for LoadError {
+    fn from(value: VocabularyLoadError) -> Self {
+        LoadError::VocabularyLoadError {
+            path: value.path,
+            error: value.error,
         }
     }
 }
@@ -336,7 +386,7 @@ pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>);
+    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>);
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -355,9 +405,8 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    vocab_path: Option<&Path>,
+    vocabulary_source: VocabularySource,
     params: ModelParameters,
-    overrides: Option<M::Overrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
     if !path.exists() {
@@ -377,7 +426,8 @@ pub fn load<M: KnownModel>(
     })?;
     let mut reader = BufReader::new(&file);
 
-    let mut loader = Loader::new(load_progress_callback);
+    let vocabulary = vocabulary_source.retrieve(path)?;
+    let mut loader = Loader::new(vocabulary, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
@@ -391,53 +441,17 @@ pub fn load<M: KnownModel>(
         ..
     } = loader;
 
-    let tokenizer = if let Some(path) = vocab_path {
-        let tok = if !path.exists() && path.to_str().unwrap().matches("/").count() == 1 {
-            Tokenizer::from_pretrained(path.to_str().unwrap(), None)
-        } else if path.exists() && path.is_file() {
-            Tokenizer::from_file(path)
-        } else {
-            return Err(LoadError::TokenizerLoadFailed {
-                path: path.to_owned(),
-            });
-        };
-
-        if tok.is_err() {
-            return Err(LoadError::TokenizerLoadFailed {
-                path: path.to_owned(),
-            });
-        }
-
-        tok.unwrap()
-    } else {
-        println!("Warning: No vocab file provided, trying to build vocabulary from ggml model.");
-
-        let mut vocab: HashMap<String, u32> = HashMap::new();
-
-        vocabulary.token_to_id.iter().for_each(|(k, v)| unsafe {
-            vocab.insert(String::from_utf8_unchecked(k.to_vec()), *v as u32);
-        });
-
-        let builder = BpeBuilder::new()
-            .fuse_unk(true)
-            .byte_fallback(true)
-            .vocab_and_merges(vocab, Vec::new())
-            .unk_token("<unk>".to_string());
-
-        Tokenizer::new(builder.build().unwrap())
-    };
-
     let quantization_version = (&hyperparameters as &M::Hyperparameters)
         .file_type()
         .map(|ft| ft.quantization_version)
         .unwrap_or_default();
     let quantization_version = if quantization_version == 0 {
-        // HACK: version 2 of the GGJT format changed the quantization algorithm,
-        // but two days after version 2, the quantization version mechanism was
-        // added. To work around this, we assume the quantization version if
-        // it's a version 2 model with a quantization version of 0.
+        // HACK: I think llama.cpp does not actually write the quantization version correctly,
+        // so we need to guess it from the container type.
         if container_type == ggml::ContainerType::Ggjt(2) {
             1
+        } else if container_type == ggml::ContainerType::Ggjt(3) {
+            2
         } else {
             quantization_version
         }
@@ -447,7 +461,7 @@ pub fn load<M: KnownModel>(
 
     // TODO: this is temporary while we figure out how to handle this
     if tensors.values().any(|t| t.element_type.is_quantized()) {
-        assert_eq!(quantization_version, 1, "quantization version must be 1");
+        assert_eq!(quantization_version, 2, "quantization version must be 2");
     }
 
     let use_mmap =
@@ -471,7 +485,8 @@ pub fn load<M: KnownModel>(
                 let mut lora_reader = BufReader::new(&lora_file);
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-                let mut lora_loader: Loader<LoraParameters, _> = Loader::new(|_| {});
+                let mut lora_loader: Loader<LoraParameters, _> =
+                    Loader::new(ModelVocabulary::default().into(), |_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
@@ -496,16 +511,15 @@ pub fn load<M: KnownModel>(
     }
 
     (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
-    let context = Context::init(ctx_size, !use_mmap);
-
-    let (mmap, file_size) = {
+    let (context, file_size) = if use_mmap {
         let file = File::open(path)?;
-        let mmap = if use_mmap {
-            Some(unsafe { Mmap::map(&file)? })
-        } else {
-            None
-        };
-        (mmap, file.metadata()?.len())
+        unsafe {
+            let mmap = Mmap::map(&file)?;
+            let file_size = mmap.len() as u64;
+            (Context::init_mmap(mmap), file_size)
+        }
+    } else {
+        (Context::init(ctx_size, true), file.metadata()?.len())
     };
 
     let tensors_len = tensors.len();
@@ -514,13 +528,12 @@ pub fn load<M: KnownModel>(
         file,
         tensors,
         context,
-        mmap,
         lora_adapters,
         load_progress_callback: &mut load_progress_callback,
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, tokenizer, overrides, tl)?;
+    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,
@@ -535,25 +548,27 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
     // Input
     load_progress_callback: F,
 
+    // Input/Output
+    /// The vocabulary of the model.
+    pub vocabulary: Vocabulary,
+
     // Output
     /// The container type of the model.
     pub container_type: ContainerType,
     /// The hyperparameters of the model.
     pub hyperparameters: Hp,
-    /// The vocabulary of the model.
-    pub vocabulary: Vocabulary,
     /// The tensors of the model.
     pub tensors: HashMap<String, TensorLoadInfo>,
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
-    pub fn new(load_progress_callback: F) -> Self {
+    pub fn new(vocabulary: Vocabulary, load_progress_callback: F) -> Self {
         Self {
             load_progress_callback,
 
             container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
-            vocabulary: Vocabulary::default(),
+            vocabulary,
             tensors: HashMap::default(),
         }
     }
@@ -567,11 +582,14 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
     }
 
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
-        let id = match TokenId::try_from(i) {
-            Ok(id) => id,
-            Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
-        };
-        self.vocabulary.push_token(id, token, score);
+        if let Vocabulary::Model(mv) = &mut self.vocabulary {
+            let id = match TokenId::try_from(i) {
+                Ok(id) => id,
+                Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
+            };
+
+            mv.push_token(id, token, score);
+        }
 
         Ok(())
     }
@@ -602,7 +620,6 @@ struct MmapCompatibleLoader<'a> {
     file: File,
     tensors: HashMap<String, TensorLoadInfo>,
     context: Context,
-    mmap: Option<Mmap>,
     lora_adapters: Option<Vec<LoraAdapter>>,
     load_progress_callback: &'a mut dyn FnMut(LoadProgress),
     loaded_tensors: HashMap<String, ggml::Tensor>,
@@ -618,7 +635,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             &self.context,
             &mut self.file,
             &self.path,
-            self.mmap.as_ref(),
+            self.context.mmap.as_ref(),
         );
 
         let mut tensor = main_context.get_tensor(info)?;
@@ -642,8 +659,8 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>, Option<Mmap>) {
-        (self.context, self.loaded_tensors, self.mmap)
+    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>) {
+        (self.context, self.loaded_tensors)
     }
 }
 

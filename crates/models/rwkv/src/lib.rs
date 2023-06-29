@@ -1,3 +1,11 @@
+//! An implementation of the [RWKV](https://github.com/BlinkDL/RWKV-LM) model for the `llm` ecosystem.
+//!
+//! This implementation is out of date and needs to be updated to the latest version of the model
+//! architecture.
+//!
+//! This model will not be generally available in the `llm` ecosystem until it is updated.
+//! It is currently only available for testing purposes.
+
 // Ref: https://github.com/saharNooby/rwkv.cpp/blob/5eb8f09/rwkv.cpp
 
 use std::cell::RefCell;
@@ -6,23 +14,17 @@ use ggml::Tensor;
 use llm_base::{
     ggml, model::common, model::HyperparametersWriteError, util, FileType, InferenceParameters,
     InferenceSession, InferenceSessionConfig, KnownModel, LoadError, Mmap, ModelParameters,
-    OutputRequest, TokenId,
+    OutputRequest, TokenId, Vocabulary,
 };
-
-use tokenizers::Tokenizer;
 
 pub struct Rwkv {
     hyperparameters: Hyperparameters,
-    n_context_tokens: usize,
+    context_size: usize,
 
-    tokenizer: Tokenizer,
-
-    /// Needs to kept alive while the model is alive
-    _mmap: Option<Mmap>,
+    vocabulary: Vocabulary,
 
     // Must be kept alive for the model
-    _context: ggml::Context,
-    inference_parameters: InferenceParameters,
+    context: ggml::Context,
 
     // Must be kept alive to evaluate the graph
     ctx: ggml::Context,
@@ -97,13 +99,11 @@ fn rwkv_1_minus_x(ctx: &ggml::Context, x: &ggml::Tensor) -> ggml::Tensor {
 
 impl KnownModel for Rwkv {
     type Hyperparameters = Hyperparameters;
-    type Overrides = ();
 
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        tokenizer: Tokenizer,
-        _overrides: Option<Self::Overrides>,
+        vocabulary: Vocabulary,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -147,13 +147,9 @@ impl KnownModel for Rwkv {
         let ln_out_bias = tl.load("ln_out.bias")?;
         let head = tl.load("head.weight")?;
 
-        let (_context, _, _mmap) = tl.finish();
+        let (context, _) = tl.finish();
 
-        let ModelParameters {
-            n_context_tokens,
-            inference_parameters,
-            ..
-        } = params;
+        let ModelParameters { context_size, .. } = params;
 
         let Hyperparameters {
             n_vocab,
@@ -269,7 +265,7 @@ impl KnownModel for Rwkv {
 
         let logits = ctx0.op_mul_mat(&head, &x);
 
-        let mut gf = ggml::ComputationGraph::new(inference_parameters.n_threads);
+        let mut gf = ggml::ComputationGraph::new(1);
         gf.build_forward_expand(&logits);
 
         for part in state_parts.iter().take(n_layer * 5) {
@@ -278,11 +274,9 @@ impl KnownModel for Rwkv {
 
         Ok(Rwkv {
             hyperparameters,
-            n_context_tokens,
-            tokenizer,
-            inference_parameters,
-            _mmap,
-            _context,
+            context_size,
+            vocabulary,
+            context,
             ctx: ctx0,
             graph: RefCell::new(gf),
             token_index,
@@ -295,7 +289,7 @@ impl KnownModel for Rwkv {
     fn start_session(&self, params: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             params,
-            self.n_context_tokens,
+            self.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -310,8 +304,9 @@ impl KnownModel for Rwkv {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
+        /*
         for token in input_tokens {
-            self.token_index.set_i32_1d(0, *token);
+            self.token_index.set_i32_1d(0, (*token) as i32);
 
             unsafe {
                 /*self.state
@@ -365,14 +360,15 @@ impl KnownModel for Rwkv {
             );
             common::update_session(session, &self.ctx, input_tokens.len(), input_tokens.len());
         }
+        */
     }
 
-    fn tokenizer(&self) -> &Tokenizer {
-        &self.tokenizer
+    fn vocabulary(&self) -> &Vocabulary {
+        &self.vocabulary
     }
 
-    fn n_context_tokens(&self) -> usize {
-        self.n_context_tokens
+    fn context_size(&self) -> usize {
+        self.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
@@ -380,11 +376,15 @@ impl KnownModel for Rwkv {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.tokenizer.token_to_id("<|endoftext|>").unwrap() as TokenId
+        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap() as TokenId
     }
 
-    fn inference_parameters(&self) -> &InferenceParameters {
-        &self.inference_parameters
+    fn quantize_tensors() -> Vec<llm_base::Regex> {
+        vec![]
+    }
+
+    fn skip_quantize_tensors() -> Vec<llm_base::Regex> {
+        vec![]
     }
 }
 

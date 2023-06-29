@@ -1,21 +1,16 @@
-use std::{fmt, path::PathBuf};
+use std::{fmt, ops::Deref, path::PathBuf, sync::Arc};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::{bail, Result, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, VocabularySource,
 };
 use rand::SeedableRng;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub enum Args {
-    /// Use a LLaMA model
-    Llama {
-        #[command(subcommand)]
-        args: BaseArgs,
-    },
     /// Use a BLOOM model
     Bloom {
         #[command(subcommand)]
@@ -34,7 +29,12 @@ pub enum Args {
     },
     /// Use a GPT-NeoX model
     #[clap(id = "gptneox")]
-    NeoX {
+    GptNeoX {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
+    /// Use a LLaMA model
+    Llama {
         #[command(subcommand)]
         args: BaseArgs,
     },
@@ -44,8 +44,16 @@ pub enum Args {
         #[command(subcommand)]
         args: BaseArgs,
     },
+    /// Use a Falcon model
+    #[clap(id = "falcon")]
+    #[cfg(feature = "falcon")]
+    Falcon {
+        #[command(subcommand)]
+        args: BaseArgs,
+    },
     /// Use a RWKV model
     #[clap(id = "rwkv")]
+    #[cfg(feature = "rwkv")]
     Rwkv {
         #[command(subcommand)]
         args: BaseArgs,
@@ -57,6 +65,10 @@ pub enum BaseArgs {
     #[command()]
     /// Use a model to infer the next tokens in a sequence, and exit.
     Infer(Box<Infer>),
+
+    #[command()]
+    /// Measure a model's perplexity for a given prompt.
+    Perplexity(Box<Perplexity>),
 
     #[command()]
     /// Get information about a GGML model.
@@ -95,12 +107,8 @@ pub struct Infer {
     #[command(flatten)]
     pub generate: Generate,
 
-    /// The prompt to feed the generator.
-    ///
-    /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
-    /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
-    #[arg(long, short = 'p', default_value = None)]
-    pub prompt: Option<String>,
+    #[command(flatten)]
+    pub prompt: Prompt,
 
     /// Hide the prompt in the generation.
     ///
@@ -124,20 +132,39 @@ pub struct Infer {
     #[arg(long, default_value = None)]
     pub persist_session: Option<PathBuf>,
 
-    /// Calculate and print perplexity of the model over the prompt.
+    /// Output statistics about the time taken to perform inference, among other
+    /// things.
     #[arg(long, default_value_t = false)]
-    pub perplexity: bool,
+    pub stats: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct Perplexity {
+    #[command(flatten)]
+    pub model_load: ModelLoad,
+
+    #[command(flatten)]
+    pub prompt_file: PromptFile,
+
+    #[command(flatten)]
+    pub generate: Generate,
+
+    #[command(flatten)]
+    pub prompt: Prompt,
 }
 
 #[derive(Parser, Debug)]
 pub struct Info {
-    /// The model to inspect
-    #[arg(long, short = 'm')]
-    pub model_path: PathBuf,
+    #[command(flatten)]
+    pub model_and_vocabulary: ModelAndVocabulary,
 
-    /// Whether or not to dump the entire vocabulary
+    /// Show all of the tensors in the model, including their names, formats and shapes.
+    #[arg(long, short = 't')]
+    pub tensors: bool,
+
+    /// Show all of the tokens in the vocabulary.
     #[arg(long, short = 'v')]
-    pub dump_vocabulary: bool,
+    pub vocabulary: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -148,12 +175,25 @@ pub struct PromptTokens {
     #[command(flatten)]
     pub prompt_file: PromptFile,
 
+    #[command(flatten)]
+    pub prompt: Prompt,
+}
+
+#[derive(Parser, Debug)]
+pub struct Prompt {
     /// The prompt to feed the generator.
     ///
     /// If used with `--prompt-file`/`-f`, the prompt from the file will be used
     /// and `{{PROMPT}}` will be replaced with the value of `--prompt`/`-p`.
     #[arg(long, short = 'p', default_value = None)]
-    pub prompt: Option<String>,
+    prompt: Option<String>,
+}
+impl Deref for Prompt {
+    type Target = Option<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.prompt
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -218,10 +258,16 @@ pub struct Generate {
     #[arg(long, default_value = None)]
     pub seed: Option<u64>,
 
-    /// Use 16-bit floats for model memory key and value. Ignored when restoring
-    /// from the cache.
-    #[arg(long, default_value_t = false)]
-    pub float16: bool,
+    /// Use 16-bit floats for model memory key and value. Ignored but allowed for
+    /// backwards compatibility: this is now the default
+    #[arg(long = "float16", hide = true)]
+    pub _float16: bool,
+
+    /// Use 32-bit floats for model memory key and value.
+    /// Not recommended: doubles size without a measurable quality increase.
+    /// Ignored when restoring from the cache
+    #[arg(long = "no-float16", default_value_t = false)]
+    pub no_float16: bool,
 
     /// A comma separated list of token biases. The list should be in the format
     /// "TID=BIAS,TID=BIAS" where TID is an integer token ID and BIAS is a
@@ -237,6 +283,10 @@ pub struct Generate {
     /// option will override this if specified.
     #[arg(long, default_value_t = false)]
     pub ignore_eos: bool,
+
+    /// Whether to use GPU acceleration when available
+    #[arg(long, default_value_t = false)]
+    pub use_gpu: bool,
 }
 impl Generate {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -261,14 +311,15 @@ impl Generate {
     }
 
     pub fn inference_session_config(&self) -> InferenceSessionConfig {
-        let mem_typ = if self.float16 {
-            ModelKVMemoryType::Float16
-        } else {
+        let mem_typ = if self.no_float16 {
             ModelKVMemoryType::Float32
+        } else {
+            ModelKVMemoryType::Float16
         };
         InferenceSessionConfig {
             memory_k_type: mem_typ,
             memory_v_type: mem_typ,
+            use_gpu: self.use_gpu,
         }
     }
 
@@ -284,18 +335,20 @@ impl Generate {
         InferenceParameters {
             n_threads: self.num_threads(),
             n_batch: self.batch_size,
-            top_k: self.top_k,
-            top_p: self.top_p,
-            repeat_penalty: self.repeat_penalty,
-            temperature: self.temperature,
-            bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
-                if self.ignore_eos {
-                    TokenBias::new(vec![(eot, -1.0)])
-                } else {
-                    TokenBias::default()
-                }
+            sampler: Arc::new(llm::samplers::TopPTopK {
+                top_k: self.top_k,
+                top_p: self.top_p,
+                repeat_penalty: self.repeat_penalty,
+                temperature: self.temperature,
+                bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
+                    if self.ignore_eos {
+                        TokenBias::new(vec![(eot, -1.0)])
+                    } else {
+                        TokenBias::default()
+                    }
+                }),
+                repetition_penalty_last_n: self.repeat_last_n,
             }),
-            repetition_penalty_last_n: self.repeat_last_n,
         }
     }
 }
@@ -304,13 +357,47 @@ fn parse_bias(s: &str) -> Result<TokenBias, InvalidTokenBias> {
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelLoad {
+pub struct ModelVocabulary {
+    /// Local path to vocabulary
+    #[arg(long, short = 'v')]
+    pub vocabulary_path: Option<PathBuf>,
+
+    /// Remote HuggingFace repository containing vocabulary
+    #[arg(long, short = 'r')]
+    pub vocabulary_repository: Option<String>,
+}
+impl ModelVocabulary {
+    pub fn to_source(&self) -> Result<VocabularySource> {
+        Ok(match (&self.vocabulary_path, &self.vocabulary_repository) {
+            (Some(_), Some(_)) => {
+                bail!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+            }
+            (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => VocabularySource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => VocabularySource::Model,
+        })
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelAndVocabulary {
     /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
-    #[arg(long, short = 'v')]
-    pub vocab_path: Option<PathBuf>,
+    #[command(flatten)]
+    pub vocabulary: ModelVocabulary,
+}
+impl ModelAndVocabulary {
+    pub fn to_source(&self) -> Result<VocabularySource> {
+        self.vocabulary.to_source()
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ModelLoad {
+    #[command(flatten)]
+    pub model_and_vocabulary: ModelAndVocabulary,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -335,15 +422,12 @@ pub struct ModelLoad {
     pub lora_paths: Option<Vec<PathBuf>>,
 }
 impl ModelLoad {
-    pub fn load<M: llm::KnownModel + 'static>(
-        &self,
-        overrides: Option<M::Overrides>,
-    ) -> Result<Box<dyn Model>> {
+    pub fn load<M: llm::KnownModel + 'static>(&self, use_gpu: bool) -> Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
-            n_context_tokens: self.num_ctx_tokens,
+            context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
-            ..Default::default()
+            use_gpu,
         };
 
         let mut sp = Some(spinoff::Spinner::new(
@@ -354,11 +438,20 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
+        let vocabulary_source = match self.model_and_vocabulary.to_source() {
+            Ok(vs) => vs,
+            Err(err) => {
+                if let Some(sp) = sp.take() {
+                    sp.fail(&format!("Failed to load vocabulary: {}", err));
+                }
+                return Err(err);
+            }
+        };
+
         let model = llm::load::<M>(
-            &self.model_path,
-            self.vocab_path.as_deref(),
+            &self.model_and_vocabulary.model_path,
+            vocabulary_source,
             params,
-            overrides,
             |progress| match progress {
                 LoadProgress::HyperparametersLoaded => {
                     if let Some(sp) = sp.as_mut() {
@@ -461,38 +554,6 @@ impl PromptFile {
 }
 
 #[derive(Parser, Debug)]
-pub struct Convert {
-    /// Path to model directory
-    #[arg(long, short = 'd')]
-    pub directory: PathBuf,
-
-    /// File type to convert to
-    #[arg(long, short = 't', value_enum, default_value_t = FileType::Q4_0)]
-    pub file_type: FileType,
-}
-#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
-pub enum FileType {
-    /// Quantized 4-bit (type 0).
-    Q4_0,
-    /// Quantized 4-bit (type 1); used by GPTQ.
-    Q4_1,
-    /// Float 16-bit.
-    F16,
-    /// Float 32-bit.
-    F32,
-}
-impl From<FileType> for llm::FileTypeFormat {
-    fn from(t: FileType) -> Self {
-        match t {
-            FileType::Q4_0 => llm::FileTypeFormat::MostlyQ4_0,
-            FileType::Q4_1 => llm::FileTypeFormat::MostlyQ4_1,
-            FileType::F16 => llm::FileTypeFormat::MostlyF16,
-            FileType::F32 => llm::FileTypeFormat::F32,
-        }
-    }
-}
-
-#[derive(Parser, Debug)]
 pub struct Quantize {
     /// The path to the model to quantize
     #[arg()]
@@ -502,11 +563,14 @@ pub struct Quantize {
     #[arg()]
     pub destination: PathBuf,
 
+    #[command(flatten)]
+    pub vocabulary: ModelVocabulary,
+
     /// The GGML container type to target.
     ///
     /// Note that using GGML requires the original model to have
     /// an unscored vocabulary, which is not the case for newer models.
-    #[arg(short, long, default_value_t = SaveContainerType::GgjtV2)]
+    #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
     pub container_type: SaveContainerType,
 
     /// The format to convert to
@@ -517,14 +581,14 @@ pub struct Quantize {
 pub enum SaveContainerType {
     /// GGML container.
     Ggml,
-    /// GGJT v2 container.
-    GgjtV2,
+    /// GGJT v3 container.
+    GgjtV3,
 }
 impl fmt::Display for SaveContainerType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SaveContainerType::Ggml => write!(f, "ggml"),
-            SaveContainerType::GgjtV2 => write!(f, "ggjt-v2"),
+            SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
         }
     }
 }
@@ -532,7 +596,7 @@ impl From<SaveContainerType> for ggml_format::SaveContainerType {
     fn from(value: SaveContainerType) -> Self {
         match value {
             SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
-            SaveContainerType::GgjtV2 => ggml_format::SaveContainerType::GgjtV2,
+            SaveContainerType::GgjtV3 => ggml_format::SaveContainerType::GgjtV3,
         }
     }
 }
@@ -544,12 +608,21 @@ pub enum QuantizationTarget {
     Q4_0,
     /// Quantized 4-bit (type 1).
     Q4_1,
+    /// Quantized 5-bit (type 0).
+    Q5_0,
+    /// Quantized 5-bit (type 1).
+    Q5_1,
+    /// Quantized 8-bit (type 0).
+    Q8_0,
 }
 impl From<QuantizationTarget> for ElementType {
     fn from(t: QuantizationTarget) -> Self {
         match t {
             QuantizationTarget::Q4_0 => ElementType::Q4_0,
             QuantizationTarget::Q4_1 => ElementType::Q4_1,
+            QuantizationTarget::Q5_0 => ElementType::Q5_0,
+            QuantizationTarget::Q5_1 => ElementType::Q5_1,
+            QuantizationTarget::Q8_0 => ElementType::Q8_0,
         }
     }
 }
