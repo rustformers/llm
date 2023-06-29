@@ -1,4 +1,5 @@
 use ggml::{Buffer, ComputationGraph, Context, Tensor};
+use serde::Serialize;
 use std::{fmt::Display, sync::Arc};
 use thiserror::Error;
 
@@ -734,7 +735,7 @@ pub struct InferenceRequest<'a> {
 }
 
 /// Statistics about the inference process.
-#[derive(Debug, Clone, Copy)]
+#[derive(Serialize, Debug, Clone, Copy)]
 pub struct InferenceStats {
     /// How long it took to feed the prompt.
     pub feed_prompt_duration: std::time::Duration,

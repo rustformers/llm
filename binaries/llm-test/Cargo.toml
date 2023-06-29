@@ -1,0 +1,33 @@
+[package]
+edition = "2021"
+name = "llm-test"
+version = "0.2.0-dev"
+repository = { workspace = true }
+license = { workspace = true }
+
+[[bin]]
+name = "llm-test"
+path = "src/main.rs"
+
+[dependencies]
+llm = { path = "../../crates/llm", version = "0.2.0-dev" }
+reqwest = "0.11.9"
+indicatif = "0.16.2"
+tokio = { version = "1.14.0", features = ["full"] }
+tokio-stream = "0.1.8"
+tokio-util = "0.7.1"
+serde = "1.0.130"
+serde_json = "1.0.67"
+bytes = "1.0.1"
+rand = { workspace = true }
+
+[dev-dependencies]
+rusty-hook = "^0.11.2"
+
+[features]
+cublas = ["llm/cublas"]
+clblast = ["llm/clblast"]
+metal = ["llm/metal"]
+
+# Falcon is off by default. See `llm_falcon`'s module documentation for more information.
+falcon = ["llm/falcon"]

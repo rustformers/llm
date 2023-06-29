@@ -1,0 +1,5 @@
+{
+    "url": "https://huggingface.co/rustformers/open-llama-ggml/resolve/main/open_llama_3b-q4_0-ggjt.bin",
+    "filename": "llama.bin",
+    "architecture": "llama"
+}

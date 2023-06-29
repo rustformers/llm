@@ -9,7 +9,7 @@ members = [
     "binaries/*"
 ]
 resolver = "2"
-default-members = ["binaries/llm-cli", "crates/llm"]
+default-members = ["binaries/llm-cli", "crates/llm","binaries/llm-test"]
 
 [workspace.package]
 repository = "https://github.com/rustformers/llm"

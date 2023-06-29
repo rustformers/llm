@@ -1,0 +1,5 @@
+{
+    "url": "https://huggingface.co/rustformers/gpt-j-ggml/resolve/main/gpt-j-6b-q4_0-ggjt.bin",
+    "filename": "gptj.bin",
+    "architecture": "gptj"
+}
