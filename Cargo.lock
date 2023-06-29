@@ -1313,7 +1313,6 @@ dependencies = [
 name = "llm-bloom"
 version = "0.2.0-dev"
 dependencies = [
- "bytemuck",
  "llm-base",
 ]
 
@@ -1340,7 +1339,6 @@ dependencies = [
 name = "llm-falcon"
 version = "0.2.0-dev"
 dependencies = [
- "bytemuck",
  "llm-base",
 ]
 
@@ -1356,7 +1354,6 @@ dependencies = [
 name = "llm-gptj"
 version = "0.2.0-dev"
 dependencies = [
- "bytemuck",
  "llm-base",
 ]
 
@@ -1364,26 +1361,20 @@ dependencies = [
 name = "llm-gptneox"
 version = "0.2.0-dev"
 dependencies = [
- "bytemuck",
  "llm-base",
- "serde",
 ]
 
 [[package]]
 name = "llm-llama"
 version = "0.2.0-dev"
 dependencies = [
- "bytemuck",
  "llm-base",
- "rand",
- "thiserror",
 ]
 
 [[package]]
 name = "llm-mpt"
 version = "0.2.0-dev"
 dependencies = [
- "bytemuck",
  "llm-base",
 ]
 
