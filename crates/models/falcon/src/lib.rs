@@ -14,7 +14,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The Falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae)
@@ -27,7 +27,7 @@ pub struct Falcon {
 
     hyperparameters: Hyperparameters,
 
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // weighted token embeddings
@@ -52,7 +52,7 @@ impl KnownModel for Falcon {
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -88,7 +88,7 @@ impl KnownModel for Falcon {
         Ok(Falcon {
             hyperparameters,
             context_size,
-            vocabulary,
+            tokenizer,
             tok_embeddings,
             output_norm,
             output_norm_b,
@@ -328,9 +328,8 @@ impl KnownModel for Falcon {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
-    /// Returns the vocabulary used by this model.
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {
@@ -342,7 +341,7 @@ impl KnownModel for Falcon {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
+        self.tokenizer.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

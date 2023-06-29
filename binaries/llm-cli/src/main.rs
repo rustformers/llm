@@ -143,15 +143,12 @@ fn perplexity<M: llm::KnownModel + 'static>(args: &cli_args::Perplexity) -> Resu
 }
 
 fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
-    let model_path = &args.model_and_vocabulary.model_path;
-    let vocabulary = args
-        .model_and_vocabulary
-        .to_source()?
-        .retrieve(model_path)?;
+    let model_path = &args.model_and_tokenizer.model_path;
+    let tokenizer = args.model_and_tokenizer.to_source()?.retrieve(model_path)?;
 
     let file = File::open(model_path)?;
     let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(vocabulary, |_| {
+    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(tokenizer, |_| {
         // We purposely do not print progress here, as we are only interested in the metadata
     });
 
@@ -159,12 +156,12 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 
     log::info!("Container type: {:?}", loader.container_type);
     log::info!("Hyperparameters: {:?}", loader.hyperparameters);
-    log::info!("Vocabulary size: {}", loader.vocabulary.len());
+    log::info!("Tokenizer vocabulary size: {}", loader.tokenizer.len());
 
-    if args.vocabulary {
-        log::info!("Vocabulary:");
-        for i in 0..loader.vocabulary.len() {
-            log::info!("- {}: {}", i, utf8_or_array(&loader.vocabulary.token(i)));
+    if args.tokenizer {
+        log::info!("Tokens:");
+        for i in 0..loader.tokenizer.len() {
+            log::info!("- {}: {}", i, utf8_or_array(&loader.tokenizer.token(i)));
         }
     }
 
@@ -187,7 +184,7 @@ fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
 fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let model = args.model_load.load::<M>(false)?;
-    let toks = match model.vocabulary().tokenize(&prompt, false) {
+    let toks = match model.tokenizer().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
             log::error!("Could not tokenize prompt: {e}");
@@ -326,12 +323,12 @@ fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<(
 
     let mut source = BufReader::new(std::fs::File::open(&args.source)?);
     let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
-    let vocabulary = args.vocabulary.to_source()?.retrieve(&args.source)?;
+    let tokenizer = args.tokenizer.to_source()?.retrieve(&args.source)?;
 
     llm::quantize::<M, _, _>(
         &mut source,
         &mut destination,
-        vocabulary,
+        tokenizer,
         args.container_type.into(),
         args.target.into(),
         |progress| match progress {

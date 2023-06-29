@@ -8,8 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId,
-    Vocabulary,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
@@ -21,7 +20,7 @@ pub struct GptJ {
     context_size: usize,
 
     hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // normalization gain & bias
@@ -49,7 +48,7 @@ impl KnownModel for GptJ {
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -89,7 +88,7 @@ impl KnownModel for GptJ {
         Ok(GptJ {
             hyperparameters,
             context_size,
-            vocabulary,
+            tokenizer,
             ln_f_g,
             ln_f_b,
             wte,
@@ -292,8 +291,8 @@ impl KnownModel for GptJ {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {
@@ -305,7 +304,7 @@ impl KnownModel for GptJ {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
+        self.tokenizer.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{bail, Result, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, VocabularySource,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, TokenizerSource,
 };
 use rand::SeedableRng;
 
@@ -149,15 +149,15 @@ pub struct Perplexity {
 #[derive(Parser, Debug)]
 pub struct Info {
     #[command(flatten)]
-    pub model_and_vocabulary: ModelAndVocabulary,
+    pub model_and_tokenizer: ModelAndTokenizer,
 
     /// Show all of the tensors in the model, including their names, formats and shapes.
     #[arg(long, short = 't')]
     pub tensors: bool,
 
-    /// Show all of the tokens in the vocabulary.
+    /// Show all of the tokens in the tokenizer.
     #[arg(long, short = 'v')]
-    pub vocabulary: bool,
+    pub tokenizer: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -350,47 +350,47 @@ fn parse_bias(s: &str) -> Result<TokenBias, InvalidTokenBias> {
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelVocabulary {
-    /// Local path to vocabulary
+pub struct ModelTokenizer {
+    /// Local path to Hugging Face tokenizer file
     #[arg(long, short = 'v')]
-    pub vocabulary_path: Option<PathBuf>,
+    pub tokenizer_path: Option<PathBuf>,
 
-    /// Remote HuggingFace repository containing vocabulary
+    /// Remote Hugging Face repository containing a tokenizer
     #[arg(long, short = 'r')]
-    pub vocabulary_repository: Option<String>,
+    pub tokenizer_repository: Option<String>,
 }
-impl ModelVocabulary {
-    pub fn to_source(&self) -> Result<VocabularySource> {
-        Ok(match (&self.vocabulary_path, &self.vocabulary_repository) {
+impl ModelTokenizer {
+    pub fn to_source(&self) -> Result<TokenizerSource> {
+        Ok(match (&self.tokenizer_path, &self.tokenizer_repository) {
             (Some(_), Some(_)) => {
-                bail!("Cannot specify both --vocabulary-path and --vocabulary-repository");
+                bail!("Cannot specify both --tokenizer-path and --tokenizer-repository");
             }
-            (Some(path), None) => VocabularySource::HuggingFaceTokenizerFile(path.to_owned()),
-            (None, Some(repo)) => VocabularySource::HuggingFaceRemote(repo.to_owned()),
-            (None, None) => VocabularySource::Model,
+            (Some(path), None) => TokenizerSource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => TokenizerSource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => TokenizerSource::Embedded,
         })
     }
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelAndVocabulary {
+pub struct ModelAndTokenizer {
     /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
 
     #[command(flatten)]
-    pub vocabulary: ModelVocabulary,
+    pub tokenizer: ModelTokenizer,
 }
-impl ModelAndVocabulary {
-    pub fn to_source(&self) -> Result<VocabularySource> {
-        self.vocabulary.to_source()
+impl ModelAndTokenizer {
+    pub fn to_source(&self) -> Result<TokenizerSource> {
+        self.tokenizer.to_source()
     }
 }
 
 #[derive(Parser, Debug)]
 pub struct ModelLoad {
     #[command(flatten)]
-    pub model_and_vocabulary: ModelAndVocabulary,
+    pub model_and_tokenizer: ModelAndTokenizer,
 
     /// Sets the size of the context (in tokens). Allows feeding longer prompts.
     /// Note that this affects memory.
@@ -431,19 +431,19 @@ impl ModelLoad {
         let now = std::time::Instant::now();
         let mut prev_load_time = now;
 
-        let vocabulary_source = match self.model_and_vocabulary.to_source() {
+        let tokenizer_source = match self.model_and_tokenizer.to_source() {
             Ok(vs) => vs,
             Err(err) => {
                 if let Some(sp) = sp.take() {
-                    sp.fail(&format!("Failed to load vocabulary: {}", err));
+                    sp.fail(&format!("Failed to load tokenizer: {}", err));
                 }
                 return Err(err);
             }
         };
 
         let model = llm::load::<M>(
-            &self.model_and_vocabulary.model_path,
-            vocabulary_source,
+            &self.model_and_tokenizer.model_path,
+            tokenizer_source,
             params,
             |progress| match progress {
                 LoadProgress::HyperparametersLoaded => {
@@ -557,7 +557,7 @@ pub struct Quantize {
     pub destination: PathBuf,
 
     #[command(flatten)]
-    pub vocabulary: ModelVocabulary,
+    pub tokenizer: ModelTokenizer,
 
     /// The GGML container type to target.
     ///

@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -20,7 +20,7 @@ pub struct Gpt2 {
     context_size: usize,
 
     hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // normalization gain & bias
@@ -49,7 +49,7 @@ impl KnownModel for Gpt2 {
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -88,7 +88,7 @@ impl KnownModel for Gpt2 {
         Ok(Gpt2 {
             hyperparameters,
             context_size,
-            vocabulary,
+            tokenizer,
             layers,
             ln_f_g,
             ln_f_b,
@@ -323,8 +323,8 @@ impl KnownModel for Gpt2 {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {
@@ -336,7 +336,7 @@ impl KnownModel for Gpt2 {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
+        self.tokenizer.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

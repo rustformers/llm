@@ -22,8 +22,8 @@
 //! let llama = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
-//!     // llm::VocabularySource
-//!     llm::VocabularySource::Model,
+//!     // llm::TokenizerSource
+//!     llm::TokenizerSource::Embedded,
 //!     // llm::ModelParameters
 //!     Default::default(),
 //!     // load progress callback
@@ -83,8 +83,8 @@ pub use llm_base::{
     InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
     InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
     ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, Sampler,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
-    VocabularySource,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
+    TokenizerSource,
 };
 
 use serde::Serialize;
@@ -233,21 +233,21 @@ impl Display for ModelArchitecture {
 pub fn load_dynamic(
     architecture: ModelArchitecture,
     path: &Path,
-    vocabulary_source: VocabularySource,
+    tokenizer_source: TokenizerSource,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    use ModelArchitecture::*;
+    use ModelArchitecture as MA;
 
     fn load_model<M: KnownModel + 'static>(
         path: &Path,
-        vocabulary_source: VocabularySource,
+        tokenizer_source: TokenizerSource,
         params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Box<dyn Model>, LoadError> {
         Ok(Box::new(load::<M>(
             path,
-            vocabulary_source,
+            tokenizer_source,
             params,
             load_progress_callback,
         )?))
@@ -255,30 +255,32 @@ pub fn load_dynamic(
 
     let model: Box<dyn Model> = match architecture {
         #[cfg(feature = "bloom")]
-        Bloom => {
-            load_model::<models::Bloom>(path, vocabulary_source, params, load_progress_callback)?
+        MA::Bloom => {
+            load_model::<models::Bloom>(path, tokenizer_source, params, load_progress_callback)?
         }
         #[cfg(feature = "gpt2")]
-        Gpt2 => {
-            load_model::<models::Gpt2>(path, vocabulary_source, params, load_progress_callback)?
+        MA::Gpt2 => {
+            load_model::<models::Gpt2>(path, tokenizer_source, params, load_progress_callback)?
         }
         #[cfg(feature = "gptj")]
-        GptJ => {
-            load_model::<models::GptJ>(path, vocabulary_source, params, load_progress_callback)?
+        MA::GptJ => {
+            load_model::<models::GptJ>(path, tokenizer_source, params, load_progress_callback)?
         }
         #[cfg(feature = "gptneox")]
-        GptNeoX => {
-            load_model::<models::GptNeoX>(path, vocabulary_source, params, load_progress_callback)?
+        MA::GptNeoX => {
+            load_model::<models::GptNeoX>(path, tokenizer_source, params, load_progress_callback)?
         }
         #[cfg(feature = "llama")]
-        Llama => {
-            load_model::<models::Llama>(path, vocabulary_source, params, load_progress_callback)?
+        MA::Llama => {
+            load_model::<models::Llama>(path, tokenizer_source, params, load_progress_callback)?
         }
         #[cfg(feature = "mpt")]
-        Mpt => load_model::<models::Mpt>(path, vocabulary_source, params, load_progress_callback)?,
+        MA::Mpt => {
+            load_model::<models::Mpt>(path, tokenizer_source, params, load_progress_callback)?
+        }
         #[cfg(feature = "falcon")]
-        Falcon => {
-            load_model::<models::Falcon>(path, vocabulary_source, params, load_progress_callback)?
+        MA::Falcon => {
+            load_model::<models::Falcon>(path, tokenizer_source, params, load_progress_callback)?
         }
     };
 

@@ -7,9 +7,8 @@ use std::{
 };
 
 use thiserror::Error;
-use tokenizers::Tokenizer;
 
-/// The identifier of a token in a vocabulary.
+/// The identifier of a token in a tokenizer.
 pub type TokenId = u32;
 pub(crate) type Token = Vec<u8>;
 pub(crate) type TokenScore = f32;
@@ -25,21 +24,21 @@ pub enum TokenizationError {
         error: Box<dyn Error + Send + Sync>,
     },
     #[error("the token ID {0} was invalid for this model")]
-    /// One of the tokens provided by the user was invalid, and did not belong to this model's vocabulary.
+    /// One of the tokens provided by the user was invalid, and did not belong to this model's tokenizer.
     InvalidTokenId(TokenId),
 }
 
 #[derive(Error, Debug)]
-/// Errors related to loading the vocabulary.
-#[error("error loading vocabulary from {path}: {error}")]
-pub struct VocabularyLoadError {
-    /// The path to the vocabulary.
+/// Errors related to loading the tokenizer.
+#[error("error loading tokenizer from {path}: {error}")]
+pub struct TokenizerLoadError {
+    /// The path to the tokenizer.
     pub path: PathBuf,
     /// The error that occurred during loading.
     pub error: Box<dyn Error + Send + Sync>,
 }
 
-impl VocabularyLoadError {
+impl TokenizerLoadError {
     fn new(path: impl Into<PathBuf>, error: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
         Self {
             path: path.into(),
@@ -49,111 +48,118 @@ impl VocabularyLoadError {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-/// The source of a vocabulary.
-pub enum VocabularySource {
+/// The source of a tokenizer.
+pub enum TokenizerSource {
     /// Read the vocabulary from the model if available, and use a simplistic tokenizer.
     ///
     /// This is easy to use, but may not be the best choice for your use case, and is not
     /// guaranteed to be available for all models.
-    Model,
+    Embedded,
 
-    /// Read the vocabulary from a local HuggingFace-format tokenizer file, and use the
+    /// Read the tokenizer from a local HuggingFace-format tokenizer file, and use the
     /// HuggingFace tokenizer.
     HuggingFaceTokenizerFile(PathBuf),
 
-    /// Fetch the vocabulary from a remote HuggingFace repository. This will make a blocking
-    /// HTTP request to HuggingFace to retrieve the vocabulary and may store files locally,
+    /// Fetch the tokenizer from a remote HuggingFace repository. This will make a blocking
+    /// HTTP request to HuggingFace to retrieve the tokenizer and may store files locally,
     /// so it is not recommended for production use. This will use the HuggingFace tokenizer.
     HuggingFaceRemote(String),
 }
-impl VocabularySource {
-    /// Retrieve the vocabulary from the source.
+impl TokenizerSource {
+    /// Retrieve the tokenizer from the source.
     ///
-    /// Note that this may make a blocking HTTP request to HuggingFace to retrieve the vocabulary
+    /// Note that this may make a blocking HTTP request to HuggingFace to retrieve the tokenizer.
     /// if `self` is [`Self::HuggingFaceRemote`].
-    pub fn retrieve(self, model_path: &Path) -> Result<Vocabulary, VocabularyLoadError> {
+    pub fn retrieve(self, model_path: &Path) -> Result<Tokenizer, TokenizerLoadError> {
         Ok(match self {
-            Self::HuggingFaceRemote(identifier) => ExternalVocabulary::new(
-                Tokenizer::from_pretrained(&identifier, None)
-                    .map_err(|error| VocabularyLoadError::new(model_path, error))?,
+            Self::HuggingFaceRemote(identifier) => HuggingFaceTokenizer::new(
+                tokenizers::Tokenizer::from_pretrained(&identifier, None)
+                    .map_err(|error| TokenizerLoadError::new(model_path, error))?,
             )
             .into(),
 
             Self::HuggingFaceTokenizerFile(path) => {
                 if !path.is_file() {
-                    return Err(VocabularyLoadError::new(
+                    return Err(TokenizerLoadError::new(
                         path,
                         std::io::Error::new(
                             std::io::ErrorKind::NotFound,
-                            "Vocabulary file not found",
+                            "Tokenizer was not a file, or did not exist",
                         ),
                     ));
                 }
 
-                ExternalVocabulary::new(
-                    Tokenizer::from_file(&path)
-                        .map_err(|error| VocabularyLoadError::new(path, error))?,
+                HuggingFaceTokenizer::new(
+                    tokenizers::Tokenizer::from_file(&path)
+                        .map_err(|error| TokenizerLoadError::new(path, error))?,
                 )
                 .into()
             }
 
-            Self::Model => ModelVocabulary::default().into(),
+            Self::Embedded => EmbeddedTokenizer::default().into(),
         })
     }
 }
 
-/// Vocabulary enum
-pub enum Vocabulary {
+/// Encapsulates the tokenizer for a model, and provides methods to tokenize text.
+pub enum Tokenizer {
     /// The vocabulary built-in to the model.
-    Model(ModelVocabulary),
+    Embedded(EmbeddedTokenizer),
 
-    /// A custom vocabulary provided by the user.
-    External(ExternalVocabulary),
+    /// A Hugging Face tokenizer.
+    HuggingFace(HuggingFaceTokenizer),
 }
-impl From<ModelVocabulary> for Vocabulary {
-    fn from(v: ModelVocabulary) -> Self {
-        Self::Model(v)
+impl From<EmbeddedTokenizer> for Tokenizer {
+    fn from(v: EmbeddedTokenizer) -> Self {
+        Self::Embedded(v)
     }
 }
-impl From<ExternalVocabulary> for Vocabulary {
-    fn from(v: ExternalVocabulary) -> Self {
-        Self::External(v)
+impl From<HuggingFaceTokenizer> for Tokenizer {
+    fn from(v: HuggingFaceTokenizer) -> Self {
+        Self::HuggingFace(v)
     }
 }
-impl Vocabulary {
-    /// Converts a token to the token ID it represents in this vocabulary.
+impl Tokenizer {
+    /// Creates an empty embedded tokenizer, for contexts where you need a tokenizer but don't
+    /// need to tokenize anything.
+    pub(crate) fn empty_embedded() -> Self {
+        Self::Embedded(EmbeddedTokenizer::default())
+    }
+}
+impl Tokenizer {
+    /// Converts a token to the token ID it represents in this tokenizer.
     pub fn id(&self, token: &[u8]) -> Option<TokenId> {
         match self {
-            Vocabulary::Model(v) => v.id(token),
-            Vocabulary::External(v) => v.id(token),
+            Tokenizer::Embedded(v) => v.id(token),
+            Tokenizer::HuggingFace(v) => v.id(token),
         }
     }
 
-    /// Converts a token index to the token it represents in this vocabulary.
+    /// Converts a token index to the token it represents in this tokenizer.
     pub fn token(&self, idx: usize) -> Vec<u8> {
         match self {
-            Vocabulary::Model(v) => v.token(idx),
-            Vocabulary::External(v) => v.token(idx),
+            Tokenizer::Embedded(v) => v.token(idx),
+            Tokenizer::HuggingFace(v) => v.token(idx),
         }
     }
 
-    /// Returns the number of tokens in the vocabulary.
+    /// Returns the number of tokens in the tokenizer.
     pub fn len(&self) -> usize {
         match self {
-            Vocabulary::Model(v) => v.len(),
-            Vocabulary::External(v) => v.len(),
+            Tokenizer::Embedded(v) => v.len(),
+            Tokenizer::HuggingFace(v) => v.len(),
         }
     }
 
-    /// Returns whether the vocabulary is empty.
+    /// Returns whether the tokenizer is empty.
     pub fn is_empty(&self) -> bool {
         match self {
-            Vocabulary::Model(v) => v.is_empty(),
-            Vocabulary::External(v) => v.is_empty(),
+            Tokenizer::Embedded(v) => v.is_empty(),
+            Tokenizer::HuggingFace(v) => v.is_empty(),
         }
     }
 
-    /// Tokenize a `text` with this vocabulary.
+    /// Tokenize a `text` with this tokenizer.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
     pub fn tokenize(
@@ -162,31 +168,31 @@ impl Vocabulary {
         bos: bool,
     ) -> Result<Vec<(Vec<u8>, TokenId)>, TokenizationError> {
         match self {
-            Vocabulary::Model(v) => v.tokenize(text, bos),
-            Vocabulary::External(v) => v.tokenize(text, bos),
+            Tokenizer::Embedded(v) => v.tokenize(text, bos),
+            Tokenizer::HuggingFace(v) => v.tokenize(text, bos),
         }
     }
 
-    /// decode a list `tokens` with this vocabulary.
+    /// Decode a list `tokens` with this tokenizer.
     pub fn decode(&self, tokens: Vec<TokenId>, bos: bool) -> Vec<u8> {
         match self {
-            Vocabulary::Model(v) => v.decode(tokens, bos),
-            Vocabulary::External(v) => v.decode(tokens, bos),
+            Tokenizer::Embedded(v) => v.decode(tokens, bos),
+            Tokenizer::HuggingFace(v) => v.decode(tokens, bos),
         }
     }
 }
 
 #[derive(Debug, Error)]
-/// Errors that can occur when using a model vocabulary.
-pub enum ModelVocabularyError {
-    /// Arbitrary error that occurred during use of the model vocabulary.
+/// Errors that can occur when using a model tokenizer.
+pub enum ModelTokenizerError {
+    /// Arbitrary error that occurred during use of the model tokenizer.
     #[error("Arbitrary error: {0:?}")]
     Arbitrary(String),
 }
 
-/// The built-in GGML vocabulary.
+/// The built-in GGML tokenizer.
 #[derive(Debug, Clone, Default)]
-pub struct ModelVocabulary {
+pub struct EmbeddedTokenizer {
     // TODO: make these private
     /// Maps every integer (index) token ID to its corresponding token.
     pub id_to_token: Vec<Token>,
@@ -198,12 +204,12 @@ pub struct ModelVocabulary {
     /// Maps a token to a token ID.
     pub token_to_id: HashMap<Token, TokenId>,
 
-    /// The longest token in this vocabulary.
+    /// The longest token in this tokenizer.
     pub max_token_length: usize,
 }
 
-impl ModelVocabulary {
-    /// Add a token to the vocabulary.
+impl EmbeddedTokenizer {
+    /// Add a token to the internal vocabulary.
     ///
     /// The token added must have `id` directly after the last token in the vocabulary.
     ///
@@ -229,23 +235,23 @@ impl ModelVocabulary {
         self.token_to_id.get(token).copied()
     }
 
-    /// Converts a token index to the token it represents in this vocabulary.
+    /// Converts a token index to the token it represents in this tokenizer.
     fn token(&self, idx: usize) -> Vec<u8> {
         self.id_to_token[idx].clone()
     }
 
-    /// Returns the number of tokens in the vocabulary.
+    /// Returns the number of tokens in the tokenizer.
     fn len(&self) -> usize {
         self.id_to_token.len()
     }
 
-    /// Returns whether the vocabulary is empty.
+    /// Returns whether the tokenizer is empty.
     fn is_empty(&self) -> bool {
         self.id_to_token.is_empty()
     }
 
     // SentencePiece implementation after https://guillaume-be.github.io/2020-05-30/sentence_piece
-    /// Tokenize a `text` with this vocabulary.
+    /// Tokenize a `text` with this tokenizer.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
     fn tokenize(
@@ -284,7 +290,7 @@ impl ModelVocabulary {
             let token_id = prev[i];
             if token_id == 0 {
                 return Err(TokenizationError::TokenizationFailed {
-                    error: Box::new(ModelVocabularyError::Arbitrary(
+                    error: Box::new(ModelTokenizerError::Arbitrary(
                         "the backward pass for the tokenizer encountered a non-set token"
                             .to_string(),
                     )),
@@ -306,7 +312,7 @@ impl ModelVocabulary {
         Ok(res)
     }
 
-    /// decode a list `tokens` with this vocabulary.
+    /// Decode a list `tokens` with this tokenizer.
     fn decode(&self, tokens: Vec<TokenId>, skip_special_tokens: bool) -> Vec<u8> {
         let mut vec = vec![];
 
@@ -322,45 +328,45 @@ impl ModelVocabulary {
     }
 }
 
-/// A vocabulary that does not originate from the model file.
+/// A Hugging Face tokenizer.
 #[derive(Debug, Clone)]
-pub struct ExternalVocabulary {
-    tokenizer: Tokenizer,
+pub struct HuggingFaceTokenizer {
+    tokenizer: tokenizers::Tokenizer,
 }
 
-impl ExternalVocabulary {
-    /// Create a new `ExternalVocabulary`.
-    pub fn new(tokenizer: Tokenizer) -> Self {
+impl HuggingFaceTokenizer {
+    /// Create a new `HuggingFaceTokenizer`.
+    pub fn new(tokenizer: tokenizers::Tokenizer) -> Self {
         Self { tokenizer }
     }
 }
 
-impl ExternalVocabulary {
+impl HuggingFaceTokenizer {
     fn id(&self, token: &[u8]) -> Option<TokenId> {
         self.tokenizer
             .token_to_id(std::str::from_utf8(token).unwrap())
     }
 
-    /// Converts a token index to the token it represents in this vocabulary.
+    /// Converts a token index to the token it represents in this tokenizer.
     fn token(&self, idx: usize) -> Vec<u8> {
         self.tokenizer
             .decode(vec![idx as u32], true)
-            .expect("Cannot decode token from tokenizer vocabulary.")
+            .expect("Cannot decode token from tokenizer tokenizer.")
             .as_bytes()
             .to_vec()
     }
 
-    /// Returns the number of tokens in the vocabulary.
+    /// Returns the number of tokens in the tokenizer.
     fn len(&self) -> usize {
         self.tokenizer.get_vocab_size(false)
     }
 
-    /// Returns whether the vocabulary is empty.
+    /// Returns whether the tokenizer is empty.
     fn is_empty(&self) -> bool {
         self.tokenizer.get_vocab_size(false) == 0
     }
 
-    /// Tokenize a `text` with this vocabulary.
+    /// Tokenize a `text` with this tokenizer.
     ///
     /// `bos` controls whether a beginning-of-string token should be inserted.
     fn tokenize(
@@ -386,11 +392,11 @@ impl ExternalVocabulary {
             .collect())
     }
 
-    /// decode a list `tokens` with this vocabulary.
+    /// Decode a list `tokens` with this tokenizer.
     fn decode(&self, tokens: Vec<TokenId>, skip_special_tokens: bool) -> Vec<u8> {
         self.tokenizer
             .decode(tokens, skip_special_tokens)
-            .expect("Cannot decode token from tokenizer vocabulary.")
+            .expect("Cannot decode token from tokenizer.")
             .as_bytes()
             .to_vec()
     }
@@ -409,17 +415,17 @@ impl ExternalVocabulary {
 pub enum Prompt<'a> {
     /// A prompt specified as text.
     Text(&'a str),
-    /// A prompt specified as tokens for this model's vocabulary.
+    /// A prompt specified as tokens for this model's tokenizer.
     Tokens(&'a [TokenId]),
 }
 impl Prompt<'_> {
-    /// Converts this prompt to a list of tokens for this model's vocabulary.
+    /// Converts this prompt to a list of tokens for this model's tokenizer.
     ///
     /// Can return an error if [Self::Tokens] is used and includes a token ID that is not
-    /// in this model's vocabulary.
+    /// in this model's tokenizer.
     pub fn to_tokens(
         &self,
-        vocab: &Vocabulary,
+        vocab: &Tokenizer,
         beginning_of_sentence: bool,
     ) -> Result<Vec<TokenId>, TokenizationError> {
         Ok(match self {

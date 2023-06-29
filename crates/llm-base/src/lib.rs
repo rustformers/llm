@@ -11,7 +11,7 @@ mod inference_session;
 mod loader;
 mod lora;
 mod quantize;
-mod vocabulary;
+mod tokenizer;
 
 pub mod model;
 pub mod samplers;
@@ -37,12 +37,11 @@ pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputReque
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use samplers::Sampler;
-pub use util::TokenUtf8Buffer;
-pub(crate) use vocabulary::ModelVocabulary;
-pub use vocabulary::{
-    InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Vocabulary,
-    VocabularyLoadError, VocabularySource,
+pub use tokenizer::{
+    InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Tokenizer, TokenizerLoadError,
+    TokenizerSource,
 };
+pub use util::TokenUtf8Buffer;
 
 #[derive(Clone, Debug)]
 /// The parameters for text generation.

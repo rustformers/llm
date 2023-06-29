@@ -175,10 +175,10 @@ llm gptneox infer -m RedPajama-INCITE-Base-3B-v1-q4_0.bin -p "Rust is a cool pro
 In the example above, the first two arguments specify the model architecture and
 command, respectively. The required `-m` argument specifies the local path to
 the model, and the required `-p` argument specifies the evaluation prompt. The
-optional `-r` argument is used to load the model's vocabulary from a remote
+optional `-r` argument is used to load the model's tokenizer from a remote
 Hugging Face 🤗 repository, which will typically improve results when compared
-to loading the vocabulary from the model file itself; there is also an optional
-`-v` argument that can be used to specify the path to a local vocabulary file.
+to loading the tokenizer from the model file itself; there is also an optional
+`-v` argument that can be used to specify the path to a local tokenizer file.
 For more information about the `llm` CLI, use the `--help` parameter.
 
 There is also a [simple inference example](./crates/llm/examples/inference.rs)

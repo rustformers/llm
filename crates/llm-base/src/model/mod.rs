@@ -11,8 +11,8 @@ use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, vocabulary::TokenId, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, LoadError, LoadProgress, Vocabulary, VocabularySource,
+    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceParameters, InferenceSession,
+    InferenceSessionConfig, LoadError, LoadProgress, Tokenizer, TokenizerSource,
 };
 
 /// Common functions for model evaluation
@@ -29,14 +29,14 @@ pub trait KnownModel: Send + Sync {
     /// is a helper function on top of [llm_base::load](crate::load).
     fn load(
         path: &Path,
-        vocabulary_source: VocabularySource,
+        tokenizer_source: TokenizerSource,
         params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Self, LoadError>
     where
         Self: Sized,
     {
-        crate::load(path, vocabulary_source, params, load_progress_callback)
+        crate::load(path, tokenizer_source, params, load_progress_callback)
     }
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
@@ -44,7 +44,7 @@ pub trait KnownModel: Send + Sync {
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -65,8 +65,8 @@ pub trait KnownModel: Send + Sync {
         output_request: &mut OutputRequest,
     );
 
-    /// Get the vocabulary for this model.
-    fn vocabulary(&self) -> &Vocabulary;
+    /// Get the tokenizer for this model.
+    fn tokenizer(&self) -> &Tokenizer;
 
     /// Get the context size (configured with [ModelParameters::context_size]) used by
     /// this model.
@@ -103,8 +103,8 @@ pub trait Model: Send + Sync {
         output_request: &mut OutputRequest,
     );
 
-    /// Get the vocabulary for this model.
-    fn vocabulary(&self) -> &Vocabulary;
+    /// Get the tokenizer for this model.
+    fn tokenizer(&self) -> &Tokenizer;
 
     /// Get the context size (configured with [ModelParameters::context_size]) used by
     /// this model.
@@ -131,8 +131,8 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         KnownModel::evaluate(self, session, params, input_tokens, output_request)
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        KnownModel::vocabulary(self)
+    fn tokenizer(&self) -> &Tokenizer {
+        KnownModel::tokenizer(self)
     }
 
     fn context_size(&self) -> usize {
@@ -157,7 +157,7 @@ pub trait Hyperparameters: Sized + Default + Debug {
     /// Write the parameters in GGML format to a writer.
     fn write_ggml(&self, writer: &mut dyn Write) -> Result<(), HyperparametersWriteError>;
 
-    /// Get the number of tokens in the vocabulary.
+    /// Get the number of tokens in the embedded vocabulary, if any.
     fn n_vocabulary(&self) -> usize;
 
     /// Get the filetype of the model.

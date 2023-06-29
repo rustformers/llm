@@ -9,8 +9,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId,
-    Vocabulary,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -22,7 +21,7 @@ pub struct GptNeoX {
     context_size: usize,
 
     hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // normalization gain & bias
@@ -49,7 +48,7 @@ impl KnownModel for GptNeoX {
     fn new<E: Error>(
         hyperparameters: Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E>
     where
@@ -103,7 +102,7 @@ impl KnownModel for GptNeoX {
         Ok(GptNeoX {
             hyperparameters,
             context_size,
-            vocabulary,
+            tokenizer,
             ln_f_g,
             ln_f_b,
             wte,
@@ -338,8 +337,8 @@ impl KnownModel for GptNeoX {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {
@@ -351,7 +350,7 @@ impl KnownModel for GptNeoX {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
+        self.tokenizer.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {
