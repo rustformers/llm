@@ -16,6 +16,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Instant;
 
 async fn download_file(url: &str, local_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     if Path::new(local_path).exists() {
@@ -57,39 +58,36 @@ struct TestCase {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    //This shoud be done with clap but I'm lazy
+    // Parse command line arguments
     let args: Vec<String> = env::args().collect();
-
-    let mut specific_model = None;
-    if args.len() > 1 {
+    let specific_model = if args.len() > 1 {
         println!("Testing architecture: {}", args[1].to_lowercase());
-        specific_model = Some(args[1].to_lowercase());
+        Some(args[1].to_lowercase())
     } else {
         println!("Testing all architectures.");
-    }
+        None
+    };
 
-    let mut configs = HashMap::new();
-    let cwd = std::env::current_dir()?;
+    // Initialize directories
+    let cwd = env::current_dir()?;
     let configs_dir = cwd.join("binaries/llm-test/configs");
     let download_dir = cwd.join(".tests/models");
     fs::create_dir_all(&download_dir)?;
     let results_dir = cwd.join(".tests/results");
     fs::create_dir_all(&results_dir)?;
 
+    // Load configurations
+    let mut configs = HashMap::new();
     for entry in fs::read_dir(configs_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
-            if let Some(extension) = path.extension() {
-                if extension == "json" {
-                    let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
-                    let config: TestCase = serde_json::from_str(&fs::read_to_string(path)?)?;
-                    configs.insert(file_name, config);
-                }
-            }
+        let path = entry?.path();
+        if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+            let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let config: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
+            configs.insert(file_name, config);
         }
     }
 
+    // Test models
     if let Some(specific_architecture) = specific_model {
         if let Some(config) = configs.get(&specific_architecture) {
             println!("Key: {}, Config: {:?}", specific_architecture, config);
@@ -103,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             test_model(config, &download_dir, &results_dir).await?;
         }
     }
+
     println!("All tests passed!");
     Ok(())
 }
@@ -124,33 +123,55 @@ async fn test_model(
 
     let local_path = download_dir.join(&config.filename);
 
-    //download the model
+    // Download the model
     download_file(&config.url, &local_path).await?;
 
-    let now = std::time::Instant::now();
+    let start_time = Instant::now();
 
+    // Load the model
     let architecture = llm::ModelArchitecture::from_str(&config.architecture)?;
-    //load the model
-    let model = llm::load_dynamic(
+    let model_result = llm::load_dynamic(
         architecture,
         &local_path,
         llm::TokenizerSource::Embedded,
         Default::default(),
         llm::load_progress_callback_stdout,
-    )
-    .unwrap_or_else(|err| panic!("Failed to load {architecture} model from {local_path:?}: {err}"));
+    );
+
+    let model = match model_result {
+        Ok(m) => m,
+        Err(err) => {
+            // Create a report with could_loaded set to false
+            let report = Report {
+                could_loaded: false,
+                inference_stats: None,
+                error: Some(format!("Failed to load model: {}", err)),
+                output: String::new(),
+            };
+
+            // Serialize the report to a JSON string
+            let json_report = serde_json::to_string(&report)?;
+            let report_path = results_dir.join(format!("{}.json", config.architecture));
+
+            // Write the JSON report to a file
+            fs::write(report_path, json_report)?;
+
+            // Optionally, you can return early or decide how to proceed
+            return Err(Box::new(err));
+        }
+    };
 
     println!(
         "Model fully loaded! Elapsed: {}ms",
-        now.elapsed().as_millis()
+        start_time.elapsed().as_millis()
     );
 
-    //run the model
+    // Run the model
     let mut session = model.start_session(Default::default());
 
     let prompt = "write a story about a lama riding a crab:";
     let mut rng: StdRng = SeedableRng::seed_from_u64(42);
-    let mut output: String = String::new();
+    let mut output = String::new();
 
     println!("Running inference...");
     let res = session.infer::<Infallible>(
@@ -166,7 +187,6 @@ async fn test_model(
             play_back_previous_tokens: false,
             maximum_token_count: Some(10),
         },
-        // OutputRequest
         &mut Default::default(),
         |r| match r {
             llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
@@ -178,21 +198,13 @@ async fn test_model(
     );
     println!("Inference done!");
 
-    let inference_results: Option<llm::InferenceStats>;
-    let error: Option<llm::InferenceError>;
+    // Process the results
+    let (inference_results, error) = match res {
+        Ok(result) => (Some(result), None),
+        Err(err) => (None, Some(err)),
+    };
 
-    match res {
-        Ok(result) => {
-            inference_results = Some(result);
-            error = None;
-        }
-        Err(err) => {
-            inference_results = None;
-            error = Some(err);
-        }
-    }
-
-    //save the results
+    // Save the results
     let report = Report {
         could_loaded: true,
         inference_stats: inference_results,
@@ -201,13 +213,13 @@ async fn test_model(
     };
 
     // Serialize the report to a JSON string
-    let json_report = serde_json::to_string(&report).unwrap();
+    let json_report = serde_json::to_string(&report)?;
     let report_path = results_dir.join(format!("{}.json", config.architecture));
-    match fs::write(report_path, json_report) {
-        Ok(_) => println!("Report successfully written to file."),
-        Err(e) => println!("Failed to write report to file: {}", e),
-    }
 
+    // Write the JSON report to a file
+    fs::write(report_path, json_report)?;
+
+    // Optionally, panic if there was an error
     if let Some(err) = &report.error {
         panic!("Error: {}", err);
     }
