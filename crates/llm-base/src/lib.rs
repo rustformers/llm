@@ -11,7 +11,7 @@ mod inference_session;
 mod loader;
 mod lora;
 mod quantize;
-mod vocabulary;
+mod tokenizer;
 
 pub mod model;
 pub mod samplers;
@@ -24,8 +24,8 @@ pub use ggml::Type as ElementType;
 
 pub use inference_session::{
     feed_prompt_callback, GraphOutputs, InferenceError, InferenceFeedback, InferenceRequest,
-    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceStats,
-    ModelKVMemoryType, SnapshotError,
+    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot,
+    InferenceSnapshotRef, InferenceStats, ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, LoadError,
@@ -37,12 +37,11 @@ pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputReque
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use samplers::Sampler;
-pub use util::TokenUtf8Buffer;
-pub(crate) use vocabulary::ModelVocabulary;
-pub use vocabulary::{
-    InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Vocabulary,
-    VocabularyLoadError, VocabularySource,
+pub use tokenizer::{
+    InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Tokenizer, TokenizerLoadError,
+    TokenizerSource,
 };
+pub use util::TokenUtf8Buffer;
 
 #[derive(Clone, Debug)]
 /// The parameters for text generation.

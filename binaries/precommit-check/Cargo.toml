@@ -1,0 +1,8 @@
+[package]
+name = "precommit-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata.release]
+release = false

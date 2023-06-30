@@ -2,7 +2,7 @@
 
 use crate::{
     loader::FileTypeFormat, model::HyperparametersWriteError, Hyperparameters, KnownModel,
-    LoadError, LoadProgress, Loader, Vocabulary,
+    LoadError, LoadProgress, Loader, Tokenizer,
 };
 use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
 use half::f16;
@@ -139,7 +139,7 @@ impl QuantizeError {
 pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     reader: &mut R,
     writer: &mut W,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
     save_container_type: ggml::format::SaveContainerType,
     quantization_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
@@ -154,7 +154,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
-    let mut loader = Loader::<M::Hyperparameters, _>::new(vocabulary, {
+    let mut loader = Loader::<M::Hyperparameters, _>::new(tokenizer, {
         let progress_callback = progress_callback.clone();
         move |p| {
             if let LoadProgress::HyperparametersLoaded = p {
@@ -168,7 +168,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     // Save the quantized model, quantizing as we go
     let Loader {
         mut hyperparameters,
-        vocabulary,
+        tokenizer,
         tensors,
         ..
     } = loader;
@@ -180,14 +180,9 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
             .expect("format has no corresponding ftype");
     }
 
-    let vocabulary = match vocabulary {
-        Vocabulary::Model(v) => v
-            .id_to_token
-            .iter()
-            .cloned()
-            .zip(v.id_to_token_score)
-            .collect::<Vec<_>>(),
-        Vocabulary::External(_) => vec![],
+    let tokenizer = match tokenizer {
+        Tokenizer::Embedded(v) => v.iter().collect::<Vec<_>>(),
+        Tokenizer::HuggingFace(_) => vec![],
     };
 
     let to_quantize = M::quantize_tensors();
@@ -205,7 +200,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
         writer,
         &mut saver,
         save_container_type,
-        &vocabulary,
+        &tokenizer,
         &tensors.keys().cloned().collect::<Vec<_>>(),
     )
     .map_err(|err| QuantizeError::from_format_error(err, PathBuf::default()))?;

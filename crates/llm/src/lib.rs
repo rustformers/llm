@@ -7,6 +7,7 @@
 //! - [GPT-NeoX](llm_gptneox)
 //! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
+//! - Falcon (currently disabled due to incompleteness)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -21,8 +22,8 @@
 //! let llama = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
-//!     // llm::VocabularySource
-//!     llm::VocabularySource::Model,
+//!     // llm::TokenizerSource
+//!     llm::TokenizerSource::Embedded,
 //!     // llm::ModelParameters
 //!     Default::default(),
 //!     // load progress callback
@@ -79,10 +80,11 @@ pub use llm_base::{
     feed_prompt_callback, ggml::format as ggml_format, load, load_progress_callback_stdout,
     quantize, samplers, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
-    LoadError, LoadProgress, Loader, Model, ModelKVMemoryType, ModelParameters, OutputRequest,
-    Prompt, QuantizeError, QuantizeProgress, Sampler, SnapshotError, TokenBias, TokenId,
-    TokenUtf8Buffer, TokenizationError, Vocabulary, VocabularySource,
+    InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
+    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
+    ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, Sampler,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
+    TokenizerSource,
 };
 
 use serde::Serialize;
@@ -91,6 +93,8 @@ use serde::Serialize;
 pub mod models {
     #[cfg(feature = "bloom")]
     pub use llm_bloom::{self as bloom, Bloom};
+    #[cfg(feature = "falcon")]
+    pub use llm_falcon::{self as falcon, Falcon};
     #[cfg(feature = "gpt2")]
     pub use llm_gpt2::{self as gpt2, Gpt2};
     #[cfg(feature = "gptj")]
@@ -124,6 +128,9 @@ pub enum ModelArchitecture {
     #[cfg(feature = "mpt")]
     /// [MPT](llm_mpt)
     Mpt,
+    #[cfg(feature = "falcon")]
+    /// [Falcon](llm_falcon)
+    Falcon,
 }
 
 impl ModelArchitecture {
@@ -141,7 +148,36 @@ impl ModelArchitecture {
         Self::Llama,
         #[cfg(feature = "mpt")]
         Self::Mpt,
+        #[cfg(feature = "falcon")]
+        Self::Falcon,
     ];
+}
+
+/// Used to dispatch some code based on the model architecture.
+pub trait ModelArchitectureVisitor<R> {
+    /// Visit a model architecture.
+    fn visit<M: KnownModel + 'static>(&mut self) -> R;
+}
+impl ModelArchitecture {
+    /// Use a visitor to dispatch some code based on the model architecture.
+    pub fn visit<R>(&self, visitor: &mut impl ModelArchitectureVisitor<R>) -> R {
+        match self {
+            #[cfg(feature = "bloom")]
+            Self::Bloom => visitor.visit::<models::Bloom>(),
+            #[cfg(feature = "gpt2")]
+            Self::Gpt2 => visitor.visit::<models::Gpt2>(),
+            #[cfg(feature = "gptj")]
+            Self::GptJ => visitor.visit::<models::GptJ>(),
+            #[cfg(feature = "gptneox")]
+            Self::GptNeoX => visitor.visit::<models::GptNeoX>(),
+            #[cfg(feature = "llama")]
+            Self::Llama => visitor.visit::<models::Llama>(),
+            #[cfg(feature = "mpt")]
+            Self::Mpt => visitor.visit::<models::Mpt>(),
+            #[cfg(feature = "falcon")]
+            Self::Falcon => visitor.visit::<models::Falcon>(),
+        }
+    }
 }
 
 /// An unsupported model architecture was specified.
@@ -184,6 +220,8 @@ impl FromStr for ModelArchitecture {
             "llama" => Ok(Llama),
             #[cfg(feature = "mpt")]
             "mpt" => Ok(Mpt),
+            #[cfg(feature = "falcon")]
+            "falcon" => Ok(Falcon),
 
             _ => Err(UnsupportedModelArchitecture(format!(
                 "{s} is not a supported model architecture"
@@ -209,63 +247,67 @@ impl Display for ModelArchitecture {
             Llama => write!(f, "LLaMA"),
             #[cfg(feature = "mpt")]
             Mpt => write!(f, "MPT"),
+            #[cfg(feature = "falcon")]
+            Falcon => write!(f, "Falcon"),
         }
     }
 }
 
 /// A helper function that loads the specified model from disk using an architecture
-/// specified at runtime.
+/// specified at runtime. If no architecture is specified, it will try to infer it
+/// from the model's metadata.
 ///
 /// A wrapper around [load] that dispatches to the correct model.
 pub fn load_dynamic(
-    architecture: ModelArchitecture,
+    architecture: Option<ModelArchitecture>,
     path: &Path,
-    vocabulary_source: VocabularySource,
+    tokenizer_source: TokenizerSource,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    use ModelArchitecture::*;
-
     fn load_model<M: KnownModel + 'static>(
         path: &Path,
-        vocabulary_source: VocabularySource,
+        tokenizer_source: TokenizerSource,
         params: ModelParameters,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Box<dyn Model>, LoadError> {
         Ok(Box::new(load::<M>(
             path,
-            vocabulary_source,
+            tokenizer_source,
             params,
             load_progress_callback,
         )?))
     }
 
-    let model: Box<dyn Model> = match architecture {
-        #[cfg(feature = "bloom")]
-        Bloom => {
-            load_model::<models::Bloom>(path, vocabulary_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "gpt2")]
-        Gpt2 => {
-            load_model::<models::Gpt2>(path, vocabulary_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "gptj")]
-        GptJ => {
-            load_model::<models::GptJ>(path, vocabulary_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "gptneox")]
-        GptNeoX => {
-            load_model::<models::GptNeoX>(path, vocabulary_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "llama")]
-        Llama => {
-            load_model::<models::Llama>(path, vocabulary_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "mpt")]
-        Mpt => load_model::<models::Mpt>(path, vocabulary_source, params, load_progress_callback)?,
-    };
+    let architecture = architecture.ok_or_else(|| LoadError::MissingModelArchitecture {
+        path: path.to_owned(),
+    })?;
 
-    Ok(model)
+    struct LoadVisitor<'a, F: FnMut(LoadProgress)> {
+        path: &'a Path,
+        tokenizer_source: TokenizerSource,
+        params: ModelParameters,
+        load_progress_callback: F,
+    }
+    impl<'a, F: FnMut(LoadProgress)> ModelArchitectureVisitor<Result<Box<dyn Model>, LoadError>>
+        for LoadVisitor<'a, F>
+    {
+        fn visit<M: KnownModel + 'static>(&mut self) -> Result<Box<dyn Model>, LoadError> {
+            load_model::<M>(
+                self.path,
+                self.tokenizer_source.clone(),
+                self.params.clone(),
+                &mut self.load_progress_callback,
+            )
+        }
+    }
+
+    architecture.visit(&mut LoadVisitor {
+        path,
+        tokenizer_source,
+        params,
+        load_progress_callback,
+    })
 }
 
 #[cfg(test)]

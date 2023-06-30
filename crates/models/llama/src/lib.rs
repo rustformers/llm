@@ -7,8 +7,7 @@ use llm_base::{
     ggml::{self, Backend},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId,
-    Vocabulary,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
@@ -20,7 +19,7 @@ pub struct Llama {
     context_size: usize,
     model_params: ModelParameters,
     hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // weighted token embeddings
@@ -46,7 +45,7 @@ impl KnownModel for Llama {
     fn new<E: Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -87,7 +86,7 @@ impl KnownModel for Llama {
             hyperparameters,
             model_params: params,
             context_size,
-            vocabulary,
+            tokenizer,
             wte,
             norm,
             output,
@@ -338,9 +337,8 @@ impl KnownModel for Llama {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
-    /// Returns the vocabulary used by this model.
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {

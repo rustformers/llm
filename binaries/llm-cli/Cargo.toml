@@ -28,7 +28,13 @@ num_cpus = "1.15.0"
 color-eyre = { version = "0.6.2", default-features = false }
 zstd = { version = "0.12", default-features = false }
 
+[dev-dependencies]
+rusty-hook = "^0.11.2"
+
 [features]
 cublas = ["llm/cublas"]
 clblast = ["llm/clblast"]
 metal = ["llm/metal"]
+
+# Falcon is off by default. See `llm_falcon`'s module documentation for more information.
+falcon = ["llm/falcon"]

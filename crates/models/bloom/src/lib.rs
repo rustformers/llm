@@ -8,7 +8,7 @@ use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    KnownModel, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -20,7 +20,7 @@ pub struct Bloom {
     context_size: usize,
 
     hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // weighted token embeddings
@@ -50,7 +50,7 @@ impl KnownModel for Bloom {
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -96,7 +96,7 @@ impl KnownModel for Bloom {
         Ok(Bloom {
             hyperparameters,
             context_size,
-            vocabulary,
+            tokenizer,
             wte,
             norm,
             norm_bias,
@@ -369,8 +369,8 @@ impl KnownModel for Bloom {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {
@@ -378,11 +378,11 @@ impl KnownModel for Bloom {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary.id("<s>".as_bytes())
+        self.tokenizer.id("<s>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary.id("</s>".as_bytes()).unwrap()
+        self.tokenizer.id("</s>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

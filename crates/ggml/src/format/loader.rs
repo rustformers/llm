@@ -117,7 +117,7 @@ pub fn tensor_size(element_type: ElementType, n_elements: usize) -> usize {
 /// Information present within GGML [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 /// that is required to continue loading the model.
 pub struct PartialHyperparameters {
-    /// The number of tokens in the model's vocabulary.
+    /// The number of tokens in the model's embedded vocabulary.
     pub n_vocab: usize,
 }
 
@@ -125,7 +125,7 @@ pub struct PartialHyperparameters {
 pub trait LoadHandler<E: Error> {
     /// Called when the [ContainerType] is read.
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), E>;
-    /// Called when a token is read so it can be added to the model's vocabulary.
+    /// Called when a token is read so it can be added to the model's embedded vocabulary.
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), E>;
     /// Called when the model's hyperparameters need to be read.
     fn read_hyperparameters(

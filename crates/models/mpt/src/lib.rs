@@ -8,7 +8,7 @@ use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Vocabulary,
+    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -20,7 +20,7 @@ pub struct Mpt {
     context_size: usize,
 
     hyperparameters: Hyperparameters,
-    vocabulary: Vocabulary,
+    tokenizer: Tokenizer,
 
     // model-global weights
     // weighted token embeddings
@@ -44,7 +44,7 @@ impl KnownModel for Mpt {
     fn new<E: std::error::Error>(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
-        vocabulary: Vocabulary,
+        tokenizer: Tokenizer,
         tensor_loader: impl llm_base::TensorLoader<E>,
     ) -> Result<Self, E> {
         let mut tl = tensor_loader;
@@ -77,7 +77,7 @@ impl KnownModel for Mpt {
         Ok(Mpt {
             hyperparameters,
             context_size,
-            vocabulary,
+            tokenizer,
             wte,
             norm,
             layers,
@@ -271,9 +271,8 @@ impl KnownModel for Mpt {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
     }
 
-    /// Returns the vocabulary used by this model.
-    fn vocabulary(&self) -> &Vocabulary {
-        &self.vocabulary
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     fn context_size(&self) -> usize {
@@ -281,11 +280,11 @@ impl KnownModel for Mpt {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        self.vocabulary.id("<|padding|>".as_bytes())
+        self.tokenizer.id("<|padding|>".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.vocabulary.id("<|endoftext|>".as_bytes()).unwrap()
+        self.tokenizer.id("<|endoftext|>".as_bytes()).unwrap()
     }
 
     fn quantize_tensors() -> Vec<Regex> {

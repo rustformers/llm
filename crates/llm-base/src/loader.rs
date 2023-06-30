@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters,
-    ModelVocabulary, TokenId, Vocabulary, VocabularyLoadError, VocabularySource,
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
+    Tokenizer, TokenizerLoadError, TokenizerSource,
 };
 pub use ggml::ContainerType;
 use ggml::{
@@ -325,14 +325,22 @@ pub enum LoadError {
         /// The paths that were found.
         paths: Vec<PathBuf>,
     },
-    /// The vocab file for the tokenizer could not be loaded.
-    #[error("could not load vocabulary file {path:?}")]
-    VocabularyLoadError {
-        /// The invalid vocabulary path
+    /// The tokenizer could not be loaded.
+    #[error("could not load tokenizer {path:?}: {error}")]
+    TokenizerLoadFail {
+        /// The invalid tokenizer path
         path: PathBuf,
 
         /// The error that occurred.
         error: Box<dyn Error + Send + Sync>,
+    },
+    /// There is insufficient information to guess the model architecture from the provided file.
+    ///
+    /// A model architecture must be provided to load the model.
+    #[error("could not guess model architecture from {path:?}")]
+    MissingModelArchitecture {
+        /// The path that failed.
+        path: PathBuf,
     },
 }
 impl From<util::FindAllModelFilesError> for LoadError {
@@ -343,9 +351,9 @@ impl From<util::FindAllModelFilesError> for LoadError {
         }
     }
 }
-impl From<VocabularyLoadError> for LoadError {
-    fn from(value: VocabularyLoadError) -> Self {
-        LoadError::VocabularyLoadError {
+impl From<TokenizerLoadError> for LoadError {
+    fn from(value: TokenizerLoadError) -> Self {
+        LoadError::TokenizerLoadFail {
             path: value.path,
             error: value.error,
         }
@@ -407,7 +415,7 @@ pub trait TensorLoader<E: std::error::Error> {
 ///   store any information about the architecture.
 pub fn load<M: KnownModel>(
     path: &Path,
-    vocabulary_source: VocabularySource,
+    tokenizer_source: TokenizerSource,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
@@ -428,15 +436,15 @@ pub fn load<M: KnownModel>(
     })?;
     let mut reader = BufReader::new(&file);
 
-    let vocabulary = vocabulary_source.retrieve(path)?;
-    let mut loader = Loader::new(vocabulary, load_progress_callback);
+    let tokenizer = tokenizer_source.retrieve(path)?;
+    let mut loader = Loader::new(tokenizer, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
 
     let Loader {
         hyperparameters,
-        vocabulary,
+        tokenizer,
         tensors,
         mut load_progress_callback,
         container_type,
@@ -488,7 +496,7 @@ pub fn load<M: KnownModel>(
                 // TODO: Consider updating the progress callback to report the progress of the LoRA file.
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
                 let mut lora_loader: Loader<LoraParameters, _> =
-                    Loader::new(ModelVocabulary::default().into(), |_| {});
+                    Loader::new(Tokenizer::empty_embedded(), |_| {});
                 ggml::format::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
@@ -535,7 +543,7 @@ pub fn load<M: KnownModel>(
         loaded_tensors: Default::default(),
     };
 
-    let model = KnownModel::new(hyperparameters, params, vocabulary, tl)?;
+    let model = KnownModel::new(hyperparameters, params, tokenizer, tl)?;
 
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,
@@ -551,8 +559,8 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
     load_progress_callback: F,
 
     // Input/Output
-    /// The vocabulary of the model.
-    pub vocabulary: Vocabulary,
+    /// The tokenizer of the model.
+    pub tokenizer: Tokenizer,
 
     // Output
     /// The container type of the model.
@@ -564,13 +572,13 @@ pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
 }
 impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
     /// Creates a new loader.
-    pub fn new(vocabulary: Vocabulary, load_progress_callback: F) -> Self {
+    pub fn new(tokenizer: Tokenizer, load_progress_callback: F) -> Self {
         Self {
             load_progress_callback,
 
             container_type: ContainerType::Ggml,
             hyperparameters: Hp::default(),
-            vocabulary,
+            tokenizer,
             tensors: HashMap::default(),
         }
     }
@@ -584,7 +592,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<Load
     }
 
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
-        if let Vocabulary::Model(mv) = &mut self.vocabulary {
+        if let Tokenizer::Embedded(mv) = &mut self.tokenizer {
             let id = match TokenId::try_from(i) {
                 Ok(id) => id,
                 Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
