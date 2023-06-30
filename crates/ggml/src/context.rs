@@ -416,6 +416,7 @@ impl Context {
                 usize_to_i32(npast),
                 usize_to_i32(ndims),
                 mode,
+                0,
             )
         };
         self.new_tensor_raw(tensor)
@@ -430,6 +431,7 @@ impl Context {
                 usize_to_i32(npast),
                 usize_to_i32(ndims),
                 mode,
+                0,
             )
         };
         self.new_tensor_raw(tensor)

@@ -22,9 +22,10 @@ pub const GGML_MAX_NODES: u32 = 4096;
 pub const GGML_MAX_PARAMS: u32 = 256;
 pub const GGML_MAX_CONTEXTS: u32 = 64;
 pub const GGML_MAX_OPT: u32 = 4;
-pub const GGML_MAX_NAME: u32 = 32;
+pub const GGML_MAX_NAME: u32 = 48;
 pub const GGML_DEFAULT_N_THREADS: u32 = 4;
 pub const QK_K: u32 = 256;
+pub const K_SCALE_SIZE: u32 = 12;
 pub type ggml_fp16_t = u16;
 extern "C" {
     pub fn ggml_fp16_to_fp32(x: ggml_fp16_t) -> f32;
@@ -230,7 +231,7 @@ pub struct ggml_tensor {
     pub perf_cycles: i64,
     pub perf_time_us: i64,
     pub data: *mut ::std::os::raw::c_void,
-    pub name: [::std::os::raw::c_char; 32usize],
+    pub name: [::std::os::raw::c_char; 48usize],
     pub extra: *mut ::std::os::raw::c_void,
     pub padding: [::std::os::raw::c_char; 4usize],
 }
@@ -240,7 +241,7 @@ fn bindgen_test_layout_ggml_tensor() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<ggml_tensor>(),
-        224usize,
+        240usize,
         concat!("Size of: ", stringify!(ggml_tensor))
     );
     assert_eq!(
@@ -420,7 +421,7 @@ fn bindgen_test_layout_ggml_tensor() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).extra) as usize - ptr as usize },
-        208usize,
+        224usize,
         concat!(
             "Offset of field: ",
             stringify!(ggml_tensor),
@@ -430,7 +431,7 @@ fn bindgen_test_layout_ggml_tensor() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).padding) as usize - ptr as usize },
-        216usize,
+        232usize,
         concat!(
             "Offset of field: ",
             stringify!(ggml_tensor),
@@ -439,7 +440,7 @@ fn bindgen_test_layout_ggml_tensor() {
         )
     );
 }
-pub const GGML_TENSOR_SIZE: usize = 224;
+pub const GGML_TENSOR_SIZE: usize = 240;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_cgraph {
@@ -776,6 +777,12 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_cycles_per_ms() -> i64;
+}
+extern "C" {
+    pub fn ggml_numa_init();
+}
+extern "C" {
+    pub fn ggml_is_numa() -> bool;
 }
 extern "C" {
     pub fn ggml_print_object(obj: *const ggml_object);
@@ -1437,6 +1444,7 @@ extern "C" {
         n_past: ::std::os::raw::c_int,
         n_dims: ::std::os::raw::c_int,
         mode: ::std::os::raw::c_int,
+        n_ctx: ::std::os::raw::c_int,
     ) -> *mut ggml_tensor;
 }
 extern "C" {
@@ -1446,6 +1454,7 @@ extern "C" {
         n_past: ::std::os::raw::c_int,
         n_dims: ::std::os::raw::c_int,
         mode: ::std::os::raw::c_int,
+        n_ctx: ::std::os::raw::c_int,
     ) -> *mut ggml_tensor;
 }
 extern "C" {

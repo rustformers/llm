@@ -17,10 +17,10 @@ impl Tensor {
 
     ///Sets the name of the tensor
     pub fn set_name(&mut self, name: &str) -> &Tensor {
-        assert!(name.len() <= 32, "Name is too long!");
+        assert!(name.len() <= 48, "Name is too long!");
 
         let bytes = name.as_bytes();
-        let mut array = [0i8; 32];
+        let mut array = [0i8; 48];
         array[..bytes.len()].copy_from_slice(&bytes.iter().map(|&x| x as i8).collect::<Vec<_>>());
 
         unsafe { self.ptr.as_mut().name = array }
