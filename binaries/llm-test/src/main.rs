@@ -131,7 +131,7 @@ async fn test_model(
     // Load the model
     let architecture = llm::ModelArchitecture::from_str(&config.architecture)?;
     let model_result = llm::load_dynamic(
-        architecture,
+        Some(architecture),
         &local_path,
         llm::TokenizerSource::Embedded,
         Default::default(),
