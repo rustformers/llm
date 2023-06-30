@@ -153,6 +153,33 @@ impl ModelArchitecture {
     ];
 }
 
+/// Used to dispatch some code based on the model architecture.
+pub trait ModelArchitectureVisitor<R> {
+    /// Visit a model architecture.
+    fn visit<M: KnownModel + 'static>(&mut self) -> R;
+}
+impl ModelArchitecture {
+    /// Use a visitor to dispatch some code based on the model architecture.
+    pub fn visit<R>(&self, visitor: &mut impl ModelArchitectureVisitor<R>) -> R {
+        match self {
+            #[cfg(feature = "bloom")]
+            Self::Bloom => visitor.visit::<models::Bloom>(),
+            #[cfg(feature = "gpt2")]
+            Self::Gpt2 => visitor.visit::<models::Gpt2>(),
+            #[cfg(feature = "gptj")]
+            Self::GptJ => visitor.visit::<models::GptJ>(),
+            #[cfg(feature = "gptneox")]
+            Self::GptNeoX => visitor.visit::<models::GptNeoX>(),
+            #[cfg(feature = "llama")]
+            Self::Llama => visitor.visit::<models::Llama>(),
+            #[cfg(feature = "mpt")]
+            Self::Mpt => visitor.visit::<models::Mpt>(),
+            #[cfg(feature = "falcon")]
+            Self::Falcon => visitor.visit::<models::Falcon>(),
+        }
+    }
+}
+
 /// An unsupported model architecture was specified.
 pub struct UnsupportedModelArchitecture(String);
 impl Display for UnsupportedModelArchitecture {
@@ -227,18 +254,17 @@ impl Display for ModelArchitecture {
 }
 
 /// A helper function that loads the specified model from disk using an architecture
-/// specified at runtime.
+/// specified at runtime. If no architecture is specified, it will try to infer it
+/// from the model's metadata.
 ///
 /// A wrapper around [load] that dispatches to the correct model.
 pub fn load_dynamic(
-    architecture: ModelArchitecture,
+    architecture: Option<ModelArchitecture>,
     path: &Path,
     tokenizer_source: TokenizerSource,
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    use ModelArchitecture as MA;
-
     fn load_model<M: KnownModel + 'static>(
         path: &Path,
         tokenizer_source: TokenizerSource,
@@ -253,38 +279,35 @@ pub fn load_dynamic(
         )?))
     }
 
-    let model: Box<dyn Model> = match architecture {
-        #[cfg(feature = "bloom")]
-        MA::Bloom => {
-            load_model::<models::Bloom>(path, tokenizer_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "gpt2")]
-        MA::Gpt2 => {
-            load_model::<models::Gpt2>(path, tokenizer_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "gptj")]
-        MA::GptJ => {
-            load_model::<models::GptJ>(path, tokenizer_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "gptneox")]
-        MA::GptNeoX => {
-            load_model::<models::GptNeoX>(path, tokenizer_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "llama")]
-        MA::Llama => {
-            load_model::<models::Llama>(path, tokenizer_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "mpt")]
-        MA::Mpt => {
-            load_model::<models::Mpt>(path, tokenizer_source, params, load_progress_callback)?
-        }
-        #[cfg(feature = "falcon")]
-        MA::Falcon => {
-            load_model::<models::Falcon>(path, tokenizer_source, params, load_progress_callback)?
-        }
-    };
+    let architecture = architecture.ok_or_else(|| LoadError::MissingModelArchitecture {
+        path: path.to_owned(),
+    })?;
 
-    Ok(model)
+    struct LoadVisitor<'a, F: FnMut(LoadProgress)> {
+        path: &'a Path,
+        tokenizer_source: TokenizerSource,
+        params: ModelParameters,
+        load_progress_callback: F,
+    }
+    impl<'a, F: FnMut(LoadProgress)> ModelArchitectureVisitor<Result<Box<dyn Model>, LoadError>>
+        for LoadVisitor<'a, F>
+    {
+        fn visit<M: KnownModel + 'static>(&mut self) -> Result<Box<dyn Model>, LoadError> {
+            load_model::<M>(
+                self.path,
+                self.tokenizer_source.clone(),
+                self.params.clone(),
+                &mut self.load_progress_callback,
+            )
+        }
+    }
+
+    architecture.visit(&mut LoadVisitor {
+        path,
+        tokenizer_source,
+        params,
+        load_progress_callback,
+    })
 }
 
 #[cfg(test)]

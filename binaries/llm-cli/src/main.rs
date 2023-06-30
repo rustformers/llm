@@ -5,8 +5,8 @@ use std::{
 };
 
 use clap::Parser;
-use cli_args::{Args, BaseArgs};
-use color_eyre::eyre::{Context, Result};
+use cli_args::Args;
+use color_eyre::eyre::{Context, ContextCompat, Result};
 use llm::{InferenceError, InferenceFeedback, InferenceResponse};
 use rustyline::{
     error::ReadlineError,
@@ -25,35 +25,22 @@ fn main() -> Result<()> {
         .init();
     color_eyre::install()?;
 
-    let cli_args = Args::parse();
-    match &cli_args {
-        Args::Llama { args } => handle_args::<llm::models::Llama>(args),
-        Args::Bloom { args } => handle_args::<llm::models::Bloom>(args),
-        Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args),
-        Args::GptJ { args } => handle_args::<llm::models::GptJ>(args),
-        Args::GptNeoX { args } => handle_args::<llm::models::GptNeoX>(args),
-        Args::Mpt { args } => handle_args::<llm::models::Mpt>(args),
-        #[cfg(feature = "falcon")]
-        Args::Falcon { args } => handle_args::<llm::models::Falcon>(args),
-    }
-}
-
-fn handle_args<M: llm::KnownModel + 'static>(args: &cli_args::BaseArgs) -> Result<()> {
+    let args = Args::parse();
     match args {
-        BaseArgs::Infer(args) => infer::<M>(args),
-        BaseArgs::Perplexity(args) => perplexity::<M>(args),
-        BaseArgs::Info(args) => info::<M>(args),
-        BaseArgs::PromptTokens(args) => prompt_tokens::<M>(args),
-        BaseArgs::Repl(args) => interactive::<M>(args, false),
-        BaseArgs::Chat(args) => interactive::<M>(args, true),
-        BaseArgs::Quantize(args) => quantize::<M>(args),
+        Args::Infer(args) => infer(&args),
+        Args::Perplexity(args) => perplexity(&args),
+        Args::Info(args) => info(&args),
+        Args::PromptTokens(args) => prompt_tokens(&args),
+        Args::Repl(args) => interactive(&args, false),
+        Args::Chat(args) => interactive(&args, true),
+        Args::Quantize(args) => quantize(&args),
     }
 }
 
-fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
+fn infer(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>(args.generate.use_gpu)?;
+    let model = args.model_load.load(args.generate.use_gpu)?;
 
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
@@ -118,10 +105,10 @@ fn infer<M: llm::KnownModel + 'static>(args: &cli_args::Infer) -> Result<()> {
     Ok(())
 }
 
-fn perplexity<M: llm::KnownModel + 'static>(args: &cli_args::Perplexity) -> Result<()> {
+fn perplexity(args: &cli_args::Perplexity) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>(args.generate.use_gpu)?;
+    let model = args.model_load.load(args.generate.use_gpu)?;
     let (mut session, _) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
@@ -142,48 +129,62 @@ fn perplexity<M: llm::KnownModel + 'static>(args: &cli_args::Perplexity) -> Resu
     Ok(())
 }
 
-fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
-    let model_path = &args.model_and_tokenizer.model_path;
-    let tokenizer = args.model_and_tokenizer.to_source()?.retrieve(model_path)?;
+fn info(args: &cli_args::Info) -> Result<()> {
+    struct InfoVisitor<'a>(&'a cli_args::Info);
+    impl llm::ModelArchitectureVisitor<Result<()>> for InfoVisitor<'_> {
+        fn visit<M: llm::KnownModel + 'static>(&mut self) -> Result<()> {
+            let args = self.0;
 
-    let file = File::open(model_path)?;
-    let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(tokenizer, |_| {
-        // We purposely do not print progress here, as we are only interested in the metadata
-    });
+            let model_path = &args.model_and_tokenizer.model_path;
+            let tokenizer = args.model_and_tokenizer.to_source()?.retrieve(model_path)?;
 
-    llm::ggml_format::load(&mut reader, &mut loader)?;
+            let file = File::open(model_path)?;
+            let mut reader = BufReader::new(&file);
+            let mut loader: llm::Loader<M::Hyperparameters, _> =
+                llm::Loader::new(tokenizer, |_| {
+                    // We purposely do not print progress here, as we are only interested in the metadata
+                });
 
-    log::info!("Container type: {:?}", loader.container_type);
-    log::info!("Hyperparameters: {:?}", loader.hyperparameters);
-    log::info!("Tokenizer vocabulary size: {}", loader.tokenizer.len());
+            llm::ggml_format::load(&mut reader, &mut loader)?;
 
-    if args.tokenizer {
-        log::info!("Tokens:");
-        for i in 0..loader.tokenizer.len() {
-            log::info!("- {}: {}", i, utf8_or_array(&loader.tokenizer.token(i)));
+            log::info!("Container type: {:?}", loader.container_type);
+            log::info!("Hyperparameters: {:?}", loader.hyperparameters);
+            log::info!("Tokenizer vocabulary size: {}", loader.tokenizer.len());
+
+            if args.tokenizer {
+                log::info!("Tokens:");
+                for i in 0..loader.tokenizer.len() {
+                    log::info!("- {}: {}", i, utf8_or_array(&loader.tokenizer.token(i)));
+                }
+            }
+
+            if args.tensors {
+                log::info!("Tensors:");
+                for (name, tensor) in &loader.tensors {
+                    log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
+                }
+            }
+
+            fn utf8_or_array(token: &[u8]) -> String {
+                std::str::from_utf8(token)
+                    .map(|s| s.to_owned())
+                    .unwrap_or(format!("{:?}", token))
+            }
+
+            Ok(())
         }
     }
 
-    if args.tensors {
-        log::info!("Tensors:");
-        for (name, tensor) in &loader.tensors {
-            log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
-        }
-    }
-
-    fn utf8_or_array(token: &[u8]) -> String {
-        std::str::from_utf8(token)
-            .map(|s| s.to_owned())
-            .unwrap_or(format!("{:?}", token))
-    }
-
-    Ok(())
+    args.model_and_tokenizer
+        .architecture
+        .model_architecture
+        .wrap_err("a model architecture is required at present")?
+        .visit(&mut InfoVisitor(args))
 }
 
-fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
+fn prompt_tokens(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let model = args.model_load.load::<M>(false)?;
+    let model = args.model_load.load(false)?;
     let toks = match model.tokenizer().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
@@ -222,7 +223,7 @@ fn force_newline_event_seq() -> KeyEvent {
     KeyEvent(KeyCode::Enter, Modifiers::SHIFT)
 }
 
-fn interactive<M: llm::KnownModel + 'static>(
+fn interactive(
     args: &cli_args::Repl,
     // If set to false, the session will be cloned after each inference
     // to ensure that previous state is not carried over.
@@ -230,7 +231,7 @@ fn interactive<M: llm::KnownModel + 'static>(
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>(args.generate.use_gpu)?;
+    let model = args.model_load.load(args.generate.use_gpu)?;
     let (mut session, mut session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
@@ -318,51 +319,64 @@ fn interactive<M: llm::KnownModel + 'static>(
     Ok(())
 }
 
-fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<()> {
+fn quantize(args: &cli_args::Quantize) -> Result<()> {
     use llm::QuantizeProgress;
 
-    let mut source = BufReader::new(std::fs::File::open(&args.source)?);
-    let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
-    let tokenizer = args.tokenizer.to_source()?.retrieve(&args.source)?;
+    struct QuantizeVisitor<'a>(&'a cli_args::Quantize);
+    impl llm::ModelArchitectureVisitor<Result<()>> for QuantizeVisitor<'_> {
+        fn visit<M: llm::KnownModel>(&mut self) -> Result<()> {
+            let args = self.0;
 
-    llm::quantize::<M, _, _>(
-        &mut source,
-        &mut destination,
-        tokenizer,
-        args.container_type.into(),
-        args.target.into(),
-        |progress| match progress {
-            QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
-            QuantizeProgress::TensorLoading {
-                name,
-                dims,
-                element_type,
-                n_elements,
-            } => log::info!(
-                "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
-            ),
-            QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
-            QuantizeProgress::TensorQuantized {
-                name,
-                original_size,
-                reduced_size,
-                history,
-            } => log::info!(
-            "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
-        ),
-            QuantizeProgress::TensorSkipped { name, size } => {
-                log::info!("Skipped tensor `{name}` ({size} bytes)")
-            }
-            QuantizeProgress::Finished {
-                original_size,
-                reduced_size,
-                history,
-            } => log::info!(
-                "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
-            ),
-        },
-    )
-    .wrap_err("failed to quantize model")
+            let mut source: BufReader<File> = BufReader::new(std::fs::File::open(&args.source)?);
+            let mut destination: BufWriter<File> =
+                BufWriter::new(std::fs::File::create(&args.destination)?);
+            let tokenizer: llm::Tokenizer = args.tokenizer.to_source()?.retrieve(&args.source)?;
+
+            llm::quantize::<M, _, _>(
+                &mut source,
+                &mut destination,
+                tokenizer,
+                args.container_type.into(),
+                args.target.into(),
+                |progress| match progress {
+                    QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
+                    QuantizeProgress::TensorLoading {
+                        name,
+                        dims,
+                        element_type,
+                        n_elements,
+                    } => log::info!(
+                        "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
+                    ),
+                    QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
+                    QuantizeProgress::TensorQuantized {
+                        name,
+                        original_size,
+                        reduced_size,
+                        history,
+                    } => log::info!(
+                    "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
+                ),
+                    QuantizeProgress::TensorSkipped { name, size } => {
+                        log::info!("Skipped tensor `{name}` ({size} bytes)")
+                    }
+                    QuantizeProgress::Finished {
+                        original_size,
+                        reduced_size,
+                        history,
+                    } => log::info!(
+                        "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
+                    ),
+                },
+            )
+            .wrap_err("failed to quantize model")
+        }
+    }
+
+    args.architecture
+        .model_architecture
+        .wrap_err("the architecture must be known for quantization")?
+        .visit(&mut QuantizeVisitor(args))
 }
 
 fn load_prompt_file_with_prompt(
