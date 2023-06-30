@@ -327,12 +327,20 @@ pub enum LoadError {
     },
     /// The tokenizer could not be loaded.
     #[error("could not load tokenizer {path:?}: {error}")]
-    TokenizerLoadError {
+    TokenizerLoadFail {
         /// The invalid tokenizer path
         path: PathBuf,
 
         /// The error that occurred.
         error: Box<dyn Error + Send + Sync>,
+    },
+    /// There is insufficient information to guess the model architecture from the provided file.
+    ///
+    /// A model architecture must be provided to load the model.
+    #[error("could not guess model architecture from {path:?}")]
+    MissingModelArchitecture {
+        /// The path that failed.
+        path: PathBuf,
     },
 }
 impl From<util::FindAllModelFilesError> for LoadError {
@@ -345,7 +353,7 @@ impl From<util::FindAllModelFilesError> for LoadError {
 }
 impl From<TokenizerLoadError> for LoadError {
     fn from(value: TokenizerLoadError) -> Self {
-        LoadError::TokenizerLoadError {
+        LoadError::TokenizerLoadFail {
             path: value.path,
             error: value.error,
         }

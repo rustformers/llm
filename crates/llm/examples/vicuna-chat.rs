@@ -31,7 +31,7 @@ fn main() {
     let model_architecture = args.model_architecture;
     let model_path = args.model_path;
     let model = llm::load_dynamic(
-        model_architecture,
+        Some(model_architecture),
         &model_path,
         tokenizer_source,
         Default::default(),

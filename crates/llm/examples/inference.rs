@@ -39,7 +39,7 @@ fn main() {
     let now = std::time::Instant::now();
 
     let model = llm::load_dynamic(
-        model_architecture,
+        Some(model_architecture),
         &model_path,
         tokenizer_source,
         Default::default(),

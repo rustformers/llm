@@ -177,7 +177,8 @@ pub enum HyperparametersWriteError {
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 }
 
-/// Parameters for tuning model instances
+/// Parameters for model-wide behaviour.
+#[derive(Debug, Clone)]
 pub struct ModelParameters {
     /// For [GGML formats](ggml::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
     /// is the default. Although mmap typically improves performance, setting this value to `false` may
