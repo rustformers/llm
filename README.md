@@ -86,6 +86,7 @@ dependency from being built in debug mode:
 [profile.dev.package.ggml-sys]
 opt-level = 3
 ```
+
 ## Leverage Accelerators with `llm`
 
 The `llm` library is engineered to take advantage of hardware accelerators such as `cuda` and `metal` for optimized performance.
@@ -169,7 +170,7 @@ running it. Here's an example that uses the open-source
 language model:
 
 ```shell
-llm gptneox infer -m RedPajama-INCITE-Base-3B-v1-q4_0.bin -p "Rust is a cool programming language because" -r togethercomputer/RedPajama-INCITE-Base-3B-v1
+llm infer -a gptneox -m RedPajama-INCITE-Base-3B-v1-q4_0.bin -p "Rust is a cool programming language because" -r togethercomputer/RedPajama-INCITE-Base-3B-v1
 ```
 
 In the example above, the first two arguments specify the model architecture and
@@ -202,7 +203,7 @@ so-called "base models". Here's an example of using the `llm` CLI in REPL
 that is being used:
 
 ```shell
-llm llama repl -m ggml-alpaca-7b-q4.bin -f utils/prompts/alpaca.txt
+llm repl -a llama -m ggml-alpaca-7b-q4.bin -f utils/prompts/alpaca.txt
 ```
 
 There is also a [Vicuna chat example](./crates/llm/examples/vicuna-chat.rs) that
