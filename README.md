@@ -79,6 +79,15 @@ version:
 llm = "0.1"
 ```
 
+By default, `llm` builds with support for remotely fetching the tokenizer from Hugging Face's model hub.
+To disable this, disable the default features for the crate, and turn on the `models` feature to get `llm`
+without the tokenizer:
+
+```toml
+[dependencies]
+llm = { version = "0.1", default-features = false, features = ["models"] }
+```
+
 **NOTE**: To improve debug performance, exclude the transitive `ggml-sys`
 dependency from being built in debug mode:
 
@@ -86,6 +95,7 @@ dependency from being built in debug mode:
 [profile.dev.package.ggml-sys]
 opt-level = 3
 ```
+
 ## Leverage Accelerators with `llm`
 
 The `llm` library is engineered to take advantage of hardware accelerators such as `cuda` and `metal` for optimized performance.
@@ -135,6 +145,19 @@ It can also be run directly through Cargo, with
 ```shell
 cargo run --release -- $ARGS
 ```
+
+### Features
+
+By default, `llm` builds with support for remotely fetching the tokenizer from Hugging Face's model hub.
+This adds a dependency on your system's native SSL stack, which may not be available on all systems.
+
+To disable this, disable the default features for the build:
+
+```shell
+cargo build --release --no-default-features
+```
+
+To enable hardware acceleration, see [Acceleration Support for Building section](doc/CONTRIBUTING.md#acceleration-support-for-building), which is also applicable to the CLI.
 
 ## Getting Models
 
