@@ -22,10 +22,12 @@ partial_sort = "0.2.0"
 serde_bytes = "0.11"
 memmap2 = { workspace = true }
 half = "2.2.1"
-tokenizers = "0.13.3"
+tokenizers = {version="0.13.3", features=["onig"]}
 regex = "1.8"
 
 [features]
+default = ["tokenizers-remote"]
+tokenizers-remote = ["tokenizers/http"]
 cublas = ["ggml/cublas"]
 clblast = ["ggml/clblast"]
 metal = ["ggml/metal"]
