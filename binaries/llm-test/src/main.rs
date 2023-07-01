@@ -49,13 +49,13 @@ async fn main() -> anyhow::Result<()> {
     fs::create_dir_all(&results_dir)?;
 
     // Load configurations
-    let mut configs = HashMap::new();
+    let mut test_cases = HashMap::new();
     for entry in fs::read_dir(configs_dir)? {
         let path = entry?.path();
         if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
             let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
             let test_case: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
-            configs.insert(file_name, test_case);
+            test_cases.insert(file_name, test_case);
         }
     }
     let model_config = ModelConfig {
@@ -63,18 +63,24 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Test models
-    if let Some(specific_architecture) = specific_model {
-        if let Some(test_case) = configs.get(&specific_architecture) {
-            println!("Key: {}, Config: {:?}", specific_architecture, test_case);
-            test_model(&model_config, test_case, &download_dir, &results_dir).await?;
-        } else {
-            println!("No config found for {}", specific_architecture);
-        }
+    let test_cases = if let Some(specific_architecture) = specific_model {
+        let test_case = test_cases
+            .get(&specific_architecture)
+            .with_context(|| {
+                format!(
+                    "No config found for `{specific_architecture}`. Available configs: {:?}",
+                    test_cases.keys()
+                )
+            })?
+            .clone();
+        HashMap::from_iter([(specific_architecture, test_case)])
     } else {
-        for (key, test_case) in &configs {
-            println!("Key: {}, Config: {:?}", key, test_case);
-            test_model(&model_config, test_case, &download_dir, &results_dir).await?;
-        }
+        test_cases
+    };
+
+    for (key, test_case) in test_cases {
+        println!("Key: {key}, Config: {test_case:?}");
+        test_model(&model_config, &test_case, &download_dir, &results_dir).await?;
     }
 
     println!("All tests passed!");
@@ -85,7 +91,7 @@ struct ModelConfig {
     mmap: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct TestCase {
     url: String,
     filename: PathBuf,
