@@ -34,6 +34,9 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Set up the logger
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     // Parse command line arguments
     let args = Cli::parse();
     let specific_model = args.architecture.clone();
@@ -50,13 +53,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configurations
     let mut test_cases = HashMap::new();
-    for entry in fs::read_dir(configs_dir)? {
-        let path = entry?.path();
-        if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
-            let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
-            let test_case: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
-            test_cases.insert(file_name, test_case);
-        }
+    for path in fs::read_dir(configs_dir)?
+        .filter_map(Result::ok)
+        .map(|de| de.path())
+        .filter(|p| p.is_file())
+        .filter(|p| p.extension().unwrap_or_default() == "json")
+    {
+        let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let test_case: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
+        test_cases.insert(file_name, test_case);
     }
     let model_config = ModelConfig {
         mmap: !args.no_mmap,
@@ -78,12 +83,16 @@ async fn main() -> anyhow::Result<()> {
         test_cases
     };
 
+    let test_cases_len = test_cases.len();
     for (key, test_case) in test_cases {
-        println!("Key: {key}, Config: {test_case:?}");
+        log::info!("Key: {key}, Config: {test_case:?}");
         test_model(&model_config, &test_case, &download_dir, &results_dir).await?;
+        if test_cases_len > 1 {
+            log::info!("----");
+        }
     }
 
-    println!("All tests passed!");
+    log::info!("All tests passed!");
     Ok(())
 }
 
@@ -100,7 +109,7 @@ struct TestCase {
 
 #[derive(Serialize)]
 pub struct Report {
-    pub could_loaded: bool,
+    pub could_load: bool,
     pub inference_stats: Option<InferenceStats>,
     pub error: Option<String>,
     pub output: String,
@@ -112,7 +121,7 @@ async fn test_model(
     download_dir: &Path,
     results_dir: &Path,
 ) -> anyhow::Result<()> {
-    println!("Testing architecture: `{}` ...", test_case.architecture);
+    log::info!("Testing architecture: `{}`", test_case.architecture);
 
     let local_path = if test_case.filename.is_file() {
         // If this filename points towards a valid file, use it
@@ -129,41 +138,52 @@ async fn test_model(
 
     // Load the model
     let architecture = llm::ModelArchitecture::from_str(&test_case.architecture)?;
-    let model_result = llm::load_dynamic(
-        Some(architecture),
-        &local_path,
-        llm::TokenizerSource::Embedded,
-        llm::ModelParameters {
-            prefer_mmap: config.mmap,
-            ..Default::default()
-        },
-        llm::load_progress_callback_stdout,
-    );
+    let model = {
+        let model = llm::load_dynamic(
+            Some(architecture),
+            &local_path,
+            llm::TokenizerSource::Embedded,
+            llm::ModelParameters {
+                prefer_mmap: config.mmap,
+                ..Default::default()
+            },
+            |progress| {
+                let print = !matches!(&progress,
+                    llm::LoadProgress::TensorLoaded { current_tensor, tensor_count }
+                    if current_tensor % (tensor_count / 10) != 0
+                );
 
-    let model = match model_result {
-        Ok(m) => m,
-        Err(err) => {
-            // Create a report with could_loaded set to false
-            let report = Report {
-                could_loaded: false,
-                inference_stats: None,
-                error: Some(format!("Failed to load model: {}", err)),
-                output: String::new(),
-            };
+                if print {
+                    log::info!("{:?}", progress);
+                }
+            },
+        );
 
-            // Serialize the report to a JSON string
-            let json_report = serde_json::to_string(&report)?;
-            let report_path = results_dir.join(format!("{}.json", test_case.architecture));
+        match model {
+            Ok(m) => m,
+            Err(err) => {
+                // Create a report with could_load set to false
+                let report = Report {
+                    could_load: false,
+                    inference_stats: None,
+                    error: Some(format!("Failed to load model: {}", err)),
+                    output: String::new(),
+                };
 
-            // Write the JSON report to a file
-            fs::write(report_path, json_report)?;
+                // Serialize the report to a JSON string
+                let json_report = serde_json::to_string(&report)?;
+                let report_path = results_dir.join(format!("{}.json", test_case.architecture));
 
-            // Optionally, you can return early or decide how to proceed
-            return Err(err.into());
+                // Write the JSON report to a file
+                fs::write(report_path, json_report)?;
+
+                // Optionally, you can return early or decide how to proceed
+                return Err(err.into());
+            }
         }
     };
 
-    println!(
+    log::info!(
         "Model fully loaded! Elapsed: {}ms",
         start_time.elapsed().as_millis()
     );
@@ -175,7 +195,7 @@ async fn test_model(
     let mut rng: StdRng = SeedableRng::seed_from_u64(42);
     let mut output = String::new();
 
-    println!("Running inference...");
+    log::info!("Running inference...");
     let res = session.infer::<Infallible>(
         model.as_ref(),
         &mut rng,
@@ -198,7 +218,7 @@ async fn test_model(
             _ => Ok(llm::InferenceFeedback::Continue),
         },
     );
-    println!("Inference done!");
+    log::info!("Inference done!");
 
     // Process the results
     let (inference_results, error) = match res {
@@ -208,7 +228,7 @@ async fn test_model(
 
     // Save the results
     let report = Report {
-        could_loaded: true,
+        could_load: true,
         inference_stats: inference_results,
         error: error.map(|e| format!("{:?}", e)),
         output,
@@ -226,7 +246,7 @@ async fn test_model(
         panic!("Error: {}", err);
     }
 
-    println!(
+    log::info!(
         "Successfully tested architecture `{}`!",
         test_case.architecture
     );
@@ -236,7 +256,7 @@ async fn test_model(
 
 async fn download_file(url: &str, local_path: &PathBuf) -> anyhow::Result<()> {
     if Path::new(local_path).exists() {
-        println!("Model already exists at {}", local_path.to_string_lossy());
+        log::info!("Model already exists at {}", local_path.to_string_lossy());
         return Ok(());
     }
 

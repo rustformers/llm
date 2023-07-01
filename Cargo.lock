@@ -1384,8 +1384,10 @@ version = "0.2.0-dev"
 dependencies = [
  "anyhow",
  "clap",
+ "env_logger",
  "indicatif 0.16.2",
  "llm",
+ "log",
  "rand",
  "reqwest",
  "rusty-hook",
