@@ -52,7 +52,7 @@ async fn download_file(url: &str, local_path: &PathBuf) -> Result<(), Box<dyn st
 #[derive(Deserialize, Debug)]
 struct TestCase {
     url: String,
-    filename: String,
+    filename: PathBuf,
     architecture: String,
 }
 
@@ -121,7 +121,13 @@ async fn test_model(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing architecture: `{}` ...", config.architecture);
 
-    let local_path = download_dir.join(&config.filename);
+    let local_path = if config.filename.is_file() {
+        // If this filename points towards a valid file, use it
+        config.filename.clone()
+    } else {
+        // Otherwise, use the download dir
+        download_dir.join(&config.filename)
+    };
 
     // Download the model
     download_file(&config.url, &local_path).await?;

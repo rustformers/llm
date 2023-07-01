@@ -4,10 +4,10 @@ name = "llm-test"
 version = "0.2.0-dev"
 repository = { workspace = true }
 license = { workspace = true }
+publish = false
 
-[[bin]]
-name = "llm-test"
-path = "src/main.rs"
+[package.metadata.release]
+release = false
 
 [dependencies]
 llm = { path = "../../crates/llm", version = "0.2.0-dev" }
