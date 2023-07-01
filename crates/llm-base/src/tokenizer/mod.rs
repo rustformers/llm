@@ -67,6 +67,7 @@ pub enum TokenizerSource {
     /// Fetch the tokenizer from a remote HuggingFace repository. This will make a blocking
     /// HTTP request to HuggingFace to retrieve the tokenizer and may store files locally,
     /// so it is not recommended for production use. This will use the HuggingFace tokenizer.
+    #[cfg(feature = "tokenizers-remote")]
     HuggingFaceRemote(String),
 }
 impl TokenizerSource {
@@ -75,7 +76,10 @@ impl TokenizerSource {
     /// Note that this may make a blocking HTTP request to HuggingFace to retrieve the tokenizer.
     /// if `self` is [`Self::HuggingFaceRemote`].
     pub fn retrieve(self, model_path: &Path) -> Result<Tokenizer, TokenizerLoadError> {
+        let _ = model_path;
+
         Ok(match self {
+            #[cfg(feature = "tokenizers-remote")]
             Self::HuggingFaceRemote(identifier) => HuggingFaceTokenizer::new(
                 tokenizers::Tokenizer::from_pretrained(&identifier, None)
                     .map_err(|error| TokenizerLoadError::new(model_path, error))?,

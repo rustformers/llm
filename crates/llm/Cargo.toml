@@ -29,8 +29,11 @@ serde_json = { workspace = true }
 clap = { workspace = true }
 
 [features]
-default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
+default = ["models", "tokenizers-remote"]
 
+tokenizers-remote = ["llm-base/tokenizers-remote"]
+
+models = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]

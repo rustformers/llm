@@ -1,7 +1,7 @@
 use std::{fmt, ops::Deref, path::PathBuf, sync::Arc};
 
 use clap::{Parser, ValueEnum};
-use color_eyre::eyre::{bail, Result, WrapErr};
+use color_eyre::eyre::{self, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
     LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, TokenizerSource,
@@ -312,19 +312,31 @@ pub struct ModelTokenizer {
     pub tokenizer_path: Option<PathBuf>,
 
     /// Remote Hugging Face repository containing a tokenizer
+    #[cfg(feature = "tokenizers-remote")]
     #[arg(long, short = 'r')]
     pub tokenizer_repository: Option<String>,
 }
 impl ModelTokenizer {
-    pub fn to_source(&self) -> Result<TokenizerSource> {
-        Ok(match (&self.tokenizer_path, &self.tokenizer_repository) {
-            (Some(_), Some(_)) => {
-                bail!("Cannot specify both --tokenizer-path and --tokenizer-repository");
-            }
-            (Some(path), None) => TokenizerSource::HuggingFaceTokenizerFile(path.to_owned()),
-            (None, Some(repo)) => TokenizerSource::HuggingFaceRemote(repo.to_owned()),
-            (None, None) => TokenizerSource::Embedded,
-        })
+    pub fn to_source(&self) -> eyre::Result<TokenizerSource> {
+        let tokenizer_path = self.tokenizer_path.as_deref();
+        #[cfg(feature = "tokenizers-remote")]
+        let tokenizer_repository = self.tokenizer_repository.as_deref();
+
+        #[cfg(feature = "tokenizers-remote")]
+        if tokenizer_path.is_some() && tokenizer_repository.is_some() {
+            eyre::bail!("Cannot specify both --tokenizer-path and --tokenizer-repository");
+        }
+
+        if let Some(path) = tokenizer_path {
+            return Ok(TokenizerSource::HuggingFaceTokenizerFile(path.to_owned()));
+        }
+
+        #[cfg(feature = "tokenizers-remote")]
+        if let Some(repository) = tokenizer_repository {
+            return Ok(TokenizerSource::HuggingFaceRemote(repository.to_owned()));
+        }
+
+        Ok(TokenizerSource::Embedded)
     }
 }
 
@@ -348,7 +360,7 @@ pub struct ModelAndTokenizer {
     pub tokenizer: ModelTokenizer,
 }
 impl ModelAndTokenizer {
-    pub fn to_source(&self) -> Result<TokenizerSource> {
+    pub fn to_source(&self) -> eyre::Result<TokenizerSource> {
         self.tokenizer.to_source()
     }
 }
@@ -385,7 +397,7 @@ pub struct ModelLoad {
     pub gpu_layers: Option<usize>,
 }
 impl ModelLoad {
-    pub fn load(&self, use_gpu: bool) -> Result<Box<dyn Model>> {
+    pub fn load(&self, use_gpu: bool) -> eyre::Result<Box<dyn Model>> {
         let params = ModelParameters {
             prefer_mmap: !self.no_mmap,
             context_size: self.num_ctx_tokens,
