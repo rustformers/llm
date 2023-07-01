@@ -12,6 +12,7 @@ release = false
 [dependencies]
 llm = { path = "../../crates/llm", version = "0.2.0-dev" }
 
+anyhow = { workspace = true }
 clap = { workspace = true }
 rand = { workspace = true }
 

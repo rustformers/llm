@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use llm::InferenceStats;
@@ -32,7 +33,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let args = Cli::parse();
     let specific_model = args.architecture.clone();
@@ -52,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for entry in fs::read_dir(configs_dir)? {
         let path = entry?.path();
         if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
-            let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
             let test_case: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
             configs.insert(file_name, test_case);
         }
@@ -104,7 +105,7 @@ async fn test_model(
     test_case: &TestCase,
     download_dir: &Path,
     results_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     println!("Testing architecture: `{}` ...", test_case.architecture);
 
     let local_path = if test_case.filename.is_file() {
@@ -152,7 +153,7 @@ async fn test_model(
             fs::write(report_path, json_report)?;
 
             // Optionally, you can return early or decide how to proceed
-            return Err(Box::new(err));
+            return Err(err.into());
         }
     };
 
@@ -227,16 +228,18 @@ async fn test_model(
     Ok(())
 }
 
-async fn download_file(url: &str, local_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+async fn download_file(url: &str, local_path: &PathBuf) -> anyhow::Result<()> {
     if Path::new(local_path).exists() {
-        println!("Model already exists at {}", local_path.to_str().unwrap());
+        println!("Model already exists at {}", local_path.to_string_lossy());
         return Ok(());
     }
 
     let client = Client::new();
 
     let mut res = client.get(url).send().await?;
-    let total_size = res.content_length().ok_or("Failed to get content length")?;
+    let total_size = res
+        .content_length()
+        .context("Failed to get content length")?;
 
     let pb = ProgressBar::new(total_size);
     pb.set_style(ProgressStyle::default_bar()

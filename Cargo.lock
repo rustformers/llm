@@ -1382,6 +1382,7 @@ dependencies = [
 name = "llm-test"
 version = "0.2.0-dev"
 dependencies = [
+ "anyhow",
  "clap",
  "indicatif 0.16.2",
  "llm",
