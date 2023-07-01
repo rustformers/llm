@@ -60,20 +60,22 @@ pub enum TokenizerSource {
     /// guaranteed to be available for all models.
     Embedded,
 
-    /// Read the tokenizer from a local HuggingFace-format tokenizer file, and use the
-    /// HuggingFace tokenizer.
+    /// Read a Hugging Face tokenizer from a local Hugging Face tokenizer file.
     HuggingFaceTokenizerFile(PathBuf),
 
-    /// Fetch the tokenizer from a remote HuggingFace repository. This will make a blocking
-    /// HTTP request to HuggingFace to retrieve the tokenizer and may store files locally,
-    /// so it is not recommended for production use. This will use the HuggingFace tokenizer.
+    /// Read a Hugging Face tokenizer from the provided string.
+    HuggingFaceTokenizerString(String),
+
+    /// Fetch a Hugging Face tokenizer from a remote Hugging Face repository.
+    /// This will make a blocking HTTP request to Hugging Face to retrieve the tokenizer
+    /// and may store files locally, so it is not recommended for production use.
     #[cfg(feature = "tokenizers-remote")]
     HuggingFaceRemote(String),
 }
 impl TokenizerSource {
     /// Retrieve the tokenizer from the source.
     ///
-    /// Note that this may make a blocking HTTP request to HuggingFace to retrieve the tokenizer.
+    /// Note that this may make a blocking HTTP request to Hugging Face to retrieve the tokenizer.
     /// if `self` is [`Self::HuggingFaceRemote`].
     pub fn retrieve(self, model_path: &Path) -> Result<Tokenizer, TokenizerLoadError> {
         let _ = model_path;
@@ -86,23 +88,17 @@ impl TokenizerSource {
             )
             .into(),
 
-            Self::HuggingFaceTokenizerFile(path) => {
-                if !path.is_file() {
-                    return Err(TokenizerLoadError::new(
-                        path,
-                        std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "Tokenizer was not a file, or did not exist",
-                        ),
-                    ));
-                }
+            Self::HuggingFaceTokenizerFile(path) => HuggingFaceTokenizer::new(
+                tokenizers::Tokenizer::from_file(&path)
+                    .map_err(|error| TokenizerLoadError::new(path, error))?,
+            )
+            .into(),
 
-                HuggingFaceTokenizer::new(
-                    tokenizers::Tokenizer::from_file(&path)
-                        .map_err(|error| TokenizerLoadError::new(path, error))?,
-                )
-                .into()
-            }
+            Self::HuggingFaceTokenizerString(s) => HuggingFaceTokenizer::new(
+                tokenizers::Tokenizer::from_str(&s)
+                    .map_err(|error| TokenizerLoadError::new(model_path, error))?,
+            )
+            .into(),
 
             Self::Embedded => EmbeddedTokenizer::default().into(),
         })
