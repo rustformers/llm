@@ -12,7 +12,7 @@ name = "llm"
 path = "src/main.rs"
 
 [dependencies]
-llm = { path = "../../crates/llm", version = "0.2.0-dev" }
+llm = { path = "../../crates/llm", version = "0.2.0-dev", default-features = false, features = ["models"] }
 
 bytesize = { workspace = true }
 log = { workspace = true }
@@ -32,6 +32,9 @@ zstd = { version = "0.12", default-features = false }
 rusty-hook = "^0.11.2"
 
 [features]
+default = ["tokenizers-remote"]
+
+tokenizers-remote = ["llm/tokenizers-remote"]
 cublas = ["llm/cublas"]
 clblast = ["llm/clblast"]
 metal = ["llm/metal"]
