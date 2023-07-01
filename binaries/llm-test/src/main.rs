@@ -1,76 +1,47 @@
-extern crate indicatif;
-extern crate reqwest;
-extern crate tokio;
-
+use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use llm::InferenceStats;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{rngs::StdRng, SeedableRng};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::cmp::min;
-use std::collections::HashMap;
-use std::convert::Infallible;
-use std::env;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::time::Instant;
+use std::{
+    cmp::min,
+    collections::HashMap,
+    convert::Infallible,
+    env,
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+    str::FromStr,
+    time::Instant,
+};
 
-async fn download_file(url: &str, local_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    if Path::new(local_path).exists() {
-        println!("Model already exists at {}", local_path.to_str().unwrap());
-        return Ok(());
-    }
+#[derive(Parser)]
+struct Cli {
+    /// The path to the directory containing the model configurations.
+    /// If not specified, the default directory will be used.
+    #[clap(short, long)]
+    configs: Option<PathBuf>,
 
-    let client = Client::new();
+    /// Whether to use memory mapping when loading the model.
+    #[clap(short, long)]
+    no_mmap: bool,
 
-    let mut res = client.get(url).send().await?;
-    let total_size = res.content_length().ok_or("Failed to get content length")?;
-
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-        .progress_chars("#>-"));
-
-    let mut file = File::create(local_path)?;
-    let mut downloaded: u64 = 0;
-
-    while let Some(chunk) = res.chunk().await? {
-        file.write_all(&chunk)?;
-        let new = min(downloaded + (chunk.len() as u64), total_size);
-        downloaded = new;
-        pb.set_position(new);
-    }
-
-    pb.finish_with_message("Download complete");
-
-    Ok(())
-}
-
-#[derive(Deserialize, Debug)]
-struct TestCase {
-    url: String,
-    filename: PathBuf,
-    architecture: String,
+    /// The model architecture to test. If not specified, all architectures will be tested.
+    architecture: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
-    let args: Vec<String> = env::args().collect();
-    let specific_model = if args.len() > 1 {
-        println!("Testing architecture: {}", args[1].to_lowercase());
-        Some(args[1].to_lowercase())
-    } else {
-        println!("Testing all architectures.");
-        None
-    };
+    let args = Cli::parse();
+    let specific_model = args.architecture.clone();
 
     // Initialize directories
     let cwd = env::current_dir()?;
-    let configs_dir = cwd.join("binaries/llm-test/configs");
+    let configs_dir = args
+        .configs
+        .unwrap_or_else(|| cwd.join("binaries/llm-test/configs"));
     let download_dir = cwd.join(".tests/models");
     fs::create_dir_all(&download_dir)?;
     let results_dir = cwd.join(".tests/results");
@@ -82,28 +53,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let path = entry?.path();
         if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
             let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
-            let config: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
-            configs.insert(file_name, config);
+            let test_case: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
+            configs.insert(file_name, test_case);
         }
     }
+    let model_config = ModelConfig {
+        mmap: !args.no_mmap,
+    };
 
     // Test models
     if let Some(specific_architecture) = specific_model {
-        if let Some(config) = configs.get(&specific_architecture) {
-            println!("Key: {}, Config: {:?}", specific_architecture, config);
-            test_model(config, &download_dir, &results_dir).await?;
+        if let Some(test_case) = configs.get(&specific_architecture) {
+            println!("Key: {}, Config: {:?}", specific_architecture, test_case);
+            test_model(&model_config, test_case, &download_dir, &results_dir).await?;
         } else {
             println!("No config found for {}", specific_architecture);
         }
     } else {
-        for (key, config) in &configs {
-            println!("Key: {}, Config: {:?}", key, config);
-            test_model(config, &download_dir, &results_dir).await?;
+        for (key, test_case) in &configs {
+            println!("Key: {}, Config: {:?}", key, test_case);
+            test_model(&model_config, test_case, &download_dir, &results_dir).await?;
         }
     }
 
     println!("All tests passed!");
     Ok(())
+}
+
+struct ModelConfig {
+    mmap: bool,
+}
+
+#[derive(Deserialize, Debug)]
+struct TestCase {
+    url: String,
+    filename: PathBuf,
+    architecture: String,
 }
 
 #[derive(Serialize)]
@@ -115,32 +100,36 @@ pub struct Report {
 }
 
 async fn test_model(
-    config: &TestCase,
+    config: &ModelConfig,
+    test_case: &TestCase,
     download_dir: &Path,
     results_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Testing architecture: `{}` ...", config.architecture);
+    println!("Testing architecture: `{}` ...", test_case.architecture);
 
-    let local_path = if config.filename.is_file() {
+    let local_path = if test_case.filename.is_file() {
         // If this filename points towards a valid file, use it
-        config.filename.clone()
+        test_case.filename.clone()
     } else {
         // Otherwise, use the download dir
-        download_dir.join(&config.filename)
+        download_dir.join(&test_case.filename)
     };
 
     // Download the model
-    download_file(&config.url, &local_path).await?;
+    download_file(&test_case.url, &local_path).await?;
 
     let start_time = Instant::now();
 
     // Load the model
-    let architecture = llm::ModelArchitecture::from_str(&config.architecture)?;
+    let architecture = llm::ModelArchitecture::from_str(&test_case.architecture)?;
     let model_result = llm::load_dynamic(
         Some(architecture),
         &local_path,
         llm::TokenizerSource::Embedded,
-        Default::default(),
+        llm::ModelParameters {
+            prefer_mmap: config.mmap,
+            ..Default::default()
+        },
         llm::load_progress_callback_stdout,
     );
 
@@ -157,7 +146,7 @@ async fn test_model(
 
             // Serialize the report to a JSON string
             let json_report = serde_json::to_string(&report)?;
-            let report_path = results_dir.join(format!("{}.json", config.architecture));
+            let report_path = results_dir.join(format!("{}.json", test_case.architecture));
 
             // Write the JSON report to a file
             fs::write(report_path, json_report)?;
@@ -220,7 +209,7 @@ async fn test_model(
 
     // Serialize the report to a JSON string
     let json_report = serde_json::to_string(&report)?;
-    let report_path = results_dir.join(format!("{}.json", config.architecture));
+    let report_path = results_dir.join(format!("{}.json", test_case.architecture));
 
     // Write the JSON report to a file
     fs::write(report_path, json_report)?;
@@ -232,8 +221,39 @@ async fn test_model(
 
     println!(
         "Successfully tested architecture `{}`!",
-        config.architecture
+        test_case.architecture
     );
+
+    Ok(())
+}
+
+async fn download_file(url: &str, local_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if Path::new(local_path).exists() {
+        println!("Model already exists at {}", local_path.to_str().unwrap());
+        return Ok(());
+    }
+
+    let client = Client::new();
+
+    let mut res = client.get(url).send().await?;
+    let total_size = res.content_length().ok_or("Failed to get content length")?;
+
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .progress_chars("#>-"));
+
+    let mut file = File::create(local_path)?;
+    let mut downloaded: u64 = 0;
+
+    while let Some(chunk) = res.chunk().await? {
+        file.write_all(&chunk)?;
+        let new = min(downloaded + (chunk.len() as u64), total_size);
+        downloaded = new;
+        pb.set_position(new);
+    }
+
+    pb.finish_with_message("Download complete");
 
     Ok(())
 }
