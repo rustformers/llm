@@ -89,95 +89,99 @@ pub use llm_base::{
 
 use serde::Serialize;
 
-/// All available models.
-pub mod models {
-    #[cfg(feature = "bloom")]
-    pub use llm_bloom::{self as bloom, Bloom};
-    #[cfg(feature = "falcon")]
-    pub use llm_falcon::{self as falcon, Falcon};
-    #[cfg(feature = "gpt2")]
-    pub use llm_gpt2::{self as gpt2, Gpt2};
-    #[cfg(feature = "gptj")]
-    pub use llm_gptj::{self as gptj, GptJ};
-    #[cfg(feature = "gptneox")]
-    pub use llm_gptneox::{self as gptneox, GptNeoX};
-    #[cfg(feature = "llama")]
-    pub use llm_llama::{self as llama, Llama};
-    #[cfg(feature = "mpt")]
-    pub use llm_mpt::{self as mpt, Mpt};
+macro_rules! define_models {
+    ($(($model_lowercase:ident, $model_lowercase_str:literal, $model_pascalcase:ident, $krate_ident:ident, $display_name:literal)),*) => {
+        /// All available models.
+        pub mod models {
+            $(
+                #[cfg(feature = $model_lowercase_str)]
+                pub use $krate_ident::{self as $model_lowercase, $model_pascalcase};
+            )*
+        }
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+        /// All available model architectures.
+        pub enum ModelArchitecture {
+            $(
+                #[cfg(feature = $model_lowercase_str)]
+                #[doc = concat!("[", $display_name, "](", stringify!($krate_ident), ")")]
+                $model_pascalcase,
+            )*
+        }
+
+        impl ModelArchitecture {
+            /// All available model architectures
+            pub const ALL: &[Self] = &[
+                $(
+                    #[cfg(feature = $model_lowercase_str)]
+                    Self::$model_pascalcase,
+                )*
+            ];
+        }
+
+        impl ModelArchitecture {
+            /// Use a visitor to dispatch some code based on the model architecture.
+            pub fn visit<R>(&self, visitor: &mut impl ModelArchitectureVisitor<R>) -> R {
+                match self {
+                    $(
+                        #[cfg(feature = $model_lowercase_str)]
+                        Self::$model_pascalcase => visitor.visit::<models::$model_pascalcase>(),
+                    )*
+                }
+            }
+        }
+
+        impl FromStr for ModelArchitecture {
+            type Err = UnsupportedModelArchitecture;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                use ModelArchitecture::*;
+                match s
+                    .to_lowercase()
+                    .chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect::<String>()
+                    .as_str()
+                {
+                    $(
+                        #[cfg(feature = $model_lowercase_str)]
+                        $model_lowercase_str => Ok($model_pascalcase),
+                    )*
+
+                    _ => Err(UnsupportedModelArchitecture(format!(
+                        "{s} is not a supported model architecture"
+                    ))),
+                }
+            }
+        }
+
+        impl Display for ModelArchitecture {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                        #[cfg(feature = $model_lowercase_str)]
+                        Self::$model_pascalcase => write!(f, $display_name),
+                    )*
+                }
+            }
+        }
+    };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-/// All available model architectures.
-pub enum ModelArchitecture {
-    #[cfg(feature = "bloom")]
-    /// [BLOOM](llm_bloom)
-    Bloom,
-    #[cfg(feature = "gpt2")]
-    /// [GPT-2](llm_gpt2)
-    Gpt2,
-    #[cfg(feature = "gptj")]
-    /// [GPT-J](llm_gptj)
-    GptJ,
-    #[cfg(feature = "gptneox")]
-    /// [GPT-NeoX](llm_gptneox)
-    GptNeoX,
-    #[cfg(feature = "llama")]
-    /// [LLaMA](llm_llama)
-    Llama,
-    #[cfg(feature = "mpt")]
-    /// [MPT](llm_mpt)
-    Mpt,
-    #[cfg(feature = "falcon")]
-    /// [Falcon](llm_falcon)
-    Falcon,
-}
-
-impl ModelArchitecture {
-    /// All available model architectures
-    pub const ALL: &[Self] = &[
-        #[cfg(feature = "bloom")]
-        Self::Bloom,
-        #[cfg(feature = "gpt2")]
-        Self::Gpt2,
-        #[cfg(feature = "gptj")]
-        Self::GptJ,
-        #[cfg(feature = "gptneox")]
-        Self::GptNeoX,
-        #[cfg(feature = "llama")]
-        Self::Llama,
-        #[cfg(feature = "mpt")]
-        Self::Mpt,
-        #[cfg(feature = "falcon")]
-        Self::Falcon,
-    ];
-}
+define_models!(
+    (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
+    (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
+    (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),
+    (gptneox, "gptneox", GptNeoX, llm_gptneox, "GPT-NeoX"),
+    (llama, "llama", Llama, llm_llama, "LLaMA"),
+    (mpt, "mpt", Mpt, llm_mpt, "MPT"),
+    (falcon, "falcon", Falcon, llm_falcon, "Falcon")
+);
 
 /// Used to dispatch some code based on the model architecture.
 pub trait ModelArchitectureVisitor<R> {
     /// Visit a model architecture.
     fn visit<M: KnownModel + 'static>(&mut self) -> R;
-}
-impl ModelArchitecture {
-    /// Use a visitor to dispatch some code based on the model architecture.
-    pub fn visit<R>(&self, visitor: &mut impl ModelArchitectureVisitor<R>) -> R {
-        match self {
-            #[cfg(feature = "bloom")]
-            Self::Bloom => visitor.visit::<models::Bloom>(),
-            #[cfg(feature = "gpt2")]
-            Self::Gpt2 => visitor.visit::<models::Gpt2>(),
-            #[cfg(feature = "gptj")]
-            Self::GptJ => visitor.visit::<models::GptJ>(),
-            #[cfg(feature = "gptneox")]
-            Self::GptNeoX => visitor.visit::<models::GptNeoX>(),
-            #[cfg(feature = "llama")]
-            Self::Llama => visitor.visit::<models::Llama>(),
-            #[cfg(feature = "mpt")]
-            Self::Mpt => visitor.visit::<models::Mpt>(),
-            #[cfg(feature = "falcon")]
-            Self::Falcon => visitor.visit::<models::Falcon>(),
-        }
-    }
 }
 
 /// An unsupported model architecture was specified.
@@ -193,63 +197,6 @@ impl Debug for UnsupportedModelArchitecture {
         f.debug_tuple("UnsupportedModelArchitecture")
             .field(&self.0)
             .finish()
-    }
-}
-
-impl FromStr for ModelArchitecture {
-    type Err = UnsupportedModelArchitecture;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use ModelArchitecture::*;
-        match s
-            .to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect::<String>()
-            .as_str()
-        {
-            #[cfg(feature = "bloom")]
-            "bloom" => Ok(Bloom),
-            #[cfg(feature = "gpt2")]
-            "gpt2" => Ok(Gpt2),
-            #[cfg(feature = "gptj")]
-            "gptj" => Ok(GptJ),
-            #[cfg(feature = "gptneox")]
-            "gptneox" => Ok(GptNeoX),
-            #[cfg(feature = "llama")]
-            "llama" => Ok(Llama),
-            #[cfg(feature = "mpt")]
-            "mpt" => Ok(Mpt),
-            #[cfg(feature = "falcon")]
-            "falcon" => Ok(Falcon),
-
-            _ => Err(UnsupportedModelArchitecture(format!(
-                "{s} is not a supported model architecture"
-            ))),
-        }
-    }
-}
-
-impl Display for ModelArchitecture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ModelArchitecture::*;
-
-        match self {
-            #[cfg(feature = "bloom")]
-            Bloom => write!(f, "BLOOM"),
-            #[cfg(feature = "gpt2")]
-            Gpt2 => write!(f, "GPT-2"),
-            #[cfg(feature = "gptj")]
-            GptJ => write!(f, "GPT-J"),
-            #[cfg(feature = "gptneox")]
-            GptNeoX => write!(f, "GPT-NeoX"),
-            #[cfg(feature = "llama")]
-            Llama => write!(f, "LLaMA"),
-            #[cfg(feature = "mpt")]
-            Mpt => write!(f, "MPT"),
-            #[cfg(feature = "falcon")]
-            Falcon => write!(f, "Falcon"),
-        }
     }
 }
 
