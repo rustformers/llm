@@ -219,6 +219,9 @@ async fn test_model(
         start_time.elapsed().as_millis()
     );
 
+    // Confirm that the model can be sent to a thread, then sent back
+    let model = std::thread::spawn(move || model).join().unwrap();
+
     // Run the test cases
     let mut test_case_reports = vec![];
     for test_case in &test_config.test_cases {
