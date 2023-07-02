@@ -247,8 +247,9 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
-    #[error("unsupported f16_: {0}")]
-    /// The `f16_` hyperparameter had an invalid value.
+    #[error("unsupported ftype: {0}")]
+    /// The `ftype` hyperparameter had an invalid value. This usually means that the format used
+    /// by this file is unrecognized by this version of `llm`.
     UnsupportedFileType(i32),
     #[error("invalid magic number {magic:#x} for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
