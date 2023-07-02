@@ -52,41 +52,41 @@ async fn main() -> anyhow::Result<()> {
     fs::create_dir_all(&results_dir)?;
 
     // Load configurations
-    let mut test_cases = HashMap::new();
-    for path in fs::read_dir(configs_dir)?
+    let test_configs: HashMap<String, TestConfig> = fs::read_dir(configs_dir)?
         .filter_map(Result::ok)
         .map(|de| de.path())
         .filter(|p| p.is_file())
         .filter(|p| p.extension().unwrap_or_default() == "json")
-    {
-        let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let test_case: TestCase = serde_json::from_str(&fs::read_to_string(&path)?)?;
-        test_cases.insert(file_name, test_case);
-    }
+        .map(|path| {
+            let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
+            let test_config: TestConfig = serde_json::from_str(&fs::read_to_string(&path)?)?;
+            anyhow::Ok((file_name, test_config))
+        })
+        .collect::<Result<_, _>>()?;
     let model_config = ModelConfig {
         mmap: !args.no_mmap,
     };
 
     // Test models
-    let mut test_cases = if let Some(specific_architecture) = specific_model {
-        vec![test_cases
+    let mut test_configs = if let Some(specific_architecture) = specific_model {
+        vec![test_configs
             .get(&specific_architecture)
             .with_context(|| {
                 format!(
                     "No config found for `{specific_architecture}`. Available configs: {:?}",
-                    test_cases.keys()
+                    test_configs.keys()
                 )
             })?
             .clone()]
     } else {
-        test_cases.values().cloned().collect()
+        test_configs.values().cloned().collect()
     };
-    test_cases.sort_by_key(|tc| tc.architecture.clone());
+    test_configs.sort_by_key(|tc| tc.architecture.clone());
 
-    let test_cases_len = test_cases.len();
-    for test_case in test_cases {
-        test_model(&model_config, &test_case, &download_dir, &results_dir).await?;
-        if test_cases_len > 1 {
+    let test_configs_len = test_configs.len();
+    for test_config in test_configs {
+        test_model(&model_config, &test_config, &download_dir, &results_dir).await?;
+        if test_configs_len > 1 {
             log::info!("----");
         }
     }
@@ -100,7 +100,7 @@ struct ModelConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-struct TestCase {
+struct TestConfig {
     url: String,
     filename: PathBuf,
     architecture: String,
@@ -116,31 +116,31 @@ pub struct Report {
 
 async fn test_model(
     config: &ModelConfig,
-    test_case: &TestCase,
+    test_config: &TestConfig,
     download_dir: &Path,
     results_dir: &Path,
 ) -> anyhow::Result<()> {
-    let local_path = if test_case.filename.is_file() {
+    let local_path = if test_config.filename.is_file() {
         // If this filename points towards a valid file, use it
-        test_case.filename.clone()
+        test_config.filename.clone()
     } else {
         // Otherwise, use the download dir
-        download_dir.join(&test_case.filename)
+        download_dir.join(&test_config.filename)
     };
 
     log::info!(
         "Testing architecture: `{}` ({})",
-        test_case.architecture,
+        test_config.architecture,
         local_path.display()
     );
 
     // Download the model if necessary
-    download_file(&test_case.url, &local_path).await?;
+    download_file(&test_config.url, &local_path).await?;
 
     let start_time = Instant::now();
 
     // Load the model
-    let architecture = llm::ModelArchitecture::from_str(&test_case.architecture)?;
+    let architecture = llm::ModelArchitecture::from_str(&test_config.architecture)?;
     let model = {
         let model = llm::load_dynamic(
             Some(architecture),
@@ -175,7 +175,7 @@ async fn test_model(
 
                 // Serialize the report to a JSON string
                 let json_report = serde_json::to_string(&report)?;
-                let report_path = results_dir.join(format!("{}.json", test_case.architecture));
+                let report_path = results_dir.join(format!("{}.json", test_config.architecture));
 
                 // Write the JSON report to a file
                 fs::write(report_path, json_report)?;
@@ -238,7 +238,7 @@ async fn test_model(
 
     // Serialize the report to a JSON string
     let json_report = serde_json::to_string(&report)?;
-    let report_path = results_dir.join(format!("{}.json", test_case.architecture));
+    let report_path = results_dir.join(format!("{}.json", test_config.architecture));
 
     // Write the JSON report to a file
     fs::write(report_path, json_report)?;
@@ -250,7 +250,7 @@ async fn test_model(
 
     log::info!(
         "Successfully tested architecture `{}`!",
-        test_case.architecture
+        test_config.architecture
     );
 
     Ok(())
