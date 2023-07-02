@@ -1371,7 +1371,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
- "indicatif 0.16.2",
+ "indicatif",
  "llm",
  "log",
  "rand",
@@ -1669,7 +1669,7 @@ dependencies = [
  "libc",
  "redox_syscall 0.3.5",
  "smallvec",
- "windows-targets 0.48.0",
+ "windows-targets 0.48.1",
 ]
 
 [[package]]
@@ -2397,7 +2397,7 @@ checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.15",
+ "syn 2.0.22",
 ]
 
 [[package]]
