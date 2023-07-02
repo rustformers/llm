@@ -65,6 +65,9 @@ pub trait KnownModel: Send + Sync {
         output_request: &mut OutputRequest,
     );
 
+    /// Get the hyperparameters for this model.
+    fn hyperparameters(&self) -> &Self::Hyperparameters;
+
     /// Get the tokenizer for this model.
     fn tokenizer(&self) -> &Tokenizer;
 
@@ -150,7 +153,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
 /// Implemented by model hyperparameters for interacting with hyperparameters
 /// without knowing what they are, as well as writing/reading them as required.
-pub trait Hyperparameters: Sized + Default + Debug {
+pub trait Hyperparameters: Sized + Default + Debug + PartialEq + Eq {
     /// Read the parameters in GGML format from a reader.
     fn read_ggml(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
 

@@ -156,6 +156,9 @@ async fn test_model(
     download_dir: &Path,
     results_dir: &Path,
 ) -> anyhow::Result<()> {
+    // Load the model
+    let architecture = llm::ModelArchitecture::from_str(&test_config.architecture)?;
+
     let local_path = if test_config.filename.is_file() {
         // If this filename points towards a valid file, use it
         test_config.filename.clone()
@@ -173,99 +176,134 @@ async fn test_model(
     // Download the model if necessary
     download_file(&test_config.url, &local_path).await?;
 
-    let start_time = Instant::now();
+    struct TestVisitor<'a> {
+        model_config: &'a ModelConfig,
+        test_config: &'a TestConfig,
+        results_dir: &'a Path,
+        local_path: &'a Path,
+    }
+    impl<'a> llm::ModelArchitectureVisitor<anyhow::Result<()>> for TestVisitor<'a> {
+        fn visit<M: llm::KnownModel + 'static>(&mut self) -> anyhow::Result<()> {
+            let Self {
+                model_config,
+                test_config,
+                results_dir,
+                local_path,
+            } = *self;
 
-    // Load the model
-    let architecture = llm::ModelArchitecture::from_str(&test_config.architecture)?;
-    let model = {
-        let model = llm::load_dynamic(
-            Some(architecture),
-            &local_path,
-            llm::TokenizerSource::Embedded,
-            llm::ModelParameters {
-                prefer_mmap: model_config.mmap,
-                ..Default::default()
-            },
-            |progress| {
-                let print = !matches!(&progress,
-                    llm::LoadProgress::TensorLoaded { current_tensor, tensor_count }
-                    if current_tensor % (tensor_count / 10) != 0
+            let start_time = Instant::now();
+
+            let model = {
+                let model = llm::load::<M>(
+                    local_path,
+                    llm::TokenizerSource::Embedded,
+                    llm::ModelParameters {
+                        prefer_mmap: model_config.mmap,
+                        ..Default::default()
+                    },
+                    |progress| {
+                        let print = !matches!(&progress,
+                            llm::LoadProgress::TensorLoaded { current_tensor, tensor_count }
+                            if current_tensor % (tensor_count / 10) != 0
+                        );
+
+                        if print {
+                            log::info!("loading: {:?}", progress);
+                        }
+                    },
                 );
 
-                if print {
-                    log::info!("loading: {:?}", progress);
+                match model {
+                    Ok(m) => m,
+                    Err(err) => {
+                        write_report(
+                            test_config,
+                            results_dir,
+                            &Report::LoadFail {
+                                error: format!("Failed to load model: {}", err),
+                            },
+                        )?;
+
+                        return Err(err.into());
+                    }
                 }
-            },
-        );
+            };
 
-        match model {
-            Ok(m) => m,
-            Err(err) => {
-                write_report(
-                    test_config,
-                    results_dir,
-                    &Report::LoadFail {
-                        error: format!("Failed to load model: {}", err),
-                    },
-                )?;
+            log::info!(
+                "Model fully loaded! Elapsed: {}ms",
+                start_time.elapsed().as_millis()
+            );
 
-                return Err(err.into());
+            //
+            // Non-model-specific tests
+            //
+
+            // Confirm that the model can be sent to a thread, then sent back
+            let model = tests::can_send(model)?;
+
+            // Confirm that the hyperparameters can be roundtripped
+            tests::can_roundtrip_hyperparameters(&model)?;
+
+            //
+
+            //
+            // Model-specific tests
+            //
+
+            // Run the test cases
+            let mut test_case_reports = vec![];
+            for test_case in &test_config.test_cases {
+                match test_case {
+                    TestCase::Inference {
+                        input,
+                        output,
+                        maximum_token_count,
+                    } => test_case_reports.push(tests::can_infer(
+                        &model,
+                        model_config,
+                        input,
+                        output,
+                        *maximum_token_count,
+                    )?),
+                }
             }
-        }
-    };
+            let first_error: Option<String> =
+                test_case_reports
+                    .iter()
+                    .find_map(|report: &TestCaseReport| match &report.meta {
+                        TestCaseReportMeta::Error { error } => Some(error.clone()),
+                        _ => None,
+                    });
 
-    log::info!(
-        "Model fully loaded! Elapsed: {}ms",
-        start_time.elapsed().as_millis()
-    );
+            // Save the results
+            // Serialize the report to a JSON string
+            write_report(
+                test_config,
+                results_dir,
+                &Report::LoadSuccess {
+                    test_cases: test_case_reports,
+                },
+            )?;
 
-    // Confirm that the model can be sent to a thread, then sent back
-    let model = std::thread::spawn(move || model).join().unwrap();
+            // Optionally, panic if there was an error
+            if let Some(err) = first_error {
+                panic!("Error: {}", err);
+            }
 
-    // Run the test cases
-    let mut test_case_reports = vec![];
-    for test_case in &test_config.test_cases {
-        match test_case {
-            TestCase::Inference {
-                input,
-                output,
-                maximum_token_count,
-            } => test_case_reports.push(tests::inference(
-                model.as_ref(),
-                model_config,
-                input,
-                output,
-                *maximum_token_count,
-            )?),
+            log::info!(
+                "Successfully tested architecture `{}`!",
+                test_config.architecture
+            );
+
+            Ok(())
         }
     }
-    let first_error: Option<String> =
-        test_case_reports
-            .iter()
-            .find_map(|report: &TestCaseReport| match &report.meta {
-                TestCaseReportMeta::Error { error } => Some(error.clone()),
-                _ => None,
-            });
-
-    // Save the results
-    // Serialize the report to a JSON string
-    write_report(
+    architecture.visit(&mut TestVisitor {
+        model_config,
         test_config,
         results_dir,
-        &Report::LoadSuccess {
-            test_cases: test_case_reports,
-        },
-    )?;
-
-    // Optionally, panic if there was an error
-    if let Some(err) = first_error {
-        panic!("Error: {}", err);
-    }
-
-    log::info!(
-        "Successfully tested architecture `{}`!",
-        test_config.architecture
-    );
+        local_path: &local_path,
+    })?;
 
     Ok(())
 }
@@ -283,7 +321,33 @@ fn write_report(
 
 mod tests {
     use super::*;
-    pub(super) fn inference(
+
+    pub(super) fn can_send<M: llm::KnownModel + 'static>(model: M) -> anyhow::Result<M> {
+        std::thread::spawn(move || model)
+            .join()
+            .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"))
+    }
+
+    pub(super) fn can_roundtrip_hyperparameters<M: llm::KnownModel + 'static>(
+        model: &M,
+    ) -> anyhow::Result<()> {
+        fn test_hyperparameters<M: llm::Hyperparameters>(
+            hyperparameters: &M,
+        ) -> anyhow::Result<()> {
+            let mut data = vec![];
+            hyperparameters.write_ggml(&mut data)?;
+            let new_hyperparameters =
+                <M as llm::Hyperparameters>::read_ggml(&mut std::io::Cursor::new(data))?;
+
+            assert_eq!(hyperparameters, &new_hyperparameters);
+
+            Ok(())
+        }
+
+        test_hyperparameters(model.hyperparameters())
+    }
+
+    pub(super) fn can_infer(
         model: &dyn llm::Model,
         model_config: &ModelConfig,
         input: &str,
