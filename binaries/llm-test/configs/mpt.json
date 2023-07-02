@@ -1,5 +1,14 @@
 {
     "url": "https://huggingface.co/rustformers/mpt-7b-ggml/resolve/main/mpt-7b-q4_0-ggjt.bin",
     "filename": "mpt.bin",
-    "architecture": "mpt"
+    "architecture": "mpt",
+    "test_cases": [
+        {
+            "Inference": {
+                "input": "When a llama rides a crab, ",
+                "output": "When a llama rides a crab,  the llama is called the \"crab rider\".\nThe crabs are very popular in South America, especially Brazil. They have been used as transportation for many years and they can carry up to five people at once!",
+                "maximum_token_count": 128
+            }
+        }
+    ]
 }

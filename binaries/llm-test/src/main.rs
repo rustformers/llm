@@ -110,18 +110,48 @@ struct TestConfig {
     url: String,
     filename: PathBuf,
     architecture: String,
+    test_cases: Vec<TestCase>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+enum TestCase {
+    Inference {
+        input: String,
+        output: String,
+        maximum_token_count: usize,
+    },
 }
 
 #[derive(Serialize)]
-pub struct Report {
-    pub could_load: bool,
-    pub inference_stats: Option<InferenceStats>,
-    pub error: Option<String>,
-    pub output: String,
+enum Report {
+    LoadFail { error: String },
+    LoadSuccess { test_cases: Vec<TestCaseReport> },
+}
+
+#[derive(Serialize)]
+struct TestCaseReport {
+    meta: TestCaseReportMeta,
+    report: TestCaseReportInner,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum TestCaseReportMeta {
+    Error { error: String },
+    Success { inference_stats: InferenceStats },
+}
+
+#[derive(Serialize)]
+enum TestCaseReportInner {
+    Inference {
+        input: String,
+        expect_output: String,
+        actual_output: String,
+    },
 }
 
 async fn test_model(
-    config: &ModelConfig,
+    model_config: &ModelConfig,
     test_config: &TestConfig,
     download_dir: &Path,
     results_dir: &Path,
@@ -153,7 +183,7 @@ async fn test_model(
             &local_path,
             llm::TokenizerSource::Embedded,
             llm::ModelParameters {
-                prefer_mmap: config.mmap,
+                prefer_mmap: model_config.mmap,
                 ..Default::default()
             },
             |progress| {
@@ -171,22 +201,14 @@ async fn test_model(
         match model {
             Ok(m) => m,
             Err(err) => {
-                // Create a report with could_load set to false
-                let report = Report {
-                    could_load: false,
-                    inference_stats: None,
-                    error: Some(format!("Failed to load model: {}", err)),
-                    output: String::new(),
-                };
+                write_report(
+                    test_config,
+                    results_dir,
+                    &Report::LoadFail {
+                        error: format!("Failed to load model: {}", err),
+                    },
+                )?;
 
-                // Serialize the report to a JSON string
-                let json_report = serde_json::to_string(&report)?;
-                let report_path = results_dir.join(format!("{}.json", test_config.architecture));
-
-                // Write the JSON report to a file
-                fs::write(report_path, json_report)?;
-
-                // Optionally, you can return early or decide how to proceed
                 return Err(err.into());
             }
         }
@@ -197,60 +219,43 @@ async fn test_model(
         start_time.elapsed().as_millis()
     );
 
-    // Run the model
-    let mut session = model.start_session(Default::default());
-
-    let prompt = "When a llama rides a crab, ";
-    let mut output: String = String::new();
-
-    log::info!("Running inference...");
-    let res = session.infer::<Infallible>(
-        model.as_ref(),
-        &mut rand::rngs::mock::StepRng::new(0, 1),
-        &llm::InferenceRequest {
-            prompt: prompt.into(),
-            parameters: &llm::InferenceParameters {
-                n_threads: config.threads,
-                n_batch: 1,
-                sampler: Arc::new(DeterministicSampler),
-            },
-            play_back_previous_tokens: false,
-            maximum_token_count: Some(128),
-        },
-        &mut Default::default(),
-        |r| match r {
-            llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
-                output += &t;
-                Ok(llm::InferenceFeedback::Continue)
-            }
-            _ => Ok(llm::InferenceFeedback::Continue),
-        },
-    );
-    log::info!("Inference done!");
-
-    // Process the results
-    let (inference_results, error) = match res {
-        Ok(result) => (Some(result), None),
-        Err(err) => (None, Some(err)),
-    };
+    // Run the test cases
+    let mut test_case_reports = vec![];
+    for test_case in &test_config.test_cases {
+        match test_case {
+            TestCase::Inference {
+                input,
+                output,
+                maximum_token_count,
+            } => test_case_reports.push(tests::inference(
+                model.as_ref(),
+                model_config,
+                input,
+                output,
+                *maximum_token_count,
+            )?),
+        }
+    }
+    let first_error: Option<String> =
+        test_case_reports
+            .iter()
+            .find_map(|report: &TestCaseReport| match &report.meta {
+                TestCaseReportMeta::Error { error } => Some(error.clone()),
+                _ => None,
+            });
 
     // Save the results
-    let report = Report {
-        could_load: true,
-        inference_stats: inference_results,
-        error: error.map(|e| format!("{:?}", e)),
-        output,
-    };
-
     // Serialize the report to a JSON string
-    let json_report = serde_json::to_string(&report)?;
-    let report_path = results_dir.join(format!("{}.json", test_config.architecture));
-
-    // Write the JSON report to a file
-    fs::write(report_path, json_report)?;
+    write_report(
+        test_config,
+        results_dir,
+        &Report::LoadSuccess {
+            test_cases: test_case_reports,
+        },
+    )?;
 
     // Optionally, panic if there was an error
-    if let Some(err) = &report.error {
+    if let Some(err) = first_error {
         panic!("Error: {}", err);
     }
 
@@ -260,6 +265,88 @@ async fn test_model(
     );
 
     Ok(())
+}
+
+fn write_report(
+    test_config: &TestConfig,
+    results_dir: &Path,
+    report: &Report,
+) -> anyhow::Result<()> {
+    let json_report = serde_json::to_string_pretty(&report)?;
+    let report_path = results_dir.join(format!("{}.json", test_config.architecture));
+    fs::write(report_path, json_report)?;
+    Ok(())
+}
+
+mod tests {
+    use super::*;
+    pub(super) fn inference(
+        model: &dyn llm::Model,
+        model_config: &ModelConfig,
+        input: &str,
+        expected_output: &str,
+        maximum_token_count: usize,
+    ) -> anyhow::Result<TestCaseReport> {
+        let (actual_output, res) = run_inference(model, model_config, input, maximum_token_count);
+
+        // Process the results
+        Ok(TestCaseReport {
+            meta: match res {
+                Ok(inference_stats) => {
+                    if expected_output == actual_output {
+                        TestCaseReportMeta::Success { inference_stats }
+                    } else {
+                        TestCaseReportMeta::Error {
+                            error: "The output did not match the expected output.".to_string(),
+                        }
+                    }
+                }
+                Err(err) => TestCaseReportMeta::Error {
+                    error: err.to_string(),
+                },
+            },
+            report: TestCaseReportInner::Inference {
+                input: input.into(),
+                expect_output: expected_output.into(),
+                actual_output,
+            },
+        })
+    }
+}
+
+fn run_inference(
+    model: &dyn llm::Model,
+    model_config: &ModelConfig,
+    input: &str,
+    maximum_token_count: usize,
+) -> (String, Result<InferenceStats, llm::InferenceError>) {
+    let mut session = model.start_session(Default::default());
+
+    let mut actual_output: String = String::new();
+    let res = session.infer::<Infallible>(
+        model,
+        &mut rand::rngs::mock::StepRng::new(0, 1),
+        &llm::InferenceRequest {
+            prompt: input.into(),
+            parameters: &llm::InferenceParameters {
+                n_threads: model_config.threads,
+                n_batch: 1,
+                sampler: Arc::new(DeterministicSampler),
+            },
+            play_back_previous_tokens: false,
+            maximum_token_count: Some(maximum_token_count),
+        },
+        &mut Default::default(),
+        |r| match r {
+            llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
+                actual_output += &t;
+                Ok(llm::InferenceFeedback::Continue)
+            }
+            _ => Ok(llm::InferenceFeedback::Continue),
+        },
+    );
+
+    (actual_output, res)
 }
 
 #[derive(Debug)]
