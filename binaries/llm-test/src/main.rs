@@ -323,9 +323,13 @@ mod tests {
     use super::*;
 
     pub(super) fn can_send<M: llm::KnownModel + 'static>(model: M) -> anyhow::Result<M> {
-        std::thread::spawn(move || model)
+        let model = std::thread::spawn(move || model)
             .join()
-            .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"))
+            .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"));
+
+        log::info!("`can_send` test passed!");
+
+        model
     }
 
     pub(super) fn can_roundtrip_hyperparameters<M: llm::KnownModel + 'static>(
@@ -341,6 +345,8 @@ mod tests {
 
             assert_eq!(hyperparameters, &new_hyperparameters);
 
+            log::info!("`can_roundtrip_hyperparameters` test passed!");
+
             Ok(())
         }
 
@@ -354,13 +360,21 @@ mod tests {
         expected_output: &str,
         maximum_token_count: usize,
     ) -> anyhow::Result<TestCaseReport> {
-        let (actual_output, res) = run_inference(model, model_config, input, maximum_token_count);
+        let mut session = model.start_session(Default::default());
+        let (actual_output, res) = run_inference(
+            model,
+            model_config,
+            &mut session,
+            input,
+            maximum_token_count,
+        );
 
         // Process the results
         Ok(TestCaseReport {
             meta: match res {
                 Ok(inference_stats) => {
                     if expected_output == actual_output {
+                        log::info!("`can_infer` test passed!");
                         TestCaseReportMeta::Success { inference_stats }
                     } else {
                         TestCaseReportMeta::Error {
@@ -384,11 +398,10 @@ mod tests {
 fn run_inference(
     model: &dyn llm::Model,
     model_config: &ModelConfig,
+    session: &mut llm::InferenceSession,
     input: &str,
     maximum_token_count: usize,
 ) -> (String, Result<InferenceStats, llm::InferenceError>) {
-    let mut session = model.start_session(Default::default());
-
     let mut actual_output: String = String::new();
     let res = session.infer::<Infallible>(
         model,
