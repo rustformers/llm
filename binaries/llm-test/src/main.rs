@@ -2,7 +2,6 @@ use anyhow::Context;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use llm::InferenceStats;
-use rand::{rngs::StdRng, SeedableRng};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,6 +13,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
     time::Instant,
 };
 
@@ -68,8 +68,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Test models
-    let test_cases = if let Some(specific_architecture) = specific_model {
-        let test_case = test_cases
+    let mut test_cases = if let Some(specific_architecture) = specific_model {
+        vec![test_cases
             .get(&specific_architecture)
             .with_context(|| {
                 format!(
@@ -77,15 +77,14 @@ async fn main() -> anyhow::Result<()> {
                     test_cases.keys()
                 )
             })?
-            .clone();
-        HashMap::from_iter([(specific_architecture, test_case)])
+            .clone()]
     } else {
-        test_cases
+        test_cases.values().cloned().collect()
     };
+    test_cases.sort_by_key(|tc| tc.architecture.clone());
 
     let test_cases_len = test_cases.len();
-    for (key, test_case) in test_cases {
-        log::info!("Key: {key}, Config: {test_case:?}");
+    for test_case in test_cases {
         test_model(&model_config, &test_case, &download_dir, &results_dir).await?;
         if test_cases_len > 1 {
             log::info!("----");
@@ -121,8 +120,6 @@ async fn test_model(
     download_dir: &Path,
     results_dir: &Path,
 ) -> anyhow::Result<()> {
-    log::info!("Testing architecture: `{}`", test_case.architecture);
-
     let local_path = if test_case.filename.is_file() {
         // If this filename points towards a valid file, use it
         test_case.filename.clone()
@@ -131,7 +128,13 @@ async fn test_model(
         download_dir.join(&test_case.filename)
     };
 
-    // Download the model
+    log::info!(
+        "Testing architecture: `{}` ({})",
+        test_case.architecture,
+        local_path.display()
+    );
+
+    // Download the model if necessary
     download_file(&test_case.url, &local_path).await?;
 
     let start_time = Instant::now();
@@ -154,7 +157,7 @@ async fn test_model(
                 );
 
                 if print {
-                    log::info!("{:?}", progress);
+                    log::info!("loading: {:?}", progress);
                 }
             },
         );
@@ -191,23 +194,22 @@ async fn test_model(
     // Run the model
     let mut session = model.start_session(Default::default());
 
-    let prompt = "write a story about a lama riding a crab:";
-    let mut rng: StdRng = SeedableRng::seed_from_u64(42);
-    let mut output = String::new();
+    let prompt = "When a llama rides a crab, ";
+    let mut output: String = String::new();
 
     log::info!("Running inference...");
     let res = session.infer::<Infallible>(
         model.as_ref(),
-        &mut rng,
+        &mut rand::rngs::mock::StepRng::new(0, 1),
         &llm::InferenceRequest {
             prompt: prompt.into(),
             parameters: &llm::InferenceParameters {
                 n_threads: 2,
                 n_batch: 1,
-                ..Default::default()
+                sampler: Arc::new(DeterministicSampler),
             },
             play_back_previous_tokens: false,
-            maximum_token_count: Some(10),
+            maximum_token_count: Some(128),
         },
         &mut Default::default(),
         |r| match r {
@@ -254,9 +256,33 @@ async fn test_model(
     Ok(())
 }
 
-async fn download_file(url: &str, local_path: &PathBuf) -> anyhow::Result<()> {
-    if Path::new(local_path).exists() {
-        log::info!("Model already exists at {}", local_path.to_string_lossy());
+#[derive(Debug)]
+struct DeterministicSampler;
+impl llm::Sampler for DeterministicSampler {
+    fn sample(
+        &self,
+        previous_tokens: &[llm::TokenId],
+        logits: &[f32],
+        _rng: &mut dyn rand::RngCore,
+    ) -> llm::TokenId {
+        // Takes the most likely element from the logits, except if they've appeared in `previous_tokens`
+        // at all
+        let mut logits = logits.to_vec();
+        for &token in previous_tokens {
+            logits[token as usize] = f32::NEG_INFINITY;
+        }
+
+        logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0 as llm::TokenId
+    }
+}
+
+async fn download_file(url: &str, local_path: &Path) -> anyhow::Result<()> {
+    if local_path.exists() {
         return Ok(());
     }
 
