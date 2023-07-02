@@ -6,7 +6,7 @@ use std::{
 
 use clap::Parser;
 use cli_args::Args;
-use color_eyre::eyre::{Context, ContextCompat, Result};
+use color_eyre::eyre::{bail, Context, ContextCompat, Result};
 use llm::{InferenceError, InferenceFeedback, InferenceResponse};
 use rustyline::{
     error::ReadlineError,
@@ -31,14 +31,14 @@ fn main() -> Result<()> {
         Args::Perplexity(args) => perplexity(&args),
         Args::Info(args) => info(&args),
         Args::PromptTokens(args) => prompt_tokens(&args),
-        Args::Repl(args) => interactive(&args, false),
-        Args::Chat(args) => interactive(&args, true),
+        Args::Repl(args) => repl(&args),
+        Args::Chat(args) => chat(&args),
         Args::Quantize(args) => quantize(&args),
     }
 }
 
 fn infer(args: &cli_args::Infer) -> Result<()> {
-    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load(args.generate.use_gpu)?;
 
@@ -106,7 +106,7 @@ fn infer(args: &cli_args::Infer) -> Result<()> {
 }
 
 fn perplexity(args: &cli_args::Perplexity) -> Result<()> {
-    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load(args.generate.use_gpu)?;
     let (mut session, _) = snapshot::read_or_create_session(
@@ -183,7 +183,7 @@ fn info(args: &cli_args::Info) -> Result<()> {
 }
 
 fn prompt_tokens(args: &cli_args::PromptTokens) -> Result<()> {
-    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let model = args.model_load.load(false)?;
     let toks = match model.tokenizer().tokenize(&prompt, false) {
         Ok(toks) => toks,
@@ -223,37 +223,54 @@ fn force_newline_event_seq() -> KeyEvent {
     KeyEvent(KeyCode::Enter, Modifiers::SHIFT)
 }
 
+fn repl(args: &cli_args::Repl) -> Result<()> {
+    interactive(
+        &args.generate,
+        &args.model_load,
+        args.prompt_file.contents()?.as_deref(),
+        None,
+    )
+}
+
+fn chat(args: &cli_args::Chat) -> Result<()> {
+    interactive(
+        &args.generate,
+        &args.model_load,
+        Some(std::fs::read_to_string(&args.prelude_prompt_file)?.as_str()),
+        Some(&args.message_prompt()?),
+    )
+}
+
 fn interactive(
-    args: &cli_args::Repl,
-    // If set to false, the session will be cloned after each inference
-    // to ensure that previous state is not carried over.
-    chat_mode: bool,
+    generate: &cli_args::Generate,
+    model_load: &cli_args::ModelLoad,
+    initial_prompt_template: Option<&str>,
+    message_prompt_template: Option<&str>,
 ) -> Result<()> {
-    let prompt_file = args.prompt_file.contents();
-    let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load(args.generate.use_gpu)?;
+    let inference_session_config = generate.inference_session_config();
+    let model = model_load.load(generate.use_gpu)?;
+
     let (mut session, mut session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
-        args.generate.load_session.as_deref(),
+        generate.load_session.as_deref(),
         inference_session_config,
     );
-    let parameters = args.generate.inference_parameters(model.eot_token_id());
+    let parameters = generate.inference_parameters(model.eot_token_id());
 
-    let mut rng = args.generate.rng();
+    let mut rng = generate.rng();
+
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
-
     rl.bind_sequence(force_newline_event_seq(), Cmd::Newline);
-
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(raw_line) => {
                 let line = raw_line.replace("\\\n", "\n");
 
-                let prompt = prompt_file
-                    .as_deref()
+                let prompt = message_prompt_template
+                    .or(initial_prompt_template)
                     .map(|pf| process_prompt(pf, &line))
                     .unwrap_or(line);
 
@@ -277,7 +294,7 @@ fn interactive(
                         prompt: "".into(),
                         parameters: &parameters,
                         play_back_previous_tokens: session_loaded,
-                        maximum_token_count: args.generate.num_predict,
+                        maximum_token_count: generate.num_predict,
                     },
                     // EvaluateOuputRequest
                     &mut Default::default(),
@@ -298,11 +315,11 @@ fn interactive(
                 }
 
                 // Reload session in REPL mode
-                if !chat_mode {
+                if message_prompt_template.is_none() {
                     (session, session_loaded) = snapshot::read_or_create_session(
                         model.as_ref(),
                         None,
-                        args.generate.load_session.as_deref(),
+                        generate.load_session.as_deref(),
                         inference_session_config,
                     );
                 }
@@ -315,7 +332,6 @@ fn interactive(
             }
         }
     }
-
     Ok(())
 }
 
@@ -382,8 +398,8 @@ fn quantize(args: &cli_args::Quantize) -> Result<()> {
 fn load_prompt_file_with_prompt(
     prompt_file: &cli_args::PromptFile,
     prompt: Option<&str>,
-) -> String {
-    if let Some(prompt_file) = prompt_file.contents() {
+) -> Result<String> {
+    Ok(if let Some(prompt_file) = prompt_file.contents()? {
         if let Some(prompt) = prompt {
             process_prompt(&prompt_file, prompt)
         } else {
@@ -392,9 +408,8 @@ fn load_prompt_file_with_prompt(
     } else if let Some(prompt) = prompt {
         prompt.to_owned()
     } else {
-        log::error!("No prompt or prompt file was provided. See --help");
-        std::process::exit(1);
-    }
+        bail!("No prompt or prompt file was provided. See --help");
+    })
 }
 
 #[derive(Completer, Helper, Highlighter, Hinter, Debug, Clone, Copy)]
