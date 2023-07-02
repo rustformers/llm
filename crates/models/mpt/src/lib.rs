@@ -271,6 +271,10 @@ impl KnownModel for Mpt {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
     }
 
+    fn hyperparameters(&self) -> &Self::Hyperparameters {
+        &self.hyperparameters
+    }
+
     fn tokenizer(&self) -> &Tokenizer {
         &self.tokenizer
     }
@@ -316,6 +320,7 @@ pub struct Hyperparameters {
     /// file_type
     file_type: FileType,
 }
+impl Eq for Hyperparameters {}
 
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
