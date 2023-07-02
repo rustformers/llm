@@ -4,42 +4,40 @@ permissions:
   contents: write
 
 on:
-    push:
-        branches: ["main"]
-    pull_request:
-        branches: ["main"]
-    workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
 
 env:
-    CARGO_TERM_COLOR: always
-
+  CARGO_TERM_COLOR: always
 
 jobs:
-    test:
-        strategy:
-            # Don't stop testing if an architecture fails
-            fail-fast: false
-            matrix:
-                model: [llama, gptneox, gptj, mpt, bloom]
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v3
-              with:
-                submodules: recursive
-            - uses: dtolnay/rust-toolchain@stable
-            - name: Install dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y \
-                      libssl-dev \
-                      pkg-config \
-                      zlib1g-dev
-            - name: Run Integration Tests for ${{ matrix.model }}
-              run: cargo run --release --bin llm-test ${{ matrix.model }}
-              continue-on-error: true 
-            # Upload test results 
-            - uses: actions/upload-artifact@v3
-              if: always()
-              with:
-                name: test-reports
-                path: ./.tests/results/*.json
+  test:
+    strategy:
+      # Don't stop testing if an architecture fails
+      fail-fast: false
+      matrix:
+        model: [llama, gptneox, gptj, mpt, bloom]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+              libssl-dev \
+              pkg-config \
+              zlib1g-dev
+      - name: Run Integration Tests for ${{ matrix.model }}
+        run: cargo run --release -p llm-test ${{ matrix.model }}
+      # Upload test results
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-reports
+          path: ./.tests/results/*.json
