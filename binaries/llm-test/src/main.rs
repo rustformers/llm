@@ -28,6 +28,10 @@ struct Cli {
     #[clap(short, long)]
     no_mmap: bool,
 
+    /// The thread count to use when running inference.
+    #[clap(short, long)]
+    threads: Option<usize>,
+
     /// The model architecture to test. If not specified, all architectures will be tested.
     architecture: Option<String>,
 }
@@ -65,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Result<_, _>>()?;
     let model_config = ModelConfig {
         mmap: !args.no_mmap,
+        threads: args.threads.unwrap_or(2),
     };
 
     // Test models
@@ -97,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
 
 struct ModelConfig {
     mmap: bool,
+    threads: usize,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -204,7 +210,7 @@ async fn test_model(
         &llm::InferenceRequest {
             prompt: prompt.into(),
             parameters: &llm::InferenceParameters {
-                n_threads: 2,
+                n_threads: config.threads,
                 n_batch: 1,
                 sampler: Arc::new(DeterministicSampler),
             },
