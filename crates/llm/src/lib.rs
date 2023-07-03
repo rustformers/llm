@@ -149,7 +149,7 @@ macro_rules! define_models {
                     )*
 
                     _ => Err(UnsupportedModelArchitecture(format!(
-                        "{s} is not a supported model architecture"
+                        "{s} is not one of supported model architectures: {:?}", ModelArchitecture::ALL
                     ))),
                 }
             }
