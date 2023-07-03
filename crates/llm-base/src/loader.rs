@@ -338,7 +338,9 @@ pub enum LoadError {
     /// There is insufficient information to guess the model architecture from the provided file.
     ///
     /// A model architecture must be provided to load the model.
-    #[error("could not guess model architecture from {path:?}")]
+    #[error(
+        "could not guess model architecture from {path:?}. Please provide a model architecture."
+    )]
     MissingModelArchitecture {
         /// The path that failed.
         path: PathBuf,
