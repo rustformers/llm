@@ -52,6 +52,8 @@ Currently, the following models are supported:
   [Wizard](https://github.com/nlpxucan/WizardLM))
 - [MPT](https://www.mosaicml.com/blog/mpt-7b)
 
+See [getting models](#getting-models) for more information on how to download supported models.
+
 ## Using `llm` in a Rust Project
 
 This project depends on Rust v1.65.0 or above and a modern C toolchain.
@@ -77,6 +79,15 @@ version:
 llm = "0.1"
 ```
 
+By default, `llm` builds with support for remotely fetching the tokenizer from Hugging Face's model hub.
+To disable this, disable the default features for the crate, and turn on the `models` feature to get `llm`
+without the tokenizer:
+
+```toml
+[dependencies]
+llm = { version = "0.1", default-features = false, features = ["models"] }
+```
+
 **NOTE**: To improve debug performance, exclude the transitive `ggml-sys`
 dependency from being built in debug mode:
 
@@ -84,6 +95,19 @@ dependency from being built in debug mode:
 [profile.dev.package.ggml-sys]
 opt-level = 3
 ```
+
+## Leverage Accelerators with `llm`
+
+The `llm` library is engineered to take advantage of hardware accelerators such as `cuda` and `metal` for optimized performance.
+
+To enable `llm` to harness these accelerators, some preliminary configuration steps are necessary, which vary based on your operating system. For comprehensive guidance, please refer to the [Acceleration Support for Building section](doc/CONTRIBUTING.md#acceleration-support-for-building) in our documentation.
+
+## Using `llm` from Other Languages
+
+Bindings for this library are available in the following languages:
+
+- Python: [LLukas22/llm-rs-python](https://github.com/LLukas22/llm-rs-python)
+- Node: [Atome-FE/llama-node](https://github.com/Atome-FE/llama-node)
 
 ## Using the `llm` CLI
 
@@ -122,6 +146,19 @@ It can also be run directly through Cargo, with
 cargo run --release -- $ARGS
 ```
 
+### Features
+
+By default, `llm` builds with support for remotely fetching the tokenizer from Hugging Face's model hub.
+This adds a dependency on your system's native SSL stack, which may not be available on all systems.
+
+To disable this, disable the default features for the build:
+
+```shell
+cargo build --release --no-default-features
+```
+
+To enable hardware acceleration, see [Acceleration Support for Building section](doc/CONTRIBUTING.md#acceleration-support-for-building), which is also applicable to the CLI.
+
 ## Getting Models
 
 GGML files are easy to acquire. For a list of models that have been tested, see
@@ -151,20 +188,27 @@ Hugging Face 🤗).
 
 Once the `llm` executable has been built or is in a `$PATH` directory, try
 running it. Here's an example that uses the open-source
-[GPT4All](https://gpt4all.io/models/ggml-gpt4all-j-v1.3-groovy.bin) language
-model:
+[RedPajama](https://huggingface.co/rustformers/redpajama-ggml/blob/main/RedPajama-INCITE-Base-3B-v1-q4_0.bin)
+language model:
 
 ```shell
-llm llama infer -m ggml-gpt4all-j-v1.3-groovy.bin -p "Rust is a cool programming language because"
+llm infer -a gptneox -m RedPajama-INCITE-Base-3B-v1-q4_0.bin -p "Rust is a cool programming language because" -r togethercomputer/RedPajama-INCITE-Base-3B-v1
 ```
 
+In the example above, the first two arguments specify the model architecture and
+command, respectively. The required `-m` argument specifies the local path to
+the model, and the required `-p` argument specifies the evaluation prompt. The
+optional `-r` argument is used to load the model's tokenizer from a remote
+Hugging Face 🤗 repository, which will typically improve results when compared
+to loading the tokenizer from the model file itself; there is also an optional
+`-v` argument that can be used to specify the path to a local tokenizer file.
 For more information about the `llm` CLI, use the `--help` parameter.
 
 There is also a [simple inference example](./crates/llm/examples/inference.rs)
 that is helpful for [debugging](./.vscode/launch.json):
 
 ```shell
-cargo run --release --example inference llama ggml-gpt4all-j-v1.3-groovy.bin $OPTIONAL_PROMPT
+cargo run --release --example inference gptneox RedPajama-INCITE-Base-3B-v1-q4_0.bin -r $OPTIONAL_VOCAB_REPO -p $OPTIONAL_PROMPT
 ```
 
 ## Q&A
@@ -181,7 +225,7 @@ so-called "base models". Here's an example of using the `llm` CLI in REPL
 that is being used:
 
 ```shell
-llm llama repl -m ggml-alpaca-7b-q4.bin -f utils/prompts/alpaca.txt
+llm repl -a llama -m ggml-alpaca-7b-q4.bin -f utils/prompts/alpaca.txt
 ```
 
 There is also a [Vicuna chat example](./crates/llm/examples/vicuna-chat.rs) that
@@ -209,8 +253,8 @@ cargo run --release $MODEL_ARCHITECTURE quantize $MODEL_IN $MODEL_OUT {q4_0,q4_1
 
 ### Do you provide support for Docker and NixOS?
 
-The `llm` [Dockerfile](./utils/Dockerfile) is in the `utils` directory, as is a
-[NixOS flake](./utils/flake) manifest and lockfile.
+The `llm` [Dockerfile](./utils/Dockerfile) is in the `utils` directory; the
+[NixOS flake](./flake.nix) manifest and lockfile are in the project root.
 
 ### What's the best way to get in touch with the `llm` community?
 
@@ -230,6 +274,7 @@ Absolutely! Please see the [contributing guide](./doc/CONTRIBUTING.md).
   messages using `llm`.
 - [local.ai](https://github.com/louisgv/local.ai): Desktop app for hosting an
   inference API on your local machine using `llm`.
+- [secondbrain](https://github.com/juliooa/secondbrain): Desktop app to download and run LLMs locally in your computer using `llm`.
 
 #### Libraries
 

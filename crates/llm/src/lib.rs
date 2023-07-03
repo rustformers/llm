@@ -7,6 +7,7 @@
 //! - [GPT-NeoX](llm_gptneox)
 //! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
+//! - Falcon (currently disabled due to incompleteness)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
 //! change in the future.
@@ -21,10 +22,10 @@
 //! let llama = llm::load::<llm::models::Llama>(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
+//!     // llm::TokenizerSource
+//!     llm::TokenizerSource::Embedded,
 //!     // llm::ModelParameters
 //!     Default::default(),
-//!     // llm::KnownModel::Overrides
-//!     None,
 //!     // load progress callback
 //!     llm::load_progress_callback_stdout
 //! )
@@ -41,7 +42,9 @@
 //!     // inference parameters
 //!     &llm::InferenceRequest {
 //!         prompt: "Rust is a cool programming language because".into(),
-//!         ..Default::default()
+//!         parameters: &llm::InferenceParameters::default(),
+//!         play_back_previous_tokens: false,
+//!         maximum_token_count: None,
 //!     },
 //!     // llm::OutputRequest
 //!     &mut Default::default(),
@@ -75,71 +78,110 @@ use std::{
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
     feed_prompt_callback, ggml::format as ggml_format, load, load_progress_callback_stdout,
-    quantize, ElementType, FileType, FileTypeFormat, InferenceError, InferenceFeedback,
-    InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, InferenceStats, InvalidTokenBias, KnownModel,
-    LoadError, LoadProgress, Loader, Model, ModelDynamicOverrideValue, ModelDynamicOverrides,
-    ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Vocabulary,
+    quantize, samplers, ElementType, FileType, FileTypeFormat, Hyperparameters, InferenceError,
+    InferenceFeedback, InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
+    InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
+    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
+    ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, Sampler,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
+    TokenizerSource,
 };
 
 use serde::Serialize;
 
-/// All available models.
-pub mod models {
-    #[cfg(feature = "bloom")]
-    pub use llm_bloom::{self as bloom, Bloom};
-    #[cfg(feature = "gpt2")]
-    pub use llm_gpt2::{self as gpt2, Gpt2};
-    #[cfg(feature = "gptj")]
-    pub use llm_gptj::{self as gptj, GptJ};
-    #[cfg(feature = "gptneox")]
-    pub use llm_gptneox::{self as gptneox, GptNeoX};
-    #[cfg(feature = "llama")]
-    pub use llm_llama::{self as llama, Llama};
-    #[cfg(feature = "mpt")]
-    pub use llm_mpt::{self as mpt, Mpt};
+macro_rules! define_models {
+    ($(($model_lowercase:ident, $model_lowercase_str:literal, $model_pascalcase:ident, $krate_ident:ident, $display_name:literal)),*) => {
+        /// All available models.
+        pub mod models {
+            $(
+                #[cfg(feature = $model_lowercase_str)]
+                pub use $krate_ident::{self as $model_lowercase, $model_pascalcase};
+            )*
+        }
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+        /// All available model architectures.
+        pub enum ModelArchitecture {
+            $(
+                #[cfg(feature = $model_lowercase_str)]
+                #[doc = concat!("[", $display_name, "](", stringify!($krate_ident), ")")]
+                $model_pascalcase,
+            )*
+        }
+
+        impl ModelArchitecture {
+            /// All available model architectures
+            pub const ALL: &[Self] = &[
+                $(
+                    #[cfg(feature = $model_lowercase_str)]
+                    Self::$model_pascalcase,
+                )*
+            ];
+        }
+
+        impl ModelArchitecture {
+            /// Use a visitor to dispatch some code based on the model architecture.
+            pub fn visit<R>(&self, visitor: &mut impl ModelArchitectureVisitor<R>) -> R {
+                match self {
+                    $(
+                        #[cfg(feature = $model_lowercase_str)]
+                        Self::$model_pascalcase => visitor.visit::<models::$model_pascalcase>(),
+                    )*
+                }
+            }
+        }
+
+        impl FromStr for ModelArchitecture {
+            type Err = UnsupportedModelArchitecture;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                use ModelArchitecture::*;
+                match s
+                    .to_lowercase()
+                    .chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect::<String>()
+                    .as_str()
+                {
+                    $(
+                        #[cfg(feature = $model_lowercase_str)]
+                        $model_lowercase_str => Ok($model_pascalcase),
+                    )*
+
+                    _ => Err(UnsupportedModelArchitecture(format!(
+                        "{s} is not a supported model architecture"
+                    ))),
+                }
+            }
+        }
+
+        impl Display for ModelArchitecture {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                        #[cfg(feature = $model_lowercase_str)]
+                        Self::$model_pascalcase => write!(f, $display_name),
+                    )*
+                }
+            }
+        }
+    };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-/// All available model architectures.
-pub enum ModelArchitecture {
-    #[cfg(feature = "bloom")]
-    /// [BLOOM](llm_bloom)
-    Bloom,
-    #[cfg(feature = "gpt2")]
-    /// [GPT-2](llm_gpt2)
-    Gpt2,
-    #[cfg(feature = "gptj")]
-    /// [GPT-J](llm_gptj)
-    GptJ,
-    #[cfg(feature = "gptneox")]
-    /// [GPT-NeoX](llm_gptneox)
-    GptNeoX,
-    #[cfg(feature = "llama")]
-    /// [LLaMA](llm_llama)
-    Llama,
-    #[cfg(feature = "mpt")]
-    /// [MPT](llm_mpt)
-    Mpt,
-}
+define_models!(
+    (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
+    (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
+    (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),
+    (gptneox, "gptneox", GptNeoX, llm_gptneox, "GPT-NeoX"),
+    (llama, "llama", Llama, llm_llama, "LLaMA"),
+    (mpt, "mpt", Mpt, llm_mpt, "MPT"),
+    (falcon, "falcon", Falcon, llm_falcon, "Falcon")
+);
 
-impl ModelArchitecture {
-    /// All available model architectures
-    pub const ALL: &[Self] = &[
-        #[cfg(feature = "bloom")]
-        Self::Bloom,
-        #[cfg(feature = "gpt2")]
-        Self::Gpt2,
-        #[cfg(feature = "gptj")]
-        Self::GptJ,
-        #[cfg(feature = "gptneox")]
-        Self::GptNeoX,
-        #[cfg(feature = "llama")]
-        Self::Llama,
-        #[cfg(feature = "mpt")]
-        Self::Mpt,
-    ];
+/// Used to dispatch some code based on the model architecture.
+pub trait ModelArchitectureVisitor<R> {
+    /// Visit a model architecture.
+    fn visit<M: KnownModel + 'static>(&mut self) -> R;
 }
 
 /// An unsupported model architecture was specified.
@@ -158,106 +200,62 @@ impl Debug for UnsupportedModelArchitecture {
     }
 }
 
-impl FromStr for ModelArchitecture {
-    type Err = UnsupportedModelArchitecture;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use ModelArchitecture::*;
-        match s
-            .to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect::<String>()
-            .as_str()
-        {
-            #[cfg(feature = "bloom")]
-            "bloom" => Ok(Bloom),
-            #[cfg(feature = "gpt2")]
-            "gpt2" => Ok(Gpt2),
-            #[cfg(feature = "gptj")]
-            "gptj" => Ok(GptJ),
-            #[cfg(feature = "gptneox")]
-            "gptneox" => Ok(GptNeoX),
-            #[cfg(feature = "llama")]
-            "llama" => Ok(Llama),
-            #[cfg(feature = "mpt")]
-            "mpt" => Ok(Mpt),
-
-            _ => Err(UnsupportedModelArchitecture(format!(
-                "{s} is not a supported model architecture"
-            ))),
-        }
-    }
-}
-
-impl Display for ModelArchitecture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ModelArchitecture::*;
-
-        match self {
-            #[cfg(feature = "bloom")]
-            Bloom => write!(f, "BLOOM"),
-            #[cfg(feature = "gpt2")]
-            Gpt2 => write!(f, "GPT-2"),
-            #[cfg(feature = "gptj")]
-            GptJ => write!(f, "GPT-J"),
-            #[cfg(feature = "gptneox")]
-            GptNeoX => write!(f, "GPT-NeoX"),
-            #[cfg(feature = "llama")]
-            Llama => write!(f, "LLaMA"),
-            #[cfg(feature = "mpt")]
-            Mpt => write!(f, "MPT"),
-        }
-    }
-}
-
 /// A helper function that loads the specified model from disk using an architecture
-/// specified at runtime.
-///
-/// The `overrides` will attempt to deserialize to the [KnownModel::Overrides] type
-/// for that model. If the model does not support overrides, this will be an empty
-/// struct. If the overrides are invalid, this will return an error.
+/// specified at runtime. If no architecture is specified, it will try to infer it
+/// from the model's metadata.
 ///
 /// A wrapper around [load] that dispatches to the correct model.
 pub fn load_dynamic(
-    architecture: ModelArchitecture,
+    architecture: Option<ModelArchitecture>,
     path: &Path,
+    tokenizer_source: TokenizerSource,
     params: ModelParameters,
-    overrides: Option<ModelDynamicOverrides>,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    use ModelArchitecture::*;
 
     fn load_model<M: KnownModel + Clone + 'static>(
         path: &Path,
+        tokenizer_source: TokenizerSource,
         params: ModelParameters,
-        overrides: Option<ModelDynamicOverrides>,
         load_progress_callback: impl FnMut(LoadProgress),
     ) -> Result<Box<dyn Model>, LoadError> {
         Ok(Box::new(load::<M>(
             path,
+            tokenizer_source,
             params,
-            overrides.map(|o| o.into()),
             load_progress_callback,
         )?))
     }
 
-    let model: Box<dyn Model> = match architecture {
-        #[cfg(feature = "bloom")]
-        Bloom => load_model::<models::Bloom>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "gpt2")]
-        Gpt2 => load_model::<models::Gpt2>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "gptj")]
-        GptJ => load_model::<models::GptJ>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "gptneox")]
-        GptNeoX => load_model::<models::GptNeoX>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "llama")]
-        Llama => load_model::<models::Llama>(path, params, overrides, load_progress_callback)?,
-        #[cfg(feature = "mpt")]
-        Mpt => load_model::<models::Mpt>(path, params, overrides, load_progress_callback)?,
-    };
+    let architecture = architecture.ok_or_else(|| LoadError::MissingModelArchitecture {
+        path: path.to_owned(),
+    })?;
 
-    Ok(model)
+    struct LoadVisitor<'a, F: FnMut(LoadProgress)> {
+        path: &'a Path,
+        tokenizer_source: TokenizerSource,
+        params: ModelParameters,
+        load_progress_callback: F,
+    }
+    impl<'a, F: FnMut(LoadProgress)> ModelArchitectureVisitor<Result<Box<dyn Model>, LoadError>>
+        for LoadVisitor<'a, F>
+    {
+        fn visit<M: KnownModel + 'static>(&mut self) -> Result<Box<dyn Model>, LoadError> {
+            load_model::<M>(
+                self.path,
+                self.tokenizer_source.clone(),
+                self.params.clone(),
+                &mut self.load_progress_callback,
+            )
+        }
+    }
+
+    architecture.visit(&mut LoadVisitor {
+        path,
+        tokenizer_source,
+        params,
+        load_progress_callback,
+    })
 }
 
 #[cfg(test)]

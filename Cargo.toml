@@ -18,14 +18,18 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 bytemuck = "1.13.1"
 bytesize = "1.1"
+env_logger = "0.10.0"
 log = "0.4"
 rand = "0.8.5"
+thiserror = "1.0"
+anyhow = "1.0"
+
 rustyline = { version = "11.0.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 spinoff = { version = "0.7.0", default-features = false, features = ["dots2"] }
-thiserror = "1.0"
-anyhow = "1.0"
+clap = { version = "4.1.8", features = ["derive"] }
+memmap2 = "0.5.10"
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]
@@ -44,3 +48,6 @@ targets = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-pc-windows
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[workspace.metadata.release]
+tag-prefix = ""

@@ -1,32 +1,49 @@
-use llm::{
-    load_progress_callback_stdout as load_callback, InferenceFeedback, InferenceRequest,
-    InferenceResponse, ModelArchitecture,
-};
-use std::{convert::Infallible, io::Write, path::Path};
+use clap::Parser;
+use std::{convert::Infallible, io::Write, path::PathBuf};
+
+#[derive(Parser)]
+struct Args {
+    model_architecture: llm::ModelArchitecture,
+    model_path: PathBuf,
+    #[arg(long, short = 'p')]
+    prompt: Option<String>,
+    #[arg(long, short = 'v')]
+    pub tokenizer_path: Option<PathBuf>,
+    #[arg(long, short = 'r')]
+    pub tokenizer_repository: Option<String>,
+}
+impl Args {
+    pub fn to_tokenizer_source(&self) -> llm::TokenizerSource {
+        match (&self.tokenizer_path, &self.tokenizer_repository) {
+            (Some(_), Some(_)) => {
+                panic!("Cannot specify both --tokenizer-path and --tokenizer-repository");
+            }
+            (Some(path), None) => llm::TokenizerSource::HuggingFaceTokenizerFile(path.to_owned()),
+            (None, Some(repo)) => llm::TokenizerSource::HuggingFaceRemote(repo.to_owned()),
+            (None, None) => llm::TokenizerSource::Embedded,
+        }
+    }
+}
 
 fn main() {
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
-    if raw_args.len() < 2 {
-        println!("Usage: cargo run --release --example inference <model_architecture> <model_path> [prompt] [overrides, json]");
-        std::process::exit(1);
-    }
+    let args = Args::parse();
 
-    let model_architecture: ModelArchitecture = raw_args[0].parse().unwrap();
-    let model_path = Path::new(&raw_args[1]);
-    let prompt = raw_args
-        .get(2)
-        .map(|s| s.as_str())
+    let tokenizer_source = args.to_tokenizer_source();
+    let model_architecture = args.model_architecture;
+    let model_path = args.model_path;
+    let prompt = args
+        .prompt
+        .as_deref()
         .unwrap_or("Rust is a cool programming language because");
-    let overrides = raw_args.get(3).map(|s| serde_json::from_str(s).unwrap());
 
     let now = std::time::Instant::now();
 
     let model = llm::load_dynamic(
-        model_architecture,
-        model_path,
+        Some(model_architecture),
+        &model_path,
+        tokenizer_source,
         Default::default(),
-        overrides,
-        load_callback,
+        llm::load_progress_callback_stdout,
     )
     .unwrap_or_else(|err| {
         panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
@@ -42,20 +59,22 @@ fn main() {
     let res = session.infer::<Infallible>(
         model.as_ref(),
         &mut rand::thread_rng(),
-        &InferenceRequest {
+        &llm::InferenceRequest {
             prompt: prompt.into(),
-            ..Default::default()
+            parameters: &llm::InferenceParameters::default(),
+            play_back_previous_tokens: false,
+            maximum_token_count: None,
         },
         // OutputRequest
         &mut Default::default(),
         |r| match r {
-            InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+            llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
                 print!("{t}");
                 std::io::stdout().flush().unwrap();
 
-                Ok(InferenceFeedback::Continue)
+                Ok(llm::InferenceFeedback::Continue)
             }
-            _ => Ok(InferenceFeedback::Continue),
+            _ => Ok(llm::InferenceFeedback::Continue),
         },
     );
 

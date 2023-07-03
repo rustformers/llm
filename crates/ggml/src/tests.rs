@@ -18,19 +18,19 @@ impl Error for DummyError {}
 
 #[test]
 fn can_roundtrip_loader_and_saver_ggml() {
-    let vocabulary = vec![
+    let tokenizer = vec![
         ("blazingly".as_bytes().to_vec(), 0.0),
         ("fast".as_bytes().to_vec(), 0.0),
         ("memory".as_bytes().to_vec(), 0.0),
         ("efficient".as_bytes().to_vec(), 0.0),
     ];
 
-    roundtrip_test(format::SaveContainerType::Ggml, vocabulary).unwrap();
+    roundtrip_test(format::SaveContainerType::Ggml, tokenizer).unwrap();
 }
 
 #[test]
 fn will_fail_on_scored_ggml_save() {
-    let vocabulary = vec![
+    let tokenizer = vec![
         ("blazingly".as_bytes().to_vec(), 0.1),
         ("fast".as_bytes().to_vec(), 0.2),
         ("memory".as_bytes().to_vec(), 0.3),
@@ -38,7 +38,7 @@ fn will_fail_on_scored_ggml_save() {
     ];
 
     assert_eq!(
-        roundtrip_test(format::SaveContainerType::Ggml, vocabulary)
+        roundtrip_test(format::SaveContainerType::Ggml, tokenizer)
             .unwrap_err()
             .to_string(),
         format::SaveError::<std::io::Error>::VocabularyScoringNotSupported.to_string()
@@ -46,20 +46,20 @@ fn will_fail_on_scored_ggml_save() {
 }
 
 #[test]
-fn can_roundtrip_loader_and_saver_ggjt_v2() {
-    let vocabulary = vec![
+fn can_roundtrip_loader_and_saver_ggjt_v3() {
+    let tokenizer = vec![
         ("blazingly".as_bytes().to_vec(), 0.1),
         ("fast".as_bytes().to_vec(), 0.2),
         ("memory".as_bytes().to_vec(), 0.3),
         ("efficient".as_bytes().to_vec(), 0.4),
     ];
 
-    roundtrip_test(format::SaveContainerType::GgjtV2, vocabulary).unwrap();
+    roundtrip_test(format::SaveContainerType::GgjtV3, tokenizer).unwrap();
 }
 
 fn roundtrip_test(
     save_container_type: format::SaveContainerType,
-    vocabulary: Vec<(Vec<u8>, f32)>,
+    tokenizer: Vec<(Vec<u8>, f32)>,
 ) -> anyhow::Result<()> {
     let mut rng = rand::thread_rng();
     let element_type = crate::Type::F16;
@@ -67,9 +67,9 @@ fn roundtrip_test(
         hyperparameters: Hyperparameters {
             some_hyperparameter: random(),
             some_other_hyperparameter: random(),
-            vocabulary_size: vocabulary.len().try_into()?,
+            tokenizer_size: tokenizer.len().try_into()?,
         },
-        vocabulary,
+        tokenizer,
         tensors: (0..10)
             .map(|i| {
                 let n_dims = Uniform::from(1..3).sample(&mut rng);
@@ -104,7 +104,7 @@ fn roundtrip_test(
         &mut cursor,
         &mut save_handler,
         save_container_type,
-        &model.vocabulary,
+        &model.tokenizer,
         &model.tensors.keys().cloned().collect::<Vec<String>>(),
     )?;
 
@@ -125,21 +125,21 @@ fn roundtrip_test(
 struct Hyperparameters {
     some_hyperparameter: u32,
     some_other_hyperparameter: u32,
-    vocabulary_size: u32,
+    tokenizer_size: u32,
 }
 impl Hyperparameters {
     fn read(reader: &mut dyn BufRead) -> Result<Self, std::io::Error> {
         Ok(Self {
             some_hyperparameter: util::read_u32(reader)?,
             some_other_hyperparameter: util::read_u32(reader)?,
-            vocabulary_size: util::read_u32(reader)?,
+            tokenizer_size: util::read_u32(reader)?,
         })
     }
 
     fn write(&self, writer: &mut dyn Write) -> Result<(), std::io::Error> {
         util::write_u32(writer, self.some_hyperparameter)?;
         util::write_u32(writer, self.some_other_hyperparameter)?;
-        util::write_u32(writer, self.vocabulary_size)?;
+        util::write_u32(writer, self.tokenizer_size)?;
         Ok(())
     }
 }
@@ -147,7 +147,7 @@ impl Hyperparameters {
 #[derive(Default, PartialEq, Debug)]
 struct Model {
     hyperparameters: Hyperparameters,
-    vocabulary: Vec<(Vec<u8>, f32)>,
+    tokenizer: Vec<(Vec<u8>, f32)>,
     tensors: BTreeMap<String, format::TensorSaveInfo>,
 }
 
@@ -181,8 +181,8 @@ impl format::LoadHandler<DummyError> for MockLoadHandler<'_> {
     }
 
     fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), DummyError> {
-        assert_eq!(i, self.loaded_model.vocabulary.len());
-        self.loaded_model.vocabulary.push((token, score));
+        assert_eq!(i, self.loaded_model.tokenizer.len());
+        self.loaded_model.tokenizer.push((token, score));
         Ok(())
     }
 
@@ -195,7 +195,7 @@ impl format::LoadHandler<DummyError> for MockLoadHandler<'_> {
             n_vocab: self
                 .loaded_model
                 .hyperparameters
-                .vocabulary_size
+                .tokenizer_size
                 .try_into()
                 .unwrap(),
         })

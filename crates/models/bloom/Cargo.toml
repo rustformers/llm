@@ -1,6 +1,6 @@
 [package]
 name = "llm-bloom"
-version = "0.1.1"
+version = "0.2.0-dev"
 license = { workspace = true }
 repository = { workspace = true }
 description = "An implementation of BLOOM (BigScience Large Open-science Open-access Multilingual Language Model) for the `llm` ecosystem."
@@ -8,6 +8,4 @@ edition = "2021"
 readme = "../../../README.md"
 
 [dependencies]
-llm-base = { path = "../../llm-base", version = "0.1.1" }
-
-bytemuck = { workspace = true }
+llm-base = { path = "../../llm-base", version = "0.2.0-dev" }

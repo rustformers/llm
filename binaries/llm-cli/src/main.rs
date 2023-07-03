@@ -5,13 +5,15 @@ use std::{
 };
 
 use clap::Parser;
-use cli_args::{Args, BaseArgs};
-use color_eyre::eyre::{Context, Result};
+use cli_args::Args;
+use color_eyre::eyre::{Context, ContextCompat, Result};
 use llm::{InferenceError, InferenceFeedback, InferenceResponse};
-use rustyline::error::ReadlineError;
-use rustyline::validate::{ValidationContext, ValidationResult, Validator};
-use rustyline::{history::DefaultHistory, Cmd, Event, EventHandler, KeyCode, KeyEvent, Modifiers};
-use rustyline::{Completer, Helper, Highlighter, Hinter};
+use rustyline::{
+    error::ReadlineError,
+    history::DefaultHistory,
+    validate::{ValidationContext, ValidationResult, Validator},
+    Cmd, Completer, Helper, Highlighter, Hinter, KeyCode, KeyEvent, Modifiers,
+};
 
 mod cli_args;
 mod snapshot;
@@ -23,46 +25,30 @@ fn main() -> Result<()> {
         .init();
     color_eyre::install()?;
 
-    let cli_args = Args::parse();
-    match &cli_args {
-        Args::Llama { args } => handle_args::<llm::models::Llama>(args, None),
-        Args::Bloom { args } => handle_args::<llm::models::Bloom>(args, None),
-        Args::Gpt2 { args } => handle_args::<llm::models::Gpt2>(args, None),
-        Args::GptJ { args } => handle_args::<llm::models::GptJ>(args, None),
-        Args::GptNeoX { args } => handle_args::<llm::models::GptNeoX>(args, None),
-        Args::Mpt { args } => handle_args::<llm::models::Mpt>(args, None),
-    }
-}
-
-fn handle_args<M: llm::KnownModel + 'static>(
-    args: &cli_args::BaseArgs,
-    overrides: Option<M::Overrides>,
-) -> Result<()> {
+    let args = Args::parse();
     match args {
-        BaseArgs::Infer(args) => infer::<M>(args, overrides),
-        BaseArgs::Perplexity(args) => perplexity::<M>(args, overrides),
-        BaseArgs::Info(args) => info::<M>(args),
-        BaseArgs::PromptTokens(args) => prompt_tokens::<M>(args),
-        BaseArgs::Repl(args) => interactive::<M>(args, overrides, false),
-        BaseArgs::Chat(args) => interactive::<M>(args, overrides, true),
-        BaseArgs::Quantize(args) => quantize::<M>(args),
+        Args::Infer(args) => infer(&args),
+        Args::Perplexity(args) => perplexity(&args),
+        Args::Info(args) => info(&args),
+        Args::PromptTokens(args) => prompt_tokens(&args),
+        Args::Repl(args) => interactive(&args, false),
+        Args::Chat(args) => interactive(&args, true),
+        Args::Quantize(args) => quantize(&args),
     }
 }
 
-fn infer<M: llm::KnownModel + 'static>(
-    args: &cli_args::Infer,
-    overrides: Option<M::Overrides>,
-) -> Result<()> {
+fn infer(args: &cli_args::Infer) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>(overrides)?;
+    let model = args.model_load.load(args.generate.use_gpu)?;
+
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let inference_params = args.generate.inference_parameters(model.eot_token_id());
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let res = session.infer::<Infallible>(
@@ -70,7 +56,7 @@ fn infer<M: llm::KnownModel + 'static>(
         &mut rng,
         &llm::InferenceRequest {
             prompt: prompt.as_str().into(),
-            parameters: Some(&inference_params),
+            parameters: &parameters,
             play_back_previous_tokens: session_loaded,
             maximum_token_count: args.generate.num_predict,
         },
@@ -119,13 +105,10 @@ fn infer<M: llm::KnownModel + 'static>(
     Ok(())
 }
 
-fn perplexity<M: llm::KnownModel + 'static>(
-    args: &cli_args::Perplexity,
-    overrides: Option<M::Overrides>,
-) -> Result<()> {
+fn perplexity(args: &cli_args::Perplexity) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>(overrides)?;
+    let model = args.model_load.load(args.generate.use_gpu)?;
     let (mut session, _) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
@@ -146,52 +129,63 @@ fn perplexity<M: llm::KnownModel + 'static>(
     Ok(())
 }
 
-fn info<M: llm::KnownModel + 'static>(args: &cli_args::Info) -> Result<()> {
-    let file = File::open(&args.model_path)?;
-    let mut reader = BufReader::new(&file);
-    let mut loader: llm::Loader<M::Hyperparameters, _> = llm::Loader::new(|_| {
-        // We purposely do not print progress here, as we are only interested in the metadata
-    });
+fn info(args: &cli_args::Info) -> Result<()> {
+    struct InfoVisitor<'a>(&'a cli_args::Info);
+    impl llm::ModelArchitectureVisitor<Result<()>> for InfoVisitor<'_> {
+        fn visit<M: llm::KnownModel + 'static>(&mut self) -> Result<()> {
+            let args = self.0;
 
-    llm::ggml_format::load(&mut reader, &mut loader)?;
+            let model_path = &args.model_and_tokenizer.model_path;
+            let tokenizer = args.model_and_tokenizer.to_source()?.retrieve(model_path)?;
 
-    log::info!("Container type: {:?}", loader.container_type);
-    log::info!("Hyperparameters: {:?}", loader.hyperparameters);
-    log::info!("Vocabulary size: {}", loader.vocabulary.id_to_token.len());
+            let file = File::open(model_path)?;
+            let mut reader = BufReader::new(&file);
+            let mut loader: llm::Loader<M::Hyperparameters, _> =
+                llm::Loader::new(tokenizer, |_| {
+                    // We purposely do not print progress here, as we are only interested in the metadata
+                });
 
-    if args.vocabulary {
-        log::info!("Vocabulary:");
-        for (tid, (token, score)) in loader
-            .vocabulary
-            .id_to_token
-            .iter()
-            .zip(loader.vocabulary.id_to_token_score.iter())
-            .enumerate()
-        {
-            log::info!("- {}: {} ({})", tid, utf8_or_array(token), score);
+            llm::ggml_format::load(&mut reader, &mut loader)?;
+
+            log::info!("Container type: {:?}", loader.container_type);
+            log::info!("Hyperparameters: {:?}", loader.hyperparameters);
+            log::info!("Tokenizer vocabulary size: {}", loader.tokenizer.len());
+
+            if args.tokenizer {
+                log::info!("Tokens:");
+                for i in 0..loader.tokenizer.len() {
+                    log::info!("- {}: {}", i, utf8_or_array(&loader.tokenizer.token(i)));
+                }
+            }
+
+            if args.tensors {
+                log::info!("Tensors:");
+                for (name, tensor) in &loader.tensors {
+                    log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
+                }
+            }
+
+            fn utf8_or_array(token: &[u8]) -> String {
+                std::str::from_utf8(token)
+                    .map(|s| s.to_owned())
+                    .unwrap_or(format!("{:?}", token))
+            }
+
+            Ok(())
         }
     }
 
-    if args.tensors {
-        log::info!("Tensors:");
-        for (name, tensor) in &loader.tensors {
-            log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
-        }
-    }
-
-    fn utf8_or_array(token: &[u8]) -> String {
-        std::str::from_utf8(token)
-            .map(|s| s.to_owned())
-            .unwrap_or(format!("{:?}", token))
-    }
-
-    Ok(())
+    args.model_and_tokenizer
+        .architecture
+        .model_architecture
+        .wrap_err("a model architecture is required at present")?
+        .visit(&mut InfoVisitor(args))
 }
 
-fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) -> Result<()> {
+fn prompt_tokens(args: &cli_args::PromptTokens) -> Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
-    let model = args.model_load.load::<M>(None)?;
-    let toks = match model.vocabulary().tokenize(&prompt, false) {
+    let model = args.model_load.load(false)?;
+    let toks = match model.tokenizer().tokenize(&prompt, false) {
         Ok(toks) => toks,
         Err(e) => {
             log::error!("Could not tokenize prompt: {e}");
@@ -217,41 +211,45 @@ fn prompt_tokens<M: llm::KnownModel + 'static>(args: &cli_args::PromptTokens) ->
     Ok(())
 }
 
-fn interactive<M: llm::KnownModel + 'static>(
+#[cfg(not(windows))]
+fn force_newline_event_seq() -> KeyEvent {
+    KeyEvent(KeyCode::Enter, Modifiers::ALT)
+}
+
+// On Windows, `SHIFT+ENTER` is the key sequence for forcing a newline. This is
+// because `ALT+ENTER` typically maximizes the window.
+#[cfg(windows)]
+fn force_newline_event_seq() -> KeyEvent {
+    KeyEvent(KeyCode::Enter, Modifiers::SHIFT)
+}
+
+fn interactive(
     args: &cli_args::Repl,
-    overrides: Option<M::Overrides>,
     // If set to false, the session will be cloned after each inference
     // to ensure that previous state is not carried over.
     chat_mode: bool,
 ) -> Result<()> {
     let prompt_file = args.prompt_file.contents();
     let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load::<M>(overrides)?;
-    let (mut session, session_loaded) = snapshot::read_or_create_session(
+    let model = args.model_load.load(args.generate.use_gpu)?;
+    let (mut session, mut session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         None,
         args.generate.load_session.as_deref(),
         inference_session_config,
     );
-    let inference_params = args.generate.inference_parameters(model.eot_token_id());
+    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
-    rl.bind_sequence(
-        Event::KeySeq(vec![KeyEvent(KeyCode::Enter, Modifiers::SHIFT)]),
-        EventHandler::Simple(Cmd::Newline),
-    );
+
+    rl.bind_sequence(force_newline_event_seq(), Cmd::Newline);
 
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(raw_line) => {
-                let session_backup = if chat_mode {
-                    None
-                } else {
-                    Some(session.clone())
-                };
                 let line = raw_line.replace("\\\n", "\n");
 
                 let prompt = prompt_file
@@ -262,7 +260,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                 let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
                 if let Err(InferenceError::ContextFull) = session.feed_prompt(
                     model.as_ref(),
-                    &inference_params,
+                    &parameters,
                     &prompt,
                     // OutputRequest
                     &mut Default::default(),
@@ -277,7 +275,7 @@ fn interactive<M: llm::KnownModel + 'static>(
                     &mut rng,
                     &llm::InferenceRequest {
                         prompt: "".into(),
-                        parameters: Some(&inference_params),
+                        parameters: &parameters,
                         play_back_previous_tokens: session_loaded,
                         maximum_token_count: args.generate.num_predict,
                     },
@@ -299,8 +297,14 @@ fn interactive<M: llm::KnownModel + 'static>(
                     log::error!("Reply exceeds context window length");
                 }
 
-                if let Some(session_backup) = session_backup {
-                    session = session_backup;
+                // Reload session in REPL mode
+                if !chat_mode {
+                    (session, session_loaded) = snapshot::read_or_create_session(
+                        model.as_ref(),
+                        None,
+                        args.generate.load_session.as_deref(),
+                        inference_session_config,
+                    );
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
@@ -315,49 +319,64 @@ fn interactive<M: llm::KnownModel + 'static>(
     Ok(())
 }
 
-fn quantize<M: llm::KnownModel + 'static>(args: &cli_args::Quantize) -> Result<()> {
+fn quantize(args: &cli_args::Quantize) -> Result<()> {
     use llm::QuantizeProgress;
 
-    let mut source = BufReader::new(std::fs::File::open(&args.source)?);
-    let mut destination = BufWriter::new(std::fs::File::create(&args.destination)?);
+    struct QuantizeVisitor<'a>(&'a cli_args::Quantize);
+    impl llm::ModelArchitectureVisitor<Result<()>> for QuantizeVisitor<'_> {
+        fn visit<M: llm::KnownModel>(&mut self) -> Result<()> {
+            let args = self.0;
 
-    llm::quantize::<M, _, _>(
-        &mut source,
-        &mut destination,
-        args.container_type.into(),
-        args.target.into(),
-        |progress| match progress {
-            QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
-            QuantizeProgress::TensorLoading {
-                name,
-                dims,
-                element_type,
-                n_elements,
-            } => log::info!(
-                "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
-            ),
-            QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
-            QuantizeProgress::TensorQuantized {
-                name,
-                original_size,
-                reduced_size,
-                history,
-            } => log::info!(
-            "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
-        ),
-            QuantizeProgress::TensorSkipped { name, size } => {
-                log::info!("Skipped tensor `{name}` ({size} bytes)")
-            }
-            QuantizeProgress::Finished {
-                original_size,
-                reduced_size,
-                history,
-            } => log::info!(
-                "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
-            ),
-        },
-    )
-    .wrap_err("failed to quantize model")
+            let mut source: BufReader<File> = BufReader::new(std::fs::File::open(&args.source)?);
+            let mut destination: BufWriter<File> =
+                BufWriter::new(std::fs::File::create(&args.destination)?);
+            let tokenizer: llm::Tokenizer = args.tokenizer.to_source()?.retrieve(&args.source)?;
+
+            llm::quantize::<M, _, _>(
+                &mut source,
+                &mut destination,
+                tokenizer,
+                args.container_type.into(),
+                args.target.into(),
+                |progress| match progress {
+                    QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
+                    QuantizeProgress::TensorLoading {
+                        name,
+                        dims,
+                        element_type,
+                        n_elements,
+                    } => log::info!(
+                        "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
+                    ),
+                    QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
+                    QuantizeProgress::TensorQuantized {
+                        name,
+                        original_size,
+                        reduced_size,
+                        history,
+                    } => log::info!(
+                    "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
+                ),
+                    QuantizeProgress::TensorSkipped { name, size } => {
+                        log::info!("Skipped tensor `{name}` ({size} bytes)")
+                    }
+                    QuantizeProgress::Finished {
+                        original_size,
+                        reduced_size,
+                        history,
+                    } => log::info!(
+                        "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
+                    ),
+                },
+            )
+            .wrap_err("failed to quantize model")
+        }
+    }
+
+    args.architecture
+        .model_architecture
+        .wrap_err("the architecture must be known for quantization")?
+        .visit(&mut QuantizeVisitor(args))
 }
 
 fn load_prompt_file_with_prompt(

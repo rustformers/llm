@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "llm-cli"
-version = "0.1.1"
+version = "0.2.0-dev"
 repository = { workspace = true }
 license = { workspace = true }
 description = "A CLI for running inference on supported Large Language Models. Powered by the `llm` library."
@@ -12,18 +12,32 @@ name = "llm"
 path = "src/main.rs"
 
 [dependencies]
-llm = { path = "../../crates/llm", version = "0.1.1" }
+llm = { path = "../../crates/llm", version = "0.2.0-dev", default-features = false, features = ["models"] }
 
 bytesize = { workspace = true }
+env_logger = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
 rustyline = { workspace = true }
 spinoff = { workspace = true }
+clap = { workspace = true }
 
 bincode = "1.3.3"
-env_logger = "0.10.0"
 num_cpus = "1.15.0"
 
-clap = { version = "4.1.8", features = ["derive"] }
 color-eyre = { version = "0.6.2", default-features = false }
 zstd = { version = "0.12", default-features = false }
+
+[dev-dependencies]
+rusty-hook = "^0.11.2"
+
+[features]
+default = ["tokenizers-remote"]
+
+tokenizers-remote = ["llm/tokenizers-remote"]
+cublas = ["llm/cublas"]
+clblast = ["llm/clblast"]
+metal = ["llm/metal"]
+
+# Falcon is off by default. See `llm_falcon`'s module documentation for more information.
+falcon = ["llm/falcon"]

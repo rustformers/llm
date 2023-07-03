@@ -1,6 +1,6 @@
 [package]
 name = "llm"
-version = "0.1.1"
+version = "0.2.0-dev"
 license = { workspace = true }
 repository = { workspace = true }
 description = "A Rust ecosystem of libraries for running inference on large language models, inspired by llama.cpp."
@@ -8,13 +8,14 @@ edition = "2021"
 readme = "../../README.md"
 
 [dependencies]
-llm-base = { path = "../llm-base", version = "0.1.1" }
-llm-llama = { path = "../models/llama", optional = true, version = "0.1.1" }
-llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.1.1" }
-llm-gptj = { path = "../models/gptj", optional = true, version = "0.1.1" }
-llm-bloom = { path = "../models/bloom", optional = true, version = "0.1.1" }
-llm-gptneox = { path = "../models/gptneox", optional = true, version = "0.1.1" }
-llm-mpt = { path = "../models/mpt", optional = true, version = "0.1.1" }
+llm-base = { path = "../llm-base", version = "0.2.0-dev" }
+llm-llama = { path = "../models/llama", optional = true, version = "0.2.0-dev" }
+llm-gpt2 = { path = "../models/gpt2", optional = true, version = "0.2.0-dev" }
+llm-gptj = { path = "../models/gptj", optional = true, version = "0.2.0-dev" }
+llm-bloom = { path = "../models/bloom", optional = true, version = "0.2.0-dev" }
+llm-gptneox = { path = "../models/gptneox", optional = true, version = "0.2.0-dev" }
+llm-mpt = { path = "../models/mpt", optional = true, version = "0.2.0-dev" }
+llm-falcon = { path = "../models/falcon", optional = true, version = "0.2.0-dev" }
 
 serde = { workspace = true }
 
@@ -25,12 +26,23 @@ rand = { workspace = true }
 rustyline = { workspace = true }
 spinoff = { workspace = true }
 serde_json = { workspace = true }
+clap = { workspace = true }
 
 [features]
-default = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
+default = ["models", "tokenizers-remote"]
+
+tokenizers-remote = ["llm-base/tokenizers-remote"]
+
+models = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
 bloom = ["dep:llm-bloom"]
 gptneox = ["dep:llm-gptneox"]
 mpt = ["dep:llm-mpt"]
+# Falcon is off by default. See `llm_falcon`'s module documentation for more information.
+falcon = ["dep:llm-falcon"]
+
+cublas = ["llm-base/cublas"]
+clblast = ["llm-base/clblast"]
+metal = ["llm-base/metal"]
