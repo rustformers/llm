@@ -117,7 +117,7 @@ struct TestConfig {
 enum TestCase {
     Inference {
         input: String,
-        output: String,
+        output: Option<String>,
         maximum_token_count: usize,
     },
 }
@@ -138,15 +138,16 @@ struct TestCaseReport {
 #[serde(untagged)]
 enum TestCaseReportMeta {
     Error { error: String },
-    Success { inference_stats: InferenceStats },
+    Success,
 }
 
 #[derive(Serialize)]
 enum TestCaseReportInner {
     Inference {
         input: String,
-        expect_output: String,
+        expect_output: Option<String>,
         actual_output: String,
+        inference_stats: Option<InferenceStats>,
     },
 }
 
@@ -262,7 +263,7 @@ async fn test_model(
                         &model,
                         model_config,
                         input,
-                        output,
+                        output.as_deref(),
                         *maximum_token_count,
                     )?),
                 }
@@ -357,7 +358,7 @@ mod tests {
         model: &dyn llm::Model,
         model_config: &ModelConfig,
         input: &str,
-        expected_output: &str,
+        expected_output: Option<&str>,
         maximum_token_count: usize,
     ) -> anyhow::Result<TestCaseReport> {
         let mut session = model.start_session(Default::default());
@@ -371,25 +372,32 @@ mod tests {
 
         // Process the results
         Ok(TestCaseReport {
-            meta: match res {
-                Ok(inference_stats) => {
-                    if expected_output == actual_output {
-                        log::info!("`can_infer` test passed!");
-                        TestCaseReportMeta::Success { inference_stats }
-                    } else {
-                        TestCaseReportMeta::Error {
-                            error: "The output did not match the expected output.".to_string(),
+            meta: match &res {
+                Ok(_) => match expected_output {
+                    Some(expected_output) => {
+                        if expected_output == actual_output {
+                            log::info!("`can_infer` test passed!");
+                            TestCaseReportMeta::Success
+                        } else {
+                            TestCaseReportMeta::Error {
+                                error: "The output did not match the expected output.".to_string(),
+                            }
                         }
                     }
-                }
+                    None => {
+                        log::info!("`can_infer` test passed (no expected output)!");
+                        TestCaseReportMeta::Success
+                    }
+                },
                 Err(err) => TestCaseReportMeta::Error {
                     error: err.to_string(),
                 },
             },
             report: TestCaseReportInner::Inference {
                 input: input.into(),
-                expect_output: expected_output.into(),
+                expect_output: expected_output.map(|s| s.to_string()),
                 actual_output,
+                inference_stats: res.ok(),
             },
         })
     }

@@ -41,7 +41,7 @@ jobs:
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy -- -Dclippy::all
+        run: cargo clippy --workspace -- -Dclippy::all
       - name: Documentation
         env:
           RUSTDOCFLAGS: -Dwarnings
