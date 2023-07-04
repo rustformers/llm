@@ -1,4 +1,9 @@
-use std::{fmt, ops::Deref, path::PathBuf, sync::Arc};
+use std::{
+    fmt,
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
@@ -39,7 +44,7 @@ pub enum Args {
     /// Note that most, if not all, existing models are not trained for this
     /// and do not support a long enough context window to be able to
     /// have an extended conversation.
-    Chat(Box<Repl>),
+    Chat(Box<Chat>),
 
     /// Quantize a GGML model to 4-bit.
     Quantize(Box<Quantize>),
@@ -155,6 +160,51 @@ pub struct Repl {
 
     #[command(flatten)]
     pub generate: Generate,
+}
+
+#[derive(Parser, Debug)]
+pub struct Chat {
+    #[command(flatten)]
+    pub model_load: ModelLoad,
+
+    /// The file to read the initial prompt/prelude from.
+    ///
+    /// Must contain a `{{PROMPT}}` placeholder, which will be replaced with the
+    /// first user prompt.
+    #[arg(long, short = 'f')]
+    pub prelude_prompt_file: PathBuf,
+
+    /// The per-message prompt to use.
+    ///
+    /// Must contain a `{{PROMPT}}` placeholder, which will be replaced with the
+    /// user's message.
+    #[arg(long, short = 'p')]
+    pub message_prompt: Option<String>,
+
+    /// The file to read the per-message prompt from.
+    ///
+    /// Must contain a `{{PROMPT}}` placeholder, which will be replaced with the
+    /// user's message.
+    #[arg(long, short = 'q')]
+    pub message_prompt_file: Option<PathBuf>,
+
+    #[command(flatten)]
+    pub generate: Generate,
+}
+impl Chat {
+    pub fn message_prompt(&self) -> eyre::Result<String> {
+        if self.message_prompt.is_some() && self.message_prompt_file.is_some() {
+            eyre::bail!("Cannot specify both --message-prompt and --message-prompt-file")
+        }
+
+        if let Some(message_prompt_file) = &self.message_prompt_file {
+            read_prompt_file(message_prompt_file)
+        } else if let Some(message_prompt) = &self.message_prompt {
+            Ok(message_prompt.clone())
+        } else {
+            eyre::bail!("Must specify either --message-prompt or --message-prompt-file")
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -493,33 +543,34 @@ impl ModelLoad {
 pub struct PromptFile {
     /// A file to read the prompt from.
     #[arg(long, short = 'f', default_value = None)]
-    pub prompt_file: Option<String>,
+    pub prompt_file: Option<PathBuf>,
 }
 impl PromptFile {
-    pub fn contents(&self) -> Option<String> {
-        match &self.prompt_file {
-            Some(path) => {
-                match std::fs::read_to_string(path) {
-                    Ok(mut prompt) => {
-                        // Strip off the last character if it's exactly newline. Also strip off a single
-                        // carriage return if it's there. Since String must be valid UTF-8 it should be
-                        // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
-                        // bytes will always the high bit set.
-                        if matches!(prompt.as_bytes().last(), Some(b'\n')) {
-                            prompt.pop();
-                        }
-                        if matches!(prompt.as_bytes().last(), Some(b'\r')) {
-                            prompt.pop();
-                        }
-                        Some(prompt)
-                    }
-                    Err(err) => {
-                        log::error!("Could not read prompt file at {path}. Error {err}");
-                        std::process::exit(1);
-                    }
-                }
-            }
+    pub fn contents(&self) -> eyre::Result<Option<String>> {
+        Ok(match &self.prompt_file {
+            Some(path) => Some(read_prompt_file(path)?),
             _ => None,
+        })
+    }
+}
+
+pub fn read_prompt_file(path: &Path) -> eyre::Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(mut prompt) => {
+            // Strip off the last character if it's exactly newline. Also strip off a single
+            // carriage return if it's there. Since String must be valid UTF-8 it should be
+            // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
+            // bytes will always the high bit set.
+            if matches!(prompt.as_bytes().last(), Some(b'\n')) {
+                prompt.pop();
+            }
+            if matches!(prompt.as_bytes().last(), Some(b'\r')) {
+                prompt.pop();
+            }
+            Ok(prompt)
+        }
+        Err(err) => {
+            eyre::bail!("Could not read prompt file at {path:?}; error: {err}");
         }
     }
 }
