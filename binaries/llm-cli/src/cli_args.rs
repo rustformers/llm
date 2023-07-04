@@ -198,9 +198,25 @@ impl Chat {
         }
 
         if let Some(message_prompt_file) = &self.message_prompt_file {
-            read_prompt_file(message_prompt_file)
+            read_prompt_file(message_prompt_file).and_then(|prompt| {
+                prompt
+                    .contains("{{PROMPT}}")
+                    .then_some(prompt)
+                    .ok_or_else(|| {
+                        eyre::eyre!(
+                            "Message prompt file must contain a `{{{{PROMPT}}}}` placeholder, but it does not"
+                        )
+                    })
+            })
         } else if let Some(message_prompt) = &self.message_prompt {
-            Ok(message_prompt.clone())
+            message_prompt
+                .contains("{{PROMPT}}")
+                .then(|| message_prompt.clone())
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                    "Message prompt must contain a `{{{{PROMPT}}}}` placeholder, but it does not"
+                )
+                })
         } else {
             eyre::bail!("Must specify either --message-prompt or --message-prompt-file")
         }
