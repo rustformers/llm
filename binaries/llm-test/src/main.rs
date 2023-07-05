@@ -2,6 +2,7 @@
 
 mod common;
 mod inference;
+mod tokens;
 
 use anyhow::Context;
 use clap::Parser;
@@ -123,6 +124,10 @@ enum TestCase {
         output: Option<String>,
         maximum_token_count: usize,
     },
+    Tokens {
+        input: String,
+        output: usize,
+    },
 }
 
 #[derive(Serialize)]
@@ -145,13 +150,14 @@ enum TestCaseReportMeta {
 }
 
 #[derive(Serialize)]
-enum TestCaseReportInner {
+pub enum TestCaseReportInner {
     Inference {
         input: String,
         expect_output: Option<String>,
         actual_output: String,
         inference_stats: Option<InferenceStats>,
     },
+    Tokens(tokens::TokensReport),
 }
 
 async fn test_model(
@@ -269,6 +275,9 @@ async fn test_model(
                         output.as_deref(),
                         *maximum_token_count,
                     )?),
+                    TestCase::Tokens { input, output } => {
+                        test_case_reports.push(tokens::can_feed(&model, input, *output));
+                    }
                 }
             }
             let first_error: Option<String> =

@@ -1,4 +1,6 @@
-//! Test cases for [crate::TestCase::Inference] tests.
+//! Tests the model's inference APIs.
+//!
+//! See [crate::TestCase::Inference].
 
 use std::{convert::Infallible, sync::Arc};
 
@@ -6,7 +8,7 @@ use llm::InferenceStats;
 
 use crate::{ModelConfig, TestCaseReport, TestCaseReportInner, TestCaseReportMeta};
 
-pub(super) fn can_infer(
+pub(crate) fn can_infer(
     model: &dyn llm::Model,
     model_config: &ModelConfig,
     input: &str,
