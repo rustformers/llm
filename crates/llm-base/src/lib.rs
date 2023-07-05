@@ -28,8 +28,8 @@ pub use inference_session::{
     InferenceSnapshotRef, InferenceStats, ModelKVMemoryType, SnapshotError,
 };
 pub use loader::{
-    load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, LoadError,
-    LoadProgress, Loader, TensorLoader,
+    load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, FormatMagic,
+    LoadError, LoadProgress, Loader, TensorLoader,
 };
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;

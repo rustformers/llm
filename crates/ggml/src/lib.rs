@@ -75,7 +75,11 @@ impl ContainerType {
                 let version = util::read_u32(reader)?;
                 ContainerType::Ggla(version)
             }
-            magic => return Err(crate::format::LoadError::InvalidMagic(magic)),
+            magic => {
+                return Err(crate::format::LoadError::InvalidMagic(format::FormatMagic(
+                    magic,
+                )))
+            }
         };
 
         Ok(container_type)

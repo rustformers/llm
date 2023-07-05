@@ -6,6 +6,7 @@
 
 use std::{
     error::Error,
+    fmt,
     io::{BufRead, Seek, SeekFrom},
 };
 
@@ -14,12 +15,31 @@ use crate::{
     ContainerType, ElementType,
 };
 
+/// Helper struct that wraps the magic number of a file format,
+/// so that it can be printed in a human-readable format.
+pub struct FormatMagic(pub u32);
+impl fmt::Display for FormatMagic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:x} ({})",
+            self.0,
+            String::from_utf8_lossy(&self.0.to_le_bytes())
+        )
+    }
+}
+impl fmt::Debug for FormatMagic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 /// Errors that can occur while loading a model.
 pub enum LoadError<E: Error> {
     #[error("invalid file magic number: {0}")]
     /// The file magic number is invalid.
-    InvalidMagic(u32),
+    InvalidMagic(FormatMagic),
     #[error("invalid ggml format: format={0:?}")]
     /// An unsupported format version was found.
     InvalidFormatVersion(ContainerType),
