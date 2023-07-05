@@ -134,7 +134,8 @@ To make use of the features on the `main` branch, clone the repository and then
 build it with
 
 ```shell
-git clone --recurse-submodules git@github.com:rustformers/llm.git
+git clone --recurse-submodules https://github.com/rustformers/llm
+cd llm
 cargo build --release
 ```
 
