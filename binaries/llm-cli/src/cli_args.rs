@@ -71,6 +71,11 @@ pub struct Infer {
     #[arg(long, default_value_t = false)]
     pub hide_prompt: bool,
 
+    /// Loads a saved inference session from the given path, previously saved using
+    /// `--save-session`
+    #[arg(long, default_value = None)]
+    pub load_session: Option<PathBuf>,
+
     /// Saves an inference session at the given path. The same session can then be
     /// loaded from disk using `--load-session`.
     ///
@@ -245,11 +250,6 @@ pub struct Generate {
     /// for sampling.
     #[arg(long, default_value_t = 0.95)]
     pub top_p: f32,
-
-    /// Loads a saved inference session from the given path, previously saved using
-    /// `--save-session`
-    #[arg(long, default_value = None)]
-    pub load_session: Option<PathBuf>,
 
     /// Specifies the seed to use during sampling. Note that, depending on
     /// hardware, the same seed may lead to different results on two separate
