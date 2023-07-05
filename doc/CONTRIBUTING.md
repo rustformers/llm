@@ -97,7 +97,6 @@ To enable Metal using the CLI, ensure it was built successfully using `--feature
 
 The current underlying implementation of Metal in GGML is still in flux and has some limitations:
 
-- Metal for GGML requires the `ggml-metal.metal` file to be located in the same directory as the binary (i.e., `target/release/`). In future versions, this will likely be embedded in the binary itself.
 - Evaluating a model with more than one token at a time is not currently supported in GGML's Metal implementation. An `llm` inference session will fall back to the CPU implementation (typically during the 'feed prompt' phase) but will automatically use the GPU once a single token is passed per evaluation (typically after prompt feeding).
 - Not all model architectures will be equally stable when used with Metal due to ongoing work in the underlying implementation. Expect `llama` models to work fine though.
 - With Metal, it is possible but not required to use `mmap`. As buffers do not need to be copied to VRAM on M1, `mmap` is the most efficient however.
