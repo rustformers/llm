@@ -338,7 +338,7 @@ impl KnownModel for Llama {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        2
+        self.tokenizer.id("</s>".as_bytes()).unwrap_or(2)
     }
 
     fn quantize_tensors() -> Vec<Regex> {
