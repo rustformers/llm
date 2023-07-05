@@ -555,24 +555,8 @@ impl PromptFile {
 }
 
 pub fn read_prompt_file(path: &Path) -> eyre::Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(mut prompt) => {
-            // Strip off the last character if it's exactly newline. Also strip off a single
-            // carriage return if it's there. Since String must be valid UTF-8 it should be
-            // guaranteed that looking at the string as bytes here is safe: UTF-8 non-ASCII
-            // bytes will always the high bit set.
-            if matches!(prompt.as_bytes().last(), Some(b'\n')) {
-                prompt.pop();
-            }
-            if matches!(prompt.as_bytes().last(), Some(b'\r')) {
-                prompt.pop();
-            }
-            Ok(prompt)
-        }
-        Err(err) => {
-            eyre::bail!("Could not read prompt file at {path:?}; error: {err}");
-        }
-    }
+    std::fs::read_to_string(path)
+        .wrap_err_with(|| format!("Could not read prompt file at {path:?}"))
 }
 
 #[derive(Parser, Debug)]
