@@ -348,6 +348,10 @@ impl KnownModel for Llama {
     fn skip_quantize_tensors() -> Vec<Regex> {
         vec![]
     }
+
+    fn supports_delete(&self) -> bool {
+        true
+    }
 }
 
 /// LLaMA [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))

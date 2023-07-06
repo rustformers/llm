@@ -318,6 +318,10 @@ impl KnownModel for GptJ {
     fn skip_quantize_tensors() -> Vec<Regex> {
         vec![]
     }
+
+    fn supports_delete(&self) -> bool {
+        true
+    }
 }
 
 /// GPT-J [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))

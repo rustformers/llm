@@ -15,6 +15,9 @@
                 "input": "Rustformers is",
                 "output": 260
             }
+        },
+        {
+            "Delete": {}
         }
     ]
 }

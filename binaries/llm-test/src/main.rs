@@ -1,6 +1,7 @@
 //! Test runner for all LLMs.
 
 mod common;
+mod delete;
 mod inference;
 mod tokens;
 
@@ -128,6 +129,7 @@ enum TestCase {
         input: String,
         output: usize,
     },
+    Delete {},
 }
 
 #[derive(Serialize)]
@@ -158,6 +160,7 @@ pub enum TestCaseReportInner {
         inference_stats: Option<InferenceStats>,
     },
     Tokens(tokens::TokensReport),
+    Delete(delete::DeleteReport),
 }
 
 async fn test_model(
@@ -277,6 +280,9 @@ async fn test_model(
                     )?),
                     TestCase::Tokens { input, output } => {
                         test_case_reports.push(tokens::can_feed(&model, input, *output));
+                    }
+                    TestCase::Delete {} => {
+                        test_case_reports.push(delete::can_delete(&model));
                     }
                 }
             }

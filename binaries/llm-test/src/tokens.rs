@@ -6,7 +6,7 @@
 
 use std::convert::Infallible;
 
-use llm::{InferenceFeedback, Model, OutputRequest};
+use llm::{InferenceFeedback, InferenceSession, Model, OutputRequest};
 use serde::Serialize;
 
 use crate::{TestCaseReport, TestCaseReportMeta};
@@ -14,20 +14,13 @@ use crate::{TestCaseReport, TestCaseReportMeta};
 /// Tests that the model performs as expected when feeding tokens
 pub(crate) fn can_feed(model: &impl Model, input: &str, expected_output: usize) -> TestCaseReport {
     let mut report = TokensReport::default();
-
     let mut session = model.start_session(Default::default());
     let mut output = OutputRequest {
         all_logits: Some(vec![]),
         ..Default::default()
     };
 
-    let feed_prompt = &mut |prompt: &str| {
-        session.feed_prompt(model, &Default::default(), prompt, &mut output, |x| {
-            always_continue(x)
-        })
-    };
-
-    if let Err(err) = feed_prompt(input) {
+    if let Err(err) = feed_prompt(input, &mut session, model, &mut output) {
         return report.failure(&err.to_string());
     };
 
@@ -62,7 +55,19 @@ pub(crate) fn can_feed(model: &impl Model, input: &str, expected_output: usize) 
         ));
     }
 
+    log::info!("`can_feed` test passed (no expected output)!");
     report.success()
+}
+
+fn feed_prompt(
+    prompt: &str,
+    session: &mut InferenceSession,
+    model: &impl Model,
+    output: &mut OutputRequest,
+) -> Result<(), llm::InferenceError> {
+    session.feed_prompt(model, &Default::default(), prompt, output, |x| {
+        always_continue(x)
+    })
 }
 
 fn always_continue(_: &[u8]) -> Result<InferenceFeedback, Infallible> {

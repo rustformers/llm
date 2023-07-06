@@ -396,6 +396,10 @@ impl KnownModel for Bloom {
     fn skip_quantize_tensors() -> Vec<Regex> {
         vec![]
     }
+
+    fn supports_delete(&self) -> bool {
+        true
+    }
 }
 
 /// BLOOM [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))

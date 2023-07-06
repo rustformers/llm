@@ -333,6 +333,37 @@ impl InferenceSession {
         Ok(())
     }
 
+    /// Removes `num` tokens from the end of the buffer. Roughly the inverse of `feed_prompt`.
+    pub fn delete_tokens(
+        &mut self,
+        model: &dyn Model,
+        num: usize,
+    ) -> Result<Vec<TokenId>, DeleteError> {
+        if !model.supports_delete() {
+            return Err(DeleteError::UnsupportedArchitecture);
+        }
+
+        if num >= self.n_past {
+            return Err(DeleteError::NotEnoughTokens);
+        }
+
+        // Remove the tokens from self.tokens.
+        let token_start = self.n_past - num;
+        let deleted_tokens: Vec<_> = self.tokens.drain(token_start..).collect();
+
+        // Remove the corresponding chars from decoded
+        let mut decoded_start = self.decoded_tokens.len();
+        for id in &deleted_tokens {
+            decoded_start -= model.tokenizer().token(*id as usize).len();
+        }
+        self.decoded_tokens.truncate(decoded_start);
+
+        // Decrement the n_past tokens counter.
+        self.n_past -= num;
+
+        Ok(deleted_tokens)
+    }
+
     /// Infer the next token for this session.
     pub fn infer_next_token(
         &mut self,
@@ -635,6 +666,18 @@ pub enum InferenceError {
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error>),
+}
+
+#[derive(Error, Debug)]
+/// Errors encountered during the snapshot process.
+pub enum DeleteError {
+    /// Tried deleting more tokens than were available
+    #[error("tried deleting more tokens than were available")]
+    NotEnoughTokens,
+
+    /// Model architecture does not support delete
+    #[error("model architecture does not support deletes")]
+    UnsupportedArchitecture,
 }
 
 #[derive(Error, Debug)]
