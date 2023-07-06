@@ -78,14 +78,16 @@ jobs:
         with:
           cuda: '12.1.0'
           method: 'network'
-          sub-packages: '["nvcc","cudart","cublas"]'
+          #See e.g. https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
+          sub-packages: '["nvcc","compiler","libraries","libraries-dev","cudart","cudart-dev","libcublas","libcublas-dev"]'
       - uses: Jimver/cuda-toolkit@v0.2.10
         if: matrix.os == 'windows-latest'
         id: cuda-toolkit-windows
         with:
           cuda: '12.1.0'
           method: 'network'
-          sub-packages: '["nvcc","cudart","visual_studio_integration","cublas_dev"]'
+          #See https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-the-cuda-software
+          sub-packages: '["nvcc","cudart","visual_studio_integration","cublas_dev","cublas"]'
       - uses: dtolnay/rust-toolchain@stable
       - name: Check
         run: cargo check --verbose
