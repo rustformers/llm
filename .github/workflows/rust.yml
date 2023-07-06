@@ -46,3 +46,72 @@ jobs:
         env:
           RUSTDOCFLAGS: -Dwarnings
         run: cargo doc --workspace --exclude llm-cli
+
+  metal:
+    name: Build with metal support
+    runs-on: macos-latest
+    steps: 
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Check
+      run: cargo check --verbose
+    - name: Build
+      run: cargo build --verbose --features metal
+
+  # cuda:
+  #   name: Build with cuda support
+  #   strategy:
+  #   # Don't stop building if it fails on an OS
+  #     fail-fast: false
+  #     matrix:
+  #       os: [windows-latest, ubuntu-latest]
+  #   runs-on: ${{ matrix.os }}
+  #   steps: 
+  #     - uses: actions/checkout@v3
+  #       with:
+  #         submodules: recursive
+  #     - uses: Jimver/cuda-toolkit@v0.2.10
+  #       if: matrix.os == 'ubuntu-latest'
+  #       id: cuda-toolkit-linux
+  #       with:
+  #         cuda: '12.1.0'
+  #         method: 'network'
+  #         #See e.g. https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
+  #         sub-packages: '["nvcc","compiler","libraries","libraries-dev","cudart","cudart-dev","libcublas","libcublas-dev"]'
+  #     - uses: Jimver/cuda-toolkit@v0.2.10
+  #       if: matrix.os == 'windows-latest'
+  #       id: cuda-toolkit-windows
+  #       with:
+  #         cuda: '12.1.0'
+  #         method: 'network'
+  #         #See https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-the-cuda-software
+  #         sub-packages: '["nvcc","cudart","visual_studio_integration","cublas_dev","cublas"]'
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - name: Check
+  #       run: cargo check --verbose
+  #     - name: Build
+  #       run: cargo build --verbose --features cublas
+
+  opencl:
+    name: Build with opencl support
+    strategy:
+    # Don't stop building if it fails on an OS
+      fail-fast: false
+      matrix:
+        # TODO Add windows opencl build
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps: 
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Install clblast
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt install libclblast-dev 
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check
+        run: cargo check --verbose
+      - name: Build
+        run: cargo build --verbose --features clblast
