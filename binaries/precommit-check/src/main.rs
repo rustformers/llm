@@ -8,7 +8,11 @@ fn main() {
         &["doc", "--workspace", "--exclude", "llm-cli"],
         &[("RUSTDOCFLAGS", "-Dwarnings")],
     );
-    cmd("cargo", &["clippy", "--", "-Dclippy::all"], &[]);
+    cmd(
+        "cargo",
+        &["clippy", "--workspace", "--", "-Dclippy::all"],
+        &[],
+    );
 }
 
 fn cmd(cmd: &str, args: &[&str], env: &[(&str, &str)]) {

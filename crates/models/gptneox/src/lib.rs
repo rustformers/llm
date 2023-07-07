@@ -337,6 +337,10 @@ impl KnownModel for GptNeoX {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
     }
 
+    fn hyperparameters(&self) -> &Self::Hyperparameters {
+        &self.hyperparameters
+    }
+
     fn tokenizer(&self) -> &Tokenizer {
         &self.tokenizer
     }

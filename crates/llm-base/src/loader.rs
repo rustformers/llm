@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     error::Error,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -11,7 +11,7 @@ use crate::{
     util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
     Tokenizer, TokenizerLoadError, TokenizerSource,
 };
-pub use ggml::ContainerType;
+pub use ggml::{format::FormatMagic, ContainerType};
 use ggml::{
     format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
     Context,
@@ -247,16 +247,17 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
-    #[error("unsupported f16_: {0}")]
-    /// The `f16_` hyperparameter had an invalid value.
+    #[error("unsupported ftype: {0}")]
+    /// The `ftype` hyperparameter had an invalid value. This usually means that the format used
+    /// by this file is unrecognized by this version of `llm`.
     UnsupportedFileType(i32),
-    #[error("invalid magic number {magic:#x} for {path:?}")]
+    #[error("invalid magic number {magic} for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
     InvalidMagic {
         /// The path that failed.
         path: PathBuf,
         /// The magic number that was encountered.
-        magic: u32,
+        magic: FormatMagic,
     },
     #[error("invalid file format {container_type:?}")]
     /// The version of the format is not supported by this version of `llm`.
@@ -337,7 +338,9 @@ pub enum LoadError {
     /// There is insufficient information to guess the model architecture from the provided file.
     ///
     /// A model architecture must be provided to load the model.
-    #[error("could not guess model architecture from {path:?}")]
+    #[error(
+        "could not guess model architecture from {path:?}. Please provide a model architecture."
+    )]
     MissingModelArchitecture {
         /// The path that failed.
         path: PathBuf,

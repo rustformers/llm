@@ -118,7 +118,7 @@ fn generate_extra(
 
     builder
         .generate()
-        .expect(&format!("Unable to generate {name} bindings"))
+        .unwrap_or_else(|_| panic!("Unable to generate {name} bindings"))
         .write_to_file(src_path.join(format!("{name}.rs")))
-        .expect(&format!("Couldn't write {name} bindings"));
+        .unwrap_or_else(|_| panic!("Couldn't write {name} bindings"));
 }

@@ -134,7 +134,8 @@ To make use of the features on the `main` branch, clone the repository and then
 build it with
 
 ```shell
-git clone --recurse-submodules git@github.com:rustformers/llm.git
+git clone --recurse-submodules https://github.com/rustformers/llm
+cd llm
 cargo build --release
 ```
 
@@ -161,8 +162,21 @@ To enable hardware acceleration, see [Acceleration Support for Building section]
 
 ## Getting Models
 
-GGML files are easy to acquire. For a list of models that have been tested, see
-the [known-good models](./doc/known-good-models.md).
+GGML models are easy to acquire. They are primarily located on Hugging Face
+(see [From Hugging Face](#from-hugging-face)), but can be obtained from elsewhere.
+
+Models are distributed as single files, and do not need any additional files to
+be downloaded. However, they are quantized with different levels of precision,
+so you will need to choose a quantization level that is appropriate for your
+application.
+
+Additionally, we support Hugging Face tokenizers to improve the quality of
+tokenization. These are separate files (`tokenizer.json`) that can be used
+with the CLI using the `-v` or `-r` flags, or with the `llm` crate by
+using the appropriate `TokenizerSource` enum variant.
+
+For a list of models that have been tested, see the
+[known-good models](./doc/known-good-models.md).
 
 Certain older GGML formats are not supported by this project, but the goal is to
 maintain feature parity with the upstream GGML project. For problems relating to

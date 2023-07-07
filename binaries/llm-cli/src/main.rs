@@ -6,8 +6,8 @@ use std::{
 
 use clap::Parser;
 use cli_args::Args;
-use color_eyre::eyre::{Context, ContextCompat, Result};
-use llm::{InferenceError, InferenceFeedback, InferenceResponse};
+use color_eyre::eyre::{bail, Context, ContextCompat, Result};
+use llm::{InferenceError, InferenceFeedback, InferenceResponse, InferenceSession};
 use rustyline::{
     error::ReadlineError,
     history::DefaultHistory,
@@ -31,21 +31,21 @@ fn main() -> Result<()> {
         Args::Perplexity(args) => perplexity(&args),
         Args::Info(args) => info(&args),
         Args::PromptTokens(args) => prompt_tokens(&args),
-        Args::Repl(args) => interactive(&args, false),
-        Args::Chat(args) => interactive(&args, true),
+        Args::Repl(args) => repl(&args),
+        Args::Chat(args) => chat(&args),
         Args::Quantize(args) => quantize(&args),
     }
 }
 
 fn infer(args: &cli_args::Infer) -> Result<()> {
-    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load(args.generate.use_gpu)?;
 
     let (mut session, session_loaded) = snapshot::read_or_create_session(
         model.as_ref(),
         args.persist_session.as_deref(),
-        args.generate.load_session.as_deref(),
+        args.load_session.as_deref(),
         inference_session_config,
     );
     let parameters = args.generate.inference_parameters(model.eot_token_id());
@@ -106,15 +106,11 @@ fn infer(args: &cli_args::Infer) -> Result<()> {
 }
 
 fn perplexity(args: &cli_args::Perplexity) -> Result<()> {
-    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let inference_session_config = args.generate.inference_session_config();
     let model = args.model_load.load(args.generate.use_gpu)?;
-    let (mut session, _) = snapshot::read_or_create_session(
-        model.as_ref(),
-        None,
-        args.generate.load_session.as_deref(),
-        inference_session_config,
-    );
+    let (mut session, _) =
+        snapshot::read_or_create_session(model.as_ref(), None, None, inference_session_config);
     let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     session.perplexity(
@@ -183,7 +179,7 @@ fn info(args: &cli_args::Info) -> Result<()> {
 }
 
 fn prompt_tokens(args: &cli_args::PromptTokens) -> Result<()> {
-    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref());
+    let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let model = args.model_load.load(false)?;
     let toks = match model.tokenizer().tokenize(&prompt, false) {
         Ok(toks) => toks,
@@ -223,27 +219,94 @@ fn force_newline_event_seq() -> KeyEvent {
     KeyEvent(KeyCode::Enter, Modifiers::SHIFT)
 }
 
-fn interactive(
-    args: &cli_args::Repl,
-    // If set to false, the session will be cloned after each inference
-    // to ensure that previous state is not carried over.
-    chat_mode: bool,
-) -> Result<()> {
-    let prompt_file = args.prompt_file.contents();
-    let inference_session_config = args.generate.inference_session_config();
-    let model = args.model_load.load(args.generate.use_gpu)?;
-    let (mut session, mut session_loaded) = snapshot::read_or_create_session(
-        model.as_ref(),
+fn repl(args: &cli_args::Repl) -> Result<()> {
+    interactive(
+        &args.generate,
+        &args.model_load,
+        false,
         None,
-        args.generate.load_session.as_deref(),
-        inference_session_config,
-    );
-    let parameters = args.generate.inference_parameters(model.eot_token_id());
+        args.prompt_file.contents()?.as_deref(),
+    )
+}
 
-    let mut rng = args.generate.rng();
+fn chat(args: &cli_args::Chat) -> Result<()> {
+    interactive(
+        &args.generate,
+        &args.model_load,
+        true,
+        Some(std::fs::read_to_string(&args.prelude_prompt_file)?.as_str()),
+        Some(&args.message_prompt()?),
+    )
+}
+
+fn interactive(
+    generate: &cli_args::Generate,
+    model_load: &cli_args::ModelLoad,
+    chat_mode: bool,
+    mut initial_prompt_template: Option<&str>,
+    message_prompt_template: Option<&str>,
+) -> Result<()> {
+    let inference_session_config = generate.inference_session_config();
+    let model = model_load.load(generate.use_gpu)?;
+
+    let recreate_session =
+        || snapshot::read_or_create_session(model.as_ref(), None, None, inference_session_config).0;
+    let mut session = recreate_session();
+
+    let parameters = generate.inference_parameters(model.eot_token_id());
+    let mut rng = generate.rng();
+
+    fn session_ends_with_newline(session: &InferenceSession) -> bool {
+        session
+            .decoded_tokens()
+            .last()
+            .map(|t| *t == b'\n')
+            .unwrap_or(false)
+    }
+
+    let mut infer = |session: &mut InferenceSession, mut prompt: String| {
+        // Add a newline to the beginning of the prompt if the last character in the session is not a newline
+        if !session_ends_with_newline(session) {
+            prompt.insert(0, '\n');
+        }
+
+        let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
+        if let Err(InferenceError::ContextFull) = session.feed_prompt(
+            model.as_ref(),
+            &parameters,
+            &prompt,
+            // OutputRequest
+            &mut Default::default(),
+            |_| Ok::<_, Infallible>(InferenceFeedback::Continue),
+        ) {
+            log::error!("Prompt exceeds context window length.")
+        };
+        sp.clear();
+
+        session.infer::<Infallible>(
+            model.as_ref(),
+            &mut rng,
+            &llm::InferenceRequest {
+                prompt: "".into(),
+                parameters: &parameters,
+                play_back_previous_tokens: false,
+                maximum_token_count: generate.num_predict,
+            },
+            &mut Default::default(),
+            |r| match r {
+                InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                    print!("{t}");
+                    std::io::stdout().flush().unwrap();
+
+                    Ok(InferenceFeedback::Continue)
+                }
+                _ => Ok(InferenceFeedback::Continue),
+            },
+        )
+    };
+
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
     rl.set_helper(Some(LineContinuationValidator));
-
     rl.bind_sequence(force_newline_event_seq(), Cmd::Newline);
 
     loop {
@@ -252,59 +315,31 @@ fn interactive(
             Ok(raw_line) => {
                 let line = raw_line.replace("\\\n", "\n");
 
-                let prompt = prompt_file
-                    .as_deref()
+                // Use the initial prompt template for the first inference,
+                // and then switch to the message prompt template afterwards
+                let mut prompt = initial_prompt_template
+                    .take()
+                    .or(message_prompt_template)
                     .map(|pf| process_prompt(pf, &line))
                     .unwrap_or(line);
 
-                let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
-                if let Err(InferenceError::ContextFull) = session.feed_prompt(
-                    model.as_ref(),
-                    &parameters,
-                    &prompt,
-                    // OutputRequest
-                    &mut Default::default(),
-                    |_| Ok::<_, Infallible>(InferenceFeedback::Continue),
-                ) {
-                    log::error!("Prompt exceeds context window length.")
-                };
-                sp.clear();
+                // Add a newline to the end of the prompt if it doesn't end with one in chat mode
+                if chat_mode && !prompt.ends_with('\n') {
+                    prompt.push('\n');
+                }
 
-                let res = session.infer::<Infallible>(
-                    model.as_ref(),
-                    &mut rng,
-                    &llm::InferenceRequest {
-                        prompt: "".into(),
-                        parameters: &parameters,
-                        play_back_previous_tokens: session_loaded,
-                        maximum_token_count: args.generate.num_predict,
-                    },
-                    // EvaluateOuputRequest
-                    &mut Default::default(),
-                    |r| match r {
-                        InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
-                            print!("{t}");
-                            std::io::stdout().flush().unwrap();
+                if let Err(err) = infer(&mut session, prompt) {
+                    log::error!("{err}");
+                    break;
+                }
 
-                            Ok(InferenceFeedback::Continue)
-                        }
-                        _ => Ok(InferenceFeedback::Continue),
-                    },
-                );
-                println!();
-
-                if let Err(InferenceError::ContextFull) = res {
-                    log::error!("Reply exceeds context window length");
+                if !session_ends_with_newline(&session) {
+                    println!();
                 }
 
                 // Reload session in REPL mode
-                if !chat_mode {
-                    (session, session_loaded) = snapshot::read_or_create_session(
-                        model.as_ref(),
-                        None,
-                        args.generate.load_session.as_deref(),
-                        inference_session_config,
-                    );
+                if message_prompt_template.is_none() {
+                    session = recreate_session();
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
@@ -312,6 +347,7 @@ fn interactive(
             }
             Err(err) => {
                 log::error!("{err}");
+                break;
             }
         }
     }
@@ -382,8 +418,8 @@ fn quantize(args: &cli_args::Quantize) -> Result<()> {
 fn load_prompt_file_with_prompt(
     prompt_file: &cli_args::PromptFile,
     prompt: Option<&str>,
-) -> String {
-    if let Some(prompt_file) = prompt_file.contents() {
+) -> Result<String> {
+    Ok(if let Some(prompt_file) = prompt_file.contents()? {
         if let Some(prompt) = prompt {
             process_prompt(&prompt_file, prompt)
         } else {
@@ -392,9 +428,8 @@ fn load_prompt_file_with_prompt(
     } else if let Some(prompt) = prompt {
         prompt.to_owned()
     } else {
-        log::error!("No prompt or prompt file was provided. See --help");
-        std::process::exit(1);
-    }
+        bail!("No prompt or prompt file was provided. See --help");
+    })
 }
 
 #[derive(Completer, Helper, Highlighter, Hinter, Debug, Clone, Copy)]

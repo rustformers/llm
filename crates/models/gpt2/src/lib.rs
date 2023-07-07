@@ -323,6 +323,10 @@ impl KnownModel for Gpt2 {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
+    fn hyperparameters(&self) -> &Self::Hyperparameters {
+        &self.hyperparameters
+    }
+
     fn tokenizer(&self) -> &Tokenizer {
         &self.tokenizer
     }

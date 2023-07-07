@@ -2,8 +2,9 @@
 
 The following models have been tested and are known to work with `llm`.
 
-We are collecting models in the [rustformers](https://huggingface.co/rustformers) organization,
-but this work is ongoing.
+Models are distributed as single files, but come in a variety of quantization levels.
+You will need to select the quantization level that is appropriate for your application.
+For more information, see [Getting Models](../README.md#getting-models) in the README.
 
 The LLaMA architecture is the most well-supported.
 
@@ -16,7 +17,8 @@ However, the OpenLLaMA models are available under the Apache 2.0 license and are
 - <https://huggingface.co/TheBloke/open-llama-13b-open-instruct-GGML>
 - <https://huggingface.co/TheBloke/Flan-OpenLlama-7B-GGML>
 
-Models based on the original LLaMA model are also compatible, but you will need to find them yourselves.
+Models based on the original LLaMA model are also compatible, but you will need to find them yourselves
+due to their licensing.
 
 ## GPT-2
 

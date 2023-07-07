@@ -328,6 +328,10 @@ impl KnownModel for Falcon {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
+    fn hyperparameters(&self) -> &Self::Hyperparameters {
+        &self.hyperparameters
+    }
+
     fn tokenizer(&self) -> &Tokenizer {
         &self.tokenizer
     }
@@ -354,7 +358,7 @@ impl KnownModel for Falcon {
 }
 
 /// Falcon [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Clone, Copy, Eq)]
 pub struct Hyperparameters {
     /// Size of the model's vocabulary
     n_vocab: usize,

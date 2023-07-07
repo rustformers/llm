@@ -337,6 +337,10 @@ impl KnownModel for Llama {
         common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
     }
 
+    fn hyperparameters(&self) -> &Self::Hyperparameters {
+        &self.hyperparameters
+    }
+
     fn tokenizer(&self) -> &Tokenizer {
         &self.tokenizer
     }
@@ -350,7 +354,7 @@ impl KnownModel for Llama {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        2
+        self.tokenizer.id("</s>".as_bytes()).unwrap_or(2)
     }
 
     fn quantize_tensors() -> Vec<Regex> {
