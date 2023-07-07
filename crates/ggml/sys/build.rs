@@ -156,7 +156,7 @@ fn enable_clblast(build: &mut cc::Build) {
     println!("cargo:rustc-link-lib=clblast");
     println!("cargo:rustc-link-lib=OpenCL");
 
-    if cfg!(linux) {
+    if cfg!(target_os = "linux") {
         //enable dynamic linking against stdc++
         println!(r"cargo:rustc-link-lib=dylib=stdc++");
     }
