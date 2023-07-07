@@ -123,16 +123,6 @@ impl<'session> BuildContext<'session> {
     pub fn get_scratch(&self, idx: usize) -> Option<&Buffer> {
         Some(&self.scratch[idx])
     }
-
-    pub fn enable_offloading(&self) {
-        let mut ctx0 = self.ctx0.borrow_mut();
-        ctx0.enable_offloading();
-    }
-
-    pub fn disable_offloading(&self) {
-        let mut ctx0 = self.ctx0.borrow_mut();
-        ctx0.disable_offloading();
-    }
 }
 
 unsafe impl Send for InferenceSession {}

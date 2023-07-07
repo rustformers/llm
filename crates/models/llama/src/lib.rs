@@ -52,9 +52,16 @@ impl KnownModel for Llama {
 
         // model-global weights
         let wte = tl.load("tok_embeddings.weight")?;
-        let norm = tl.offload("norm.weight", Backend::Gpu)?;
 
-        let output = tl.offload("output.weight", Backend::Gpu)?;
+        let backend = if params.should_offload(0) {
+            Backend::Gpu
+        } else {
+            Backend::Cpu
+        };
+
+        let norm = tl.offload("norm.weight", backend)?;
+
+        let output = tl.offload("output.weight", backend)?;
 
         let mut layers = Vec::new();
 
@@ -131,6 +138,7 @@ impl KnownModel for Llama {
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
+
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
             // for big prompts, if BLAS is enabled, it is better to use only one thread

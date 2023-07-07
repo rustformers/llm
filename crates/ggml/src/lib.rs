@@ -559,9 +559,4 @@ pub fn accelerator_initialize(device: i32) {
         let split = 1.0f32;
         sys::cuda::ggml_cuda_set_tensor_split(&split as *const f32);
     }
-
-    #[cfg(feature = "clblast")]
-    unsafe {
-        sys::opencl::ggml_cl_init();
-    }
 }
