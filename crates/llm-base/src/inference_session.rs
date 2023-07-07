@@ -1,6 +1,6 @@
 use ggml::{Buffer, ComputationGraph, Context, Tensor};
 use serde::Serialize;
-use std::{fmt::Display, sync::Arc};
+use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
 
 #[cfg(feature = "metal")]
