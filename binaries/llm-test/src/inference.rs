@@ -2,9 +2,14 @@
 //!
 //! See [crate::TestCase::Inference].
 
-use std::{convert::Infallible, sync::Arc};
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex},
+};
 
-use llm::{InferenceSessionConfig, InferenceStats};
+use llm::{InferenceSessionConfig, InferenceStats, TokenId};
+
+use llm_samplers::prelude::{HasSamplerResources, Logits, SampleFlatBias, SampleGreedy, Sampler};
 
 use crate::{ModelConfig, TestCaseReport, TestCaseReportInner, TestCaseReportMeta};
 
@@ -66,7 +71,7 @@ fn run_inference(
         &llm::InferenceRequest {
             prompt: input.into(),
             parameters: &llm::InferenceParameters {
-                sampler: Arc::new(DeterministicSampler),
+                sampler: Arc::new(Mutex::new(DeterministicSampler::default())),
             },
             play_back_previous_tokens: false,
             maximum_token_count: Some(maximum_token_count),
@@ -84,27 +89,29 @@ fn run_inference(
     (actual_output, res)
 }
 
-#[derive(Debug)]
-struct DeterministicSampler;
-impl llm::Sampler for DeterministicSampler {
-    fn sample(
-        &self,
-        previous_tokens: &[llm::TokenId],
-        logits: &[f32],
-        _rng: &mut dyn rand::RngCore,
-    ) -> llm::TokenId {
-        // Takes the most likely element from the logits, except if they've appeared in `previous_tokens`
-        // at all
-        let mut logits = logits.to_vec();
-        for &token in previous_tokens {
-            logits[token as usize] = f32::NEG_INFINITY;
-        }
+// Takes the most likely element from the logits, except if they've appeared in `previous_tokens`
+// at all
+#[derive(Debug, Default)]
+struct DeterministicSampler(SampleGreedy<TokenId>);
 
-        logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap()
-            .0 as llm::TokenId
+impl Sampler<TokenId, f32> for DeterministicSampler {
+    fn sample<'a>(
+        &mut self,
+        res: &mut dyn HasSamplerResources<TokenId = TokenId>,
+        logits: &'a mut Logits<TokenId, f32>,
+    ) -> anyhow::Result<&'a mut Logits<TokenId, f32>> {
+        let mut flat_bias = Default::default();
+
+        // This might look a little weird, but it's necessary because the resource
+        // `with_` functions can't return a value.
+        res.with_last_tokens(&mut |lt| {
+            flat_bias = SampleFlatBias::new(lt.iter().map(|tid| (*tid, f32::NEG_INFINITY)));
+        })?;
+
+        logits.sample(res, &mut flat_bias)?.sample(res, &mut self.0)
+    }
+
+    fn sampled_token_id(&self) -> Option<TokenId> {
+        *self.0
     }
 }

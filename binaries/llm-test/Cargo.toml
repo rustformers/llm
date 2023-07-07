@@ -17,6 +17,7 @@ clap = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
+llm-samplers = { workspace = true }
 
 reqwest = "0.11.9"
 indicatif = "0.16.2"
