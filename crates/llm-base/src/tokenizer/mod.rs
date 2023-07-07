@@ -298,6 +298,12 @@ impl TokenBias {
     }
 }
 
+impl From<TokenBias> for Vec<(TokenId, f32)> {
+    fn from(val: TokenBias) -> Self {
+        val.0
+    }
+}
+
 impl FromStr for TokenBias {
     type Err = InvalidTokenBias;
 

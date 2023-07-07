@@ -2,15 +2,16 @@ use std::{
     fmt,
     ops::Deref,
     path::{Path, PathBuf},
-    sync::Arc,
+    str::FromStr,
 };
 
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
-    ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides, TokenBias,
-    TokenizerSource,
+    ggml_format,
+    samplers::{build_sampler, ConfiguredSampler},
+    ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias, LoadProgress,
+    Model, ModelKVMemoryType, ModelParameters, RoPEOverrides, TokenBias, TokenId, TokenizerSource,
 };
 use rand::SeedableRng;
 
@@ -244,29 +245,62 @@ pub struct Generate {
     #[arg(long, default_value_t = 8)]
     pub batch_size: usize,
 
-    /// Size of the 'last N' buffer that is used for the `repeat_penalty`
-    /// option. In tokens.
-    #[arg(long, default_value_t = 64)]
-    pub repeat_last_n: usize,
+    /// Configure sampler settings using a string in the format: sampler_name:key1=value1:key2=value2
+    /// This option may be specified multiple times.
+    /// NOTE: If mirostat1 or mirostat2 samplers are configured then samplers other than repetition, frequency/presence and temperature will be ignored.
+    /// TIPS:
+    ///   1. Sampler options aren't required, but the colon after the name is. For example "mirostat1:" will enable Mirostat 1 with its default options.
+    ///   2. It's possible to specify partial option names, as long as they are unambiguous.
+    ///   3. You can skip the underscore in sampler (but not option) names.
+    ///
+    /// Configurable samplers (defaults shown in parenthesis):
+    ///
+    /// freq_presence (default: disabled) - Allows penalizing tokens for presence and frequency.
+    ///   frequency_penalty(0.0): Penalty to apply to tokens based on frequency. For example, if a token has appeared 3 times within the last_n range then it will have its probability decreased by 3 * frequency_penalty.
+    ///   presence_penalty(0.0): Penalty to apply to tokens that are already present within the last_n tokens.
+    ///   last_n(64): Number of previous tokens to consider.
+    ///
+    /// locally_typical (default: disabled) - An approach to sampling that attempts to maximize natural and human-like output. See: https://arxiv.org/abs/2202.00666
+    ///   p(1.0): Referred to as τ in the paper. It suggests using 0.2 as a value for story generation and `0.95` for "abstractive summarization" (presumably this means more factual output). 1.0 appears to be the same as disabled which is similar to top-p sampling.
+    ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
+    ///
+    /// mirostat1 (default: disabled) - See: https://arxiv.org/abs/2007.14966
+    ///   eta(0.1): Learning rate
+    ///   tau(5.0): Target entropy
+    ///   mu(tau * 2): Initial learning state value. Setting this is generally not recommended.
+    ///
+    /// mirostat2 (default: disabled) - See: https://arxiv.org/abs/2007.14966
+    ///   eta(0.1): Learning rate
+    ///   tau(5.0): Target entropy
+    ///   mu(tau * 2): Initial learning state value. Setting this is generally not recommended.
+    ///
+    /// repetition - Allows setting a repetition penalty.
+    ///   penalty(1.30): The penalty for repeating tokens. Higher values make the generation less likely to get into a loop, but may harm results when repetitive outputs are desired.
+    ///   last_n(64): Number of previous tokens to consider.
+    ///
+    /// tail_free (default: disabled) - An approach to sampling that attempts to outperform existing nucleus (top-p and top-k) methods. See: https://trentbrick.github.io/Tail-Free-Sampling/
+    ///   z(1.0): It is not entirely clear what a reasonable value here is but 1.0 appears to be the same as disabled which is similar to top-p sampling.
+    ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
+    ///
+    /// temperature - Temperature used for sampling.
+    ///   temperature(0.8): Temperature (randomness) used for sampling. A higher number is more random.
+    ///
+    /// top_k - The top k (or min_keep if it is greater) tokens by score are kept during sampling.
+    ///   k(40): Number of tokens to keep.
+    ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
+    ///
+    /// top_p - The probability for the top tokens are added until the result is greater or equal to P and at least min_keep tokens have been seen.
+    ///   p(0.95): The cumulative probability after which no more tokens are kept for sampling.
+    ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
 
-    /// The penalty for repeating tokens. Higher values make the generation less
-    /// likely to get into a loop, but may harm results when repetitive outputs
-    /// are desired.
-    #[arg(long, default_value_t = 1.30)]
-    pub repeat_penalty: f32,
-
-    /// Temperature
-    #[arg(long, default_value_t = 0.80)]
-    pub temperature: f32,
-
-    /// Top-K: The top K words by score are kept during sampling.
-    #[arg(long, default_value_t = 40)]
-    pub top_k: usize,
-
-    /// Top-p: The cumulative probability after which no more words are kept
-    /// for sampling.
-    #[arg(long, default_value_t = 0.95)]
-    pub top_p: f32,
+    #[arg(
+        long = "sampler",
+        short = 's',
+        verbatim_doc_comment,
+        action = ArgAction::Append,
+        value_parser = ConfiguredSampler::from_str
+    )]
+    pub configured_samplers: Vec<ConfiguredSampler>,
 
     /// Specifies the seed to use during sampling. Note that, depending on
     /// hardware, the same seed may lead to different results on two separate
@@ -295,8 +329,7 @@ pub struct Generate {
     pub token_bias: Option<TokenBias>,
 
     /// Prevent the end of stream (EOS/EOD) token from being generated. This will allow the
-    /// model to generate text until it runs out of context space. Note: The --token-bias
-    /// option will override this if specified.
+    /// model to generate text until it runs out of context space.
     #[arg(long, default_value_t = false)]
     pub ignore_eos: bool,
 
@@ -348,25 +381,17 @@ impl Generate {
         }
     }
 
-    pub fn inference_parameters(&self, eot: llm::TokenId) -> InferenceParameters {
+    pub fn inference_parameters(&self, eot: TokenId, n_vocab: usize) -> InferenceParameters {
+        let mut bias: Vec<(TokenId, f32)> = self.token_bias.clone().unwrap_or_default().into();
+        if self.ignore_eos {
+            bias.push((eot, f32::NEG_INFINITY));
+        }
         InferenceParameters {
-            sampler: Arc::new(llm::samplers::TopPTopK {
-                top_k: self.top_k,
-                top_p: self.top_p,
-                repeat_penalty: self.repeat_penalty,
-                temperature: self.temperature,
-                bias_tokens: self.token_bias.clone().unwrap_or_else(|| {
-                    if self.ignore_eos {
-                        TokenBias::new(vec![(eot, -1.0)])
-                    } else {
-                        TokenBias::default()
-                    }
-                }),
-                repetition_penalty_last_n: self.repeat_last_n,
-            }),
+            sampler: build_sampler(n_vocab, &bias, self.configured_samplers.clone()),
         }
     }
 }
+
 fn parse_bias(s: &str) -> Result<TokenBias, InvalidTokenBias> {
     s.parse()
 }
