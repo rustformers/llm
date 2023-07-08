@@ -83,26 +83,14 @@ jobs:
           non-cuda-sub-packages: '["libcublas","libcublas-dev"]'
           sub-packages: '["nvcc","compiler","libraries","libraries-dev","cudart","cudart-dev"]'
 
-
-      - name: Install CUDA Toolkit on Windows
+      - uses: Jimver/cuda-toolkit@v0.2.11
+        name: Install CUDA toolkit on Windows
         if: matrix.os == 'windows-latest'
-        run: |
-          choco install cuda --version=12.2.0.53625 -y
-          echo "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin" >> $GITHUB_PATH
-          echo "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2" >> $CUDA_PATH
-          echo "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2" >> $CUDA_PATH_V12_2
-        shell: pwsh
-
-          
-      # - uses: Jimver/cuda-toolkit@v0.2.11
-      #   name: Install CUDA toolkit on Windows
-        
-      #   id: cuda-toolkit-windows
-      #   with:
-      #     cuda: '12.2.0'
-      #     method: 'network'
-      #     #See https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-the-cuda-software
-      #     sub-packages: '["nvcc","cudart","visual_studio_integration","cublas_dev","cublas"]'
+        id: cuda-toolkit-windows
+        with:
+          cuda: '12.2.0'
+          #See https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-the-cuda-software
+          method: 'local'
       - uses: dtolnay/rust-toolchain@stable
       - name: Check
         run: cargo check --verbose
