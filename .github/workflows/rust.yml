@@ -82,15 +82,27 @@ jobs:
           #See e.g. https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
           non-cuda-sub-packages: '["libcublas","libcublas-dev"]'
           sub-packages: '["nvcc","compiler","libraries","libraries-dev","cudart","cudart-dev"]'
-      - uses: Jimver/cuda-toolkit@v0.2.11
-        name: Install CUDA toolkit on Windows
+
+
+      - name: Install CUDA Toolkit on Windows
         if: matrix.os == 'windows-latest'
-        id: cuda-toolkit-windows
-        with:
-          cuda: '12.2.0'
-          method: 'network'
-          #See https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-the-cuda-software
-          sub-packages: '["nvcc","cudart","visual_studio_integration","cublas_dev","cublas"]'
+        run: |
+          choco install cuda --version=12.2.0.53625 -y
+          echo "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin" >> $GITHUB_PATH
+          echo "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2" >> $CUDA_PATH
+          echo "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2" >> $CUDA_PATH_V12_2
+        shell: pwsh
+
+          
+      # - uses: Jimver/cuda-toolkit@v0.2.11
+      #   name: Install CUDA toolkit on Windows
+        
+      #   id: cuda-toolkit-windows
+      #   with:
+      #     cuda: '12.2.0'
+      #     method: 'network'
+      #     #See https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-the-cuda-software
+      #     sub-packages: '["nvcc","cudart","visual_studio_integration","cublas_dev","cublas"]'
       - uses: dtolnay/rust-toolchain@stable
       - name: Check
         run: cargo check --verbose
