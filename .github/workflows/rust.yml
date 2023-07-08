@@ -79,9 +79,9 @@ jobs:
         with:
           cuda: '12.2.0'
           method: 'network'
-          non-cuda-sub-packages: True
           #See e.g. https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
-          sub-packages: '["cuda-nvcc","cuda-compiler","cuda-libraries","cuda-libraries-dev","cuda-cudart","cuda-cudart-dev","libcublas","libcublas-dev"]'
+          non-cuda-sub-packages: '["libcublas","libcublas-dev"]'
+          sub-packages: '["nvcc","compiler","libraries","libraries-dev","cudart","cudart-dev"]'
       - uses: Jimver/cuda-toolkit@v0.2.11
         name: Install CUDA toolkit on Windows
         if: matrix.os == 'windows-latest'
