@@ -55,7 +55,7 @@ pub(crate) fn can_feed(model: &impl Model, input: &str, expected_output: usize) 
         ));
     }
 
-    log::info!("`can_feed` test passed (no expected output)!");
+    log::info!("`can_feed` test passed!");
     report.success()
 }
 

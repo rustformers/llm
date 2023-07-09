@@ -365,7 +365,7 @@ impl KnownModel for GptNeoX {
         vec![]
     }
 
-    fn supports_delete(&self) -> bool {
+    fn supports_rewind(&self) -> bool {
         true
     }
 }

@@ -11,9 +11,6 @@ use serde::Serialize;
 
 use crate::{TestCaseReport, TestCaseReportMeta};
 
-/// Error tolerance for the float comparisons.
-const TOLERANCE: f32 = 1e-7;
-
 /// Tests that models can delete tokens without changing the model's behavior.
 pub(crate) fn can_delete(model: &impl Model) -> TestCaseReport {
     let report = DeleteReport::default();
@@ -36,8 +33,8 @@ pub(crate) fn can_delete(model: &impl Model) -> TestCaseReport {
         return report.failure("Model did not return logits.");
     };
 
-    // Delete, then re-add. Verify logits are the same.
-    if let Err(err) = session.delete_tokens(model, 1) {
+    // Rewind, then re-add. Verify logits are the same.
+    if let Err(err) = session.rewind(model, 1) {
         return report.failure(&err.to_string());
     }
     if let Err(err) = feed_prompt(" ", &mut session, model, &mut output) {
@@ -49,7 +46,7 @@ pub(crate) fn can_delete(model: &impl Model) -> TestCaseReport {
 
     // Compare the logits
     for (idx, (&original, redone)) in original_logits.iter().zip(redone_logits).enumerate() {
-        if original > redone + TOLERANCE || original < redone - TOLERANCE {
+        if original > redone + f32::EPSILON || original < redone - f32::EPSILON {
             return report.failure(&format!(
                 "Expected logits to be the same after delete, but differed at {idx}, \
                 expected {original}, but was {redone}."
@@ -57,7 +54,7 @@ pub(crate) fn can_delete(model: &impl Model) -> TestCaseReport {
         }
     }
 
-    log::info!("`can_delete` test passed (no expected output)!");
+    log::info!("`can_delete` test passed!");
     report.success()
 }
 
@@ -67,9 +64,7 @@ fn feed_prompt(
     model: &impl Model,
     output: &mut OutputRequest,
 ) -> Result<(), llm::InferenceError> {
-    session.feed_prompt(model, &Default::default(), prompt, output, |x| {
-        always_continue(x)
-    })
+    session.feed_prompt(model, &Default::default(), prompt, output, always_continue)
 }
 
 fn always_continue(_: &[u8]) -> Result<InferenceFeedback, Infallible> {

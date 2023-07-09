@@ -334,17 +334,13 @@ impl InferenceSession {
     }
 
     /// Removes `num` tokens from the end of the buffer. Roughly the inverse of `feed_prompt`.
-    pub fn delete_tokens(
-        &mut self,
-        model: &dyn Model,
-        num: usize,
-    ) -> Result<Vec<TokenId>, DeleteError> {
-        if !model.supports_delete() {
-            return Err(DeleteError::UnsupportedArchitecture);
+    pub fn rewind(&mut self, model: &dyn Model, num: usize) -> Result<Vec<TokenId>, RewindError> {
+        if !model.supports_rewind() {
+            return Err(RewindError::UnsupportedArchitecture);
         }
 
         if num >= self.n_past {
-            return Err(DeleteError::NotEnoughTokens);
+            return Err(RewindError::NotEnoughTokens);
         }
 
         // Remove the tokens from self.tokens.
@@ -670,7 +666,7 @@ pub enum InferenceError {
 
 #[derive(Error, Debug)]
 /// Errors encountered during the snapshot process.
-pub enum DeleteError {
+pub enum RewindError {
     /// Tried deleting more tokens than were available
     #[error("tried deleting more tokens than were available")]
     NotEnoughTokens,

@@ -88,7 +88,7 @@ pub trait KnownModel: Send + Sync {
     fn skip_quantize_tensors() -> Vec<Regex>;
 
     /// Returns whether the model supports deleting tokens.
-    fn supports_delete(&self) -> bool {
+    fn supports_rewind(&self) -> bool {
         // Assume we can't delete unless otherwise specified
         false
     }
@@ -126,7 +126,7 @@ pub trait Model: Send + Sync {
     fn eot_token_id(&self) -> TokenId;
 
     /// Returns whether the model supports deleting tokens.
-    fn supports_delete(&self) -> bool;
+    fn supports_rewind(&self) -> bool;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
@@ -159,8 +159,8 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
         KnownModel::eot_token_id(self)
     }
 
-    fn supports_delete(&self) -> bool {
-        KnownModel::supports_delete(self)
+    fn supports_rewind(&self) -> bool {
+        KnownModel::supports_rewind(self)
     }
 }
 
