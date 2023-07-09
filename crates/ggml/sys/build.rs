@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 // the host and target are the same. If they are not, it will turn off auto-feature-detection,
 // and you will need to manually specify target features through target-features.
 fn main() {
+    verify_state();
+
     println!("cargo:rerun-if-changed=llama-cpp");
 
     let mut builder = cc::Build::new();
@@ -102,6 +104,14 @@ fn main() {
 
         std::process::exit(1);
     }
+}
+
+/// Verify the state of the repo to catch common newbie mistakes.
+fn verify_state() {
+    assert!(
+        Path::new("llama-cpp/ggml.c").exists(),
+        "Could not find llama-cpp/ggml.c. Try running `git submodule update --init`"
+    );
 }
 
 fn cfg_cublas() -> bool {
