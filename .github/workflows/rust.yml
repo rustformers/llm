@@ -118,16 +118,20 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
           ./bootstrap-vcpkg.sh
+          ls -la
+        shell: bash
           
       - name: Install OpenCL on windows
         if: matrix.os == 'windows-latest'
         run: |
           ${{ github.workspace }}\vcpkg\vcpkg.exe install opencl:x64-windows
+        shell: pwsh
 
       - name: Install CLBlast on windows
         if: matrix.os == 'windows-latest'
         run: |
           ${{ github.workspace }}\vcpkg\vcpkg.exe install clblast:x64-windows
+        shell: pwsh
 
       - name: Set Environment Variables
         if: matrix.os == 'windows-latest'
