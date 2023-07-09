@@ -21,6 +21,99 @@ pub trait Sampler: Debug + Send + Sync {
     ) -> TokenId;
 }
 
+mod llm_samplers_integration {
+    use super::{Debug, Sampler, TokenId};
+
+    use std::sync::{Arc, Mutex};
+
+    use llm_samplers::prelude::{Sampler as LsSampler, *};
+
+    /// Sampler that uses the `llm_samplers` crate as the backend.
+    #[derive(Clone, Debug)]
+    pub struct LlmSamplersSampler {
+        /// A chain of samplers.
+        pub chain: Arc<Mutex<SamplerChain<TokenId, f32>>>,
+    }
+
+    // Struct used to temporarily hold resources for the `llm_samplers`
+    // sampler.
+    struct LlmRsSamplerResources<'pt, 'r> {
+        previous_tokens: &'pt [TokenId],
+        rng: &'r mut dyn rand::RngCore,
+    }
+
+    impl<'pt, 'r> Debug for LlmRsSamplerResources<'pt, 'r> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("LlmRsSamplerResources")
+                .field("previous_tokens", &self.previous_tokens)
+                .field("rng", &"<dyn RngCore>")
+                .finish()
+        }
+    }
+
+    impl<'pt, 'r> HasSamplerResources for LlmRsSamplerResources<'pt, 'r> {
+        type TokenId = TokenId;
+
+        fn with_rng_mut(
+            &mut self,
+            fun: &mut dyn FnMut(&mut dyn rand::RngCore),
+        ) -> Result<(), SamplerError> {
+            fun(self.rng);
+            Ok(())
+        }
+
+        fn with_last_tokens(
+            &self,
+            fun: &mut dyn FnMut(&[Self::TokenId]),
+        ) -> Result<(), SamplerError> {
+            fun(self.previous_tokens);
+            Ok(())
+        }
+    }
+
+    impl LlmSamplersSampler {
+        /// Create a new [LlmSamplersSampler] from a [SamplerChain]
+        pub fn new(chain: SamplerChain<TokenId, f32>) -> Self {
+            Self {
+                chain: Arc::new(Mutex::new(chain)),
+            }
+        }
+    }
+
+    impl Sampler for LlmSamplersSampler {
+        fn sample(
+            &self,
+            previous_tokens: &[TokenId],
+            logits: &[f32],
+            rng: &mut dyn rand::RngCore,
+        ) -> TokenId {
+            let mut logits = Logits::try_from_iter(logits.iter().copied())
+                // The only case where this can fail is if a logit is NaN.
+                .expect("Invalid logits");
+            let mut res = LlmRsSamplerResources {
+                previous_tokens,
+                rng,
+            };
+            let maybe_tid = {
+                let mut chain = self
+                    .chain
+                    .lock()
+                    // The only case where this can fail is if a panic occured while the lock
+                    // was held. That's why this is in a block, so we drop the lock before trying
+                    // to handle any errors.
+                    .expect("Could not get sampler mutex");
+                chain.sample_token(&mut res, &mut logits)
+            };
+
+            maybe_tid
+                .expect("Sampler error")
+                .expect("Sampler didn't produce a token")
+        }
+    }
+}
+
+pub use llm_samplers_integration::*;
+
 /// Top-P Top-K sampling.
 ///
 /// A standard sampler that uses top-K sampling (the top-K tokens with the highest

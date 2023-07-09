@@ -243,6 +243,10 @@ pub struct Generate {
     #[arg(long, default_value_t = 8)]
     pub batch_size: usize,
 
+    /// Use new sampler backend.
+    #[arg(long, default_value_t = false)]
+    pub use_new_samplers: bool,
+
     /// Size of the 'last N' buffer that is used for the `repeat_penalty`
     /// option. In tokens.
     #[arg(long, default_value_t = 64)]
@@ -266,6 +270,46 @@ pub struct Generate {
     /// for sampling.
     #[arg(long, default_value_t = 0.95)]
     pub top_p: f32,
+
+    /// Mirostat: Use mirostat sampler with the specified version.
+    /// The only valid options are 1 or 2.
+    /// If specified --top-p, --top-k, --tail-free, and --locally-typical
+    /// options are ignored.
+    /// Note: Implies --use-new-samplers
+    #[arg(long)]
+    pub mirostat: Option<usize>,
+
+    /// Mirostat v1: Vocabulary size. Only relevant when mirostat v1 is used.
+    #[arg(long, default_value_t = 32000)]
+    pub mirostat1_n_vocab: usize,
+
+    /// Mirostat: Learning rate (eta)
+    #[arg(long, default_value_t = 0.1)]
+    pub mirostat_lr: f32,
+
+    /// Mirostat: Target entropy (tau)
+    #[arg(long, default_value_t = 5.0)]
+    pub mirostat_ent: f32,
+
+    /// Tail free: Parameter z (1.0 means disabled).
+    /// Note: Implies --use-new-samplers
+    #[arg(long, default_value_t = 1.0)]
+    pub tail_free: f32,
+
+    /// Tail free: Parameter p (1.0 means disabled).
+    /// Note: Implies --use-new-samplers
+    #[arg(long, default_value_t = 1.0)]
+    pub locally_typical: f32,
+
+    /// Presence penalty: repeat alpha presence penalty
+    /// Note: Implies --use-new-samplers
+    #[arg(long, default_value_t = 0.0)]
+    pub presence_penalty: f32,
+
+    /// Frequency penalty: repeat alpha frequency penalty
+    /// Note: Implies --use-new-samplers
+    #[arg(long, default_value_t = 0.0)]
+    pub frequency_penalty: f32,
 
     /// Specifies the seed to use during sampling. Note that, depending on
     /// hardware, the same seed may lead to different results on two separate
@@ -347,10 +391,14 @@ impl Generate {
     }
 
     pub fn inference_parameters(&self, eot: llm::TokenId) -> InferenceParameters {
-        InferenceParameters {
-            n_threads: self.num_threads(),
-            n_batch: self.batch_size,
-            sampler: Arc::new(llm::samplers::TopPTopK {
+        let use_new_samplers = self.use_new_samplers
+            || matches!(self.mirostat, Some(1) | Some(2))
+            || self.tail_free != 1.0
+            || self.locally_typical != 1.0
+            || self.presence_penalty > 0.0
+            || self.frequency_penalty > 0.0;
+        let sampler: Arc<dyn llm::samplers::Sampler> = if !use_new_samplers {
+            Arc::new(llm::samplers::TopPTopK {
                 top_k: self.top_k,
                 top_p: self.top_p,
                 repeat_penalty: self.repeat_penalty,
@@ -363,7 +411,85 @@ impl Generate {
                     }
                 }),
                 repetition_penalty_last_n: self.repeat_last_n,
-            }),
+            })
+        } else {
+            use llm::{samplers::LlmSamplersSampler, TokenId};
+
+            use llm_samplers::prelude::*;
+
+            let mut chain = SamplerChain::<TokenId, f32>::new();
+
+            let bias: Vec<(TokenId, f32)> = self
+                .token_bias
+                .clone()
+                .unwrap_or_else(|| {
+                    if self.ignore_eos {
+                        TokenBias::new(vec![(eot, f32::NEG_INFINITY)])
+                    } else {
+                        TokenBias::default()
+                    }
+                })
+                .into();
+            if !bias.is_empty() {
+                chain += SampleFlatBias::new(&bias)
+            }
+
+            if self.repeat_last_n > 0 {
+                if self.repeat_penalty > 0.0 {
+                    chain += SampleRepetition::new(self.repeat_penalty, self.repeat_last_n);
+                }
+                if self.frequency_penalty > 0.0 || self.presence_penalty > 0.0 {
+                    chain += SampleFreqPresence::new(
+                        self.frequency_penalty,
+                        self.presence_penalty,
+                        self.repeat_last_n,
+                    );
+                }
+            }
+
+            match &self.mirostat {
+                Some(1) => {
+                    if self.temperature > 0.0 {
+                        chain += SampleTemperature::new(self.temperature);
+                    }
+                    chain += SampleMirostat1::new(
+                        self.mirostat1_n_vocab,
+                        self.mirostat_lr,
+                        self.mirostat_ent,
+                    )
+                }
+                Some(2) => {
+                    if self.temperature > 0.0 {
+                        chain += SampleTemperature::new(self.temperature);
+                    }
+                    chain += SampleMirostat2::new(self.mirostat_lr, self.mirostat_ent)
+                }
+                _ => {
+                    if self.top_k > 0 {
+                        chain += SampleTopK::new(self.top_k, 1);
+                    }
+                    if self.tail_free != 1.0 {
+                        chain += SampleTailFree::new(self.tail_free, 1);
+                    }
+                    if self.locally_typical != 1.0 {
+                        chain += SampleLocallyTypical::new(self.locally_typical, 1);
+                    }
+                    if self.top_p > 0.0 && self.top_p < 1.0 {
+                        chain += SampleTopP::new(self.top_p, 1);
+                    }
+                    if self.temperature > 0.0 {
+                        chain += SampleTemperature::new(self.temperature);
+                    }
+                    chain += SampleRandDistrib::new();
+                }
+            }
+
+            Arc::new(LlmSamplersSampler::new(chain))
+        };
+        InferenceParameters {
+            n_threads: self.num_threads(),
+            n_batch: self.batch_size,
+            sampler,
         }
     }
 }

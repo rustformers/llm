@@ -1285,6 +1285,7 @@ dependencies = [
  "bytemuck",
  "ggml",
  "half",
+ "llm-samplers",
  "memmap2",
  "partial_sort",
  "rand",
@@ -1312,6 +1313,7 @@ dependencies = [
  "color-eyre",
  "env_logger",
  "llm",
+ "llm-samplers",
  "log",
  "num_cpus",
  "rand",
@@ -1362,6 +1364,18 @@ name = "llm-mpt"
 version = "0.2.0-dev"
 dependencies = [
  "llm-base",
+]
+
+[[package]]
+name = "llm-samplers"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a85ee25ef0eb2c0e683d1800ce1646723f99486ab7275cc7f2c74a10266a9cd5"
+dependencies = [
+ "anyhow",
+ "num-traits",
+ "rand",
+ "thiserror",
 ]
 
 [[package]]
@@ -1544,6 +1558,15 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]
