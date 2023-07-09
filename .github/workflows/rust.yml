@@ -122,14 +122,14 @@ jobs:
       - name: Install OpenCL on windows
         if: matrix.os == 'windows-latest'
         run: |
-          ./vcpkg/vcpkg.exe install opencl:x64-windows
+          D:\a\_work\1\s\vcpkg\vcpkg.exe install opencl:x64-windows
           echo "D:\a\_work\1\s\vcpkg\packages\opencl_x64-windows" >> $OPENCL_PATH
         shell: bash
 
       - name: Install CLBlast on windows
         if: matrix.os == 'windows-latest'
         run: |
-          ./vcpkg/vcpkg.exe install clblast:x64-windows
+          D:\a\_work\1\s\vcpkg\vcpkg.exe install clblast:x64-windows
           echo "D:\a\_work\1\s\vcpkg\packages\clblast_x64-windows" >> $CLBLAST_PATH
         shell: bash
 
