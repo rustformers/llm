@@ -118,8 +118,18 @@ pub trait Model: Send + Sync {
 
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
+
+    /// Clone this model into a boxed trait object.
+    fn clone_box(&self) -> Box<dyn Model>;
 }
-impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
+
+impl Clone for Box<dyn Model> {
+    fn clone(&self) -> Box<dyn Model> {
+        self.clone_box()
+    }
+}
+
+impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H> + Clone + 'static> Model for M {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         KnownModel::start_session(self, config)
     }
@@ -148,6 +158,10 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
     fn eot_token_id(&self) -> TokenId {
         KnownModel::eot_token_id(self)
+    }
+
+    fn clone_box(&self) -> Box<dyn Model> {
+        Box::new(self.clone())
     }
 }
 

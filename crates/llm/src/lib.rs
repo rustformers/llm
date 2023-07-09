@@ -212,7 +212,8 @@ pub fn load_dynamic(
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    fn load_model<M: KnownModel + 'static>(
+
+    fn load_model<M: KnownModel + Clone + 'static>(
         path: &Path,
         tokenizer_source: TokenizerSource,
         params: ModelParameters,
