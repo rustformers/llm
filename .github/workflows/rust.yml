@@ -122,15 +122,18 @@ jobs:
       - name: Install OpenCL on windows
         if: matrix.os == 'windows-latest'
         run: |
-          D:\a\_work\1\s\vcpkg\vcpkg.exe install opencl:x64-windows
-          echo "D:\a\_work\1\s\vcpkg\packages\opencl_x64-windows" >> $OPENCL_PATH
-        shell: bash
+          ${{ github.workspace }}\vcpkg\vcpkg.exe install opencl:x64-windows
 
       - name: Install CLBlast on windows
         if: matrix.os == 'windows-latest'
         run: |
-          D:\a\_work\1\s\vcpkg\vcpkg.exe install clblast:x64-windows
-          echo "D:\a\_work\1\s\vcpkg\packages\clblast_x64-windows" >> $CLBLAST_PATH
+          ${{ github.workspace }}\vcpkg\vcpkg.exe install clblast:x64-windows
+
+      - name: Set Environment Variables
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "${{ github.workspace }}/vcpkg/packages/clblast_x64-windows" >> $CLBLAST_PATH
+          echo "${{ github.workspace }}/vcpkg/packages/opencl_x64-windows" >> $OPENCL_PATH
         shell: bash
 
       - uses: dtolnay/rust-toolchain@stable
