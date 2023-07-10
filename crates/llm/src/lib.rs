@@ -83,8 +83,8 @@ pub use llm_base::{
     InferenceSession, InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef,
     InferenceStats, InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model,
     ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
-    Sampler, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
-    TokenizerSource,
+    RewindError, Sampler, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError,
+    Tokenizer, TokenizerSource,
 };
 
 use serde::Serialize;

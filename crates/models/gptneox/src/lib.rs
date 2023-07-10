@@ -364,6 +364,10 @@ impl KnownModel for GptNeoX {
     fn skip_quantize_tensors() -> Vec<Regex> {
         vec![]
     }
+
+    fn supports_rewind(&self) -> bool {
+        true
+    }
 }
 
 /// GPT-NeoX [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))

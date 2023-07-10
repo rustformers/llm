@@ -298,6 +298,10 @@ impl KnownModel for Mpt {
     fn skip_quantize_tensors() -> Vec<Regex> {
         vec![]
     }
+
+    fn supports_rewind(&self) -> bool {
+        true
+    }
 }
 
 /// MPT [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
