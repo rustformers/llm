@@ -560,3 +560,24 @@ pub fn accelerator_initialize(device: i32) {
         sys::cuda::ggml_cuda_set_tensor_split(&split as *const f32);
     }
 }
+
+/// Frees the scratch memory. If ggml-sys is compiled with CUDA support, this function will free the scratch memory. If not this is a no-op.
+pub fn accelerator_free_scratch() {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        sys::cuda::ggml_cuda_free_scratch();
+    }
+}
+
+/// Frees the memory of a tensor. If ggml-sys is compiled with CUDA or ClBlast support, this function will free the memory of a tensor. If not this is a no-op.
+#[allow(unused_variables)]
+pub fn accelerator_free_tensor(tensor: &Tensor) {
+    #[cfg(feature = "cublas")]
+    unsafe {
+        sys::cuda::ggml_cuda_free_data(tensor.ptr.as_ptr());
+    }
+    #[cfg(feature = "clblast")]
+    unsafe {
+        sys::cuda::ggml_cl_free_data(tensor.ptr.as_ptr());
+    }
+}

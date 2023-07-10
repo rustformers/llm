@@ -648,6 +648,13 @@ impl InferenceSession {
     }
 }
 
+impl Drop for InferenceSession {
+    fn drop(&mut self) {
+        //if we are using an accelerator, we need to free the scratch memory
+        ggml::accelerator_free_scratch();
+    }
+}
+
 fn get_newly_decoded_portion_huggingface(
     model: &dyn Model,
     tokens: Vec<u32>,

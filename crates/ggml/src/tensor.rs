@@ -155,3 +155,12 @@ impl Tensor {
         std::ptr::copy_nonoverlapping(data, dst as *mut _ as _, dst.len())
     }
 }
+
+impl Drop for Tensor {
+    fn drop(&mut self) {
+        if self.get_backend() != crate::Backend::Cpu {
+            // if the tensor is not on the cpu, free it from the accelerator
+            crate::accelerator_free_tensor(self)
+        }
+    }
+}
