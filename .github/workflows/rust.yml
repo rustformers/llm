@@ -136,8 +136,10 @@ jobs:
       - name: Set Environment Variables
         if: matrix.os == 'windows-latest'
         run: |
-          echo "${{ github.workspace }}/vcpkg/packages/clblast_x64-windows" >> $CLBLAST_PATH
-          echo "${{ github.workspace }}/vcpkg/packages/opencl_x64-windows" >> $OPENCL_PATH
+          echo "CLBLAST_PATH=${{ github.workspace }}/vcpkg/packages/clblast_x64-windows" >> $GITHUB_ENV
+          echo "OPENCL_PATH=${{ github.workspace }}/vcpkg/packages/opencl_x64-windows" >> $GITHUB_ENV
+          echo "${{ github.workspace }}/vcpkg/packages/clblast_x64-windows" >> $GITHUB_PATH
+          echo "${{ github.workspace }}/vcpkg/packages/opencl_x64-windows" >> $GITHUB_PATH
         shell: bash
 
       - uses: dtolnay/rust-toolchain@stable
