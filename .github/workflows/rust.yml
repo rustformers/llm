@@ -103,7 +103,6 @@ jobs:
     # Don't stop building if it fails on an OS
       fail-fast: false
       matrix:
-        # TODO Add windows opencl build
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps: 
