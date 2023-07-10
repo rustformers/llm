@@ -7,7 +7,10 @@ use std::{
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{bail, Context, ContextCompat, Result};
-use llm::{InferenceError, InferenceFeedback, InferenceResponse, InferenceSession};
+use llm::{
+    conversation_inference_callback, InferenceError, InferenceFeedback, InferenceResponse,
+    InferenceSession,
+};
 use rustyline::{
     error::ReadlineError,
     history::DefaultHistory,
@@ -262,6 +265,11 @@ fn interactive(
 
     let mut buf = String::new();
 
+    fn print_token(t: String) {
+        print!("{t}");
+        std::io::stdout().flush().unwrap();
+    }
+
     fn session_ends_with_newline(session: &InferenceSession) -> bool {
         session
             .decoded_tokens()
@@ -289,18 +297,40 @@ fn interactive(
         };
         sp.clear();
 
-        session.infer::<Infallible>(
-            model.as_ref(),
-            &mut rng,
-            &llm::InferenceRequest {
-                prompt: "".into(),
-                parameters: &parameters,
-                play_back_previous_tokens: false,
-                maximum_token_count: generate.num_predict,
-            },
-            &mut Default::default(),
-            inference_callback(stop_sequence.clone(), chat_mode, &mut buf),
-        )
+        if chat_mode {
+            session.infer::<Infallible>(
+                model.as_ref(),
+                &mut rng,
+                &llm::InferenceRequest {
+                    prompt: "".into(),
+                    parameters: &parameters,
+                    play_back_previous_tokens: false,
+                    maximum_token_count: generate.num_predict,
+                },
+                &mut Default::default(),
+                conversation_inference_callback(stop_sequence.clone(), &mut buf, print_token),
+            )
+        } else {
+            session.infer::<Infallible>(
+                model.as_ref(),
+                &mut rng,
+                &llm::InferenceRequest {
+                    prompt: "".into(),
+                    parameters: &parameters,
+                    play_back_previous_tokens: false,
+                    maximum_token_count: generate.num_predict,
+                },
+                &mut Default::default(),
+                |r| match r {
+                    InferenceResponse::PromptToken(t) | InferenceResponse::InferredToken(t) => {
+                        print_token(t);
+
+                        Ok(InferenceFeedback::Continue)
+                    }
+                    _ => Ok(InferenceFeedback::Continue),
+                },
+            )
+        }
     };
 
     let mut rl = rustyline::Editor::<LineContinuationValidator, DefaultHistory>::new()?;
@@ -445,43 +475,4 @@ impl Validator for LineContinuationValidator {
 
 fn process_prompt(raw_prompt: &str, prompt: &str) -> String {
     raw_prompt.replace("{{PROMPT}}", prompt)
-}
-
-fn inference_callback(
-    stop_sequence: String,
-    chat_mode: bool,
-    buf: &mut String,
-) -> impl FnMut(InferenceResponse) -> Result<InferenceFeedback, Infallible> + '_ {
-    move |resp| match resp {
-        InferenceResponse::InferredToken(t) => {
-            if chat_mode {
-                let mut reverse_buf = buf.clone();
-                reverse_buf.push_str(t.as_str());
-                if stop_sequence.as_str().eq(reverse_buf.as_str()) {
-                    buf.clear();
-                    return Ok(InferenceFeedback::Halt);
-                } else if stop_sequence.as_str().starts_with(reverse_buf.as_str()) {
-                    buf.push_str(t.as_str());
-                    return Ok(InferenceFeedback::Continue);
-                }
-
-                if buf.is_empty() {
-                    print_token(t)
-                } else {
-                    print_token(reverse_buf)
-                }
-            } else {
-                print_token(t)
-            }
-        }
-        InferenceResponse::EotToken => Ok(InferenceFeedback::Halt),
-        _ => Ok(InferenceFeedback::Continue),
-    }
-}
-
-fn print_token(t: String) -> Result<llm::InferenceFeedback, Infallible> {
-    print!("{t}");
-    std::io::stdout().flush().unwrap();
-
-    Ok(llm::InferenceFeedback::Continue)
 }

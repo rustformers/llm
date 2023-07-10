@@ -853,3 +853,36 @@ pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
         None => Ok(InferenceFeedback::Continue),
     }
 }
+
+/// Callback to be passed to [InferenceSession::infer] that will print the
+/// token to stdout and will halt execution when the stop sequence is encountered.
+/// Only to be used for chat mode.
+pub fn conversation_inference_callback<'a, E: std::error::Error + 'static>(
+    stop_sequence: String,
+    buf: &'a mut String,
+    mut print_token: impl FnMut(String) + 'a,
+) -> impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a {
+    move |resp| match resp {
+        InferenceResponse::InferredToken(t) => {
+            let mut reverse_buf = buf.clone();
+            reverse_buf.push_str(t.as_str());
+            if stop_sequence.as_str().eq(reverse_buf.as_str()) {
+                buf.clear();
+                return Ok(InferenceFeedback::Halt);
+            } else if stop_sequence.as_str().starts_with(reverse_buf.as_str()) {
+                buf.push_str(t.as_str());
+                return Ok(InferenceFeedback::Continue);
+            }
+
+            if buf.is_empty() {
+                print_token(t);
+                Ok(InferenceFeedback::Continue)
+            } else {
+                print_token(reverse_buf);
+                Ok(InferenceFeedback::Continue)
+            }
+        }
+        InferenceResponse::EotToken => Ok(InferenceFeedback::Halt),
+        _ => Ok(InferenceFeedback::Continue),
+    }
+}
