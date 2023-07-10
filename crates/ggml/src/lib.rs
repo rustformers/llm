@@ -578,6 +578,6 @@ pub fn accelerator_free_tensor(tensor: &Tensor) {
     }
     #[cfg(feature = "clblast")]
     unsafe {
-        sys::cuda::ggml_cl_free_data(tensor.ptr.as_ptr());
+        sys::opencl::ggml_cl_free_data(tensor.ptr.as_ptr());
     }
 }
