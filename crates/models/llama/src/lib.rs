@@ -1,7 +1,7 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, sync::Arc};
 
 use llm_base::{
     ggml::{self, Backend},
@@ -34,10 +34,21 @@ pub struct Llama {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
+    loaded_tensors: HashMap<String, ggml::Tensor>,
 }
 
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
+
+impl Drop for Llama {
+    fn drop(&mut self) {
+        for (_, tensor) in self.loaded_tensors.drain() {
+            if tensor.get_backend() != Backend::Cpu {
+                ggml::accelerator_free_tensor(&tensor);
+            }
+        }
+    }
+}
 
 impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;
@@ -85,7 +96,7 @@ impl KnownModel for Llama {
             };
             layers.push(layer);
         }
-        let (context, _tensors) = tl.finish();
+        let (context, loaded_tensors) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -99,6 +110,7 @@ impl KnownModel for Llama {
             output,
             layers,
             context: Arc::new(context),
+            loaded_tensors,
         })
     }
 
