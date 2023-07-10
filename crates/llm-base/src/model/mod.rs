@@ -86,6 +86,12 @@ pub trait KnownModel: Send + Sync {
 
     /// Get the list of regexes to use to determine if a tensor in this model should not be quantized.
     fn skip_quantize_tensors() -> Vec<Regex>;
+
+    /// Returns whether the model supports deleting tokens.
+    fn supports_rewind(&self) -> bool {
+        // Assume we can't delete unless otherwise specified
+        false
+    }
 }
 
 /// A type-erased model to allow for interacting with a model without knowing
@@ -118,6 +124,9 @@ pub trait Model: Send + Sync {
 
     /// Get the end of text/end of string token ID. This value is defined by model implementers.
     fn eot_token_id(&self) -> TokenId;
+
+    /// Returns whether the model supports deleting tokens.
+    fn supports_rewind(&self) -> bool;
 }
 impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
@@ -148,6 +157,10 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
     fn eot_token_id(&self) -> TokenId {
         KnownModel::eot_token_id(self)
+    }
+
+    fn supports_rewind(&self) -> bool {
+        KnownModel::supports_rewind(self)
     }
 }
 

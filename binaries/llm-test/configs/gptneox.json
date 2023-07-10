@@ -9,6 +9,15 @@
                 "output_disabled": "<|padding|>When a llama rides a crab, \n“The Greatest Show on Earth” is the title of an 1875 book by Phineas Taylor Barnum, who founded and operated The circus. He was born in Bethel Connecticut to Meshack (Meshake) Bowman Jr., from New York City; his mother’s name has not been recorded but she may have had some Native American ancestry as well.[2] His father died when he[3][4], at age three,[5]: 9–10 (p1), 11-12​—was left with relatives until they could find him work or send for them back home where there",
                 "maximum_token_count": 128
             }
+        },
+        {
+            "Tokens": {
+                "input": "Rustformers is",
+                "output": 247
+            }
+        },
+        {
+            "Delete": {}
         }
     ]
 }

@@ -1,3 +1,10 @@
+//! Test runner for all LLMs.
+
+mod common;
+mod delete;
+mod inference;
+mod tokens;
+
 use anyhow::Context;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -7,13 +14,11 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::min,
     collections::HashMap,
-    convert::Infallible,
     env,
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
     time::Instant,
 };
 
@@ -120,6 +125,11 @@ enum TestCase {
         output: Option<String>,
         maximum_token_count: usize,
     },
+    Tokens {
+        input: String,
+        output: usize,
+    },
+    Delete {},
 }
 
 #[derive(Serialize)]
@@ -142,13 +152,15 @@ enum TestCaseReportMeta {
 }
 
 #[derive(Serialize)]
-enum TestCaseReportInner {
+pub enum TestCaseReportInner {
     Inference {
         input: String,
         expect_output: Option<String>,
         actual_output: String,
         inference_stats: Option<InferenceStats>,
     },
+    Tokens(tokens::TokensReport),
+    Delete(delete::DeleteReport),
 }
 
 async fn test_model(
@@ -240,10 +252,10 @@ async fn test_model(
             //
 
             // Confirm that the model can be sent to a thread, then sent back
-            let model = tests::can_send(model)?;
+            let model = common::can_send(model)?;
 
             // Confirm that the hyperparameters can be roundtripped
-            tests::can_roundtrip_hyperparameters(&model)?;
+            common::can_roundtrip_hyperparameters(&model)?;
 
             //
 
@@ -259,13 +271,19 @@ async fn test_model(
                         input,
                         output,
                         maximum_token_count,
-                    } => test_case_reports.push(tests::can_infer(
+                    } => test_case_reports.push(inference::can_infer(
                         &model,
                         model_config,
                         input,
                         output.as_deref(),
                         *maximum_token_count,
                     )?),
+                    TestCase::Tokens { input, output } => {
+                        test_case_reports.push(tokens::can_feed(&model, input, *output));
+                    }
+                    TestCase::Delete {} => {
+                        test_case_reports.push(delete::can_delete(&model));
+                    }
                 }
             }
             let first_error: Option<String> =
@@ -318,148 +336,6 @@ fn write_report(
     let report_path = results_dir.join(format!("{}.json", test_config.architecture));
     fs::write(report_path, json_report)?;
     Ok(())
-}
-
-mod tests {
-    use super::*;
-
-    pub(super) fn can_send<M: llm::KnownModel + 'static>(model: M) -> anyhow::Result<M> {
-        let model = std::thread::spawn(move || model)
-            .join()
-            .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"));
-
-        log::info!("`can_send` test passed!");
-
-        model
-    }
-
-    pub(super) fn can_roundtrip_hyperparameters<M: llm::KnownModel + 'static>(
-        model: &M,
-    ) -> anyhow::Result<()> {
-        fn test_hyperparameters<M: llm::Hyperparameters>(
-            hyperparameters: &M,
-        ) -> anyhow::Result<()> {
-            let mut data = vec![];
-            hyperparameters.write_ggml(&mut data)?;
-            let new_hyperparameters =
-                <M as llm::Hyperparameters>::read_ggml(&mut std::io::Cursor::new(data))?;
-
-            assert_eq!(hyperparameters, &new_hyperparameters);
-
-            log::info!("`can_roundtrip_hyperparameters` test passed!");
-
-            Ok(())
-        }
-
-        test_hyperparameters(model.hyperparameters())
-    }
-
-    pub(super) fn can_infer(
-        model: &dyn llm::Model,
-        model_config: &ModelConfig,
-        input: &str,
-        expected_output: Option<&str>,
-        maximum_token_count: usize,
-    ) -> anyhow::Result<TestCaseReport> {
-        let mut session = model.start_session(Default::default());
-        let (actual_output, res) = run_inference(
-            model,
-            model_config,
-            &mut session,
-            input,
-            maximum_token_count,
-        );
-
-        // Process the results
-        Ok(TestCaseReport {
-            meta: match &res {
-                Ok(_) => match expected_output {
-                    Some(expected_output) => {
-                        if expected_output == actual_output {
-                            log::info!("`can_infer` test passed!");
-                            TestCaseReportMeta::Success
-                        } else {
-                            TestCaseReportMeta::Error {
-                                error: "The output did not match the expected output.".to_string(),
-                            }
-                        }
-                    }
-                    None => {
-                        log::info!("`can_infer` test passed (no expected output)!");
-                        TestCaseReportMeta::Success
-                    }
-                },
-                Err(err) => TestCaseReportMeta::Error {
-                    error: err.to_string(),
-                },
-            },
-            report: TestCaseReportInner::Inference {
-                input: input.into(),
-                expect_output: expected_output.map(|s| s.to_string()),
-                actual_output,
-                inference_stats: res.ok(),
-            },
-        })
-    }
-}
-
-fn run_inference(
-    model: &dyn llm::Model,
-    model_config: &ModelConfig,
-    session: &mut llm::InferenceSession,
-    input: &str,
-    maximum_token_count: usize,
-) -> (String, Result<InferenceStats, llm::InferenceError>) {
-    let mut actual_output: String = String::new();
-    let res = session.infer::<Infallible>(
-        model,
-        &mut rand::rngs::mock::StepRng::new(0, 1),
-        &llm::InferenceRequest {
-            prompt: input.into(),
-            parameters: &llm::InferenceParameters {
-                n_threads: model_config.threads,
-                n_batch: 1,
-                sampler: Arc::new(DeterministicSampler),
-            },
-            play_back_previous_tokens: false,
-            maximum_token_count: Some(maximum_token_count),
-        },
-        &mut Default::default(),
-        |r| match r {
-            llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
-                actual_output += &t;
-                Ok(llm::InferenceFeedback::Continue)
-            }
-            _ => Ok(llm::InferenceFeedback::Continue),
-        },
-    );
-
-    (actual_output, res)
-}
-
-#[derive(Debug)]
-struct DeterministicSampler;
-impl llm::Sampler for DeterministicSampler {
-    fn sample(
-        &self,
-        previous_tokens: &[llm::TokenId],
-        logits: &[f32],
-        _rng: &mut dyn rand::RngCore,
-    ) -> llm::TokenId {
-        // Takes the most likely element from the logits, except if they've appeared in `previous_tokens`
-        // at all
-        let mut logits = logits.to_vec();
-        for &token in previous_tokens {
-            logits[token as usize] = f32::NEG_INFINITY;
-        }
-
-        logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap()
-            .0 as llm::TokenId
-    }
 }
 
 async fn download_file(url: &str, local_path: &Path) -> anyhow::Result<()> {
