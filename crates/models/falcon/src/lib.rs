@@ -131,8 +131,8 @@ impl KnownModel for Falcon {
         let head_dim = n_embd / n_head;
         let n = input_len;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let ctx0 = builder.ctx0.borrow();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, embd);
             let repeat_dummy = ctx0.new_tensor_3d(
@@ -157,7 +157,7 @@ impl KnownModel for Falcon {
 
             for il in 0..n_layer {
                 // attention uses first scratch buffer
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
                 current = ctx0.op_norm(&input_layer);
@@ -277,7 +277,7 @@ impl KnownModel for Falcon {
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
                 // feed forward uses second scratch buffer
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 let inp_ff = layernorm_output.share();
                 let attn_out =
@@ -293,7 +293,7 @@ impl KnownModel for Falcon {
                 input_layer = current.share();
             }
 
-            builder.use_scratch(Some(0));
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // norm
             input_layer = ctx0.op_norm(&input_layer);
@@ -308,7 +308,7 @@ impl KnownModel for Falcon {
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            builder.use_scratch(None);
+            ctx0.use_scratch(None);
 
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);

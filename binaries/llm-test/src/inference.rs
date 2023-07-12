@@ -71,7 +71,6 @@ fn run_inference(
             prompt: input.into(),
             parameters: &llm::InferenceParameters {
                 n_threads: model_config.threads,
-                n_batch: 1,
                 sampler: Arc::new(DeterministicSampler),
             },
             play_back_previous_tokens: false,

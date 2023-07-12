@@ -1,10 +1,10 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, sync::Arc};
 
 use llm_base::{
-    ggml,
+    ggml::{self, Backend},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
     KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
@@ -17,7 +17,7 @@ use llm_base::{
 pub struct Llama {
     // the context size ("memory") the model should use when evaluating a prompt
     context_size: usize,
-
+    model_params: ModelParameters,
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
 
@@ -34,10 +34,21 @@ pub struct Llama {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
+    loaded_tensors: HashMap<String, ggml::Tensor>,
 }
 
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
+
+impl Drop for Llama {
+    fn drop(&mut self) {
+        for (_, tensor) in self.loaded_tensors.drain() {
+            if tensor.get_backend() != Backend::Cpu {
+                ggml::accelerator_free_tensor(&tensor);
+            }
+        }
+    }
+}
 
 impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;
@@ -52,32 +63,46 @@ impl KnownModel for Llama {
 
         // model-global weights
         let wte = tl.load("tok_embeddings.weight")?;
-        let norm = tl.load("norm.weight")?;
-        let output = tl.load("output.weight")?;
+
+        let backend = if params.should_offload(0) {
+            Backend::Gpu
+        } else {
+            Backend::Cpu
+        };
+
+        let norm = tl.offload("norm.weight", backend)?;
+
+        let output = tl.offload("output.weight", backend)?;
 
         let mut layers = Vec::new();
-        for i in 0..hyperparameters.n_layer {
-            let layer = Layer {
-                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"))?,
-                wq: tl.load(&format!("layers.{i}.attention.wq.weight"))?,
-                wk: tl.load(&format!("layers.{i}.attention.wk.weight"))?,
-                wv: tl.load(&format!("layers.{i}.attention.wv.weight"))?,
-                wo: tl.load(&format!("layers.{i}.attention.wo.weight"))?,
-                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"))?,
-                w1: tl.load(&format!("layers.{i}.feed_forward.w1.weight"))?,
-                w2: tl.load(&format!("layers.{i}.feed_forward.w2.weight"))?,
-                w3: tl.load(&format!("layers.{i}.feed_forward.w3.weight"))?,
-            };
 
+        for i in 0..hyperparameters.n_layer {
+            let backend = if params.should_offload(i) {
+                Backend::Gpu
+            } else {
+                Backend::Cpu
+            };
+            let layer = Layer {
+                attention_norm: tl
+                    .offload(&format!("layers.{i}.attention_norm.weight"), backend)?,
+                wq: tl.offload(&format!("layers.{i}.attention.wq.weight"), backend)?,
+                wk: tl.offload(&format!("layers.{i}.attention.wk.weight"), backend)?,
+                wv: tl.offload(&format!("layers.{i}.attention.wv.weight"), backend)?,
+                wo: tl.offload(&format!("layers.{i}.attention.wo.weight"), backend)?,
+                ffn_norm: tl.offload(&format!("layers.{i}.ffn_norm.weight"), backend)?,
+                w1: tl.offload(&format!("layers.{i}.feed_forward.w1.weight"), backend)?,
+                w2: tl.offload(&format!("layers.{i}.feed_forward.w2.weight"), backend)?,
+                w3: tl.offload(&format!("layers.{i}.feed_forward.w3.weight"), backend)?,
+            };
             layers.push(layer);
         }
-
-        let (context, _tensors) = tl.finish();
+        let (context, loaded_tensors) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
         Ok(Self {
             hyperparameters,
+            model_params: params,
             context_size,
             tokenizer,
             wte,
@@ -85,6 +110,7 @@ impl KnownModel for Llama {
             output,
             layers,
             context: Arc::new(context),
+            loaded_tensors,
         })
     }
 
@@ -121,9 +147,10 @@ impl KnownModel for Llama {
             file_type: _,
         } = self.hyperparameters;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
+
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
             // for big prompts, if BLAS is enabled, it is better to use only one thread
@@ -136,10 +163,17 @@ impl KnownModel for Llama {
                 },
             );
             for il in 0..n_layer {
+                //TODO: find a better way to do this
+                if self.model_params.should_offload(il) {
+                    ctx0.enable_offloading();
+                } else {
+                    ctx0.disable_offloading();
+                }
+
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
 
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 // norm
                 current = ctx0.op_rms_norm(&input_layer);
@@ -265,7 +299,7 @@ impl KnownModel for Llama {
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
@@ -292,7 +326,8 @@ impl KnownModel for Llama {
                 // input for next layer
                 input_layer = current;
             }
-            builder.use_scratch(Some(0));
+
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // norm
             input_layer = ctx0.op_rms_norm(&input_layer);
@@ -302,6 +337,7 @@ impl KnownModel for Llama {
 
             let embedding_result: ggml::Tensor = input_layer.share();
 
+            ctx0.disable_offloading();
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
