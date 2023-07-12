@@ -854,9 +854,8 @@ pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
     }
 }
 
-/// Callback to be passed to [InferenceSession::infer] that will print the
-/// token to stdout and will halt execution when the stop sequence is encountered.
-/// Only to be used for chat mode.
+/// An [InferenceResponse] callback that will halt inference when a stop_sequence is generated.
+/// This callback is used in [InferenceSession::infer] in chat_mode.
 pub fn conversation_inference_callback<'a, E: std::error::Error + 'static>(
     stop_sequence: String,
     buf: &'a mut String,
