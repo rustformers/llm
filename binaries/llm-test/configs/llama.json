@@ -9,6 +9,15 @@
                 "output": "When a llama rides a crab, 10-year olds are the ones who get to eat.\nTheir parents have been told that they will be eating for another year or two before their children can enjoy it again – and then only if there is enough food left over from Christmas dinner!",
                 "maximum_token_count": 128
             }
+        },
+        {
+            "Tokens": {
+                "input": "Rustformers is",
+                "output": 260
+            }
+        },
+        {
+            "Delete": {}
         }
     ]
 }

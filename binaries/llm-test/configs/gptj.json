@@ -9,6 +9,15 @@
                 "output_disabled": "\"When a llama rides a crab, \nit's not the same as when an elephant does it.\" - John Steinbeck, East of Eden.\n\n \"The best way to predict your future is by looking at history.\"- Robert Kiyosaki (author). Rich Dad Poor dad : what 10 rules for success really mean and how you can apply them in life! The rich dads guidebook on personal finance: How To Become A Millionaire In Less Than 5 years! http://www..richdadpoordaddyguidebooksalexanderkimballblogcom/the_bestwaytopredictyourfutureislookingathistory/. You will learn about money management",
                 "maximum_token_count": 128
             }
+        },
+        {
+            "Tokens": {
+                "input": "Rustformers is",
+                "output": 257
+            }
+        },
+        {
+            "Delete": {}
         }
     ]
 }

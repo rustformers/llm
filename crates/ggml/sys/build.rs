@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 // the host and target are the same. If they are not, it will turn off auto-feature-detection,
 // and you will need to manually specify target features through target-features.
 fn main() {
+    verify_state();
+
     println!("cargo:rerun-if-changed=llama-cpp");
 
     let mut builder = cc::Build::new();
@@ -104,6 +106,14 @@ fn main() {
     }
 }
 
+/// Verify the state of the repo to catch common newbie mistakes.
+fn verify_state() {
+    assert!(
+        Path::new("llama-cpp/ggml.c").exists(),
+        "Could not find llama-cpp/ggml.c. Try running `git submodule update --init`"
+    );
+}
+
 fn cfg_cublas() -> bool {
     !cfg!(target_os = "macos") && cfg!(feature = "cublas")
 }
@@ -155,8 +165,11 @@ fn lib_path(prefix: &str) -> String {
 fn enable_clblast(build: &mut cc::Build) {
     println!("cargo:rustc-link-lib=clblast");
     println!("cargo:rustc-link-lib=OpenCL");
-    //enable dynamic linking against stdc++
-    println!(r"cargo:rustc-link-lib=dylib=stdc++");
+
+    if cfg!(target_os = "linux") {
+        //enable dynamic linking against stdc++
+        println!(r"cargo:rustc-link-lib=dylib=stdc++");
+    }
 
     build.file("llama-cpp/ggml-opencl.cpp");
     build.flag("-DGGML_USE_CLBLAST");

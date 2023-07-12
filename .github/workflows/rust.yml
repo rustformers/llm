@@ -103,18 +103,60 @@ jobs:
     # Don't stop building if it fails on an OS
       fail-fast: false
       matrix:
-        # TODO Add windows opencl build
-        os: [ubuntu-latest]
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps: 
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: Install clblast
+     
+      - name: Install CLBlast on linux
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt install libclblast-dev 
+
+      - name: Install vcpkg on windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          ./bootstrap-vcpkg.sh
+          ls -la
+        shell: bash
+          
+      - name: Install OpenCL on windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          ${{ github.workspace }}\vcpkg\vcpkg.exe install opencl:x64-windows
+        shell: pwsh
+
+      - name: Install CLBlast on windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          ${{ github.workspace }}\vcpkg\vcpkg.exe install clblast:x64-windows
+        shell: pwsh
+
+      - name: Set Windows Environment Variables
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "CLBLAST_PATH=${{ github.workspace }}/vcpkg/packages/clblast_x64-windows" >> $GITHUB_ENV
+          echo "OPENCL_PATH=${{ github.workspace }}/vcpkg/packages/opencl_x64-windows" >> $GITHUB_ENV
+          echo "${{ github.workspace }}/vcpkg/packages/clblast_x64-windows/bin" >> $GITHUB_PATH
+          echo "${{ github.workspace }}/vcpkg/packages/opencl_x64-windows/bin" >> $GITHUB_PATH
+        shell: bash
+
       - uses: dtolnay/rust-toolchain@stable
       - name: Check
         run: cargo check --verbose
-      - name: Build
+
+      
+      - name: Build with OpenCL on Windows
+        if: matrix.os == 'windows-latest'
         run: cargo build --verbose --features clblast
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+crt-static"
+
+      - name: Build with OpenCL on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build --verbose --features clblast
+
+      

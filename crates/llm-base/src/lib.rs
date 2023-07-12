@@ -26,7 +26,7 @@ pub use inference_session::{
     conversation_inference_callback, feed_prompt_callback, GraphOutputs, InferenceError,
     InferenceFeedback, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
-    ModelKVMemoryType, SnapshotError,
+    ModelKVMemoryType, RewindError, SnapshotError,
 };
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, FormatMagic,

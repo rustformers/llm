@@ -9,6 +9,15 @@
                 "output": "When a llama rides a crab,  the llama is called the \"crab rider\".\nThe crabs are very popular in South America, especially Brazil. They have been used as transportation for many years and they can carry up to five people at once!",
                 "maximum_token_count": 128
             }
+        },
+        {
+            "Tokens": {
+                "input": "Rustformers is",
+                "output": 247
+            }
+        },
+        {
+            "Delete": {}
         }
     ]
 }
