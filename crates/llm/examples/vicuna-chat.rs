@@ -97,7 +97,7 @@ fn main() {
                             maximum_token_count: None,
                         },
                         &mut Default::default(),
-                        conversation_inference_callback(format!("{character_name}:"), print_token),
+                        conversation_inference_callback(&format!("{character_name}:"), print_token),
                     )
                     .unwrap_or_else(|e| panic!("{e}"));
 
