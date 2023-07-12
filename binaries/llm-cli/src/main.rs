@@ -271,7 +271,7 @@ fn interactive(
             .decoded_tokens()
             .last()
             .map(|t| *t == b'\n')
-            .unwrap_or(false)
+            .unwrap_or(true)
     }
 
     let mut infer = |session: &mut InferenceSession, mut prompt: String| {
