@@ -893,32 +893,37 @@ pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
     }
 }
 
-/// An [InferenceResponse] callback that will halt inference when a stop_sequence is generated.
+/// An [InferenceResponse] callback that will halt inference when a `stop_sequence` is generated.
 /// This callback is used in [InferenceSession::infer] in chat_mode.
 pub fn conversation_inference_callback<'a, E: std::error::Error + 'static>(
     stop_sequence: String,
-    buf: &'a mut String,
-    mut print_token: impl FnMut(String) + 'a,
+    mut callback: impl FnMut(String) + 'a,
 ) -> impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a {
+    let mut stop_sequence_buf = String::new();
     move |resp| match resp {
-        InferenceResponse::InferredToken(t) => {
-            let mut reverse_buf = buf.clone();
-            reverse_buf.push_str(t.as_str());
-            if stop_sequence.as_str().eq(reverse_buf.as_str()) {
-                buf.clear();
+        InferenceResponse::InferredToken(token) => {
+            // We've generated a token, so we need to check if it's contained in the stop sequence.
+            let mut buf = stop_sequence_buf.clone();
+            buf.push_str(&token);
+
+            if buf.starts_with(&stop_sequence) {
+                // We've generated the stop sequence, so we're done.
+                // Note that this will contain the extra tokens that were generated after the stop sequence,
+                // which may affect generation. This is non-ideal, but it's the best we can do without
+                // modifying the model.
+                stop_sequence_buf.clear();
                 return Ok(InferenceFeedback::Halt);
-            } else if stop_sequence.as_str().starts_with(reverse_buf.as_str()) {
-                buf.push_str(t.as_str());
+            } else if stop_sequence.starts_with(&buf) {
+                // We've generated a prefix of the stop sequence, so we need to keep buffering.
+                stop_sequence_buf = buf;
                 return Ok(InferenceFeedback::Continue);
             }
 
-            if buf.is_empty() {
-                print_token(t);
-                Ok(InferenceFeedback::Continue)
-            } else {
-                print_token(reverse_buf);
-                Ok(InferenceFeedback::Continue)
-            }
+            // We've generated a token that isn't part of the stop sequence, so we can
+            // pass it to the callback.
+            stop_sequence_buf.clear();
+            callback(buf);
+            Ok(InferenceFeedback::Continue)
         }
         InferenceResponse::EotToken => Ok(InferenceFeedback::Halt),
         _ => Ok(InferenceFeedback::Continue),

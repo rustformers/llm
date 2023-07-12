@@ -77,7 +77,6 @@ fn main() {
 
     let mut rng = rand::thread_rng();
     let mut res = llm::InferenceStats::default();
-    let mut buf = String::new();
 
     loop {
         println!();
@@ -98,11 +97,7 @@ fn main() {
                             maximum_token_count: None,
                         },
                         &mut Default::default(),
-                        conversation_inference_callback(
-                            String::from(user_name),
-                            &mut buf,
-                            print_token,
-                        ),
+                        conversation_inference_callback(format!("{character_name}:"), print_token),
                     )
                     .unwrap_or_else(|e| panic!("{e}"));
 

@@ -259,13 +259,6 @@ fn interactive(
     let parameters = generate.inference_parameters(model.eot_token_id());
     let mut rng = generate.rng();
 
-    let mut buf = String::new();
-
-    fn print_token(t: String) {
-        print!("{t}");
-        std::io::stdout().flush().unwrap();
-    }
-
     fn session_ends_with_newline(session: &InferenceSession) -> bool {
         session
             .decoded_tokens()
@@ -293,6 +286,11 @@ fn interactive(
         };
         sp.clear();
 
+        fn print_token(t: String) {
+            print!("{t}");
+            std::io::stdout().flush().unwrap();
+        }
+
         if chat_mode {
             let stop_sequence = message_prompt_prefix.unwrap_or_default().to_owned();
 
@@ -306,7 +304,7 @@ fn interactive(
                     maximum_token_count: generate.num_predict,
                 },
                 &mut Default::default(),
-                conversation_inference_callback(stop_sequence, &mut buf, print_token),
+                conversation_inference_callback(stop_sequence, print_token),
             )
         } else {
             session.infer::<Infallible>(
@@ -348,7 +346,7 @@ fn interactive(
                     .map(|template| process_prompt(template, &line))
                     .unwrap_or_else(|| {
                         message_prompt_prefix
-                            .map(|prefix| format!("{} {}", prefix, line))
+                            .map(|prefix| format!("{}{}", prefix, line))
                             .unwrap_or_else(|| line)
                     });
 
