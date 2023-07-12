@@ -230,6 +230,14 @@ impl Prompt<'_> {
             }
         })
     }
+
+    /// Returns whether this prompt is empty.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Text(text) => text.is_empty(),
+            Self::Tokens(tokens) => tokens.is_empty(),
+        }
+    }
 }
 impl<'a> Default for Prompt<'a> {
     fn default() -> Self {

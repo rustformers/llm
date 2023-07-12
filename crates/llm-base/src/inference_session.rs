@@ -280,7 +280,7 @@ impl InferenceSession {
     }
 
     /// Feed a prompt to the model for this session.
-    pub fn feed_prompt<'a, E: std::error::Error + 'static, P: Into<Prompt<'a>>>(
+    pub fn feed_prompt<'a, E: std::error::Error + Send + Sync + 'static, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
         params: &InferenceParameters,
@@ -407,7 +407,7 @@ impl InferenceSession {
     /// generated (specified by [InferenceRequest::maximum_token_count]).
     ///
     /// This is a wrapper around [Self::feed_prompt] and [Self::infer_next_token].
-    pub fn infer<E: std::error::Error + 'static>(
+    pub fn infer<E: std::error::Error + Send + Sync + 'static>(
         &mut self,
         model: &dyn Model,
         rng: &mut impl rand::Rng,
@@ -438,14 +438,16 @@ impl InferenceSession {
         let parameters = request.parameters;
 
         // Feed the initial prompt through the transformer, to update its
-        // context window with new data.
-        self.feed_prompt(
-            model,
-            parameters,
-            request.prompt,
-            output_request,
-            feed_prompt_callback(&mut callback),
-        )?;
+        // context window with new data, if necessary.
+        if !request.prompt.is_empty() {
+            self.feed_prompt(
+                model,
+                parameters,
+                request.prompt,
+                output_request,
+                feed_prompt_callback(&mut callback),
+            )?;
+        }
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
 
@@ -661,7 +663,7 @@ pub enum InferenceError {
     EndOfText,
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
-    UserCallback(Box<dyn std::error::Error>),
+    UserCallback(Box<dyn std::error::Error + Send + Sync>),
 }
 
 #[derive(Error, Debug)]
@@ -883,12 +885,49 @@ pub enum InferenceFeedback {
 
 /// Adapt an [InferenceResponse] callback so that it can be used in a call to
 /// [InferenceSession::feed_prompt].
-pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
+pub fn feed_prompt_callback<'a, E: std::error::Error + Send + Sync + 'static>(
     mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a,
 ) -> impl FnMut(&[u8]) -> Result<InferenceFeedback, E> + 'a {
     let mut buffer = TokenUtf8Buffer::new();
     move |token| match buffer.push(token) {
         Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
         None => Ok(InferenceFeedback::Continue),
+    }
+}
+
+/// An [InferenceResponse] callback that will halt inference when a `stop_sequence` is generated.
+/// This callback is used in [InferenceSession::infer] in chat_mode.
+pub fn conversation_inference_callback<'a, E: std::error::Error + Send + Sync + 'static>(
+    stop_sequence: &'a str,
+    mut callback: impl FnMut(String) + 'a,
+) -> impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E> + 'a {
+    let mut stop_sequence_buf = String::new();
+    move |resp| match resp {
+        InferenceResponse::InferredToken(token) => {
+            // We've generated a token, so we need to check if it's contained in the stop sequence.
+            let mut buf = stop_sequence_buf.clone();
+            buf.push_str(&token);
+
+            if buf.starts_with(stop_sequence) {
+                // We've generated the stop sequence, so we're done.
+                // Note that this will contain the extra tokens that were generated after the stop sequence,
+                // which may affect generation. This is non-ideal, but it's the best we can do without
+                // modifying the model.
+                stop_sequence_buf.clear();
+                return Ok(InferenceFeedback::Halt);
+            } else if stop_sequence.starts_with(&buf) {
+                // We've generated a prefix of the stop sequence, so we need to keep buffering.
+                stop_sequence_buf = buf;
+                return Ok(InferenceFeedback::Continue);
+            }
+
+            // We've generated a token that isn't part of the stop sequence, so we can
+            // pass it to the callback.
+            stop_sequence_buf.clear();
+            callback(buf);
+            Ok(InferenceFeedback::Continue)
+        }
+        InferenceResponse::EotToken => Ok(InferenceFeedback::Halt),
+        _ => Ok(InferenceFeedback::Continue),
     }
 }

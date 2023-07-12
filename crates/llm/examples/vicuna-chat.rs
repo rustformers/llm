@@ -1,4 +1,5 @@
 use clap::Parser;
+use llm_base::conversation_inference_callback;
 use rustyline::error::ReadlineError;
 use std::{convert::Infallible, io::Write, path::PathBuf};
 
@@ -62,7 +63,11 @@ fn main() {
             &mut Default::default(),
             llm::feed_prompt_callback(|resp| match resp {
                 llm::InferenceResponse::PromptToken(t)
-                | llm::InferenceResponse::InferredToken(t) => print_token(t),
+                | llm::InferenceResponse::InferredToken(t) => {
+                    print_token(t);
+
+                    Ok::<llm::InferenceFeedback, Infallible>(llm::InferenceFeedback::Continue)
+                }
                 _ => Ok(llm::InferenceFeedback::Continue),
             }),
         )
@@ -72,7 +77,6 @@ fn main() {
 
     let mut rng = rand::thread_rng();
     let mut res = llm::InferenceStats::default();
-    let mut buf = String::new();
 
     loop {
         println!();
@@ -81,7 +85,7 @@ fn main() {
         match readline {
             Ok(line) => {
                 let stats = session
-                    .infer(
+                    .infer::<Infallible>(
                         model.as_ref(),
                         &mut rng,
                         &llm::InferenceRequest {
@@ -93,7 +97,7 @@ fn main() {
                             maximum_token_count: None,
                         },
                         &mut Default::default(),
-                        inference_callback(String::from(user_name), &mut buf),
+                        conversation_inference_callback(&format!("{character_name}:"), print_token),
                     )
                     .unwrap_or_else(|e| panic!("{e}"));
 
@@ -116,36 +120,7 @@ fn main() {
     println!("\n\nInference stats:\n{res}");
 }
 
-fn inference_callback(
-    stop_sequence: String,
-    buf: &mut String,
-) -> impl FnMut(llm::InferenceResponse) -> Result<llm::InferenceFeedback, Infallible> + '_ {
-    move |resp| match resp {
-        llm::InferenceResponse::InferredToken(t) => {
-            let mut reverse_buf = buf.clone();
-            reverse_buf.push_str(t.as_str());
-            if stop_sequence.as_str().eq(reverse_buf.as_str()) {
-                buf.clear();
-                return Ok(llm::InferenceFeedback::Halt);
-            } else if stop_sequence.as_str().starts_with(reverse_buf.as_str()) {
-                buf.push_str(t.as_str());
-                return Ok(llm::InferenceFeedback::Continue);
-            }
-
-            if buf.is_empty() {
-                print_token(t)
-            } else {
-                print_token(reverse_buf)
-            }
-        }
-        llm::InferenceResponse::EotToken => Ok(llm::InferenceFeedback::Halt),
-        _ => Ok(llm::InferenceFeedback::Continue),
-    }
-}
-
-fn print_token(t: String) -> Result<llm::InferenceFeedback, Infallible> {
+fn print_token(t: String) {
     print!("{t}");
     std::io::stdout().flush().unwrap();
-
-    Ok(llm::InferenceFeedback::Continue)
 }
