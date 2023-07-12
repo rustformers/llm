@@ -179,51 +179,51 @@ pub struct Chat {
     #[arg(long, short = 'f')]
     pub prelude_prompt_file: PathBuf,
 
-    /// The per-message prompt to use.
+    /// The per-message prefix to be prepended to the user's message.
     ///
-    /// Must contain a `{{PROMPT}}` placeholder, which will be replaced with the
-    /// user's message.
+    /// The `{{PROMPT}}` will automatically be appended to this prefix.
     #[arg(long, short = 'p')]
-    pub message_prompt: Option<String>,
+    pub message_prompt_prefix: Option<String>,
 
-    /// The file to read the per-message prompt from.
+    /// The file containing the per-message prefix to be prepended to the user's message.
     ///
-    /// Must contain a `{{PROMPT}}` placeholder, which will be replaced with the
-    /// user's message.
+    /// The `{{PROMPT}}` will automatically be appended to this prefix.
     #[arg(long, short = 'q')]
-    pub message_prompt_file: Option<PathBuf>,
+    pub message_prompt_prefix_file: Option<PathBuf>,
 
     #[command(flatten)]
     pub generate: Generate,
 }
 impl Chat {
-    pub fn message_prompt(&self) -> eyre::Result<String> {
-        if self.message_prompt.is_some() && self.message_prompt_file.is_some() {
-            eyre::bail!("Cannot specify both --message-prompt and --message-prompt-file")
+    pub fn message_prompt_prefix(&self) -> eyre::Result<String> {
+        if self.message_prompt_prefix.is_some() && self.message_prompt_prefix_file.is_some() {
+            eyre::bail!(
+                "Cannot specify both --message-prompt-prefix and --message-prompt-prefix-file"
+            )
         }
 
-        if let Some(message_prompt_file) = &self.message_prompt_file {
-            read_prompt_file(message_prompt_file).and_then(|prompt| {
-                prompt
-                    .contains("{{PROMPT}}")
-                    .then_some(prompt)
-                    .ok_or_else(|| {
-                        eyre::eyre!(
-                            "Message prompt file must contain a `{{{{PROMPT}}}}` placeholder, but it does not"
-                        )
-                    })
+        if let Some(message_prompt_prefix_file) = &self.message_prompt_prefix_file {
+            read_prompt_file(message_prompt_prefix_file).and_then(|prompt| {
+                if prompt.contains("{{PROMPT}}") {
+                    eyre::bail!(
+                        "Message prompt file must not contain a `{{{{PROMPT}}}}` placeholder. The `{{PROMPT}}` will be automatically appended to the prefix."
+                    )
+                } else {
+                    Ok(prompt)
+                }
             })
-        } else if let Some(message_prompt) = &self.message_prompt {
-            message_prompt
-                .contains("{{PROMPT}}")
-                .then(|| message_prompt.clone())
-                .ok_or_else(|| {
-                    eyre::eyre!(
-                    "Message prompt must contain a `{{{{PROMPT}}}}` placeholder, but it does not"
+        } else if let Some(message_prompt_prefix) = &self.message_prompt_prefix {
+            if message_prompt_prefix.contains("{{PROMPT}}") {
+                eyre::bail!(
+                    "Message prompt file must not contain a `{{{{PROMPT}}}}` placeholder. The `{{PROMPT}}` will be automatically appended to the prefix."
                 )
-                })
+            } else {
+                Ok(message_prompt_prefix.clone())
+            }
         } else {
-            eyre::bail!("Must specify either --message-prompt or --message-prompt-file")
+            eyre::bail!(
+                "Must specify either --message-prompt-prefix or --message-prompt-prefix-file"
+            )
         }
     }
 }

@@ -238,7 +238,7 @@ fn chat(args: &cli_args::Chat) -> Result<()> {
         &args.model_load,
         true,
         Some(std::fs::read_to_string(&args.prelude_prompt_file)?.as_str()),
-        Some(&args.message_prompt()?),
+        Some(&args.message_prompt_prefix()?),
     )
 }
 
@@ -247,7 +247,7 @@ fn interactive(
     model_load: &cli_args::ModelLoad,
     chat_mode: bool,
     mut initial_prompt_template: Option<&str>,
-    message_prompt_template: Option<&str>,
+    message_prompt_prefix: Option<&str>,
 ) -> Result<()> {
     let inference_session_config = generate.inference_session_config();
     let model = model_load.load(generate.use_gpu)?;
@@ -258,10 +258,6 @@ fn interactive(
 
     let parameters = generate.inference_parameters(model.eot_token_id());
     let mut rng = generate.rng();
-
-    let stop_sequence = message_prompt_template
-        .map(|s| s.replace("{{PROMPT}}", "").trim().to_owned())
-        .unwrap_or_default();
 
     let mut buf = String::new();
 
@@ -298,6 +294,8 @@ fn interactive(
         sp.clear();
 
         if chat_mode {
+            let stop_sequence = message_prompt_prefix.unwrap_or_default().to_owned();
+
             session.infer::<Infallible>(
                 model.as_ref(),
                 &mut rng,
@@ -308,7 +306,7 @@ fn interactive(
                     maximum_token_count: generate.num_predict,
                 },
                 &mut Default::default(),
-                conversation_inference_callback(stop_sequence.clone(), &mut buf, print_token),
+                conversation_inference_callback(stop_sequence, &mut buf, print_token),
             )
         } else {
             session.infer::<Infallible>(
@@ -344,12 +342,16 @@ fn interactive(
                 let line = raw_line.replace("\\\n", "\n");
 
                 // Use the initial prompt template for the first inference,
-                // and then switch to the message prompt template afterwards
+                // and then switch to the message prompt prefix afterwards.
+                // Only the initial prompt template needs to be formatted.
                 let mut prompt = initial_prompt_template
                     .take()
-                    .or(message_prompt_template)
-                    .map(|pf| process_prompt(pf, &line))
-                    .unwrap_or(line);
+                    .map(|template| process_prompt(template, &line))
+                    .unwrap_or_else(|| {
+                        message_prompt_prefix
+                            .map(|prefix| format!("{} {}", prefix, line))
+                            .unwrap_or_else(|| line)
+                    });
 
                 // Add a newline to the end of the prompt if it doesn't end with one in chat mode
                 if chat_mode && !prompt.ends_with('\n') {
@@ -366,7 +368,7 @@ fn interactive(
                 }
 
                 // Reload session in REPL mode
-                if message_prompt_template.is_none() {
+                if !chat_mode {
                     session = recreate_session();
                 }
             }
