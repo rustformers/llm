@@ -2,7 +2,7 @@ use std::{os::raw::c_int, ptr::NonNull, sync::Arc};
 
 use memmap2::Mmap;
 
-use crate::{sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, Tensor, Type};
+use crate::{sys, usize_to_i32, usize_to_i64, Buffer, Tensor, Type};
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
@@ -440,13 +440,6 @@ impl Context {
             )
         };
         self.new_tensor_raw(tensor)
-    }
-
-    /// Computes the specified graph. Must be run in order to evaluate the graph.
-    pub fn graph_compute(&self, graph: &mut ComputationGraph) {
-        unsafe {
-            sys::ggml_graph_compute(self.ptr.as_ptr(), &mut graph.inner);
-        }
     }
 
     /// Retrieves the memory used by this [Context].

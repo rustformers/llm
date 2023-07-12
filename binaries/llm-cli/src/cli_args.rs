@@ -336,6 +336,7 @@ impl Generate {
             memory_v_type: mem_typ,
             use_gpu: self.use_gpu,
             n_batch: self.batch_size,
+            n_threads: self.num_threads(),
         }
     }
 
@@ -349,7 +350,6 @@ impl Generate {
 
     pub fn inference_parameters(&self, eot: llm::TokenId) -> InferenceParameters {
         InferenceParameters {
-            n_threads: self.num_threads(),
             sampler: Arc::new(llm::samplers::TopPTopK {
                 top_k: self.top_k,
                 top_p: self.top_p,

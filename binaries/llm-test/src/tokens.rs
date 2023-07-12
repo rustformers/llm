@@ -65,9 +65,7 @@ fn feed_prompt(
     model: &impl Model,
     output: &mut OutputRequest,
 ) -> Result<(), llm::InferenceError> {
-    session.feed_prompt(model, &Default::default(), prompt, output, |x| {
-        always_continue(x)
-    })
+    session.feed_prompt(model, prompt, output, always_continue)
 }
 
 fn always_continue(_: &[u8]) -> Result<InferenceFeedback, Infallible> {

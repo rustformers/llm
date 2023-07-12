@@ -13,8 +13,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The Falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae)
@@ -111,13 +111,11 @@ impl KnownModel for Falcon {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -150,7 +148,7 @@ impl KnownModel for Falcon {
             let memory_v = builder.memory_v;
             let memory_v_size = memory_v.element_size();
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
 
             let mut current: Tensor;
             let mut layernorm_output: Tensor;

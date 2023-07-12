@@ -111,16 +111,10 @@ fn perplexity(args: &cli_args::Perplexity) -> Result<()> {
     let model = args.model_load.load(args.generate.use_gpu)?;
     let (mut session, _) =
         snapshot::read_or_create_session(model.as_ref(), None, None, inference_session_config);
-    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
-    session.perplexity(
-        model.as_ref(),
-        &parameters,
-        prompt.as_str(),
-        |chunk, perplexity| {
-            println!("Perplexity[{chunk}]: {perplexity}");
-        },
-    )?;
+    session.perplexity(model.as_ref(), prompt.as_str(), |chunk, perplexity| {
+        println!("Perplexity[{chunk}]: {perplexity}");
+    })?;
 
     Ok(())
 }
@@ -273,7 +267,6 @@ fn interactive(
         let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
         if let Err(InferenceError::ContextFull) = session.feed_prompt(
             model.as_ref(),
-            &parameters,
             &prompt,
             // OutputRequest
             &mut Default::default(),

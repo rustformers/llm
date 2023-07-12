@@ -7,8 +7,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -117,13 +117,11 @@ impl KnownModel for Gpt2 {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -152,7 +150,7 @@ impl KnownModel for Gpt2 {
                 &ctx0.op_get_rows(&self.wpe, &position),
             );
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
             for il in 0..n_layer {
                 ctx0.use_scratch(builder.get_scratch(0));
 

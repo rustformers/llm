@@ -49,21 +49,6 @@ pub use util::TokenUtf8Buffer;
 /// This needs to be provided during all inference calls,
 /// but can be changed between calls.
 pub struct InferenceParameters {
-    /// The number of threads to use. This is dependent on your user's system,
-    /// and should be selected accordingly.
-    ///
-    /// Note that you should aim for a value close to the number of physical cores
-    /// on the system, as this will give the best performance. This means that, for
-    /// example, on a 16-core system with hyperthreading, you should set this to 16.
-    ///
-    /// Also note that not all cores on a system are equal, and that you may need to
-    /// experiment with this value to find the optimal value for your use case. For example,
-    /// Apple Silicon and modern Intel processors have "performance" and "efficiency" cores,
-    /// and you may want to only use the performance cores.
-    ///
-    /// A reasonable default value is 8, as most modern high-performance computers have
-    /// 8 physical cores. Adjust to your needs.
-    pub n_threads: usize,
     /// The sampler to use for sampling tokens from the model's probabilities.
     ///
     /// Each time the model runs, it generates a distribution of probabilities; each token
@@ -83,7 +68,6 @@ unsafe impl Sync for InferenceParameters {}
 impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
-            n_threads: 8,
             sampler: Arc::new(samplers::TopPTopK::default()),
         }
     }

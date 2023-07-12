@@ -6,8 +6,8 @@ use std::{collections::HashMap, error::Error, sync::Arc};
 use llm_base::{
     ggml::{self, Backend},
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
@@ -128,13 +128,11 @@ impl KnownModel for Llama {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -153,15 +151,8 @@ impl KnownModel for Llama {
 
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
-            // for big prompts, if BLAS is enabled, it is better to use only one thread
-            // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
-            let mut gf = ggml::ComputationGraph::new(
-                if input_len >= 32 && ggml::cpu_has_blas() && !ggml::cpu_has_gpublas() {
-                    1
-                } else {
-                    num_threads
-                },
-            );
+            let mut gf = ggml::ComputationGraph::new();
+
             for il in 0..n_layer {
                 //TODO: find a better way to do this
                 if self.model_params.should_offload(il) {

@@ -1,4 +1,4 @@
-use ggml::{Buffer, ComputationGraph, Context, Tensor};
+use ggml::{Buffer, ComputationGraph, Context, GraphExecutionPlan, Tensor};
 use serde::Serialize;
 use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
@@ -280,7 +280,8 @@ impl InferenceSession {
         }
         #[cfg(not(feature = "metal"))]
         {
-            ctx0.graph_compute(&mut built_gf);
+            let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
+            plan.execute(ctx0);
         }
 
         // Adjust the required memory per token if we didn't know that already
@@ -302,7 +303,6 @@ impl InferenceSession {
     pub fn feed_prompt<'a, E: std::error::Error + 'static, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
-        params: &InferenceParameters,
         prompt: P,
         output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
@@ -317,7 +317,7 @@ impl InferenceSession {
         }
 
         for batch in prompt_tokens.chunks(self.config.n_batch) {
-            model.evaluate(self, params, batch, output_request);
+            model.evaluate(self, batch, output_request);
             for &tk in batch {
                 let should_call_callback = Some(tk) != model.bot_token_id();
 
@@ -397,7 +397,7 @@ impl InferenceSession {
         self.tokens.push(next_token);
 
         // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(self, params, &[next_token], output_request);
+        model.evaluate(self, &[next_token], output_request);
 
         // Return the next token
         if next_token as TokenId == model.eot_token_id() {
@@ -460,7 +460,6 @@ impl InferenceSession {
         // context window with new data.
         self.feed_prompt(
             model,
-            parameters,
             request.prompt,
             output_request,
             feed_prompt_callback(&mut callback),
@@ -509,7 +508,6 @@ impl InferenceSession {
     pub fn perplexity<'a, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
-        parameters: &InferenceParameters,
         prompt: P,
         mut perplexity_callback: impl FnMut(usize, f32),
     ) -> Result<(), TokenizationError> {
@@ -554,7 +552,6 @@ impl InferenceSession {
 
                 model.evaluate(
                     self,
-                    parameters,
                     &tokens[batch_start..batch_start + batch_size],
                     &mut output_request,
                 );
@@ -804,6 +801,21 @@ pub struct InferenceSessionConfig {
     ///
     /// A reasonable default value is 8.
     pub n_batch: usize,
+    /// The number of threads to use. This is dependent on your user's system,
+    /// and should be selected accordingly.
+    ///
+    /// Note that you should aim for a value close to the number of physical cores
+    /// on the system, as this will give the best performance. This means that, for
+    /// example, on a 16-core system with hyperthreading, you should set this to 16.
+    ///
+    /// Also note that not all cores on a system are equal, and that you may need to
+    /// experiment with this value to find the optimal value for your use case. For example,
+    /// Apple Silicon and modern Intel processors have "performance" and "efficiency" cores,
+    /// and you may want to only use the performance cores.
+    ///
+    /// A reasonable default value is 8, as most modern high-performance computers have
+    /// 8 physical cores. Adjust to your needs.
+    pub n_threads: usize,
 }
 
 impl Default for InferenceSessionConfig {
@@ -813,6 +825,7 @@ impl Default for InferenceSessionConfig {
             memory_v_type: ModelKVMemoryType::Float16,
             use_gpu: false,
             n_batch: 8,
+            n_threads: 8,
         }
     }
 }

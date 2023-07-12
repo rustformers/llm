@@ -28,13 +28,9 @@ fn main() {
         println!("Starting session {i}");
         let mut session = model.start_session(Default::default());
         session
-            .feed_prompt(
-                model.as_ref(),
-                &InferenceParameters::default(),
-                prompt,
-                &mut Default::default(),
-                |_| Ok::<InferenceFeedback, Infallible>(llm::InferenceFeedback::Continue),
-            )
+            .feed_prompt(model.as_ref(), prompt, &mut Default::default(), |_| {
+                Ok::<InferenceFeedback, Infallible>(llm::InferenceFeedback::Continue)
+            })
             .unwrap();
         drop(session);
         println!("Dropped session {i}");

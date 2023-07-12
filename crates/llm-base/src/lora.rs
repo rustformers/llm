@@ -3,7 +3,7 @@ use crate::{
     LoadError,
 };
 
-use ggml::format::TensorLoadInfo;
+use ggml::{format::TensorLoadInfo, GraphExecutionPlan};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -112,9 +112,9 @@ impl LoraAdapter {
         let a = patch_file.get_tensor(&a_info)?;
         let b = patch_file.get_tensor(&b_info)?;
 
-        // Build a ggml context and apply the patch
-        // TODO: maybe pass the model's thread count to this context
-        let mut gf = ggml::ComputationGraph::new(8);
+        //Build a ggml context and apply the patch
+
+        let mut gf = ggml::ComputationGraph::new();
 
         // LoRA formula: w = w + ba*s
         let mut ba = patch_context.op_mul_mat(&a, &b);
@@ -126,7 +126,10 @@ impl LoraAdapter {
 
         // Compute the graph
         gf.build_forward_expand(&output);
-        patch_context.graph_compute(&mut gf);
+
+        //TODO: maybe pass the model's thread count to this context
+        let mut plan = GraphExecutionPlan::new(&mut gf, 8);
+        plan.execute(&patch_context);
 
         // Overwrite the original tensor.
         // The `output` and the `target_tensor` are not from the same context,

@@ -8,8 +8,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -127,13 +127,11 @@ impl KnownModel for GptNeoX {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;
-        let n_threads = params.n_threads;
         let n_ctx = self.context_size;
 
         let Hyperparameters {
@@ -155,7 +153,7 @@ impl KnownModel for GptNeoX {
                 builder.memory_v.element_size(),
             );
 
-            let mut gf = ggml::ComputationGraph::new(n_threads);
+            let mut gf = ggml::ComputationGraph::new();
 
             for il in 0..n_layer {
                 // attention uses first scratch buffer

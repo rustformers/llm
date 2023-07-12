@@ -7,8 +7,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -98,13 +98,11 @@ impl KnownModel for Mpt {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -128,7 +126,7 @@ impl KnownModel for Mpt {
 
             let f32_size = std::mem::size_of::<f32>();
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
             for il in 0..n_layer {
                 // attention uses first scratch buffer
                 ctx0.use_scratch(builder.get_scratch(0));

@@ -11,8 +11,8 @@ use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, LoadError, LoadProgress, Tokenizer, TokenizerSource,
+    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig,
+    LoadError, LoadProgress, Tokenizer, TokenizerSource,
 };
 
 /// Common functions for model evaluation
@@ -54,13 +54,12 @@ pub trait KnownModel: Send + Sync {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
-    /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
+    /// to generate output by evaluating the `input_tokens`.
     /// The [OutputRequest] is used to specify additional data to fetch from the
     /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     );
@@ -101,13 +100,12 @@ pub trait Model: Send + Sync {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
-    /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
+    /// to generate output by evaluating the `input_tokens`.
     /// The [OutputRequest] is used to specify additional data to fetch from the
     /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     );
@@ -136,11 +134,10 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        KnownModel::evaluate(self, session, params, input_tokens, output_request)
+        KnownModel::evaluate(self, session, input_tokens, output_request)
     }
 
     fn tokenizer(&self) -> &Tokenizer {
