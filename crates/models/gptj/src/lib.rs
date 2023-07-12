@@ -102,7 +102,7 @@ impl KnownModel for GptJ {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.hyperparameters.n_ctx,
+            self.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,

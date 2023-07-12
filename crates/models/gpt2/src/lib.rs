@@ -31,7 +31,9 @@ pub struct Gpt2 {
     // weighted positional encodings
     wpe: Tensor,
     // language model head
-    lm_head: Tensor,
+    //
+    // Optional: if not present, the `wte` tensor is used instead.
+    lm_head: Option<Tensor>,
 
     // weights for the model
     layers: Vec<Layer>,
@@ -59,7 +61,10 @@ impl KnownModel for Gpt2 {
         let ln_f_b = tl.load("model/ln_f/b")?;
         let wte = tl.load("model/wte")?;
         let wpe = tl.load("model/wpe")?;
-        let lm_head = tl.load("model/lm_head")?;
+
+        // GPT-2's language model head is optional; if it is not present,
+        // the `wte` tensor is used instead.
+        let lm_head = tl.load("model/lm_head").ok();
 
         let mut layers = Vec::new();
         for i in 0..hyperparameters.n_layer {
@@ -102,7 +107,7 @@ impl KnownModel for Gpt2 {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.hyperparameters.n_ctx,
+            self.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -306,7 +311,8 @@ impl KnownModel for Gpt2 {
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);
+            let head = self.lm_head.as_ref().unwrap_or(&self.wte);
+            input_layer = ctx0.op_mul_mat(head, &input_layer);
 
             (
                 gf,

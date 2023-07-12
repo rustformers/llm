@@ -299,6 +299,11 @@ impl Context {
 
     /// Creates a 1D view over `a`.
     pub fn op_view_1d(&self, a: &Tensor, ne0: usize, offset: usize) -> Tensor {
+        #[cfg(debug_assertions)]
+        assert!(
+            offset < a.nbytes(),
+            "Cannot create tensor view with offset larger than tensor"
+        );
         let tensor = unsafe {
             sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i64(ne0), offset)
         };
