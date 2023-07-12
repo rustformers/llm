@@ -192,7 +192,7 @@ impl InferenceSession {
         #[cfg(feature = "metal")]
         let metal_context = {
             if config.use_gpu {
-                let mut metal_context = MetalContext::new();
+                let mut metal_context = MetalContext::new(config.n_threads);
                 metal_context.add_scratch_buffer(ctx0.buffer.as_ref().unwrap());
 
                 for buf in scratch.iter() {
@@ -272,10 +272,12 @@ impl InferenceSession {
                     metal_context.graph_compute(&mut built_gf);
                     metal_context.get_tensor(&built_result.result);
                 } else {
-                    ctx0.graph_compute(&mut built_gf);
+                    let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
+                    plan.execute(ctx0);
                 }
             } else {
-                ctx0.graph_compute(&mut built_gf);
+                let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
+                plan.execute(ctx0);
             }
         }
         #[cfg(not(feature = "metal"))]

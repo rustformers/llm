@@ -14,8 +14,8 @@ pub struct MetalContext {
 
 impl MetalContext {
     /// Create a new Metal context
-    pub fn new() -> Self {
-        let raw = unsafe { metal::ggml_metal_init() };
+    pub fn new(n_threads: usize) -> Self {
+        let raw = unsafe { metal::ggml_metal_init(n_threads.try_into().unwrap()) };
 
         MetalContext {
             contexts: vec![],
@@ -73,12 +73,6 @@ impl MetalContext {
                 );
             }
         }
-    }
-}
-
-impl Default for MetalContext {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
