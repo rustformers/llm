@@ -438,7 +438,8 @@ impl InferenceSession {
         let parameters = request.parameters;
 
         // Feed the initial prompt through the transformer, to update its
-        // context window with new data.
+        // context window with new data, if necessary.
+        if !request.prompt.is_empty() {
         self.feed_prompt(
             model,
             parameters,
@@ -446,6 +447,7 @@ impl InferenceSession {
             output_request,
             feed_prompt_callback(&mut callback),
         )?;
+        }
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
 
