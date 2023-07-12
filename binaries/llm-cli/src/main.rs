@@ -343,7 +343,6 @@ fn interactive(
 
                 // Use the initial prompt template for the first inference,
                 // and then switch to the message prompt prefix afterwards.
-                // Only the initial prompt template needs to be formatted.
                 let mut prompt = initial_prompt_template
                     .take()
                     .map(|template| process_prompt(template, &line))
