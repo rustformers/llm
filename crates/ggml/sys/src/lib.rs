@@ -138,19 +138,21 @@ pub const ggml_op_GGML_OP_ALIBI: ggml_op = 50;
 pub const ggml_op_GGML_OP_CLAMP: ggml_op = 51;
 pub const ggml_op_GGML_OP_CONV_1D: ggml_op = 52;
 pub const ggml_op_GGML_OP_CONV_2D: ggml_op = 53;
-pub const ggml_op_GGML_OP_FLASH_ATTN: ggml_op = 54;
-pub const ggml_op_GGML_OP_FLASH_FF: ggml_op = 55;
-pub const ggml_op_GGML_OP_FLASH_ATTN_BACK: ggml_op = 56;
-pub const ggml_op_GGML_OP_WIN_PART: ggml_op = 57;
-pub const ggml_op_GGML_OP_WIN_UNPART: ggml_op = 58;
-pub const ggml_op_GGML_OP_MAP_UNARY: ggml_op = 59;
-pub const ggml_op_GGML_OP_MAP_BINARY: ggml_op = 60;
-pub const ggml_op_GGML_OP_MAP_CUSTOM1: ggml_op = 61;
-pub const ggml_op_GGML_OP_MAP_CUSTOM2: ggml_op = 62;
-pub const ggml_op_GGML_OP_MAP_CUSTOM3: ggml_op = 63;
-pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS: ggml_op = 64;
-pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS_BACK: ggml_op = 65;
-pub const ggml_op_GGML_OP_COUNT: ggml_op = 66;
+pub const ggml_op_GGML_OP_POOL_1D: ggml_op = 54;
+pub const ggml_op_GGML_OP_POOL_2D: ggml_op = 55;
+pub const ggml_op_GGML_OP_FLASH_ATTN: ggml_op = 56;
+pub const ggml_op_GGML_OP_FLASH_FF: ggml_op = 57;
+pub const ggml_op_GGML_OP_FLASH_ATTN_BACK: ggml_op = 58;
+pub const ggml_op_GGML_OP_WIN_PART: ggml_op = 59;
+pub const ggml_op_GGML_OP_WIN_UNPART: ggml_op = 60;
+pub const ggml_op_GGML_OP_MAP_UNARY: ggml_op = 61;
+pub const ggml_op_GGML_OP_MAP_BINARY: ggml_op = 62;
+pub const ggml_op_GGML_OP_MAP_CUSTOM1: ggml_op = 63;
+pub const ggml_op_GGML_OP_MAP_CUSTOM2: ggml_op = 64;
+pub const ggml_op_GGML_OP_MAP_CUSTOM3: ggml_op = 65;
+pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS: ggml_op = 66;
+pub const ggml_op_GGML_OP_CROSS_ENTROPY_LOSS_BACK: ggml_op = 67;
+pub const ggml_op_GGML_OP_COUNT: ggml_op = 68;
 pub type ggml_op = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -1552,6 +1554,33 @@ extern "C" {
         b: *mut ggml_tensor,
         s: ::std::os::raw::c_int,
         d: ::std::os::raw::c_int,
+    ) -> *mut ggml_tensor;
+}
+pub const ggml_op_pool_GGML_OP_POOL_MAX: ggml_op_pool = 0;
+pub const ggml_op_pool_GGML_OP_POOL_AVG: ggml_op_pool = 1;
+pub const ggml_op_pool_GGML_OP_POOL_COUNT: ggml_op_pool = 2;
+pub type ggml_op_pool = ::std::os::raw::c_int;
+extern "C" {
+    pub fn ggml_pool_1d(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        op: ggml_op_pool,
+        k0: ::std::os::raw::c_int,
+        s0: ::std::os::raw::c_int,
+        p0: ::std::os::raw::c_int,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
+    pub fn ggml_pool_2d(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        op: ggml_op_pool,
+        k0: ::std::os::raw::c_int,
+        k1: ::std::os::raw::c_int,
+        s0: ::std::os::raw::c_int,
+        s1: ::std::os::raw::c_int,
+        p0: ::std::os::raw::c_int,
+        p1: ::std::os::raw::c_int,
     ) -> *mut ggml_tensor;
 }
 extern "C" {
