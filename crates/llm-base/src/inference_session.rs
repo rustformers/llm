@@ -2,6 +2,7 @@ use ggml::{Buffer, ComputationGraph, Context, Tensor};
 use serde::Serialize;
 use std::{fmt::Display, sync::Arc};
 use thiserror::Error;
+use tracing::{instrument, log};
 
 #[cfg(feature = "metal")]
 use ggml::metal::MetalContext;
@@ -280,6 +281,7 @@ impl InferenceSession {
     }
 
     /// Feed a prompt to the model for this session.
+    #[instrument(skip_all)]
     pub fn feed_prompt<'a, E: std::error::Error + Send + Sync + 'static, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
@@ -329,6 +331,7 @@ impl InferenceSession {
                 self.decoded_tokens.append(&mut token);
             }
         }
+        log::trace!("Finished feed prompt");
 
         Ok(())
     }
@@ -361,6 +364,7 @@ impl InferenceSession {
     }
 
     /// Infer the next token for this session.
+    #[instrument(level = "trace", skip_all)]
     pub fn infer_next_token(
         &mut self,
         model: &dyn Model,
@@ -407,6 +411,7 @@ impl InferenceSession {
     /// generated (specified by [InferenceRequest::maximum_token_count]).
     ///
     /// This is a wrapper around [Self::feed_prompt] and [Self::infer_next_token].
+    #[instrument(skip_all)]
     pub fn infer<E: std::error::Error + Send + Sync + 'static>(
         &mut self,
         model: &dyn Model,
@@ -431,6 +436,10 @@ impl InferenceSession {
                 }
             }
         }
+        log::trace!(
+            "Starting inference request with max_token_count: {}",
+            maximum_token_count
+        );
 
         let mut stats = InferenceStats::default();
         let start_at = std::time::SystemTime::now();
