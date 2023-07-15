@@ -396,8 +396,6 @@ impl LoadError {
 pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
-    /// Gets a tensor from the loader and tries to offload it to the specified backend.
-    fn offload(&mut self, name: &str, backend: ggml::Backend) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, and extract all of the state from the loader.
     fn finish(self) -> (Context, HashMap<String, ggml::Tensor>);
 }
@@ -672,15 +670,6 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn offload(&mut self, name: &str, backend: ggml::Backend) -> Result<ggml::Tensor, LoadError> {
-        let mut tensor = self.load(name)?;
-        if backend != ggml::Backend::Cpu {
-            tensor.set_backend(backend);
-            crate::ggml::accelerator_transform_tensor(&mut tensor);
-        }
-        Ok(tensor)
-    }
-
     fn finish(self) -> (Context, HashMap<String, ggml::Tensor>) {
         (self.context, self.loaded_tensors)
     }
@@ -752,16 +741,15 @@ impl<'a> FileContext<'a> {
             }
         }
 
-        // The tensor name is truncated to 32 characters.
-
-        let tensor_name = if name.len() > 32 {
-            &name[name.len() - 32..]
+        // The tensor name is truncated to it's maximum length.
+        let max_name_length: usize = ggml::MAX_NAME_LENGTH.try_into().unwrap();
+        let tensor_name = if name.len() >= max_name_length {
+            &name[name.len() - max_name_length..]
         } else {
             name
         };
-        tensor.set_name(tensor_name);
 
-        Ok(tensor)
+        Ok(tensor.set_name(tensor_name))
     }
 }
 

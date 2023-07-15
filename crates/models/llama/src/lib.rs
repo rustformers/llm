@@ -1,10 +1,10 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{error::Error, sync::Arc};
 
 use llm_base::{
-    ggml::{self, Backend},
+    ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
     ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
@@ -34,21 +34,10 @@ pub struct Llama {
 
     // must be kept alive for the model
     context: Arc<ggml::Context>,
-    loaded_tensors: HashMap<String, ggml::Tensor>,
 }
 
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
-
-impl Drop for Llama {
-    fn drop(&mut self) {
-        for (_, tensor) in self.loaded_tensors.drain() {
-            if tensor.get_backend() != Backend::Cpu {
-                ggml::accelerator_free_tensor(&tensor);
-            }
-        }
-    }
-}
 
 impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;
@@ -64,39 +53,49 @@ impl KnownModel for Llama {
         // model-global weights
         let wte = tl.load("tok_embeddings.weight")?;
 
-        let backend = if params.should_offload(0) {
-            Backend::Gpu
-        } else {
-            Backend::Cpu
-        };
+        let backend = params.backend(0);
 
-        let norm = tl.offload("norm.weight", backend)?;
+        let norm = tl.load("norm.weight")?.transfer_to(backend)?;
 
-        let output = tl.offload("output.weight", backend)?;
+        let output = tl.load("output.weight")?.transfer_to(backend)?;
 
         let mut layers = Vec::new();
 
         for i in 0..hyperparameters.n_layer {
-            let backend = if params.should_offload(i) {
-                Backend::Gpu
-            } else {
-                Backend::Cpu
-            };
+            let backend = params.backend(i);
+
             let layer = Layer {
                 attention_norm: tl
-                    .offload(&format!("layers.{i}.attention_norm.weight"), backend)?,
-                wq: tl.offload(&format!("layers.{i}.attention.wq.weight"), backend)?,
-                wk: tl.offload(&format!("layers.{i}.attention.wk.weight"), backend)?,
-                wv: tl.offload(&format!("layers.{i}.attention.wv.weight"), backend)?,
-                wo: tl.offload(&format!("layers.{i}.attention.wo.weight"), backend)?,
-                ffn_norm: tl.offload(&format!("layers.{i}.ffn_norm.weight"), backend)?,
-                w1: tl.offload(&format!("layers.{i}.feed_forward.w1.weight"), backend)?,
-                w2: tl.offload(&format!("layers.{i}.feed_forward.w2.weight"), backend)?,
-                w3: tl.offload(&format!("layers.{i}.feed_forward.w3.weight"), backend)?,
+                    .load(&format!("layers.{i}.attention_norm.weight"))?
+                    .transfer_to(backend)?,
+                wq: tl
+                    .load(&format!("layers.{i}.attention.wq.weight"))?
+                    .transfer_to(backend)?,
+                wk: tl
+                    .load(&format!("layers.{i}.attention.wk.weight"))?
+                    .transfer_to(backend)?,
+                wv: tl
+                    .load(&format!("layers.{i}.attention.wv.weight"))?
+                    .transfer_to(backend)?,
+                wo: tl
+                    .load(&format!("layers.{i}.attention.wo.weight"))?
+                    .transfer_to(backend)?,
+                ffn_norm: tl
+                    .load(&format!("layers.{i}.ffn_norm.weight"))?
+                    .transfer_to(backend)?,
+                w1: tl
+                    .load(&format!("layers.{i}.feed_forward.w1.weight"))?
+                    .transfer_to(backend)?,
+                w2: tl
+                    .load(&format!("layers.{i}.feed_forward.w2.weight"))?
+                    .transfer_to(backend)?,
+                w3: tl
+                    .load(&format!("layers.{i}.feed_forward.w3.weight"))?
+                    .transfer_to(backend)?,
             };
             layers.push(layer);
         }
-        let (context, loaded_tensors) = tl.finish();
+        let (context, _) = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -110,7 +109,6 @@ impl KnownModel for Llama {
             output,
             layers,
             context: Arc::new(context),
-            loaded_tensors,
         })
     }
 
@@ -154,12 +152,7 @@ impl KnownModel for Llama {
             let mut gf = ggml::ComputationGraph::new();
 
             for il in 0..n_layer {
-                //TODO: find a better way to do this
-                if self.model_params.should_offload(il) {
-                    ctx0.enable_offloading();
-                } else {
-                    ctx0.disable_offloading();
-                }
+                ctx0.set_offloading(self.model_params.should_offload(il));
 
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
@@ -185,7 +178,7 @@ impl KnownModel for Llama {
                     n_rot,
                     0,
                 );
-                ggml::set_name(&q_current, "Qcur");
+                ggml::set_tensor_name(&q_current, "Qcur");
                 let k_current = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_mul_mat(&self.layers[il].wk, &current),
@@ -197,7 +190,7 @@ impl KnownModel for Llama {
                     n_rot,
                     0,
                 );
-                ggml::set_name(&k_current, "Kcur");
+                ggml::set_tensor_name(&k_current, "Kcur");
 
                 // store key and value to memory
                 // compute the transposed [N, n_embd] V matrix
@@ -226,7 +219,7 @@ impl KnownModel for Llama {
                 gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
 
                 let q = ctx0.op_permute(&q_current, (0, 2, 1, 3));
-                ggml::set_name(&q, "Q");
+                ggml::set_tensor_name(&q, "Q");
 
                 let k = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
@@ -241,25 +234,25 @@ impl KnownModel for Llama {
                     ),
                     (0, 2, 1, 3),
                 );
-                ggml::set_name(&k, "K");
+                ggml::set_tensor_name(&k, "K");
 
                 // K * Q
                 let k_q = ctx0.op_mul_mat(&k, &q);
-                ggml::set_name(&k_q, "KQ");
+                ggml::set_tensor_name(&k_q, "KQ");
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
                 let kq_scale = ctx0.new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()));
-                ggml::set_name(&kq_scale, "1/sqrt(n_embd/n_head)");
+                ggml::set_tensor_name(&kq_scale, "1/sqrt(n_embd/n_head)");
                 let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale);
-                ggml::set_name(&k_q_scaled, "KQ_scaled");
+                ggml::set_tensor_name(&k_q_scaled, "KQ_scaled");
 
                 // KQ_masked = mask_past(KQ_scaled)
                 let k_q_masked = ctx0.op_diag_mask_inf_inplace(&k_q_scaled, session_len);
-                ggml::set_name(&k_q_masked, "KQ_masked");
+                ggml::set_tensor_name(&k_q_masked, "KQ_masked");
 
                 // KQ = soft_max(KQ_masked)
                 let k_q_soft_max = ctx0.op_soft_max_inplace(&k_q_masked);
-                ggml::set_name(&k_q_soft_max, "KQ_soft_max");
+                ggml::set_tensor_name(&k_q_soft_max, "KQ_soft_max");
 
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(
@@ -271,21 +264,21 @@ impl KnownModel for Llama {
                     ),
                     il * ctx_size * builder.memory_v.element_size() * n_embd,
                 );
-                ggml::set_name(&v, "V");
+                ggml::set_tensor_name(&v, "V");
 
                 let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
-                ggml::set_name(&k_q_v, "KQV");
+                ggml::set_tensor_name(&k_q_v, "KQV");
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
-                ggml::set_name(&k_q_v_merged, "KQV_merged");
+                ggml::set_tensor_name(&k_q_v_merged, "KQV_merged");
 
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
                     &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
                 );
-                ggml::set_name(&current, "KQV_merged_contiguous");
+                ggml::set_tensor_name(&current, "KQV_merged_contiguous");
 
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
@@ -328,7 +321,7 @@ impl KnownModel for Llama {
 
             let embedding_result: ggml::Tensor = input_layer.share();
 
-            ctx0.disable_offloading();
+            ctx0.set_offloading(false);
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 

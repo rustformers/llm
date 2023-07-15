@@ -1,4 +1,9 @@
-use std::{os::raw::c_void, ptr::NonNull, sync::Weak};
+use std::{
+    collections::HashMap,
+    os::raw::c_void,
+    ptr::NonNull,
+    sync::{Mutex, Weak},
+};
 
 use crate::{i64_to_usize, sys, Type};
 
@@ -7,6 +12,7 @@ use crate::{i64_to_usize, sys, Type};
 pub struct Tensor {
     pub(crate) ptr: NonNull<sys::ggml_tensor>,
     pub(crate) ctx: Weak<NonNull<sys::ggml_context>>,
+    pub(crate) offloaded_tensors: Weak<Mutex<HashMap<String, Tensor>>>,
 }
 
 impl Tensor {
@@ -15,9 +21,18 @@ impl Tensor {
     /// Exposed for purposes of determining context size.
     pub const C_TYPE_SIZE: usize = std::mem::size_of::<sys::ggml_tensor>();
 
-    ///Sets the name of the tensor
-    pub fn set_name(&mut self, name: &str) -> &Tensor {
-        assert!(name.len() <= 48, "Name is too long!");
+    /// Sets the name of the tensor.
+    ///
+    /// # Safety
+    ///
+    /// The name must be a valid UTF-8 string and must not be longer than [crate::MAX_NAME_LENGTH] characters.
+    pub fn set_name(mut self, name: &str) -> Tensor {
+        assert!(
+            name.len() <= crate::MAX_NAME_LENGTH.try_into().unwrap(),
+            "Name '{}' is too long, max length is {} characters",
+            name,
+            crate::MAX_NAME_LENGTH
+        );
 
         let bytes = name.as_bytes();
         let mut array = [0i8; 48];
@@ -27,22 +42,52 @@ impl Tensor {
         self
     }
 
-    ///Gets the name of the tensor
-    pub fn get_name(&self) -> String {
+    /// Gets the name of the tensor
+    pub fn name(&self) -> String {
         let name = unsafe { self.ptr.as_ref().name };
         let mut name = name.iter().map(|&x| x as u8).collect::<Vec<_>>();
         name.retain(|&x| x != 0);
         String::from_utf8(name).unwrap()
     }
 
-    ///Sets the acceleration backend of the tensor
+    /// Sets the acceleration backend of the tensor.
+    ///
+    /// # Caution
+    ///
+    /// This will not move the data to the new backend! See [Tensor::transfer_to] if you want to move the data to the new backend.
     pub fn set_backend(&mut self, backend: crate::Backend) {
         unsafe { crate::set_tensor_backend(self.ptr.as_mut(), backend) }
     }
 
-    ///Gets the acceleration backend of the tensor
-    pub fn get_backend(&self) -> crate::Backend {
+    /// Gets the acceleration backend of the tensor
+    pub fn backend(&self) -> crate::Backend {
         unsafe { crate::get_tensor_backend(self.ptr.as_ref()) }
+    }
+
+    /// Sets the tensors acceleration backend and moves the tensors data to the new backend.
+    pub fn transfer_to<E>(mut self, backend: crate::Backend) -> Result<Tensor, E> {
+        let current_backend = self.backend();
+        self.set_backend(backend);
+
+        if backend != crate::Backend::Cpu {
+            crate::accelerator_transform_tensor(&mut self);
+            if current_backend == crate::Backend::Cpu {
+                // tensor was moved from cpu to accelerator => We need to keep track of the data to free it later from the accelerator
+                self.with_alive_ctx_mut(|| {
+                    if let Some(offloaded_tensors) = self.offloaded_tensors.upgrade() {
+                        //TODO: Do we need to check if the tensor is already in the map?
+                        offloaded_tensors
+                            .lock()
+                            .unwrap()
+                            .insert(self.name(), self.share());
+                    } else {
+                        panic!("Using a context after it was dropped!")
+                    }
+                })
+            }
+        }
+
+        Ok(self)
     }
 
     /// Creates a shared copy of this tensor pointer.
@@ -50,6 +95,7 @@ impl Tensor {
         Tensor {
             ptr: self.ptr,
             ctx: Weak::clone(&self.ctx),
+            offloaded_tensors: Weak::clone(&self.offloaded_tensors),
         }
     }
 

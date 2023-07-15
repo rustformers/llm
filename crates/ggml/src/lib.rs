@@ -30,19 +30,19 @@ mod tests;
 pub mod metal;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-///Accelerators supported by `ggml`.
+/// Accelerators supported by `ggml`.
 pub enum Accelerator {
-    ///CuBLAS accelerated
+    /// CuBLAS accelerated
     CuBLAS,
-    ///CLBlast accelerated
+    /// CLBlast accelerated
     CLBlast,
-    ///Metal accelerated
+    /// Metal accelerated
     Metal,
-    ///Cpu accelerated
+    /// Cpu accelerated
     None,
 }
 
-///Returns the accelerator `ggml` was compiled with.
+/// Returns the accelerator `ggml` was compiled with.
 pub fn get_accelerator() -> Accelerator {
     #[cfg(feature = "cublas")]
     return Accelerator::CLBlast;
@@ -55,14 +55,14 @@ pub fn get_accelerator() -> Accelerator {
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-///Backend to use for a tensor.
+/// Backend to use for a tensor.
 pub enum Backend {
     /// CPU backend
     #[default]
     Cpu,
     /// GPU backend
     Gpu,
-    ///Multi-GPU backend
+    /// Multi-GPU backend
     GpuSplit,
 }
 
@@ -183,6 +183,9 @@ pub const QNT_VERSION_FACTOR: u32 = sys::GGML_QNT_VERSION_FACTOR;
 
 /// The size of a `ggml` object.
 pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
+
+/// The maximum length of a `ggml` tensor-name.
+pub const MAX_NAME_LENGTH: u32 = sys::GGML_MAX_NAME;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
@@ -537,7 +540,7 @@ pub fn cpu_has_gpublas() -> bool {
 }
 
 /// Sets the name of a tensor.
-pub fn set_name(tensor: &Tensor, name: &str) {
+pub fn set_tensor_name(tensor: &Tensor, name: &str) {
     let c_name = std::ffi::CString::new(name).unwrap();
     unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) };
 }

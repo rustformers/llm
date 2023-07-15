@@ -204,7 +204,7 @@ pub struct ModelParameters {
     pub lora_adapters: Option<Vec<PathBuf>>,
     /// Whether to use GPU acceleration when available
     pub use_gpu: bool,
-    /// The number of layers to offload to the gpu. If `None`, all layers will be offloaded.
+    /// If `use_gpu` is active this defines the number of layers to offload to the gpu. If `None`, all layers will be offloaded.
     pub gpu_layers: Option<usize>,
 }
 
@@ -229,6 +229,15 @@ impl ModelParameters {
             layer < offloadable_layers
         } else {
             true
+        }
+    }
+
+    /// Returns the backend to use for the given layer.
+    pub fn backend(&self, layer: usize) -> ggml::Backend {
+        if self.should_offload(layer) {
+            ggml::Backend::Gpu
+        } else {
+            ggml::Backend::Cpu
         }
     }
 }

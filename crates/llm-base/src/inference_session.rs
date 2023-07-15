@@ -26,24 +26,6 @@ fn scratch_buffers() -> ScratchBuffers {
     ]
 }
 
-fn kv_memory(
-    context: &Context,
-    config: &InferenceSessionConfig,
-    n_elements: usize,
-) -> (Tensor, Tensor) {
-    let memory_k = context.new_tensor_1d(config.memory_k_type.into(), n_elements);
-    let memory_v = context.new_tensor_1d(config.memory_v_type.into(), n_elements);
-    ggml::set_name(&memory_k, "memory_k");
-    ggml::set_name(&memory_v, "memory_v");
-
-    if config.use_gpu {
-        ggml::accelerator_offload_tensor_no_scratch(&memory_k);
-        ggml::accelerator_offload_tensor_no_scratch(&memory_v);
-    }
-
-    (memory_k, memory_v)
-}
-
 /// Result of graph building
 pub struct GraphOutputs {
     /// The output containing the model's result
@@ -238,7 +220,7 @@ impl InferenceSession {
         self.ctx0 = ggml::Context::init_buffer(self.ctx0.buffer.take().unwrap());
         let ctx0 = &mut self.ctx0;
         let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
-        ggml::set_name(&embd, "embd");
+        ggml::set_tensor_name(&embd, "embd");
 
         let bc = BuildContext {
             ctx0: RefCell::new(ctx0),
@@ -945,4 +927,25 @@ pub fn feed_prompt_callback<'a, E: std::error::Error + 'static>(
         Some(tokens) => callback(InferenceResponse::PromptToken(tokens)),
         None => Ok(InferenceFeedback::Continue),
     }
+}
+
+/// Create the memory K/V tensors for the inference-session.
+fn kv_memory(
+    context: &Context,
+    config: &InferenceSessionConfig,
+    n_elements: usize,
+) -> (Tensor, Tensor) {
+    let memory_k = context
+        .new_tensor_1d(config.memory_k_type.into(), n_elements)
+        .set_name("memory_k");
+    let memory_v = context
+        .new_tensor_1d(config.memory_v_type.into(), n_elements)
+        .set_name("memory_v");
+
+    if config.use_gpu {
+        ggml::accelerator_offload_tensor_no_scratch(&memory_k);
+        ggml::accelerator_offload_tensor_no_scratch(&memory_v);
+    }
+
+    (memory_k, memory_v)
 }

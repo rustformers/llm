@@ -1,4 +1,9 @@
-use std::{os::raw::c_int, ptr::NonNull, sync::Arc};
+use std::{
+    collections::HashMap,
+    os::raw::c_int,
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+};
 
 use memmap2::Mmap;
 
@@ -21,6 +26,9 @@ pub struct Context {
 
     /// Whether the context can offload tensors to the GPU
     pub can_offload: bool,
+
+    /// Offloaded tensors
+    offloaded_tensors: Arc<Mutex<HashMap<String, Tensor>>>,
 }
 
 impl Context {
@@ -39,6 +47,7 @@ impl Context {
             mmap: None,
             buffer: Some(buffer),
             can_offload: false,
+            offloaded_tensors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -57,6 +66,7 @@ impl Context {
             mmap: Some(mmap),
             buffer: None,
             can_offload: false,
+            offloaded_tensors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -76,17 +86,13 @@ impl Context {
             mmap: None,
             buffer: None,
             can_offload: false,
+            offloaded_tensors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// If offloading is enabled, all tensors created by this context will be offloaded to the GPU
-    pub fn enable_offloading(&mut self) {
-        self.can_offload = true;
-    }
-
-    /// Disables the offloading of tensors to the GPU
-    pub fn disable_offloading(&mut self) {
-        self.can_offload = false;
+    pub fn set_offloading(&mut self, can_offload: bool) {
+        self.can_offload = can_offload;
     }
 
     /// Wraps a raw tensor with a weak pointer to the context.
@@ -94,6 +100,7 @@ impl Context {
         let tensor = Tensor {
             ptr: NonNull::new(raw).expect("Should not be null"),
             ctx: Arc::downgrade(&self.ptr),
+            offloaded_tensors: Arc::downgrade(&self.offloaded_tensors),
         };
 
         if self.can_offload {
@@ -495,6 +502,12 @@ impl Drop for Context {
     fn drop(&mut self) {
         // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
+            // if we moved tensors to an acceleratoor we need to free them
+            for (_, tensor) in self.offloaded_tensors.lock().unwrap().drain() {
+                if tensor.backend() != crate::Backend::Cpu {
+                    crate::accelerator_free_tensor(&tensor);
+                }
+            }
             sys::ggml_free(self.ptr.as_ptr());
         }
     }
