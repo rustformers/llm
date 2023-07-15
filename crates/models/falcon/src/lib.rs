@@ -65,17 +65,11 @@ impl KnownModel for Falcon {
 
         let mut layers = Vec::new();
         // utilizing n_head_kv to determine the model version (parameters)
-        let Hyperparameters {
-            n_head_kv,
-            ..
-        } = hyperparameters;
+        let Hyperparameters { n_head_kv, .. } = hyperparameters;
         for i in 0..hyperparameters.n_layer {
             let (input_layernorm_name, attention_norm_name) = if n_head_kv == 1 {
                 // falcon 7b
-                (
-                    format!("transformer.h.{i}.input_layernorm"),
-                    None,
-                )
+                (format!("transformer.h.{i}.input_layernorm"), None)
             } else {
                 // falcon 40b
                 (
@@ -86,8 +80,13 @@ impl KnownModel for Falcon {
             let layer = Layer {
                 input_layernorm: tl.load(&format!("{}.weight", input_layernorm_name))?,
                 input_layernorm_b: tl.load(&format!("{}.bias", input_layernorm_name))?,
-                attention_norm: attention_norm_name.as_ref().map(|path| tl.load(&format!("{}.bias", path))).transpose()?,
-                attention_norm_b: attention_norm_name.map(|path| tl.load(&format!("{}.bias", path))).transpose()?,
+                attention_norm: attention_norm_name
+                    .as_ref()
+                    .map(|path| tl.load(&format!("{}.bias", path)))
+                    .transpose()?,
+                attention_norm_b: attention_norm_name
+                    .map(|path| tl.load(&format!("{}.bias", path)))
+                    .transpose()?,
 
                 query_key_value: tl.load(&format!(
                     "transformer.h.{i}.self_attention.query_key_value.weight"
@@ -196,10 +195,16 @@ impl KnownModel for Falcon {
                 if n_head_kv != 1 {
                     current = ctx0.op_add(
                         &ctx0.op_mul(
-                            &ctx0.op_repeat(&self.layers[il].attention_norm.as_ref().unwrap(), &current),
+                            &ctx0.op_repeat(
+                                &self.layers[il].attention_norm.as_ref().unwrap(),
+                                &current,
+                            ),
                             &current,
                         ),
-                        &ctx0.op_repeat(&self.layers[il].attention_norm_b.as_ref().unwrap(), &current),
+                        &ctx0.op_repeat(
+                            &self.layers[il].attention_norm_b.as_ref().unwrap(),
+                            &current,
+                        ),
                     );
                 }
 
