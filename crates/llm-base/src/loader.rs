@@ -396,8 +396,8 @@ impl LoadError {
 pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
-    /// Finish loading the model, and extract all of the state from the loader.
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>);
+    /// Finish loading the model, returning the context.
+    fn finish(self) -> Context;
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -670,8 +670,8 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>) {
-        (self.context, self.loaded_tensors)
+    fn finish(self) -> Context {
+        self.context
     }
 }
 

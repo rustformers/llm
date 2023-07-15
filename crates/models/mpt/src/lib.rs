@@ -70,7 +70,7 @@ impl KnownModel for Mpt {
             layers.push(layer);
         }
 
-        let (context, _) = tl.finish();
+        let context = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
