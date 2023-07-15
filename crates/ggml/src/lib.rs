@@ -18,6 +18,8 @@ mod tensor;
 pub mod format;
 pub mod util;
 
+pub mod accelerator;
+
 pub use context::Context;
 pub use tensor::Tensor;
 
@@ -25,68 +27,6 @@ pub use ggml_sys as sys;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(feature = "metal")]
-pub mod metal;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-/// Accelerators supported by `ggml`.
-pub enum Accelerator {
-    /// CuBLAS accelerated
-    CuBLAS,
-    /// CLBlast accelerated
-    CLBlast,
-    /// Metal accelerated
-    Metal,
-    /// Cpu accelerated
-    None,
-}
-
-/// Returns the accelerator `ggml` was compiled with.
-pub fn get_accelerator() -> Accelerator {
-    #[cfg(feature = "cublas")]
-    return Accelerator::CLBlast;
-    #[cfg(feature = "clblast")]
-    return Accelerator::CuBLAS;
-    #[cfg(feature = "metal")]
-    return Accelerator::Metal;
-    #[cfg(not(any(feature = "cublas", feature = "clblast", feature = "metal")))]
-    return Accelerator::None;
-}
-
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-/// Backend to use for a tensor.
-pub enum Backend {
-    /// CPU backend
-    #[default]
-    Cpu,
-    /// GPU backend
-    Gpu,
-    /// Multi-GPU backend
-    GpuSplit,
-}
-
-impl From<Backend> for sys::ggml_backend {
-    fn from(b: Backend) -> Self {
-        match b {
-            Backend::Cpu => sys::ggml_backend_GGML_BACKEND_CPU,
-            Backend::Gpu => sys::ggml_backend_GGML_BACKEND_GPU,
-            Backend::GpuSplit => sys::ggml_backend_GGML_BACKEND_GPU_SPLIT,
-        }
-    }
-}
-
-impl TryFrom<sys::ggml_backend> for Backend {
-    type Error = ();
-    fn try_from(b: sys::ggml_backend) -> Result<Self, Self::Error> {
-        match b {
-            sys::ggml_backend_GGML_BACKEND_CPU => Ok(Backend::Cpu),
-            sys::ggml_backend_GGML_BACKEND_GPU => Ok(Backend::Gpu),
-            sys::ggml_backend_GGML_BACKEND_GPU_SPLIT => Ok(Backend::GpuSplit),
-            _ => Err(()),
-        }
-    }
-}
 
 /// The type of a tensor element.
 pub type ElementType = Type;
@@ -543,97 +483,4 @@ pub fn cpu_has_gpublas() -> bool {
 pub fn set_tensor_name(tensor: &Tensor, name: &str) {
     let c_name = std::ffi::CString::new(name).unwrap();
     unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) };
-}
-
-/// Gets the acceleration backend of a tensor.
-pub fn get_tensor_backend(tensor: &sys::ggml_tensor) -> Backend {
-    (tensor.backend as sys::ggml_backend).try_into().unwrap()
-}
-
-/// Sets the acceleration backend of a tensor.
-/// # Safety
-/// This function assumes that the tensor is valid.
-pub unsafe fn set_tensor_backend(tensor: *mut sys::ggml_tensor, backend: Backend) {
-    unsafe {
-        (*tensor).backend = backend.try_into().unwrap();
-    }
-}
-
-/// If ggml-sys is compiled with CUDA or ClBlast support, this function will tranform and offload the tensor. If not this is a no-op.
-#[allow(unused_variables)]
-pub fn accelerator_transform_tensor(tensor: &mut Tensor) {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        sys::cuda::ggml_cuda_transform_tensor(tensor.data(), tensor.ptr.as_ptr());
-    }
-    #[cfg(feature = "clblast")]
-    unsafe {
-        sys::opencl::ggml_cl_transform_tensor(tensor.data(), tensor.ptr.as_ptr());
-    }
-}
-
-/// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU. If not this is a no-op.
-pub fn accelerator_offload_tensor(tensor: &Tensor) {
-    accelerator_offload_raw_tensor(tensor.ptr.as_ptr());
-}
-
-/// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU. If not this is a no-op.
-#[allow(unused_variables)]
-pub fn accelerator_offload_raw_tensor(tensor: *mut sys::ggml_tensor) {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        sys::cuda::ggml_cuda_assign_buffers(tensor);
-    }
-}
-
-/// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU. If not this is a no-op.
-#[allow(unused_variables)]
-pub fn accelerator_offload_tensor_no_scratch(tensor: &Tensor) {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        sys::cuda::ggml_cuda_assign_buffers_no_scratch(tensor.ptr.as_ptr());
-    }
-}
-
-///  Sets the scratch size for the GPU. If ggml-sys is compiled with CUDA support, this function will set the scratch size. If not this is a no-op.
-#[allow(unused_variables)]
-pub fn accelerator_set_scratch_size(size: usize) {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        sys::cuda::ggml_cuda_set_scratch_size(size);
-    }
-}
-
-///Initialize the accelerator. If ggml-sys is compiled with CUDA or ClBlast support, this function will initialize the accelerator. If not this is a no-op.
-#[allow(unused_variables)]
-pub fn accelerator_initialize(device: i32) {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        //TODO: Make this configurable
-        sys::cuda::ggml_init_cublas();
-        sys::cuda::ggml_cuda_set_main_device(device);
-        let split = 1.0f32;
-        sys::cuda::ggml_cuda_set_tensor_split(&split as *const f32);
-    }
-}
-
-/// Frees the scratch memory. If ggml-sys is compiled with CUDA support, this function will free the scratch memory. If not this is a no-op.
-pub fn accelerator_free_scratch() {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        sys::cuda::ggml_cuda_free_scratch();
-    }
-}
-
-/// Frees the memory of a tensor. If ggml-sys is compiled with CUDA or ClBlast support, this function will free the memory of a tensor. If not this is a no-op.
-#[allow(unused_variables)]
-pub fn accelerator_free_tensor(tensor: &Tensor) {
-    #[cfg(feature = "cublas")]
-    unsafe {
-        sys::cuda::ggml_cuda_free_data(tensor.ptr.as_ptr());
-    }
-    #[cfg(feature = "clblast")]
-    unsafe {
-        sys::opencl::ggml_cl_free_data(tensor.ptr.as_ptr());
-    }
 }

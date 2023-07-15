@@ -4,7 +4,7 @@ use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
 
 #[cfg(feature = "metal")]
-use ggml::metal::MetalContext;
+use ggml::accelerator::metal::MetalContext;
 
 use crate::{
     mulf, util, InferenceParameters, Model, OutputRequest, Prompt, TokenId, TokenUtf8Buffer,
@@ -137,8 +137,8 @@ impl InferenceSession {
         };
 
         if config.use_gpu {
-            ggml::accelerator_initialize(0);
-            ggml::accelerator_set_scratch_size(config.n_batch * 1024 * 1024);
+            ggml::accelerator::initialize(0);
+            ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
         }
 
         let session_ctx = Arc::new(ggml::Context::init(ctx_size, true));
@@ -633,9 +633,11 @@ impl InferenceSession {
 impl Drop for InferenceSession {
     fn drop(&mut self) {
         //if we are using an accelerator, we need to free the scratch memory and the k/v memory
-        ggml::accelerator_free_scratch();
-        ggml::accelerator_free_tensor(&self.memory_k);
-        ggml::accelerator_free_tensor(&self.memory_v);
+        ggml::accelerator::free_scratch();
+        unsafe {
+            self.memory_k.free_accelerator();
+            self.memory_v.free_accelerator();
+        }
     }
 }
 
@@ -983,8 +985,12 @@ fn kv_memory(
     if config.use_gpu {
         // CUDA requires the K/V-Memory to be on the GPU but excluded from the scratch buffer.
         // For OpenCL this is a no-op.
-        ggml::accelerator_offload_tensor_no_scratch(&memory_k);
-        ggml::accelerator_offload_tensor_no_scratch(&memory_v);
+        //
+        // Note that these must be manually freed from the accelerator in the `InferenceSession`
+        // destructor. This is because `offload_no_scratch` does not update the `offloaded_tensors`
+        // map, because reasons.
+        memory_k.offload_no_scratch();
+        memory_v.offload_no_scratch();
     }
 
     (memory_k, memory_v)

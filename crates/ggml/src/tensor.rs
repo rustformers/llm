@@ -5,7 +5,7 @@ use std::{
     sync::{Mutex, Weak},
 };
 
-use crate::{i64_to_usize, sys, Type};
+use crate::{accelerator::Backend, i64_to_usize, sys, Type};
 
 const MAX_NAME_LENGTH: usize = crate::MAX_NAME_LENGTH as usize;
 
@@ -40,60 +40,87 @@ impl Tensor {
         let mut array = [0i8; MAX_NAME_LENGTH];
         array[..bytes.len()].copy_from_slice(&bytes.iter().map(|&x| x as i8).collect::<Vec<_>>());
 
-        unsafe { self.ptr.as_mut().name = array }
+        self.with_alive_ctx_mut(|t| unsafe { t.ptr.as_mut().name = array });
         self
     }
 
     /// Gets the name of the tensor
     pub fn name(&self) -> String {
-        let name = unsafe { self.ptr.as_ref().name };
-        let mut name = name.iter().map(|&x| x as u8).collect::<Vec<_>>();
-        name.retain(|&x| x != 0);
-        String::from_utf8(name).unwrap()
-    }
-
-    /// Sets the acceleration backend of the tensor.
-    ///
-    /// # Caution
-    ///
-    /// This will not move the data to the new backend! See [Tensor::transfer_to] if you want to move the data to the new backend.
-    pub(crate) fn set_backend(&mut self, backend: crate::Backend) {
-        unsafe { crate::set_tensor_backend(self.ptr.as_mut(), backend) }
+        self.with_alive_ctx(|| {
+            let name = unsafe { self.ptr.as_ref().name };
+            let mut name = name.iter().map(|&x| x as u8).collect::<Vec<_>>();
+            name.retain(|&x| x != 0);
+            String::from_utf8(name).unwrap()
+        })
     }
 
     /// Gets the acceleration backend of the tensor
-    pub fn backend(&self) -> crate::Backend {
-        unsafe { crate::get_tensor_backend(self.ptr.as_ref()) }
+    pub fn backend(&self) -> Backend {
+        self.with_alive_ctx(|| unsafe {
+            (self.ptr.as_ref().backend as sys::ggml_backend)
+                .try_into()
+                .unwrap()
+        })
     }
 
-    /// Sets the tensor's acceleration backend and moves the tensors data to the new backend.
-    pub fn transfer_to<E>(mut self, backend: crate::Backend) -> Result<Tensor, E> {
-        let current_backend = self.backend();
+    /// Sets the tensor's acceleration backend and moves the tensor's data to the new backend.
+    pub fn transfer_to(mut self, backend: Backend) -> Tensor {
+        self.with_alive_ctx_mut(|t| {
+            let current_backend = t.backend();
 
-        if current_backend != crate::Backend::Cpu && backend == crate::Backend::Cpu {
-            panic!("Currently there is no way to move data from an accelerator to the cpu")
-        }
-        self.set_backend(backend);
-
-        if backend != crate::Backend::Cpu {
-            crate::accelerator_transform_tensor(&mut self);
-            if current_backend == crate::Backend::Cpu {
-                // tensor was moved from cpu to accelerator => We need to keep track of the data to free it later from the accelerator
-                self.with_alive_ctx_mut(|| {
-                    if let Some(offloaded_tensors) = self.offloaded_tensors.upgrade() {
-                        //TODO: Do we need to check if the tensor is already in the map?
-                        offloaded_tensors
-                            .lock()
-                            .unwrap()
-                            .insert(self.name(), self.share());
-                    } else {
-                        panic!("Using a context after it was dropped!")
-                    }
-                })
+            if current_backend != Backend::Cpu && backend == Backend::Cpu {
+                unimplemented!("Tensors cannot be moved from an accelerator to the CPU at present");
             }
-        }
+            t.set_backend(backend);
+            if backend == Backend::Cpu {
+                return;
+            }
 
-        Ok(self)
+            #[cfg(feature = "cublas")]
+            unsafe {
+                sys::cuda::ggml_cuda_transform_tensor(t.data(), t.ptr.as_ptr());
+            }
+            #[cfg(feature = "clblast")]
+            unsafe {
+                sys::opencl::ggml_cl_transform_tensor(t.data(), t.ptr.as_ptr());
+            }
+
+            t.offloaded_tensors
+                .upgrade()
+                .expect("Attempted to update a dropped context's offloaded tensors")
+                .lock()
+                .unwrap()
+                .insert(t.name(), t.share());
+        });
+        self
+    }
+
+    /// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU.
+    /// If not, this is a no-op.
+    ///
+    /// It will not transfer the data. Use `transfer_to` for that.
+    #[allow(unused_variables)]
+    pub fn offload(&self) {
+        self.with_alive_ctx(|| {
+            #[cfg(feature = "cublas")]
+            unsafe {
+                sys::cuda::ggml_cuda_assign_buffers(self.ptr.as_ptr());
+            }
+        })
+    }
+
+    /// If ggml-sys is compiled with CUDA support, this function will offload the tensor to the GPU without using the scratch buffer.
+    /// If not, this is a no-op.
+    ///
+    /// It will not transfer the data. Use `transfer_to` for that.
+    #[allow(unused_variables)]
+    pub fn offload_no_scratch(&self) {
+        self.with_alive_ctx(|| {
+            #[cfg(feature = "cublas")]
+            unsafe {
+                sys::cuda::ggml_cuda_assign_buffers_no_scratch(self.ptr.as_ptr());
+            }
+        })
     }
 
     /// Creates a shared copy of this tensor pointer.
@@ -102,22 +129,6 @@ impl Tensor {
             ptr: self.ptr,
             ctx: Weak::clone(&self.ctx),
             offloaded_tensors: Weak::clone(&self.offloaded_tensors),
-        }
-    }
-
-    fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
-        if let Some(_ctx) = self.ctx.upgrade() {
-            f()
-        } else {
-            panic!("Using a tensor after the context was dropped")
-        }
-    }
-
-    fn with_alive_ctx_mut<U>(&self, mut f: impl FnMut() -> U) -> U {
-        if let Some(_ctx) = self.ctx.upgrade() {
-            f()
-        } else {
-            panic!("Using a tensor after the context was dropped")
         }
     }
 
@@ -147,8 +158,8 @@ impl Tensor {
     ///
     /// The memory region from `data_ptr` to `data_ptr.offset(tensor.nbytes())` will be read from.
     pub unsafe fn set_data(&mut self, data_ptr: *mut c_void) {
-        let tensor = self.ptr.as_mut();
-        self.with_alive_ctx_mut(|| {
+        self.with_alive_ctx_mut(|t| {
+            let tensor = t.ptr.as_mut();
             // SAFETY: The with_alive_call guarantees the context is alive
             tensor.data = data_ptr;
         })
@@ -205,5 +216,54 @@ impl Tensor {
     pub unsafe fn read_data(&self, offset: usize, dst: &mut [u8]) {
         let data = unsafe { sys::ggml_get_data(self.ptr.as_ptr()).add(offset) };
         std::ptr::copy_nonoverlapping(data, dst as *mut _ as _, dst.len())
+    }
+
+    /// Frees the memory of a tensor on an accelerator if ggml-sys is compiled with CUDA or CLBlast support.
+    /// If not, this is a no-op.
+    ///
+    /// This is temporary while GGML improves their context memory management. This should only be called by
+    /// `Context` when it is dropped, as well as `llm`'s `InferenceSession`.
+    ///
+    /// # Safety
+    ///
+    /// This must be the last thing you do with this tensor. The only reason it's not `self` is because `Drop`
+    /// isn't `self`.
+    pub unsafe fn free_accelerator(&mut self) {
+        #[cfg(feature = "cublas")]
+        unsafe {
+            sys::cuda::ggml_cuda_free_data(self.ptr.as_ptr());
+        }
+        #[cfg(feature = "clblast")]
+        unsafe {
+            sys::opencl::ggml_cl_free_data(self.ptr.as_ptr());
+        }
+    }
+}
+impl Tensor {
+    fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
+        if let Some(_ctx) = self.ctx.upgrade() {
+            f()
+        } else {
+            panic!("Using a tensor after the context was dropped")
+        }
+    }
+
+    fn with_alive_ctx_mut<U>(&mut self, mut f: impl FnMut(&mut Tensor) -> U) -> U {
+        if let Some(_ctx) = self.ctx.upgrade() {
+            f(self)
+        } else {
+            panic!("Using a tensor after the context was dropped")
+        }
+    }
+
+    /// Sets the acceleration backend of the tensor.
+    ///
+    /// # Caution
+    ///
+    /// This will not move the data to the new backend! See [Tensor::transfer_to] if you want to move the data to the new backend.
+    fn set_backend(&mut self, backend: Backend) {
+        unsafe {
+            self.ptr.as_mut().backend = backend.try_into().unwrap();
+        }
     }
 }

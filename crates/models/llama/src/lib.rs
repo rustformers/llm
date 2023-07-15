@@ -55,9 +55,8 @@ impl KnownModel for Llama {
 
         let backend = params.backend(0);
 
-        let norm = tl.load("norm.weight")?.transfer_to(backend)?;
-
-        let output = tl.load("output.weight")?.transfer_to(backend)?;
+        let norm = tl.load("norm.weight")?.transfer_to(backend);
+        let output = tl.load("output.weight")?.transfer_to(backend);
 
         let mut layers = Vec::new();
 
@@ -67,31 +66,31 @@ impl KnownModel for Llama {
             let layer = Layer {
                 attention_norm: tl
                     .load(&format!("layers.{i}.attention_norm.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 wq: tl
                     .load(&format!("layers.{i}.attention.wq.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 wk: tl
                     .load(&format!("layers.{i}.attention.wk.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 wv: tl
                     .load(&format!("layers.{i}.attention.wv.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 wo: tl
                     .load(&format!("layers.{i}.attention.wo.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 ffn_norm: tl
                     .load(&format!("layers.{i}.ffn_norm.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 w1: tl
                     .load(&format!("layers.{i}.feed_forward.w1.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 w2: tl
                     .load(&format!("layers.{i}.feed_forward.w2.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
                 w3: tl
                     .load(&format!("layers.{i}.feed_forward.w3.weight"))?
-                    .transfer_to(backend)?,
+                    .transfer_to(backend),
             };
             layers.push(layer);
         }

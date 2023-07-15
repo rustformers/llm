@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use ggml::accelerator::Backend;
 use regex::Regex;
 use thiserror::Error;
 
@@ -224,20 +225,20 @@ impl ModelParameters {
     /// Returns true if the model should offload the given layer to the accelerator.
     pub fn should_offload(&self, layer: usize) -> bool {
         if !self.use_gpu {
-            false
-        } else if let Some(offloadable_layers) = self.gpu_layers {
-            layer < offloadable_layers
-        } else {
-            true
+            return false;
         }
+
+        self.gpu_layers
+            .map(|gpu_layers| layer < gpu_layers)
+            .unwrap_or(true)
     }
 
     /// Returns the backend to use for the given layer.
-    pub fn backend(&self, layer: usize) -> ggml::Backend {
+    pub fn backend(&self, layer: usize) -> Backend {
         if self.should_offload(layer) {
-            ggml::Backend::Gpu
+            Backend::Gpu
         } else {
-            ggml::Backend::Cpu
+            Backend::Cpu
         }
     }
 }

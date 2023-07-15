@@ -7,7 +7,7 @@ use std::{
 
 use memmap2::Mmap;
 
-use crate::{sys, usize_to_i32, usize_to_i64, Buffer, Tensor, Type};
+use crate::{accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, Tensor, Type};
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
@@ -27,7 +27,18 @@ pub struct Context {
     /// Whether the context can offload tensors to the GPU
     pub can_offload: bool,
 
-    /// Offloaded tensors
+    /// Offloaded tensors. Used to free them when the context is dropped.
+    // TODO: revisit this. What it means for a tensor to be "offloaded",
+    // "transferred", etc. is not clear. This map is necessary because
+    // there is no obvious heuristic for whether a given `Tensor`
+    // should have the accelerator free method called on it.
+    //
+    // This is because tensors can be present on the accelerator without
+    // having data (i.e. compute nodes), or they can refer to the scratch buffers.
+    // Freeing these offloaded-but-not-allocated tensors will lead to crashes.
+    //
+    // Hopefully, this is resolved by GGML redesigning both its accelerator
+    // interface and its scratch buffer solution.
     offloaded_tensors: Arc<Mutex<HashMap<String, Tensor>>>,
 }
 
@@ -95,18 +106,31 @@ impl Context {
         self.can_offload = can_offload;
     }
 
-    /// Wraps a raw tensor with a weak pointer to the context.
-    fn new_tensor_raw(&self, raw: *mut sys::ggml_tensor) -> Tensor {
-        let tensor = Tensor {
-            ptr: NonNull::new(raw).expect("Should not be null"),
-            ctx: Arc::downgrade(&self.ptr),
-            offloaded_tensors: Arc::downgrade(&self.offloaded_tensors),
-        };
+    /// Retrieves the memory used by this [Context].
+    pub fn used_mem(&self) -> usize {
+        unsafe { sys::ggml_used_mem(self.ptr.as_ptr()) }
+    }
 
-        if self.can_offload {
-            crate::accelerator_offload_tensor(&tensor);
+    /// Sets the scratch buffer to be used by this [Context].
+    ///
+    /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
+    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a Buffer>) {
+        let (size, data) = if let Some(buffer) = scratch_buffer {
+            (buffer.size(), buffer.data)
+        } else {
+            (0, std::ptr::null_mut())
+        };
+        // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
+        unsafe {
+            sys::ggml_set_scratch(
+                self.ptr.as_ptr(),
+                sys::ggml_scratch {
+                    offs: 0,
+                    size,
+                    data,
+                },
+            );
         }
-        tensor
     }
 
     /// Creates a new 1D tensor.
@@ -148,7 +172,9 @@ impl Context {
         let raw = unsafe { sys::ggml_new_f32(self.ptr.as_ptr(), x) };
         self.new_tensor_raw(raw)
     }
-
+}
+// Operations
+impl Context {
     /// Unknown, aside from the obvious. It's transposing something!
     pub fn op_transpose(&self, a: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_transpose(self.ptr.as_ptr(), a.ptr.as_ptr()) };
@@ -449,33 +475,6 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// Retrieves the memory used by this [Context].
-    pub fn used_mem(&self) -> usize {
-        unsafe { sys::ggml_used_mem(self.ptr.as_ptr()) }
-    }
-
-    /// Sets the scratch buffer to be used by this [Context].
-    ///
-    /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
-    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a Buffer>) {
-        let (size, data) = if let Some(buffer) = scratch_buffer {
-            (buffer.size(), buffer.data)
-        } else {
-            (0, std::ptr::null_mut())
-        };
-        // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
-        unsafe {
-            sys::ggml_set_scratch(
-                self.ptr.as_ptr(),
-                sys::ggml_scratch {
-                    offs: 0,
-                    size,
-                    data,
-                },
-            );
-        }
-    }
-
     /// Attention with LInear BIases (Ref: <https://arxiv.org/pdf/2108.12409.pdf>)
     pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize, bias_max: f32) -> Tensor {
         let tensor = unsafe {
@@ -497,15 +496,31 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 }
+// Private methods
+impl Context {
+    /// Wraps a raw tensor with a weak pointer to the context.
+    fn new_tensor_raw(&self, raw: *mut sys::ggml_tensor) -> Tensor {
+        let tensor = Tensor {
+            ptr: NonNull::new(raw).expect("Should not be null"),
+            ctx: Arc::downgrade(&self.ptr),
+            offloaded_tensors: Arc::downgrade(&self.offloaded_tensors),
+        };
+
+        if self.can_offload {
+            tensor.offload();
+        }
+        tensor
+    }
+}
 
 impl Drop for Context {
     fn drop(&mut self) {
         // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
             // if we moved tensors to an accelerator we need to free them
-            for (_, tensor) in self.offloaded_tensors.lock().unwrap().drain() {
-                if tensor.backend() != crate::Backend::Cpu {
-                    crate::accelerator_free_tensor(&tensor);
+            for (_, mut tensor) in self.offloaded_tensors.lock().unwrap().drain() {
+                if tensor.backend() != Backend::Cpu {
+                    tensor.free_accelerator();
                 }
             }
             sys::ggml_free(self.ptr.as_ptr());
