@@ -85,12 +85,7 @@ impl Tensor {
                 sys::opencl::ggml_cl_transform_tensor(t.data(), t.ptr.as_ptr());
             }
 
-            t.offloaded_tensors
-                .upgrade()
-                .expect("Attempted to update a dropped context's offloaded tensors")
-                .lock()
-                .unwrap()
-                .insert(t.name(), t.share());
+            t.mark_as_offloaded();
         });
         self
     }
@@ -113,6 +108,9 @@ impl Tensor {
     /// If not, this is a no-op.
     ///
     /// It will not transfer the data. Use `transfer_to` for that.
+    ///
+    /// Unlike `offload`, this function will add the tensor to the offloaded tensors map. This is because the non-use of a scratch buffer
+    /// allows us to safely assume that this tensor will actually point to data.
     #[allow(unused_variables)]
     pub fn offload_no_scratch(&self) {
         self.with_alive_ctx(|| {
@@ -120,6 +118,7 @@ impl Tensor {
             unsafe {
                 sys::cuda::ggml_cuda_assign_buffers_no_scratch(self.ptr.as_ptr());
             }
+            self.mark_as_offloaded();
         })
     }
 
@@ -222,13 +221,9 @@ impl Tensor {
     /// If not, this is a no-op.
     ///
     /// This is temporary while GGML improves their context memory management. This should only be called by
-    /// `Context` when it is dropped, as well as `llm`'s `InferenceSession`.
-    ///
-    /// # Safety
-    ///
-    /// This must be the last thing you do with this tensor. The only reason it's not `self` is because `Drop`
-    /// isn't `self`.
-    pub unsafe fn free_accelerator(&mut self) {
+    /// `Context` when it is dropped.
+    pub(crate) fn free_accelerator(self) {
+        println!("Freeing tensor {}", self.name());
         #[cfg(feature = "cublas")]
         unsafe {
             sys::cuda::ggml_cuda_free_data(self.ptr.as_ptr());
@@ -265,5 +260,15 @@ impl Tensor {
         unsafe {
             self.ptr.as_mut().backend = backend.try_into().unwrap();
         }
+    }
+
+    /// Adds this tensor to the context's list of offloaded tensors, so that it will be automatically freed.
+    fn mark_as_offloaded(&self) {
+        self.offloaded_tensors
+            .upgrade()
+            .expect("Attempted to update a dropped context's offloaded tensors")
+            .lock()
+            .unwrap()
+            .insert(self.name(), self.share());
     }
 }

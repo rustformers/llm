@@ -632,12 +632,9 @@ impl InferenceSession {
 
 impl Drop for InferenceSession {
     fn drop(&mut self) {
-        //if we are using an accelerator, we need to free the scratch memory and the k/v memory
+        // If we are using an accelerator, we need to free the scratch memory.
+        // The k/v memory is freed by the ctx0 destructor.
         ggml::accelerator::free_scratch();
-        unsafe {
-            self.memory_k.free_accelerator();
-            self.memory_v.free_accelerator();
-        }
     }
 }
 
