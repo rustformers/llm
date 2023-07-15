@@ -1,11 +1,6 @@
-use std::{
-    collections::HashMap,
-    os::raw::c_void,
-    ptr::NonNull,
-    sync::{Mutex, Weak},
-};
+use std::{os::raw::c_void, ptr::NonNull, sync::Weak};
 
-use crate::{accelerator::Backend, i64_to_usize, sys, Type};
+use crate::{accelerator::Backend, context::ContextInner, i64_to_usize, sys, Type};
 
 const MAX_NAME_LENGTH: usize = crate::MAX_NAME_LENGTH as usize;
 
@@ -13,8 +8,7 @@ const MAX_NAME_LENGTH: usize = crate::MAX_NAME_LENGTH as usize;
 /// underlying context it was created with is alive.
 pub struct Tensor {
     pub(crate) ptr: NonNull<sys::ggml_tensor>,
-    pub(crate) ctx: Weak<NonNull<sys::ggml_context>>,
-    pub(crate) offloaded_tensors: Weak<Mutex<HashMap<String, Tensor>>>,
+    pub(crate) inner: Weak<ContextInner>,
 }
 
 impl Tensor {
@@ -126,8 +120,7 @@ impl Tensor {
     pub fn share(&self) -> Self {
         Tensor {
             ptr: self.ptr,
-            ctx: Weak::clone(&self.ctx),
-            offloaded_tensors: Weak::clone(&self.offloaded_tensors),
+            inner: Weak::clone(&self.inner),
         }
     }
 
@@ -223,7 +216,6 @@ impl Tensor {
     /// This is temporary while GGML improves their context memory management. This should only be called by
     /// `Context` when it is dropped.
     pub(crate) fn free_accelerator(self) {
-        println!("Freeing tensor {}", self.name());
         #[cfg(feature = "cublas")]
         unsafe {
             sys::cuda::ggml_cuda_free_data(self.ptr.as_ptr());
@@ -236,19 +228,19 @@ impl Tensor {
 }
 impl Tensor {
     fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
-        if let Some(_ctx) = self.ctx.upgrade() {
-            f()
-        } else {
-            panic!("Using a tensor after the context was dropped")
-        }
+        let _ctx = self
+            .inner
+            .upgrade()
+            .expect("Using a tensor after the context was dropped");
+        f()
     }
 
     fn with_alive_ctx_mut<U>(&mut self, mut f: impl FnMut(&mut Tensor) -> U) -> U {
-        if let Some(_ctx) = self.ctx.upgrade() {
-            f(self)
-        } else {
-            panic!("Using a tensor after the context was dropped")
-        }
+        let _ctx = self
+            .inner
+            .upgrade()
+            .expect("Using a tensor after the context was dropped");
+        f(self)
     }
 
     /// Sets the acceleration backend of the tensor.
@@ -264,9 +256,10 @@ impl Tensor {
 
     /// Adds this tensor to the context's list of offloaded tensors, so that it will be automatically freed.
     fn mark_as_offloaded(&self) {
-        self.offloaded_tensors
+        self.inner
             .upgrade()
             .expect("Attempted to update a dropped context's offloaded tensors")
+            .offloaded_tensors
             .lock()
             .unwrap()
             .insert(self.name(), self.share());

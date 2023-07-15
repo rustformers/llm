@@ -16,7 +16,7 @@ pub struct Context {
     /// allocated tensors. Tensors are owned by the object, so a [`Tensor`]
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
-    pub ptr: Arc<NonNull<sys::ggml_context>>,
+    inner: Arc<ContextInner>,
 
     /// Memory mapping information
     pub mmap: Option<Mmap>,
@@ -26,6 +26,11 @@ pub struct Context {
 
     /// Whether the context can offload tensors to the GPU
     pub can_offload: bool,
+}
+
+/// Contains state shared between a context and its tensors
+pub(crate) struct ContextInner {
+    pub ptr: NonNull<sys::ggml_context>,
 
     /// Offloaded tensors. Used to free them when the context is dropped.
     // TODO: revisit this. What it means for a tensor to be "offloaded",
@@ -39,7 +44,16 @@ pub struct Context {
     //
     // Hopefully, this is resolved by GGML redesigning both its accelerator
     // interface and its scratch buffer solution.
-    offloaded_tensors: Arc<Mutex<HashMap<String, Tensor>>>,
+    pub offloaded_tensors: Mutex<HashMap<String, Tensor>>,
+}
+
+impl ContextInner {
+    pub(crate) fn new(ptr: *mut ggml_sys::ggml_context) -> Arc<Self> {
+        Arc::new(Self {
+            ptr: NonNull::new(ptr).expect("Should not be null"),
+            offloaded_tensors: Default::default(),
+        })
+    }
 }
 
 impl Context {
@@ -54,11 +68,10 @@ impl Context {
         };
 
         Self {
-            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            inner: ContextInner::new(raw),
             mmap: None,
             buffer: Some(buffer),
             can_offload: false,
-            offloaded_tensors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -73,11 +86,10 @@ impl Context {
         };
 
         Self {
-            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            inner: ContextInner::new(raw),
             mmap: Some(mmap),
             buffer: None,
             can_offload: false,
-            offloaded_tensors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -93,11 +105,10 @@ impl Context {
         };
 
         Self {
-            ptr: Arc::new(NonNull::new(raw).expect("Should not be null")),
+            inner: ContextInner::new(raw),
             mmap: None,
             buffer: None,
             can_offload: false,
-            offloaded_tensors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -108,7 +119,7 @@ impl Context {
 
     /// Retrieves the memory used by this [Context].
     pub fn used_mem(&self) -> usize {
-        unsafe { sys::ggml_used_mem(self.ptr.as_ptr()) }
+        unsafe { sys::ggml_used_mem(self.as_ptr()) }
     }
 
     /// Sets the scratch buffer to be used by this [Context].
@@ -123,7 +134,7 @@ impl Context {
         // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
         unsafe {
             sys::ggml_set_scratch(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 sys::ggml_scratch {
                     offs: 0,
                     size,
@@ -135,8 +146,7 @@ impl Context {
 
     /// Creates a new 1D tensor.
     pub fn new_tensor_1d(&self, typ: Type, ne0: usize) -> Tensor {
-        let raw =
-            unsafe { sys::ggml_new_tensor_1d(self.ptr.as_ptr(), typ.into(), usize_to_i64(ne0)) };
+        let raw = unsafe { sys::ggml_new_tensor_1d(self.as_ptr(), typ.into(), usize_to_i64(ne0)) };
         self.new_tensor_raw(raw)
     }
 
@@ -144,7 +154,7 @@ impl Context {
     pub fn new_tensor_2d(&self, typ: Type, ne0: usize, ne1: usize) -> Tensor {
         let raw = unsafe {
             sys::ggml_new_tensor_2d(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 typ.into(),
                 usize_to_i64(ne0),
                 usize_to_i64(ne1),
@@ -157,7 +167,7 @@ impl Context {
     pub fn new_tensor_3d(&self, typ: Type, ne0: usize, ne1: usize, ne2: usize) -> Tensor {
         let raw = unsafe {
             sys::ggml_new_tensor_3d(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 typ.into(),
                 usize_to_i64(ne0),
                 usize_to_i64(ne1),
@@ -169,7 +179,7 @@ impl Context {
 
     /// Creates a new 1D tensor with the specified value.
     pub fn new_f32(&self, x: f32) -> Tensor {
-        let raw = unsafe { sys::ggml_new_f32(self.ptr.as_ptr(), x) };
+        let raw = unsafe { sys::ggml_new_f32(self.as_ptr(), x) };
         self.new_tensor_raw(raw)
     }
 }
@@ -177,38 +187,37 @@ impl Context {
 impl Context {
     /// Unknown, aside from the obvious. It's transposing something!
     pub fn op_transpose(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_transpose(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_transpose(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Unknown.
     pub fn op_get_rows(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor =
-            unsafe { sys::ggml_get_rows(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_get_rows(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Creates a new tensor with the values of `a`, but normalized.
     pub fn op_norm(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_norm(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_norm(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Creates a new tensor with the values of `a`, but normalized using RMSNorm.
     pub fn op_rms_norm(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_rms_norm(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_rms_norm(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Creates a new tensor with the multiplication of `a` and `b`.
     pub fn op_mul(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_mul(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_mul(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Unknown.
     pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_repeat(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_repeat(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
@@ -220,61 +229,59 @@ impl Context {
     ///
     /// Result is m columns, p rows
     pub fn op_mul_mat(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor =
-            unsafe { sys::ggml_mul_mat(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_mul_mat(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Creates a new tensor with the addition of `a` and `b`.
     pub fn op_add(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_add(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_add(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Creates a new tensor with the [SiLU](https://pytorch.org/docs/stable/generated/torch.nn.SiLU.html) activation function applied to `a`.
     pub fn op_silu(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_silu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_silu(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Scales `a` by the 1D tensor `b`.
     pub fn op_scale(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_scale(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_scale(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// In-place, scales `a` by the 1D tensor `b`.
     pub fn op_scale_inplace(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor =
-            unsafe { sys::ggml_scale_inplace(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+            unsafe { sys::ggml_scale_inplace(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// Sets the elements above the diagonal to -INF.
     pub fn op_diag_mask_inf(&self, a: &Tensor, n_past: usize) -> Tensor {
-        let tensor = unsafe {
-            sys::ggml_diag_mask_inf(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past))
-        };
+        let tensor =
+            unsafe { sys::ggml_diag_mask_inf(self.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past)) };
         self.new_tensor_raw(tensor)
     }
 
     /// In-place, sets the elements above the diagonal to -INF.
     pub fn op_diag_mask_inf_inplace(&self, a: &Tensor, n_past: usize) -> Tensor {
         let tensor = unsafe {
-            sys::ggml_diag_mask_inf_inplace(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past))
+            sys::ggml_diag_mask_inf_inplace(self.as_ptr(), a.ptr.as_ptr(), usize_to_i32(n_past))
         };
         self.new_tensor_raw(tensor)
     }
 
     /// Applies the [Softmax function](https://en.wikipedia.org/wiki/Softmax_function) to `a`.
     pub fn op_soft_max(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_soft_max(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_soft_max(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
     /// In-place, applies the [Softmax function](https://en.wikipedia.org/wiki/Softmax_function) to `a`.
     pub fn op_soft_max_inplace(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_soft_max_inplace(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_soft_max_inplace(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
@@ -298,8 +305,7 @@ impl Context {
         a: &Tensor,
         fun: unsafe extern "C" fn(cnt: c_int, dst: *mut f32, src: *const f32),
     ) -> Tensor {
-        let tensor =
-            unsafe { sys::ggml_map_unary_f32(self.ptr.as_ptr(), a.ptr.as_ptr(), Some(fun)) };
+        let tensor = unsafe { sys::ggml_map_unary_f32(self.as_ptr(), a.ptr.as_ptr(), Some(fun)) };
         self.new_tensor_raw(tensor)
     }
 
@@ -325,7 +331,7 @@ impl Context {
         fun: unsafe extern "C" fn(cnt: c_int, dst: *mut f32, src0: *const f32, src1: *const f32),
     ) -> Tensor {
         let tensor = unsafe {
-            sys::ggml_map_binary_f32(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr(), Some(fun))
+            sys::ggml_map_binary_f32(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr(), Some(fun))
         };
         self.new_tensor_raw(tensor)
     }
@@ -337,9 +343,8 @@ impl Context {
             offset < a.nbytes(),
             "Cannot create tensor view with offset larger than tensor"
         );
-        let tensor = unsafe {
-            sys::ggml_view_1d(self.ptr.as_ptr(), a.ptr.as_ptr(), usize_to_i64(ne0), offset)
-        };
+        let tensor =
+            unsafe { sys::ggml_view_1d(self.as_ptr(), a.ptr.as_ptr(), usize_to_i64(ne0), offset) };
         self.new_tensor_raw(tensor)
     }
 
@@ -348,7 +353,7 @@ impl Context {
         let (ne0, ne1) = ne;
         let tensor = unsafe {
             sys::ggml_view_2d(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i64(ne0),
                 usize_to_i64(ne1),
@@ -371,7 +376,7 @@ impl Context {
         let (nb1, nb2) = nb;
         let tensor = unsafe {
             sys::ggml_view_3d(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i64(ne0),
                 usize_to_i64(ne1),
@@ -386,7 +391,7 @@ impl Context {
 
     /// Copies `a` to `b` and returns `b`.
     pub fn op_cpy(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_cpy(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_cpy(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
@@ -394,7 +399,7 @@ impl Context {
     pub fn op_permute(&self, a: &Tensor, axes: (usize, usize, usize, usize)) -> Tensor {
         let tensor = unsafe {
             sys::ggml_permute(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i32(axes.0),
                 usize_to_i32(axes.1),
@@ -407,8 +412,7 @@ impl Context {
 
     /// In-place; reshapes `a` in accordance with the dimensions of `b`
     pub fn op_reshape(&self, a: &Tensor, b: &Tensor) -> Tensor {
-        let tensor =
-            unsafe { sys::ggml_reshape(self.ptr.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_reshape(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
@@ -416,7 +420,7 @@ impl Context {
     pub fn op_reshape_2d(&self, a: &Tensor, ne0: usize, ne1: usize) -> Tensor {
         let tensor = unsafe {
             sys::ggml_reshape_2d(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i64(ne0),
                 usize_to_i64(ne1),
@@ -429,7 +433,7 @@ impl Context {
     pub fn op_reshape_3d(&self, a: &Tensor, ne0: usize, ne1: usize, ne2: usize) -> Tensor {
         let tensor = unsafe {
             sys::ggml_reshape_3d(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i64(ne0),
                 usize_to_i64(ne1),
@@ -441,7 +445,7 @@ impl Context {
 
     /// ggml_cont
     pub fn op_cont(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_cont(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_cont(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
@@ -449,7 +453,7 @@ impl Context {
     pub fn op_rope(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
         let tensor = unsafe {
             sys::ggml_rope(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i32(npast),
                 usize_to_i32(ndims),
@@ -464,7 +468,7 @@ impl Context {
     pub fn op_rope_inplace(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
         let tensor = unsafe {
             sys::ggml_rope_inplace(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i32(npast),
                 usize_to_i32(ndims),
@@ -479,7 +483,7 @@ impl Context {
     pub fn op_alibi(&self, a: &Tensor, n_past: usize, n_head: usize, bias_max: f32) -> Tensor {
         let tensor = unsafe {
             sys::ggml_alibi(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 a.ptr.as_ptr(),
                 usize_to_i32(n_past),
                 usize_to_i32(n_head),
@@ -492,7 +496,7 @@ impl Context {
 
     /// Gaussian Error Linear Units
     pub fn op_gelu(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_gelu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_gelu(self.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 }
@@ -502,14 +506,17 @@ impl Context {
     fn new_tensor_raw(&self, raw: *mut sys::ggml_tensor) -> Tensor {
         let tensor = Tensor {
             ptr: NonNull::new(raw).expect("Should not be null"),
-            ctx: Arc::downgrade(&self.ptr),
-            offloaded_tensors: Arc::downgrade(&self.offloaded_tensors),
+            inner: Arc::downgrade(&self.inner),
         };
 
         if self.can_offload {
             tensor.offload();
         }
         tensor
+    }
+
+    fn as_ptr(&self) -> *mut sys::ggml_context {
+        self.inner.ptr.as_ptr()
     }
 }
 
@@ -518,12 +525,12 @@ impl Drop for Context {
         // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
             // if we moved tensors to an accelerator we need to free them
-            for (_, tensor) in self.offloaded_tensors.lock().unwrap().drain() {
+            for (_, tensor) in self.inner.offloaded_tensors.lock().unwrap().drain() {
                 if tensor.backend() != Backend::Cpu {
                     tensor.free_accelerator();
                 }
             }
-            sys::ggml_free(self.ptr.as_ptr());
+            sys::ggml_free(self.as_ptr());
         }
     }
 }
