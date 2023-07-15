@@ -136,7 +136,6 @@ impl InferenceSession {
             ctx_size
         };
 
-        //TODO: check if this is needed and the right place to put it
         if config.use_gpu {
             ggml::accelerator_initialize(0);
             ggml::accelerator_set_scratch_size(config.n_batch * 1024 * 1024);
@@ -943,6 +942,8 @@ fn kv_memory(
         .set_name("memory_v");
 
     if config.use_gpu {
+        // CUDA requires the K/V-Memory to be on the GPU but excluded from the scratch buffer.
+        // For OpenCL this is a no-op.
         ggml::accelerator_offload_tensor_no_scratch(&memory_k);
         ggml::accelerator_offload_tensor_no_scratch(&memory_v);
     }

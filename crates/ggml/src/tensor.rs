@@ -7,6 +7,8 @@ use std::{
 
 use crate::{i64_to_usize, sys, Type};
 
+const MAX_NAME_LENGTH: usize = crate::MAX_NAME_LENGTH as usize;
+
 /// Tensors are owned by the context. A tensor is alive as long as the
 /// underlying context it was created with is alive.
 pub struct Tensor {
@@ -25,17 +27,17 @@ impl Tensor {
     ///
     /// # Safety
     ///
-    /// The name must be a valid UTF-8 string and must not be longer than [crate::MAX_NAME_LENGTH] characters.
+    /// The name must be a valid UTF-8 string and must not be longer than `MAX_NAME_LENGTH` characters.
     pub fn set_name(mut self, name: &str) -> Tensor {
         assert!(
-            name.len() <= crate::MAX_NAME_LENGTH.try_into().unwrap(),
+            name.len() <= MAX_NAME_LENGTH,
             "Name '{}' is too long, max length is {} characters",
             name,
-            crate::MAX_NAME_LENGTH
+            MAX_NAME_LENGTH
         );
 
         let bytes = name.as_bytes();
-        let mut array = [0i8; 48];
+        let mut array = [0i8; MAX_NAME_LENGTH];
         array[..bytes.len()].copy_from_slice(&bytes.iter().map(|&x| x as i8).collect::<Vec<_>>());
 
         unsafe { self.ptr.as_mut().name = array }
@@ -55,7 +57,7 @@ impl Tensor {
     /// # Caution
     ///
     /// This will not move the data to the new backend! See [Tensor::transfer_to] if you want to move the data to the new backend.
-    pub fn set_backend(&mut self, backend: crate::Backend) {
+    pub(crate) fn set_backend(&mut self, backend: crate::Backend) {
         unsafe { crate::set_tensor_backend(self.ptr.as_mut(), backend) }
     }
 
@@ -64,9 +66,13 @@ impl Tensor {
         unsafe { crate::get_tensor_backend(self.ptr.as_ref()) }
     }
 
-    /// Sets the tensors acceleration backend and moves the tensors data to the new backend.
+    /// Sets the tensor's acceleration backend and moves the tensors data to the new backend.
     pub fn transfer_to<E>(mut self, backend: crate::Backend) -> Result<Tensor, E> {
         let current_backend = self.backend();
+
+        if current_backend != crate::Backend::Cpu && backend == crate::Backend::Cpu {
+            panic!("Currently there is no way to move data from an accelerator to the cpu")
+        }
         self.set_backend(backend);
 
         if backend != crate::Backend::Cpu {

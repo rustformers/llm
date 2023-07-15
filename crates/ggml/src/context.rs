@@ -502,7 +502,7 @@ impl Drop for Context {
     fn drop(&mut self) {
         // SAFETY: The only non-weak copy of ptr is no longer accessible after this drop call.
         unsafe {
-            // if we moved tensors to an acceleratoor we need to free them
+            // if we moved tensors to an accelerator we need to free them
             for (_, tensor) in self.offloaded_tensors.lock().unwrap().drain() {
                 if tensor.backend() != crate::Backend::Cpu {
                     crate::accelerator_free_tensor(&tensor);
