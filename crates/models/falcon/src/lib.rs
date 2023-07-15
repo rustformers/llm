@@ -196,13 +196,13 @@ impl KnownModel for Falcon {
                     current = ctx0.op_add(
                         &ctx0.op_mul(
                             &ctx0.op_repeat(
-                                &self.layers[il].attention_norm.as_ref().unwrap(),
+                                self.layers[il].attention_norm.as_ref().unwrap(),
                                 &current,
                             ),
                             &current,
                         ),
                         &ctx0.op_repeat(
-                            &self.layers[il].attention_norm_b.as_ref().unwrap(),
+                            self.layers[il].attention_norm_b.as_ref().unwrap(),
                             &current,
                         ),
                     );
