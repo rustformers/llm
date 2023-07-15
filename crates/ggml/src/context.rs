@@ -473,6 +473,12 @@ impl Context {
         let tensor = unsafe { sys::ggml_gelu(self.ptr.as_ptr(), a.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
+
+    /// flash attention.
+    pub fn op_flash_attn(&self, q: &Tensor, k: &Tensor, v: &Tensor, masked: bool) -> Tensor {
+        let tensor = unsafe { sys::ggml_flash_attn(self.ptr.as_ptr(), q.ptr.as_ptr(), k.ptr.as_ptr(), v.ptr.as_ptr(), masked) };
+        self.new_tensor_raw(tensor)
+    }
 }
 
 impl Drop for Context {
