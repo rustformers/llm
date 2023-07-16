@@ -196,7 +196,9 @@ async fn test_model(
         local_path: &'a Path,
     }
     impl<'a> llm::ModelArchitectureVisitor<anyhow::Result<()>> for TestVisitor<'a> {
-        fn visit<M: llm::KnownModel + 'static>(&mut self) -> anyhow::Result<()> {
+        fn visit<M: llm::KnownModel + 'static + std::clone::Clone>(
+            &mut self,
+        ) -> anyhow::Result<()> {
             let Self {
                 model_config,
                 test_config,
