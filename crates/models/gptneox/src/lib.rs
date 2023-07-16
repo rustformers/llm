@@ -17,8 +17,7 @@ use llm_base::{
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct GptNeoX {
-    // the context size ("memory") the model should use when evaluating a prompt
-    context_size: usize,
+    params: ModelParameters,
 
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
@@ -97,11 +96,9 @@ impl KnownModel for GptNeoX {
 
         let context = tl.finish();
 
-        let ModelParameters { context_size, .. } = params;
-
         Ok(GptNeoX {
             hyperparameters,
-            context_size,
+            params,
             tokenizer,
             ln_f_g,
             ln_f_b,
@@ -115,7 +112,8 @@ impl KnownModel for GptNeoX {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.context_size,
+            self.params.use_gpu,
+            self.params.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -132,7 +130,7 @@ impl KnownModel for GptNeoX {
     ) {
         let n = input_tokens.len();
         let n_past = session.n_past;
-        let n_ctx = self.context_size;
+        let n_ctx = self.params.context_size;
 
         let Hyperparameters {
             n_embd,
@@ -344,7 +342,7 @@ impl KnownModel for GptNeoX {
     }
 
     fn context_size(&self) -> usize {
-        self.context_size
+        self.params.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {

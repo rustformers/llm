@@ -16,8 +16,7 @@ use llm_base::{
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct GptJ {
-    // the context size ("memory") the model should use when evaluating a prompt
-    context_size: usize,
+    params: ModelParameters,
 
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
@@ -83,11 +82,9 @@ impl KnownModel for GptJ {
 
         let context = tl.finish();
 
-        let ModelParameters { context_size, .. } = params;
-
         Ok(GptJ {
             hyperparameters,
-            context_size,
+            params,
             tokenizer,
             ln_f_g,
             ln_f_b,
@@ -102,7 +99,8 @@ impl KnownModel for GptJ {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.context_size,
+            self.params.use_gpu,
+            self.params.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -117,7 +115,7 @@ impl KnownModel for GptJ {
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let ctx_size = self.context_size;
+        let ctx_size = self.params.context_size;
 
         let Hyperparameters {
             n_embd,
@@ -298,7 +296,7 @@ impl KnownModel for GptJ {
     }
 
     fn context_size(&self) -> usize {
-        self.context_size
+        self.params.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {

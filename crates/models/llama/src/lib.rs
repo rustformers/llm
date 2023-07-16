@@ -15,9 +15,7 @@ use llm_base::{
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Llama {
-    // the context size ("memory") the model should use when evaluating a prompt
-    context_size: usize,
-    model_params: ModelParameters,
+    params: ModelParameters,
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
 
@@ -96,12 +94,9 @@ impl KnownModel for Llama {
         }
         let context = tl.finish();
 
-        let ModelParameters { context_size, .. } = params;
-
         Ok(Self {
             hyperparameters,
-            model_params: params,
-            context_size,
+            params,
             tokenizer,
             wte,
             norm,
@@ -115,7 +110,8 @@ impl KnownModel for Llama {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.context_size,
+            self.params.use_gpu,
+            self.params.context_size,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -131,7 +127,7 @@ impl KnownModel for Llama {
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let ctx_size = self.context_size;
+        let ctx_size = self.params.context_size;
 
         let Hyperparameters {
             n_vocab,
@@ -152,7 +148,7 @@ impl KnownModel for Llama {
             let mut gf = ggml::ComputationGraph::new();
 
             for il in 0..n_layer {
-                ctx0.set_offloading(self.model_params.should_offload(il));
+                ctx0.set_offloading(self.params.should_offload(il));
 
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
@@ -353,7 +349,7 @@ impl KnownModel for Llama {
     }
 
     fn context_size(&self) -> usize {
-        self.context_size
+        self.params.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {

@@ -334,7 +334,6 @@ impl Generate {
         InferenceSessionConfig {
             memory_k_type: mem_typ,
             memory_v_type: mem_typ,
-            use_gpu: self.use_gpu,
             n_batch: self.batch_size,
             n_threads: self.num_threads(),
         }

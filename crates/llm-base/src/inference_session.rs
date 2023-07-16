@@ -113,6 +113,7 @@ impl InferenceSession {
     /// Create a new InferenceSession
     pub fn new(
         config: InferenceSessionConfig,
+        use_gpu: bool,
         n_ctx: usize,
         n_layer: usize,
         n_embd: usize,
@@ -137,7 +138,7 @@ impl InferenceSession {
             ctx_size
         };
 
-        if config.use_gpu {
+        if use_gpu {
             ggml::accelerator::initialize(0);
             ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
         }
@@ -147,7 +148,7 @@ impl InferenceSession {
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
         let n_elements = n_embd * n_mem;
-        let (memory_k, memory_v) = kv_memory(&session_ctx, &config, n_elements);
+        let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
         let scratch = scratch_buffers();
 
@@ -784,8 +785,6 @@ pub struct InferenceSessionConfig {
     /// The type of the memory V tensor.
     pub memory_v_type: ModelKVMemoryType,
 
-    /// Whether to use GPU acceleration
-    pub use_gpu: bool,
     /// Controls batch/chunk size for prompt ingestion in [InferenceSession::feed_prompt].
     ///
     /// This is the number of tokens that will be ingested at once. This is useful for
@@ -817,7 +816,6 @@ impl Default for InferenceSessionConfig {
         Self {
             memory_k_type: ModelKVMemoryType::Float16,
             memory_v_type: ModelKVMemoryType::Float16,
-            use_gpu: false,
             n_batch: 8,
             n_threads: 8,
         }
@@ -980,6 +978,7 @@ pub fn conversation_inference_callback<'a, E: std::error::Error + Send + Sync + 
 fn kv_memory(
     context: &Context,
     config: &InferenceSessionConfig,
+    use_gpu: bool,
     n_elements: usize,
 ) -> (Tensor, Tensor) {
     let memory_k = context
@@ -989,7 +988,7 @@ fn kv_memory(
         .new_tensor_1d(config.memory_v_type.into(), n_elements)
         .set_name("memory_v");
 
-    if config.use_gpu {
+    if use_gpu {
         // CUDA requires the K/V-Memory to be on the GPU but excluded from the scratch buffer.
         // For OpenCL this is a no-op.
         //
