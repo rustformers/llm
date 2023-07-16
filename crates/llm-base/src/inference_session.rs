@@ -8,8 +8,8 @@ use tracing::{instrument, log};
 use ggml::accelerator::metal::MetalContext;
 
 use crate::{
-    mulf, util, InferenceParameters, Model, OutputRequest, Prompt, TokenId, TokenUtf8Buffer,
-    TokenizationError,
+    mulf, util, InferenceParameters, Model, ModelParameters, OutputRequest, Prompt, TokenId,
+    TokenUtf8Buffer, TokenizationError,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -113,29 +113,34 @@ impl InferenceSession {
     /// Create a new InferenceSession
     pub fn new(
         config: InferenceSessionConfig,
-        use_gpu: bool,
-        n_ctx: usize,
+        params: &ModelParameters,
         n_layer: usize,
         n_embd: usize,
         n_vocab: usize,
     ) -> InferenceSession {
-        let ctx_size = {
-            let mut ctx_size = 0;
-            ctx_size += mulf!(
-                n_ctx,
+        let ModelParameters {
+            use_gpu,
+            context_size,
+            ..
+        } = *params;
+
+        let context_byte_size = {
+            let mut size = 0;
+            size += mulf!(
+                context_size,
                 n_layer,
                 n_embd,
                 ggml::type_sizef(config.memory_k_type.into())
             ); // memory_k
-            ctx_size += mulf!(
-                n_ctx,
+            size += mulf!(
+                context_size,
                 n_layer,
                 n_embd,
                 ggml::type_sizef(config.memory_v_type.into())
             ); // memory_v
-            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+            size += (5 + 10 * n_layer) * 256; // object overhead
 
-            ctx_size
+            size
         };
 
         if use_gpu {
@@ -143,10 +148,10 @@ impl InferenceSession {
             ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
         }
 
-        let session_ctx = Arc::new(ggml::Context::new_with_allocate(ctx_size));
+        let session_ctx = Arc::new(ggml::Context::new_with_allocate(context_byte_size));
 
         // Initialize key + value memory tensors
-        let n_mem = n_layer * n_ctx;
+        let n_mem = n_layer * context_size;
         let n_elements = n_embd * n_mem;
         let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
@@ -174,7 +179,7 @@ impl InferenceSession {
         // Set up Metal support
         #[cfg(feature = "metal")]
         let metal_context = {
-            if config.use_gpu {
+            if use_gpu {
                 let mut metal_context = MetalContext::new(config.n_threads);
                 metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
 
@@ -190,7 +195,7 @@ impl InferenceSession {
 
         InferenceSession {
             _session_ctx: session_ctx,
-            _memory_size: ctx_size,
+            _memory_size: context_byte_size,
             config,
             memory_k,
             memory_v,
@@ -513,19 +518,19 @@ impl InferenceSession {
 
         let mut count = 0;
 
-        // TODO: make this handle <n_ctx tokens
-        let n_ctx = model.context_size();
-        let n_chunk = tokens.len() / n_ctx;
+        // TODO: make this handle <context_size tokens
+        let context_size = model.context_size();
+        let n_chunk = tokens.len() / context_size;
         let n_vocab = model.tokenizer().len();
         let n_batch = self.config.n_batch;
 
         let mut nll = 0.0;
 
         for i in 0..n_chunk {
-            let start = i * n_ctx;
-            let end = (i + 1) * n_ctx;
+            let start = i * context_size;
+            let end = (i + 1) * context_size;
 
-            let num_batches = (n_ctx + n_batch - 1) / n_batch;
+            let num_batches = (context_size + n_batch - 1) / n_batch;
 
             let mut logits = vec![];
 
@@ -559,7 +564,7 @@ impl InferenceSession {
                 logits.extend(output_request.all_logits.unwrap());
             }
 
-            for j in 512.min(n_ctx / 2)..(n_ctx - 1) {
+            for j in 512.min(context_size / 2)..(context_size - 1) {
                 let logits = &logits[j * n_vocab..(j + 1) * n_vocab];
                 let probability = util::softmax(logits)[tokens[start + j + 1] as usize];
                 nll += -probability.ln();
