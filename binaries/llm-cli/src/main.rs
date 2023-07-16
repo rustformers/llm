@@ -1,12 +1,13 @@
 use std::{
     convert::Infallible,
     fs::File,
-    io::{BufReader, BufWriter, IsTerminal},
+    io::{BufReader, BufWriter},
 };
 
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{self, Context, ContextCompat};
+use is_terminal::IsTerminal;
 
 mod cli_args;
 mod interactive;

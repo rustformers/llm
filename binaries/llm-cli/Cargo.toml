@@ -31,6 +31,10 @@ tracing-subscriber = {workspace = true }
 tracing = { workspace = true}
 tracing-appender = "0.2.2"
 
+# TEMPORARY: This was introduced in Rust 1.70, but our MSRV is below this.
+# Remove this once we bump our MSRV to 1.70.
+is-terminal = "0.4"
+
 [dev-dependencies]
 rusty-hook = "^0.11.2"
 
