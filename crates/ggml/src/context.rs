@@ -18,11 +18,8 @@ pub struct Context {
     /// with it if the underlying context has been deallocated.
     inner: Arc<ContextInner>,
 
-    /// Memory mapping information
-    pub mmap: Option<Mmap>,
-
-    /// Backing buffer (in case we own it)
-    pub buffer: Option<Buffer>,
+    /// The storage for this context. This is stored so that the buffer can be dropped when the context is dropped.
+    storage: Option<ContextStorage>,
 
     /// Whether the context can offload tensors to the GPU
     pub can_offload: bool,
@@ -46,7 +43,6 @@ pub(crate) struct ContextInner {
     // interface and its scratch buffer solution.
     pub offloaded_tensors: Mutex<HashMap<String, Tensor>>,
 }
-
 impl ContextInner {
     pub(crate) fn new(ptr: *mut ggml_sys::ggml_context) -> Arc<Self> {
         Arc::new(Self {
@@ -56,60 +52,72 @@ impl ContextInner {
     }
 }
 
+/// Controls how the context uses memory.
+pub enum ContextStorage {
+    /// Use the provided buffer as memory.
+    Buffer(Buffer),
+    /// Use the provided memory mapped file as memory.
+    Mmap(Mmap),
+    /// Allocate `mem_size` bytes of memory.
+    Allocate {
+        /// The size, in bytes, of the memory in to allocate.
+        mem_size: usize,
+    },
+}
+
 impl Context {
-    /// Creates a new [Context] using the buffer provided as memory
-    pub fn init_buffer(buffer: Buffer) -> Self {
-        let raw = unsafe {
-            sys::ggml_init(sys::ggml_init_params {
+    /// Creates a new [Context] with the given storage..
+    pub fn new(storage: ContextStorage) -> Self {
+        let init_params = match &storage {
+            ContextStorage::Buffer(buffer) => sys::ggml_init_params {
                 mem_size: buffer.size(),
                 mem_buffer: buffer.data,
                 no_alloc: false,
-            })
-        };
-
-        Self {
-            inner: ContextInner::new(raw),
-            mmap: None,
-            buffer: Some(buffer),
-            can_offload: false,
-        }
-    }
-
-    /// Creates a new [Context] with the memory mapped file provided
-    pub fn init_mmap(mmap: Mmap) -> Self {
-        let raw = unsafe {
-            sys::ggml_init(sys::ggml_init_params {
+            },
+            ContextStorage::Mmap(mmap) => sys::ggml_init_params {
                 mem_size: mmap.len(),
                 mem_buffer: std::ptr::null_mut(),
-                no_alloc: true, // We are mmapping so ggml does not need to allocate any memory for us
-            })
+                // We are mmapping so ggml does not need to allocate any memory for us
+                no_alloc: true,
+            },
+            ContextStorage::Allocate { mem_size } => sys::ggml_init_params {
+                mem_size: *mem_size,
+                // Null here means we want ggml to own this memory.
+                mem_buffer: std::ptr::null_mut(),
+                // It doesn't make sense to `no_alloc` when passing in a `mem_size` in this mode.
+                no_alloc: false,
+            },
         };
 
+        let raw = unsafe { sys::ggml_init(init_params) };
         Self {
             inner: ContextInner::new(raw),
-            mmap: Some(mmap),
-            buffer: None,
+            storage: Some(storage),
             can_offload: false,
         }
     }
 
-    /// Creates a new [Context] with the specified `mem_size` as a working area.
-    pub fn init(mem_size: usize, alloc: bool) -> Self {
-        let raw = unsafe {
-            sys::ggml_init(sys::ggml_init_params {
-                mem_size,
-                // Null here means we want ggml to own this memory.
-                mem_buffer: std::ptr::null_mut(),
-                no_alloc: !alloc,
-            })
-        };
+    /// Creates a new [Context] with the specified buffer.
+    /// The buffer will be used by GGML.
+    pub fn new_with_buffer(buffer: Buffer) -> Self {
+        Self::new(ContextStorage::Buffer(buffer))
+    }
 
-        Self {
-            inner: ContextInner::new(raw),
-            mmap: None,
-            buffer: None,
-            can_offload: false,
-        }
+    /// Creates a new [Context] with the specified memory mapped file.
+    pub fn new_with_mmap(mmap: Mmap) -> Self {
+        Self::new(ContextStorage::Mmap(mmap))
+    }
+
+    /// Creates a new [Context] with the specified memory size.
+    /// The memory will be allocated by GGML.
+    pub fn new_with_allocate(mem_size: usize) -> Self {
+        Self::new(ContextStorage::Allocate { mem_size })
+    }
+
+    /// Recreates this context using the same storage.
+    pub fn recreate(&mut self) {
+        // This is the only operation that can consume the `self.storage`, so we can unwrap here.
+        *self = Self::new(self.storage.take().unwrap());
     }
 
     /// If offloading is enabled, all tensors created by this context will be offloaded to the GPU
@@ -181,6 +189,14 @@ impl Context {
     pub fn new_f32(&self, x: f32) -> Tensor {
         let raw = unsafe { sys::ggml_new_f32(self.as_ptr(), x) };
         self.new_tensor_raw(raw)
+    }
+
+    /// Returns the mmap used by this [Context], if any.
+    pub fn mmap(&self) -> Option<&Mmap> {
+        match &self.storage {
+            Some(ContextStorage::Mmap(mmap)) => Some(mmap),
+            _ => None,
+        }
     }
 }
 // Operations

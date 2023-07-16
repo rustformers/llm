@@ -20,7 +20,7 @@ pub mod util;
 
 pub mod accelerator;
 
-pub use context::Context;
+pub use context::{Context, ContextStorage};
 pub use tensor::Tensor;
 
 pub use ggml_sys as sys;

@@ -527,10 +527,10 @@ pub fn load<M: KnownModel>(
         unsafe {
             let mmap = Mmap::map(&file)?;
             let file_size = mmap.len() as u64;
-            (Context::init_mmap(mmap), file_size)
+            (Context::new_with_mmap(mmap), file_size)
         }
     } else {
-        (Context::init(ctx_size, true), file.metadata()?.len())
+        (Context::new_with_allocate(ctx_size), file.metadata()?.len())
     };
 
     let tensors_len = tensors.len();
@@ -646,7 +646,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             &self.context,
             &mut self.file,
             &self.path,
-            self.context.mmap.as_ref(),
+            self.context.mmap(),
         );
 
         let mut tensor = main_context.get_tensor(info)?;

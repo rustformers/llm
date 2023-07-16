@@ -141,7 +141,7 @@ impl InferenceSession {
             ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
         }
 
-        let session_ctx = Arc::new(ggml::Context::init(ctx_size, true));
+        let session_ctx = Arc::new(ggml::Context::new_with_allocate(ctx_size));
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * n_ctx;
@@ -167,7 +167,7 @@ impl InferenceSession {
         };
 
         let eval = Buffer::new(buf_size);
-        let ctx0 = ggml::Context::init_buffer(eval);
+        let ctx0 = ggml::Context::new_with_buffer(eval);
 
         // Set up Metal support
         #[cfg(feature = "metal")]
@@ -216,7 +216,7 @@ impl InferenceSession {
         F: FnOnce(BuildContext) -> (ComputationGraph, GraphOutputs),
     {
         // Build a graph
-        self.ctx0 = ggml::Context::init_buffer(self.ctx0.buffer.take().unwrap());
+        self.ctx0.recreate();
         let ctx0 = &mut self.ctx0;
         let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
         ggml::set_tensor_name(&embd, "embd");
