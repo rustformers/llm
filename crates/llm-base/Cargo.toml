@@ -24,6 +24,7 @@ memmap2 = { workspace = true }
 half = "2.2.1"
 tokenizers = {version="0.13.3", default-features=false, features=["onig"]}
 regex = "1.8"
+tracing = { workspace = true }
 
 [features]
 tokenizers-remote = ["tokenizers/http"]

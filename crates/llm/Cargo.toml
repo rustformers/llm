@@ -18,6 +18,7 @@ llm-mpt = { path = "../models/mpt", optional = true, version = "0.2.0-dev" }
 llm-falcon = { path = "../models/falcon", optional = true, version = "0.2.0-dev" }
 
 serde = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 bytesize = { workspace = true }

@@ -18,6 +18,7 @@ use ggml::{
 };
 use memmap2::Mmap;
 use thiserror::Error;
+use tracing::log;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
 /// Information about the file.
@@ -436,12 +437,14 @@ pub fn load<M: KnownModel>(
         path: path.to_owned(),
     })?;
     let mut reader = BufReader::new(&file);
+    log::trace!("Read model file from {:?}", path);
 
     let tokenizer = tokenizer_source.retrieve(path)?;
     let mut loader = Loader::new(tokenizer, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
+    log::trace!("Loaded GGML model from reader");
 
     let Loader {
         hyperparameters,
@@ -469,6 +472,10 @@ pub fn load<M: KnownModel>(
     } else {
         quantization_version
     };
+    log::trace!(
+        "Determined quantization version of model as {:?}",
+        quantization_version
+    );
 
     // TODO: this is temporary while we figure out how to handle this
     if tensors.values().any(|t| t.element_type.is_quantized()) {
@@ -482,6 +489,7 @@ pub fn load<M: KnownModel>(
         .values()
         .map(|ti| ti.calc_absolute_size(use_mmap))
         .sum::<usize>();
+    log::trace!("Context size: {:?}", ctx_size);
 
     let mut lora_adapters: Option<Vec<LoraAdapter>> = None;
     if let Some(lora_paths) = &params.lora_adapters {
@@ -508,6 +516,7 @@ pub fn load<M: KnownModel>(
                     .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
                     .collect();
 
+                log::trace!("Loaded LoRA weights");
                 // Return the LoRA patches
                 Ok::<_, LoadError>(LoraAdapter {
                     scaling: lora_loader.hyperparameters.calculate_scaling(),
@@ -550,6 +559,8 @@ pub fn load<M: KnownModel>(
         file_size,
         tensor_count: tensors_len,
     });
+
+    log::trace!("Loaded model");
 
     Ok(model)
 }

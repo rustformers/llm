@@ -99,6 +99,7 @@ impl KnownModel for Llama {
         )
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     fn evaluate(
         &self,
         session: &mut InferenceSession,
