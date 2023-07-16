@@ -82,7 +82,7 @@ impl KnownModel for Falcon {
                 input_layernorm_b: tl.load(&format!("{}.bias", input_layernorm_name))?,
                 attention_norm: attention_norm_name
                     .as_ref()
-                    .map(|path| tl.load(&format!("{}.bias", path)))
+                    .map(|path| tl.load(&format!("{}.weight", path)))
                     .transpose()?,
                 attention_norm_b: attention_norm_name
                     .map(|path| tl.load(&format!("{}.bias", path)))
