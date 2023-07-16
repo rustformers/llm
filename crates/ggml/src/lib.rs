@@ -259,6 +259,7 @@ impl Type {
 /// A buffer of memory that can be used as a scratch buffer for a [Context].
 ///
 /// See [Context::use_scratch].
+#[derive(PartialEq, Eq)]
 pub struct Buffer {
     data: *mut c_void,
     layout: Layout,

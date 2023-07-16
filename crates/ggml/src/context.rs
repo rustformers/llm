@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    ffi::c_void,
     os::raw::c_int,
     ptr::NonNull,
     sync::{Arc, Mutex},
@@ -11,6 +12,7 @@ use crate::{accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, Tenso
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
+#[derive(PartialEq, Eq)]
 pub struct Context {
     /// An `Arc` is used to model the relation between the context and the
     /// allocated tensors. Tensors are owned by the object, so a [`Tensor`]
@@ -43,6 +45,12 @@ pub(crate) struct ContextInner {
     // interface and its scratch buffer solution.
     pub offloaded_tensors: Mutex<HashMap<String, Tensor>>,
 }
+impl PartialEq for ContextInner {
+    fn eq(&self, other: &Self) -> bool {
+        self.ptr == other.ptr
+    }
+}
+impl Eq for ContextInner {}
 impl ContextInner {
     pub(crate) fn new(ptr: *mut ggml_sys::ggml_context) -> Arc<Self> {
         Arc::new(Self {
@@ -64,6 +72,47 @@ pub enum ContextStorage {
         mem_size: usize,
     },
 }
+impl ContextStorage {
+    /// Returns the `Mmap` if this is a `Mmap` variant.
+    pub fn as_mmap(&self) -> Option<&Mmap> {
+        match self {
+            Self::Mmap(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Returns the `Buffer` if this is a `Buffer` variant.
+    pub fn as_buffer(&self) -> Option<&Buffer> {
+        match self {
+            Self::Buffer(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) unsafe fn as_ptr_and_size(&self, ctx: &Context) -> (*mut c_void, usize) {
+        match self {
+            // This is a bit naughty...
+            Self::Mmap(mmap) => (mmap.as_ptr().cast_mut() as *mut c_void, mmap.len()),
+            _ => (
+                ggml_sys::ggml_get_mem_buffer(ctx.as_ptr()),
+                ggml_sys::ggml_get_mem_size(ctx.as_ptr()),
+            ),
+        }
+    }
+}
+impl PartialEq for ContextStorage {
+    fn eq(&self, other: &Self) -> bool {
+        use ContextStorage::*;
+        match (self, other) {
+            (Buffer(l0), Buffer(r0)) => l0 == r0,
+            (Mmap(l0), Mmap(r0)) => l0.as_ptr() == r0.as_ptr(),
+            (Allocate { mem_size: l }, Allocate { mem_size: r }) => l == r,
+            _ => false,
+        }
+    }
+}
+impl Eq for ContextStorage {}
 
 impl Context {
     /// Creates a new [Context] with the given storage..
@@ -191,12 +240,9 @@ impl Context {
         self.new_tensor_raw(raw)
     }
 
-    /// Returns the mmap used by this [Context], if any.
-    pub fn mmap(&self) -> Option<&Mmap> {
-        match &self.storage {
-            Some(ContextStorage::Mmap(mmap)) => Some(mmap),
-            _ => None,
-        }
+    /// Returns a reference to the [ContextStorage] used by this [Context].
+    pub fn storage(&self) -> &ContextStorage {
+        self.storage.as_ref().unwrap()
     }
 }
 // Operations
@@ -516,6 +562,12 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 }
+// Public to this crate methods
+impl Context {
+    pub(crate) fn as_ptr(&self) -> *mut sys::ggml_context {
+        self.inner.ptr.as_ptr()
+    }
+}
 // Private methods
 impl Context {
     /// Wraps a raw tensor with a weak pointer to the context.
@@ -529,10 +581,6 @@ impl Context {
             tensor.offload();
         }
         tensor
-    }
-
-    fn as_ptr(&self) -> *mut sys::ggml_context {
-        self.inner.ptr.as_ptr()
     }
 }
 

@@ -646,7 +646,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             &self.context,
             &mut self.file,
             &self.path,
-            self.context.mmap(),
+            self.context.storage().as_mmap(),
         );
 
         let mut tensor = main_context.get_tensor(info)?;
