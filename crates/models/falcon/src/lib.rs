@@ -365,7 +365,7 @@ impl KnownModel for Falcon {
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
-        None
+        self.tokenizer.id(">>ABSTRACT<<".as_bytes())
     }
 
     fn eot_token_id(&self) -> TokenId {
