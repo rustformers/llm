@@ -1,8 +1,8 @@
 use std::{os::raw::c_void, ptr::NonNull, sync::Weak};
 
-use crate::{accelerator::Backend, context::ContextInner, i64_to_usize, sys, Type};
-
-const MAX_NAME_LENGTH: usize = crate::MAX_NAME_LENGTH as usize;
+use crate::{
+    accelerator::Backend, context::ContextInner, i64_to_usize, sys, Type, MAX_NAME_LENGTH,
+};
 
 /// Tensors are owned by the context. A tensor is alive as long as the
 /// underlying context it was created with is alive.
@@ -21,30 +21,25 @@ impl Tensor {
     ///
     /// # Safety
     ///
-    /// The name must be a valid UTF-8 string and must not be longer than `MAX_NAME_LENGTH` characters.
+    /// The name must be a valid UTF-8 string and must not be longer than [`MAX_NAME_LENGTH`] bytes.
     pub fn set_name(mut self, name: &str) -> Tensor {
         assert!(
             name.len() <= MAX_NAME_LENGTH,
-            "Name '{}' is too long, max length is {} characters",
-            name,
+            "Tensor name must be less than {} bytes",
             MAX_NAME_LENGTH
         );
 
-        let bytes = name.as_bytes();
-        let mut array = [0i8; MAX_NAME_LENGTH];
-        array[..bytes.len()].copy_from_slice(&bytes.iter().map(|&x| x as i8).collect::<Vec<_>>());
-
-        self.with_alive_ctx_mut(|t| unsafe { t.ptr.as_mut().name = array });
+        let c_name = std::ffi::CString::new(name).unwrap();
+        self.with_alive_ctx_mut(|t| unsafe { sys::ggml_set_name(t.ptr.as_ptr(), c_name.as_ptr()) });
         self
     }
 
     /// Gets the name of the tensor
     pub fn name(&self) -> String {
         self.with_alive_ctx(|| {
-            let name = unsafe { self.ptr.as_ref().name };
-            let mut name = name.iter().map(|&x| x as u8).collect::<Vec<_>>();
-            name.retain(|&x| x != 0);
-            String::from_utf8(name).unwrap()
+            let name_ptr = unsafe { sys::ggml_get_name(self.ptr.as_ptr()) };
+            let name = unsafe { std::ffi::CStr::from_ptr(name_ptr) };
+            name.to_string_lossy().into_owned()
         })
     }
 

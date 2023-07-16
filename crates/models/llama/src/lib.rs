@@ -167,30 +167,32 @@ impl KnownModel for Llama {
 
                 // self-attention
                 // compute Q and K and RoPE them
-                let q_current = ctx0.op_rope_inplace(
-                    &ctx0.op_reshape_3d(
-                        &ctx0.op_mul_mat(&self.layers[il].wq, &current),
-                        n_embd / n_head,
-                        n_head,
-                        input_len,
-                    ),
-                    session_len,
-                    n_rot,
-                    0,
-                );
-                ggml::set_tensor_name(&q_current, "Qcur");
-                let k_current = ctx0.op_rope_inplace(
-                    &ctx0.op_reshape_3d(
-                        &ctx0.op_mul_mat(&self.layers[il].wk, &current),
-                        n_embd / n_head,
-                        n_head,
-                        input_len,
-                    ),
-                    session_len,
-                    n_rot,
-                    0,
-                );
-                ggml::set_tensor_name(&k_current, "Kcur");
+                let q_current = ctx0
+                    .op_rope_inplace(
+                        &ctx0.op_reshape_3d(
+                            &ctx0.op_mul_mat(&self.layers[il].wq, &current),
+                            n_embd / n_head,
+                            n_head,
+                            input_len,
+                        ),
+                        session_len,
+                        n_rot,
+                        0,
+                    )
+                    .set_name("Qcur");
+                let k_current = ctx0
+                    .op_rope_inplace(
+                        &ctx0.op_reshape_3d(
+                            &ctx0.op_mul_mat(&self.layers[il].wk, &current),
+                            n_embd / n_head,
+                            n_head,
+                            input_len,
+                        ),
+                        session_len,
+                        n_rot,
+                        0,
+                    )
+                    .set_name("Kcur");
 
                 // store key and value to memory
                 // compute the transposed [N, n_embd] V matrix
@@ -218,67 +220,68 @@ impl KnownModel for Llama {
                 gf.build_forward_expand(&ctx0.op_cpy(&k_current, &k));
                 gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
 
-                let q = ctx0.op_permute(&q_current, (0, 2, 1, 3));
-                ggml::set_tensor_name(&q, "Q");
+                let q = ctx0.op_permute(&q_current, (0, 2, 1, 3)).set_name("Q");
 
-                let k = ctx0.op_permute(
-                    &ctx0.op_reshape_3d(
-                        &ctx0.op_view_1d(
-                            builder.memory_k,
-                            (session_len + input_len) * n_embd,
-                            il * ctx_size * builder.memory_k.element_size() * n_embd,
+                let k = ctx0
+                    .op_permute(
+                        &ctx0.op_reshape_3d(
+                            &ctx0.op_view_1d(
+                                builder.memory_k,
+                                (session_len + input_len) * n_embd,
+                                il * ctx_size * builder.memory_k.element_size() * n_embd,
+                            ),
+                            n_embd / n_head,
+                            n_head,
+                            session_len + input_len,
                         ),
-                        n_embd / n_head,
-                        n_head,
-                        session_len + input_len,
-                    ),
-                    (0, 2, 1, 3),
-                );
-                ggml::set_tensor_name(&k, "K");
+                        (0, 2, 1, 3),
+                    )
+                    .set_name("K");
 
                 // K * Q
-                let k_q = ctx0.op_mul_mat(&k, &q);
-                ggml::set_tensor_name(&k_q, "KQ");
+                let k_q = ctx0.op_mul_mat(&k, &q).set_name("KQ");
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
-                let kq_scale = ctx0.new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()));
-                ggml::set_tensor_name(&kq_scale, "1/sqrt(n_embd/n_head)");
-                let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale);
-                ggml::set_tensor_name(&k_q_scaled, "KQ_scaled");
+                let kq_scale = ctx0
+                    .new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()))
+                    .set_name("1/sqrt(n_embd/n_head)");
+                let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale).set_name("KQ_scaled");
 
                 // KQ_masked = mask_past(KQ_scaled)
-                let k_q_masked = ctx0.op_diag_mask_inf_inplace(&k_q_scaled, session_len);
-                ggml::set_tensor_name(&k_q_masked, "KQ_masked");
+                let k_q_masked = ctx0
+                    .op_diag_mask_inf_inplace(&k_q_scaled, session_len)
+                    .set_name("KQ_masked");
 
                 // KQ = soft_max(KQ_masked)
-                let k_q_soft_max = ctx0.op_soft_max_inplace(&k_q_masked);
-                ggml::set_tensor_name(&k_q_soft_max, "KQ_soft_max");
+                let k_q_soft_max = ctx0
+                    .op_soft_max_inplace(&k_q_masked)
+                    .set_name("KQ_soft_max");
 
                 // split cached V into n_head heads
-                let v = ctx0.op_view_3d(
-                    builder.memory_v,
-                    (session_len + input_len, n_embd / n_head, n_head),
-                    (
-                        ctx_size * builder.memory_v.element_size(),
-                        ctx_size * builder.memory_v.element_size() * n_embd / n_head,
-                    ),
-                    il * ctx_size * builder.memory_v.element_size() * n_embd,
-                );
-                ggml::set_tensor_name(&v, "V");
+                let v = ctx0
+                    .op_view_3d(
+                        builder.memory_v,
+                        (session_len + input_len, n_embd / n_head, n_head),
+                        (
+                            ctx_size * builder.memory_v.element_size(),
+                            ctx_size * builder.memory_v.element_size() * n_embd / n_head,
+                        ),
+                        il * ctx_size * builder.memory_v.element_size() * n_embd,
+                    )
+                    .set_name("V");
 
-                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
-                ggml::set_tensor_name(&k_q_v, "KQV");
+                let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max).set_name("KQV");
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
-                let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
-                ggml::set_tensor_name(&k_q_v_merged, "KQV_merged");
+                let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3)).set_name("KQV_merged");
 
                 // cur = KQV_merged.contiguous().view(n_embd, N)
-                current = ctx0.op_cpy(
-                    &k_q_v_merged,
-                    &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
-                );
-                ggml::set_tensor_name(&current, "KQV_merged_contiguous");
+                current = ctx0
+                    .op_cpy(
+                        &k_q_v_merged,
+                        &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
+                    )
+                    .set_name("KQV_merged_contiguous");
 
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);

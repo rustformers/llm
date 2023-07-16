@@ -219,8 +219,9 @@ impl InferenceSession {
         // Build a graph
         self.ctx0.recreate();
         let ctx0 = &mut self.ctx0;
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
-        ggml::set_tensor_name(&embd, "embd");
+        let mut embd = ctx0
+            .new_tensor_1d(ggml::Type::I32, input_tokens.len())
+            .set_name("embd");
 
         let bc = BuildContext {
             ctx0: RefCell::new(ctx0),

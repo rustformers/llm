@@ -125,7 +125,7 @@ pub const QNT_VERSION_FACTOR: u32 = sys::GGML_QNT_VERSION_FACTOR;
 pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
 
 /// The maximum length of a `ggml` tensor-name.
-pub const MAX_NAME_LENGTH: u32 = sys::GGML_MAX_NAME;
+pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
@@ -478,10 +478,4 @@ pub fn cpu_has_blas() -> bool {
 /// Returns true if the current system has GPU BLAS support.
 pub fn cpu_has_gpublas() -> bool {
     unsafe { sys::ggml_cpu_has_gpublas() != 0 }
-}
-
-/// Sets the name of a tensor.
-pub fn set_tensor_name(tensor: &Tensor, name: &str) {
-    let c_name = std::ffi::CString::new(name).unwrap();
-    unsafe { sys::ggml_set_name(tensor.ptr.as_ptr(), c_name.as_ptr()) };
 }

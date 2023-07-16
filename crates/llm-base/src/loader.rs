@@ -14,7 +14,7 @@ use crate::{
 pub use ggml::{format::FormatMagic, ContainerType};
 use ggml::{
     format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
-    Context,
+    Context, MAX_NAME_LENGTH,
 };
 use memmap2::Mmap;
 use thiserror::Error;
@@ -752,10 +752,9 @@ impl<'a> FileContext<'a> {
             }
         }
 
-        // The tensor name is truncated to it's maximum length.
-        let max_name_length: usize = ggml::MAX_NAME_LENGTH.try_into().unwrap();
-        let tensor_name = if name.len() >= max_name_length {
-            &name[name.len() - max_name_length..]
+        // The tensor name is truncated to its maximum length.
+        let tensor_name = if name.len() >= MAX_NAME_LENGTH {
+            &name[name.len() - MAX_NAME_LENGTH..]
         } else {
             name
         };
