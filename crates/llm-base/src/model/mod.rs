@@ -127,8 +127,18 @@ pub trait Model: Send + Sync {
 
     /// Returns whether the model supports deleting tokens.
     fn supports_rewind(&self) -> bool;
+
+    /// Clone this model into a boxed trait object.
+    fn clone_boxed(&self) -> Box<dyn Model>;
 }
-impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
+
+impl Clone for Box<dyn Model> {
+    fn clone(&self) -> Box<dyn Model> {
+        self.clone_boxed()
+    }
+}
+
+impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H> + Clone + 'static> Model for M {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         KnownModel::start_session(self, config)
     }
@@ -161,6 +171,10 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 
     fn supports_rewind(&self) -> bool {
         KnownModel::supports_rewind(self)
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Model> {
+        Box::new(self.clone())
     }
 }
 

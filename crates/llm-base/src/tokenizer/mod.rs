@@ -105,6 +105,7 @@ impl TokenizerSource {
     }
 }
 
+#[derive(Clone)]
 /// Encapsulates the tokenizer for a model, and provides methods to tokenize text.
 pub enum Tokenizer {
     /// The vocabulary built-in to the model.

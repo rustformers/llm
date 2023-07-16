@@ -15,6 +15,7 @@ use llm_base::{
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
+#[derive(Clone)]
 pub struct Bloom {
     // the context size ("memory") the model should use when evaluating a prompt
     context_size: usize,
@@ -454,6 +455,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
     }
 }
 
+#[derive(Clone)]
 struct Layer {
     pub attention_norm: ggml::Tensor,
     pub attention_norm_b: ggml::Tensor,

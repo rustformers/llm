@@ -181,7 +181,7 @@ define_models!(
 /// Used to dispatch some code based on the model architecture.
 pub trait ModelArchitectureVisitor<R> {
     /// Visit a model architecture.
-    fn visit<M: KnownModel + 'static>(&mut self) -> R;
+    fn visit<M: KnownModel + Clone + 'static>(&mut self) -> R;
 }
 
 /// An unsupported model architecture was specified.
@@ -212,7 +212,7 @@ pub fn load_dynamic(
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    fn load_model<M: KnownModel + 'static>(
+    fn load_model<M: KnownModel + Clone + 'static>(
         path: &Path,
         tokenizer_source: TokenizerSource,
         params: ModelParameters,
@@ -239,7 +239,7 @@ pub fn load_dynamic(
     impl<'a, F: FnMut(LoadProgress)> ModelArchitectureVisitor<Result<Box<dyn Model>, LoadError>>
         for LoadVisitor<'a, F>
     {
-        fn visit<M: KnownModel + 'static>(&mut self) -> Result<Box<dyn Model>, LoadError> {
+        fn visit<M: KnownModel + Clone + 'static>(&mut self) -> Result<Box<dyn Model>, LoadError> {
             load_model::<M>(
                 self.path,
                 self.tokenizer_source.clone(),

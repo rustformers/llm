@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use ggml::Tensor;
 use llm_base::{
-    ggml::{self},
+    ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
     KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
@@ -15,6 +15,7 @@ use llm_base::{
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
+#[derive(Clone)]
 pub struct Mpt {
     // the context size ("memory") the model should use when evaluating a prompt
     context_size: usize,
@@ -367,6 +368,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
     }
 }
 
+#[derive(Clone)]
 struct Layer {
     // pre normalization
     norm_1_weight: Tensor,

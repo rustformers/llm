@@ -9,6 +9,12 @@ pub struct Tensor {
     pub(crate) ctx: Weak<NonNull<sys::ggml_context>>,
 }
 
+impl Clone for Tensor {
+    fn clone(&self) -> Self {
+        self.share()
+    }
+}
+
 impl Tensor {
     /// Size of the `ggml_tensor` struct in bytes.
     ///

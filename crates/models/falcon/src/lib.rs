@@ -21,6 +21,7 @@ use llm_base::{
 ///
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
+#[derive(Clone)]
 pub struct Falcon {
     // the context size ("memory") the model should use when evaluating a prompt
     context_size: usize,
@@ -407,6 +408,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
     }
 }
 
+#[derive(Clone)]
 struct Layer {
     // normalization
     attention_norm: Tensor,
