@@ -65,10 +65,10 @@ impl Tensor {
             if current_backend != Backend::Cpu && backend == Backend::Cpu {
                 unimplemented!("Tensors cannot be moved from an accelerator to the CPU at present");
             }
-            t.set_backend(backend);
             if backend == Backend::Cpu {
                 return;
             }
+            t.set_backend(backend);
 
             #[cfg(feature = "cublas")]
             unsafe {
