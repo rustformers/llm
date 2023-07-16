@@ -262,7 +262,7 @@ can be used to cache prompts to reduce load time, too.
 `f16`-quantized GGML model
 
 ```shell
-cargo run --release $MODEL_ARCHITECTURE quantize $MODEL_IN $MODEL_OUT {q4_0,q4_1}
+cargo run --release quantize -a $MODEL_ARCHITECTURE $MODEL_IN $MODEL_OUT {q4_0,q4_1}
 ```
 
 ### Do you provide support for Docker and NixOS?
