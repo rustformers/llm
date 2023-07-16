@@ -58,7 +58,6 @@ fn main() {
     session
         .feed_prompt(
             model.as_ref(),
-            &inference_parameters,
             format!("{persona}\n{history}").as_str(),
             &mut Default::default(),
             llm::feed_prompt_callback(|resp| match resp {

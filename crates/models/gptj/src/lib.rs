@@ -7,8 +7,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
@@ -81,7 +81,7 @@ impl KnownModel for GptJ {
             layers.push(layer);
         }
 
-        let (context, _) = tl.finish();
+        let context = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -112,13 +112,11 @@ impl KnownModel for GptJ {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -131,7 +129,7 @@ impl KnownModel for GptJ {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
-            let ctx0 = builder.ctx0;
+            let ctx0 = builder.ctx0.borrow();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
                 builder.memory_v.element_size(),
@@ -140,7 +138,7 @@ impl KnownModel for GptJ {
 
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
             for il in 0..n_layer {
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);

@@ -125,12 +125,7 @@ fn get_embeddings(
         .iter()
         .map(|(_, tok)| *tok)
         .collect::<Vec<_>>();
-    model.evaluate(
-        &mut session,
-        inference_parameters,
-        &query_token_ids,
-        &mut output_request,
-    );
+    model.evaluate(&mut session, &query_token_ids, &mut output_request);
     output_request.embeddings.unwrap()
 }
 

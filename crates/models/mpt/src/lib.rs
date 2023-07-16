@@ -7,8 +7,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -70,7 +70,7 @@ impl KnownModel for Mpt {
             layers.push(layer);
         }
 
-        let (context, _) = tl.finish();
+        let context = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -98,13 +98,11 @@ impl KnownModel for Mpt {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let n = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -116,8 +114,8 @@ impl KnownModel for Mpt {
             ..
         } = self.hyperparameters;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let ctx0 = builder.ctx0.borrow();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
                 builder.memory_v.element_size(),
@@ -128,10 +126,10 @@ impl KnownModel for Mpt {
 
             let f32_size = std::mem::size_of::<f32>();
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
             for il in 0..n_layer {
                 // attention uses first scratch buffer
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_mul(
@@ -224,7 +222,7 @@ impl KnownModel for Mpt {
                 input_layer = ctx0.op_add(&input_layer, &current);
 
                 // feed forward uses second scratch buffer
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_mul(
@@ -243,7 +241,7 @@ impl KnownModel for Mpt {
             }
 
             //use scratch buffer 0 for the rest
-            builder.use_scratch(Some(0));
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // norm
             input_layer = ctx0.op_norm(&input_layer);

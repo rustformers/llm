@@ -1,6 +1,6 @@
 //! Metal support.
 use crate::{sys::metal, Buffer, ComputationGraph, Context, Tensor};
-use std::{ffi::c_void, ptr::NonNull, sync::Arc};
+use std::{ptr::NonNull, sync::Arc};
 
 /// Acts as a RAII-guard over a `sys::metal::ggml_metal_context`, allocating via
 /// `ggml_metal_init` and dropping via `ggml_metal_free`.
@@ -14,8 +14,8 @@ pub struct MetalContext {
 
 impl MetalContext {
     /// Create a new Metal context
-    pub fn new() -> Self {
-        let raw = unsafe { metal::ggml_metal_init() };
+    pub fn new(n_threads: usize) -> Self {
+        let raw = unsafe { metal::ggml_metal_init(n_threads.try_into().unwrap()) };
 
         MetalContext {
             contexts: vec![],
@@ -45,47 +45,32 @@ impl MetalContext {
 
     /// Add a context's memory as buffer to this Metal context
     pub fn add_context(&mut self, from_context: Arc<Context>) {
-        if self.ref_context(from_context.clone()) {
-            unsafe {
-                let raw_context = from_context.ptr.as_ptr();
-
-                let (data_ptr, data_size): (*mut c_void, usize) =
-                    if let Some(ref mmap) = from_context.mmap {
-                        // This is a bit naughty...
-                        (mmap.as_ptr().cast_mut().cast(), mmap.len())
-                    } else {
-                        (
-                            ggml_sys::ggml_get_mem_buffer(raw_context),
-                            ggml_sys::ggml_get_mem_size(raw_context),
-                        )
-                    };
-
-                let max_size = ggml_sys::ggml_get_max_tensor_size(raw_context);
-                assert!(
-                    metal::ggml_metal_add_buffer(
-                        self.ptr.as_ptr(),
-                        "wt\0".as_ptr().cast(), // FIXME provide an actual name
-                        data_ptr,
-                        data_size,
-                        max_size
-                    ),
-                    "Could not add weight buffer to metal context"
-                );
-            }
+        if !self.ref_context(from_context.clone()) {
+            return;
         }
-    }
-}
 
-impl Default for MetalContext {
-    fn default() -> Self {
-        Self::new()
+        unsafe {
+            let raw_context = from_context.as_ptr();
+            let (data_ptr, data_size) = from_context.storage().as_ptr_and_size(&from_context);
+            let max_size = ggml_sys::ggml_get_max_tensor_size(raw_context);
+            assert!(
+                metal::ggml_metal_add_buffer(
+                    self.ptr.as_ptr(),
+                    "wt\0".as_ptr().cast(), // FIXME provide an actual name
+                    data_ptr,
+                    data_size,
+                    max_size
+                ),
+                "Could not add weight buffer to metal context"
+            );
+        }
     }
 }
 
 impl MetalContext {
     /// Registers a context as a context that provides Metal buffers. Returns true if the context was not registered before.
     fn ref_context(&mut self, context: Arc<Context>) -> bool {
-        if self.contexts.iter().any(|c| c.ptr == context.ptr) {
+        if self.contexts.iter().any(|c| *c == context) {
             false
         } else {
             self.contexts.push(context);

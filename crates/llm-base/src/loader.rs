@@ -31,7 +31,7 @@ pub struct FileType {
 impl From<FileType> for i32 {
     fn from(value: FileType) -> Self {
         (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
-            + ggml::sys::llama::llama_ftype::from(value.format) as i32
+            + ggml::sys::llama::llama_ftype::from(value.format)
     }
 }
 impl TryFrom<i32> for FileType {
@@ -397,8 +397,8 @@ impl LoadError {
 pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
-    /// Finish loading the model, and extract all of the state from the loader.
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>);
+    /// Finish loading the model, returning the context.
+    fn finish(self) -> Context;
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -536,10 +536,10 @@ pub fn load<M: KnownModel>(
         unsafe {
             let mmap = Mmap::map(&file)?;
             let file_size = mmap.len() as u64;
-            (Context::init_mmap(mmap), file_size)
+            (Context::new_with_mmap(mmap), file_size)
         }
     } else {
-        (Context::init(ctx_size, true), file.metadata()?.len())
+        (Context::new_with_allocate(ctx_size), file.metadata()?.len())
     };
 
     let tensors_len = tensors.len();
@@ -657,7 +657,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             &self.context,
             &mut self.file,
             &self.path,
-            self.context.mmap.as_ref(),
+            self.context.storage().as_mmap(),
         );
 
         let mut tensor = main_context.get_tensor(info)?;
@@ -681,8 +681,8 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>) {
-        (self.context, self.loaded_tensors)
+    fn finish(self) -> Context {
+        self.context
     }
 }
 
@@ -752,7 +752,15 @@ impl<'a> FileContext<'a> {
             }
         }
 
-        Ok(tensor)
+        // The tensor name is truncated to it's maximum length.
+        let max_name_length: usize = ggml::MAX_NAME_LENGTH.try_into().unwrap();
+        let tensor_name = if name.len() >= max_name_length {
+            &name[name.len() - max_name_length..]
+        } else {
+            name
+        };
+
+        Ok(tensor.set_name(tensor_name))
     }
 }
 

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -89,7 +89,7 @@ impl KnownModel for Bloom {
             layers.push(layer);
         }
 
-        let (context, _) = tl.finish();
+        let context = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -121,13 +121,11 @@ impl KnownModel for Bloom {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -140,7 +138,7 @@ impl KnownModel for Bloom {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
-            let ctx0 = builder.ctx0;
+            let ctx0 = builder.ctx0.borrow();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
                 builder.memory_v.element_size(),
@@ -153,7 +151,7 @@ impl KnownModel for Bloom {
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
             input_layer = ctx0.op_add(&ctx0.op_repeat(&self.norm_bias, &input_layer), &input_layer);
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
             for il in 0..n_layer {
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;

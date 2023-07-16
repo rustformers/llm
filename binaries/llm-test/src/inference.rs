@@ -4,7 +4,7 @@
 
 use std::{convert::Infallible, sync::Arc};
 
-use llm::InferenceStats;
+use llm::{InferenceSessionConfig, InferenceStats};
 
 use crate::{ModelConfig, TestCaseReport, TestCaseReportInner, TestCaseReportMeta};
 
@@ -15,14 +15,11 @@ pub(crate) fn can_infer(
     expected_output: Option<&str>,
     maximum_token_count: usize,
 ) -> anyhow::Result<TestCaseReport> {
-    let mut session = model.start_session(Default::default());
-    let (actual_output, res) = run_inference(
-        model,
-        model_config,
-        &mut session,
-        input,
-        maximum_token_count,
-    );
+    let mut session = model.start_session(InferenceSessionConfig {
+        n_threads: model_config.threads,
+        ..Default::default()
+    });
+    let (actual_output, res) = run_inference(model, &mut session, input, maximum_token_count);
 
     // Process the results
     Ok(TestCaseReport {
@@ -58,7 +55,6 @@ pub(crate) fn can_infer(
 
 fn run_inference(
     model: &dyn llm::Model,
-    model_config: &ModelConfig,
     session: &mut llm::InferenceSession,
     input: &str,
     maximum_token_count: usize,
@@ -70,8 +66,6 @@ fn run_inference(
         &llm::InferenceRequest {
             prompt: input.into(),
             parameters: &llm::InferenceParameters {
-                n_threads: model_config.threads,
-                n_batch: 1,
                 sampler: Arc::new(DeterministicSampler),
             },
             play_back_previous_tokens: false,

@@ -34,7 +34,7 @@ pub fn repl(
             .as_deref()
             .map(|template| util::process_prompt(template, &line))
             .unwrap_or(line);
-        feed_prompt_with_spinner(model, &mut session, &parameters, prompt)?;
+        feed_prompt_with_spinner(model, &mut session, prompt)?;
 
         session.infer::<Infallible>(
             model,
@@ -79,7 +79,7 @@ pub fn chat(args: &Chat) -> eyre::Result<()> {
 
     let model = model.as_ref();
     let mut session = create_session(model, inference_session_config);
-    feed_prompt_with_spinner(model, &mut session, &parameters, prelude_prompt)?;
+    feed_prompt_with_spinner(model, &mut session, prelude_prompt)?;
 
     readline_loop(|raw_line| {
         let prompt = {
@@ -134,7 +134,6 @@ fn initialize_common_state(
 fn feed_prompt_with_spinner(
     model: &dyn llm::Model,
     session: &mut llm::InferenceSession,
-    parameters: &llm::InferenceParameters,
     mut prompt: String,
 ) -> eyre::Result<()> {
     // Add a newline to the beginning of the prompt if the last character in the session is not a newline
@@ -145,7 +144,6 @@ fn feed_prompt_with_spinner(
     let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
     let result = session.feed_prompt(
         model,
-        parameters,
         &prompt,
         // OutputRequest
         &mut Default::default(),

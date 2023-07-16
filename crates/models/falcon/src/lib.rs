@@ -13,8 +13,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The Falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae)
@@ -81,7 +81,7 @@ impl KnownModel for Falcon {
             layers.push(layer);
         }
 
-        let (context, _) = tl.finish();
+        let context = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
@@ -111,13 +111,11 @@ impl KnownModel for Falcon {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -131,8 +129,8 @@ impl KnownModel for Falcon {
         let head_dim = n_embd / n_head;
         let n = input_len;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let ctx0 = builder.ctx0.borrow();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, embd);
             let repeat_dummy = ctx0.new_tensor_3d(
@@ -150,14 +148,14 @@ impl KnownModel for Falcon {
             let memory_v = builder.memory_v;
             let memory_v_size = memory_v.element_size();
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
 
             let mut current: Tensor;
             let mut layernorm_output: Tensor;
 
             for il in 0..n_layer {
                 // attention uses first scratch buffer
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
                 current = ctx0.op_norm(&input_layer);
@@ -277,7 +275,7 @@ impl KnownModel for Falcon {
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
                 // feed forward uses second scratch buffer
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 let inp_ff = layernorm_output.share();
                 let attn_out =
@@ -293,7 +291,7 @@ impl KnownModel for Falcon {
                 input_layer = current.share();
             }
 
-            builder.use_scratch(Some(0));
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // norm
             input_layer = ctx0.op_norm(&input_layer);
@@ -308,7 +306,7 @@ impl KnownModel for Falcon {
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            builder.use_scratch(None);
+            ctx0.use_scratch(None);
 
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);

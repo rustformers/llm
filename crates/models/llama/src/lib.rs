@@ -4,10 +4,10 @@
 use std::{error::Error, sync::Arc};
 
 use llm_base::{
-    ggml,
+    ggml::{self},
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
@@ -17,7 +17,7 @@ use llm_base::{
 pub struct Llama {
     // the context size ("memory") the model should use when evaluating a prompt
     context_size: usize,
-
+    model_params: ModelParameters,
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
 
@@ -52,32 +52,55 @@ impl KnownModel for Llama {
 
         // model-global weights
         let wte = tl.load("tok_embeddings.weight")?;
-        let norm = tl.load("norm.weight")?;
-        let output = tl.load("output.weight")?;
+
+        let backend = params.backend(0);
+
+        let norm = tl.load("norm.weight")?.transfer_to(backend);
+        let output = tl.load("output.weight")?.transfer_to(backend);
 
         let mut layers = Vec::new();
-        for i in 0..hyperparameters.n_layer {
-            let layer = Layer {
-                attention_norm: tl.load(&format!("layers.{i}.attention_norm.weight"))?,
-                wq: tl.load(&format!("layers.{i}.attention.wq.weight"))?,
-                wk: tl.load(&format!("layers.{i}.attention.wk.weight"))?,
-                wv: tl.load(&format!("layers.{i}.attention.wv.weight"))?,
-                wo: tl.load(&format!("layers.{i}.attention.wo.weight"))?,
-                ffn_norm: tl.load(&format!("layers.{i}.ffn_norm.weight"))?,
-                w1: tl.load(&format!("layers.{i}.feed_forward.w1.weight"))?,
-                w2: tl.load(&format!("layers.{i}.feed_forward.w2.weight"))?,
-                w3: tl.load(&format!("layers.{i}.feed_forward.w3.weight"))?,
-            };
 
+        for i in 0..hyperparameters.n_layer {
+            let backend = params.backend(i);
+
+            let layer = Layer {
+                attention_norm: tl
+                    .load(&format!("layers.{i}.attention_norm.weight"))?
+                    .transfer_to(backend),
+                wq: tl
+                    .load(&format!("layers.{i}.attention.wq.weight"))?
+                    .transfer_to(backend),
+                wk: tl
+                    .load(&format!("layers.{i}.attention.wk.weight"))?
+                    .transfer_to(backend),
+                wv: tl
+                    .load(&format!("layers.{i}.attention.wv.weight"))?
+                    .transfer_to(backend),
+                wo: tl
+                    .load(&format!("layers.{i}.attention.wo.weight"))?
+                    .transfer_to(backend),
+                ffn_norm: tl
+                    .load(&format!("layers.{i}.ffn_norm.weight"))?
+                    .transfer_to(backend),
+                w1: tl
+                    .load(&format!("layers.{i}.feed_forward.w1.weight"))?
+                    .transfer_to(backend),
+                w2: tl
+                    .load(&format!("layers.{i}.feed_forward.w2.weight"))?
+                    .transfer_to(backend),
+                w3: tl
+                    .load(&format!("layers.{i}.feed_forward.w3.weight"))?
+                    .transfer_to(backend),
+            };
             layers.push(layer);
         }
-
-        let (context, _tensors) = tl.finish();
+        let context = tl.finish();
 
         let ModelParameters { context_size, .. } = params;
 
         Ok(Self {
             hyperparameters,
+            model_params: params,
             context_size,
             tokenizer,
             wte,
@@ -103,13 +126,11 @@ impl KnownModel for Llama {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
         let ctx_size = self.context_size;
 
         let Hyperparameters {
@@ -122,25 +143,21 @@ impl KnownModel for Llama {
             file_type: _,
         } = self.hyperparameters;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
+
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
-            // for big prompts, if BLAS is enabled, it is better to use only one thread
-            // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
-            let mut gf = ggml::ComputationGraph::new(
-                if input_len >= 32 && ggml::cpu_has_blas() && !ggml::cpu_has_gpublas() {
-                    1
-                } else {
-                    num_threads
-                },
-            );
+            let mut gf = ggml::ComputationGraph::new();
+
             for il in 0..n_layer {
+                ctx0.set_offloading(self.model_params.should_offload(il));
+
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
 
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 // norm
                 current = ctx0.op_rms_norm(&input_layer);
@@ -161,7 +178,7 @@ impl KnownModel for Llama {
                     n_rot,
                     0,
                 );
-                ggml::set_name(&q_current, "Qcur");
+                ggml::set_tensor_name(&q_current, "Qcur");
                 let k_current = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_mul_mat(&self.layers[il].wk, &current),
@@ -173,7 +190,7 @@ impl KnownModel for Llama {
                     n_rot,
                     0,
                 );
-                ggml::set_name(&k_current, "Kcur");
+                ggml::set_tensor_name(&k_current, "Kcur");
 
                 // store key and value to memory
                 // compute the transposed [N, n_embd] V matrix
@@ -202,7 +219,7 @@ impl KnownModel for Llama {
                 gf.build_forward_expand(&ctx0.op_cpy(&v_current, &v));
 
                 let q = ctx0.op_permute(&q_current, (0, 2, 1, 3));
-                ggml::set_name(&q, "Q");
+                ggml::set_tensor_name(&q, "Q");
 
                 let k = ctx0.op_permute(
                     &ctx0.op_reshape_3d(
@@ -217,25 +234,25 @@ impl KnownModel for Llama {
                     ),
                     (0, 2, 1, 3),
                 );
-                ggml::set_name(&k, "K");
+                ggml::set_tensor_name(&k, "K");
 
                 // K * Q
                 let k_q = ctx0.op_mul_mat(&k, &q);
-                ggml::set_name(&k_q, "KQ");
+                ggml::set_tensor_name(&k_q, "KQ");
 
                 // KQ_scaled = KQ / sqrt(n_embd/n_head)
                 let kq_scale = ctx0.new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()));
-                ggml::set_name(&kq_scale, "1/sqrt(n_embd/n_head)");
+                ggml::set_tensor_name(&kq_scale, "1/sqrt(n_embd/n_head)");
                 let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale);
-                ggml::set_name(&k_q_scaled, "KQ_scaled");
+                ggml::set_tensor_name(&k_q_scaled, "KQ_scaled");
 
                 // KQ_masked = mask_past(KQ_scaled)
                 let k_q_masked = ctx0.op_diag_mask_inf_inplace(&k_q_scaled, session_len);
-                ggml::set_name(&k_q_masked, "KQ_masked");
+                ggml::set_tensor_name(&k_q_masked, "KQ_masked");
 
                 // KQ = soft_max(KQ_masked)
                 let k_q_soft_max = ctx0.op_soft_max_inplace(&k_q_masked);
-                ggml::set_name(&k_q_soft_max, "KQ_soft_max");
+                ggml::set_tensor_name(&k_q_soft_max, "KQ_soft_max");
 
                 // split cached V into n_head heads
                 let v = ctx0.op_view_3d(
@@ -247,26 +264,26 @@ impl KnownModel for Llama {
                     ),
                     il * ctx_size * builder.memory_v.element_size() * n_embd,
                 );
-                ggml::set_name(&v, "V");
+                ggml::set_tensor_name(&v, "V");
 
                 let k_q_v = ctx0.op_mul_mat(&v, &k_q_soft_max);
-                ggml::set_name(&k_q_v, "KQV");
+                ggml::set_tensor_name(&k_q_v, "KQV");
 
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3));
-                ggml::set_name(&k_q_v_merged, "KQV_merged");
+                ggml::set_tensor_name(&k_q_v_merged, "KQV_merged");
 
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &k_q_v_merged,
                     &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
                 );
-                ggml::set_name(&current, "KQV_merged_contiguous");
+                ggml::set_tensor_name(&current, "KQV_merged_contiguous");
 
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
@@ -293,7 +310,8 @@ impl KnownModel for Llama {
                 // input for next layer
                 input_layer = current;
             }
-            builder.use_scratch(Some(0));
+
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // norm
             input_layer = ctx0.op_rms_norm(&input_layer);
@@ -303,6 +321,7 @@ impl KnownModel for Llama {
 
             let embedding_result: ggml::Tensor = input_layer.share();
 
+            ctx0.set_offloading(false);
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
