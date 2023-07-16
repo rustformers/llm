@@ -42,6 +42,7 @@ jobs:
         with:
           toolchain: 1.65.0
           override: true
+          components: rustfmt, clippy
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Clippy
