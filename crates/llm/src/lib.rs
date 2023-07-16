@@ -204,7 +204,10 @@ impl Debug for UnsupportedModelArchitecture {
 /// specified at runtime. If no architecture is specified, it will try to infer it
 /// from the model's metadata.
 ///
-/// A wrapper around [load] that dispatches to the correct model.
+/// This method returns a [`Box`], which means that the model will have single ownership.
+/// If you'd like to share ownership (i.e. to use the model in multiple threads), we
+/// suggest using [`Arc::from(Box<T>)`](https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-From%3CBox%3CT,+Global%3E%3E-for-Arc%3CT%3E)
+/// to convert the [`Box`] into an [`Arc`](std::sync::Arc) after loading.
 pub fn load_dynamic(
     architecture: Option<ModelArchitecture>,
     path: &Path,
