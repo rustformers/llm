@@ -40,6 +40,7 @@ jobs:
           submodules: recursive
       - uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
           components: rustfmt, clippy
       - name: Formatting
         run: cargo fmt --all -- --check
