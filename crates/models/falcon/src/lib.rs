@@ -187,7 +187,7 @@ impl KnownModel for Falcon {
                 if n_head_kv == 1 {
                     // Falcon-7B only
                     current = layernorm_output.share();
-                }else{
+                } else {
                     // Falcon-40B only
                     current = ctx0.op_norm(&input_layer);
                     current = ctx0.op_add(
