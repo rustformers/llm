@@ -85,7 +85,7 @@ the file represents. Abstractly, a large language model is software that is used
 to generate language - just like software that is used to generate _images_ can
 be improved by increasing the number of colors with which images can be
 rendered, large language models can be improved by increasing the number of
-_weights_ in the model. The total number of a weights in a model are referred to
+_weights_ in the model. The total number of weights in a model are referred to
 as the "size" of that model. For example, the
 [StableLM](https://github.com/Stability-AI/StableLM) implementation of the
 [GPT-NeoX](https://github.com/EleutherAI/gpt-neox) language model architecture
