@@ -566,7 +566,7 @@ impl Context {
     pub fn op_flash_attn(&self, q: &Tensor, k: &Tensor, v: &Tensor, masked: bool) -> Tensor {
         let tensor = unsafe {
             sys::ggml_flash_attn(
-                self.ptr.as_ptr(),
+                self.as_ptr(),
                 q.ptr.as_ptr(),
                 k.ptr.as_ptr(),
                 v.ptr.as_ptr(),

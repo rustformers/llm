@@ -175,19 +175,21 @@ impl KnownModel for Falcon {
                 ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
-                current = ctx0.op_norm(&input_layer);
-                current = ctx0.op_add(
+                layernorm_output = ctx0.op_norm(&input_layer);
+                layernorm_output = ctx0.op_add(
                     &ctx0.op_mul(
-                        &ctx0.op_repeat(&self.layers[il].input_layernorm, &current),
-                        &current,
+                        &ctx0.op_repeat(&self.layers[il].input_layernorm, &layernorm_output),
+                        &layernorm_output,
                     ),
-                    &ctx0.op_repeat(&self.layers[il].input_layernorm_b, &current),
+                    &ctx0.op_repeat(&self.layers[il].input_layernorm_b, &layernorm_output),
                 );
 
-                layernorm_output = current.share();
-
-                // Falcon-40B only
-                if n_head_kv != 1 {
+                if n_head_kv == 1 {
+                    // Falcon-7B only
+                    current = layernorm_output.share();
+                }else{
+                    // Falcon-40B only
+                    current = ctx0.op_norm(&input_layer);
                     current = ctx0.op_add(
                         &ctx0.op_mul(
                             &ctx0.op_repeat(
@@ -271,11 +273,11 @@ impl KnownModel for Falcon {
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             memory_v,
-                            (session_len + n) * head_dim,
-                            il * ctx_size * memory_v_size * head_dim,
+                            (session_len + n) * n_head_kv * head_dim,
+                            il * ctx_size * memory_v_size * n_head_kv * head_dim,
                         ),
                         head_dim,
-                        1,
+                        n_head_kv,
                         session_len + n,
                     ),
                     (0, 2, 1, 3),
