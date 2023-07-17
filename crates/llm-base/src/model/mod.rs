@@ -7,12 +7,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use ggml::accelerator::Backend;
 use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceParameters, InferenceSession,
-    InferenceSessionConfig, LoadError, LoadProgress, Tokenizer, TokenizerSource,
+    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig,
+    LoadError, LoadProgress, Tokenizer, TokenizerSource,
 };
 
 /// Common functions for model evaluation
@@ -54,13 +55,12 @@ pub trait KnownModel: Send + Sync {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
-    /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
+    /// to generate output by evaluating the `input_tokens`.
     /// The [OutputRequest] is used to specify additional data to fetch from the
     /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     );
@@ -101,13 +101,12 @@ pub trait Model: Send + Sync {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
 
     /// This function is called by the provided [InferenceSession]; it will use this model
-    /// and the [InferenceParameters] to generate output by evaluating the `input_tokens`.
+    /// to generate output by evaluating the `input_tokens`.
     /// The [OutputRequest] is used to specify additional data to fetch from the
     /// model.
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     );
@@ -136,11 +135,10 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        KnownModel::evaluate(self, session, params, input_tokens, output_request)
+        KnownModel::evaluate(self, session, input_tokens, output_request)
     }
 
     fn tokenizer(&self) -> &Tokenizer {
@@ -207,6 +205,8 @@ pub struct ModelParameters {
     pub lora_adapters: Option<Vec<PathBuf>>,
     /// Whether to use GPU acceleration when available
     pub use_gpu: bool,
+    /// If `use_gpu` is active this defines the number of layers to offload to the gpu. If `None`, all layers will be offloaded.
+    pub gpu_layers: Option<usize>,
 }
 
 impl Default for ModelParameters {
@@ -216,6 +216,29 @@ impl Default for ModelParameters {
             context_size: 2048,
             lora_adapters: None,
             use_gpu: false,
+            gpu_layers: None,
+        }
+    }
+}
+
+impl ModelParameters {
+    /// Returns true if the model should offload the given layer to the accelerator.
+    pub fn should_offload(&self, layer: usize) -> bool {
+        if !self.use_gpu {
+            return false;
+        }
+
+        self.gpu_layers
+            .map(|gpu_layers| layer < gpu_layers)
+            .unwrap_or(true)
+    }
+
+    /// Returns the backend to use for the given layer.
+    pub fn backend(&self, layer: usize) -> Backend {
+        if self.should_offload(layer) {
+            Backend::Gpu
+        } else {
+            Backend::Cpu
         }
     }
 }

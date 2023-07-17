@@ -7,8 +7,8 @@ use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceParameters, InferenceSession, InferenceSessionConfig,
-    KnownModel, LoadError, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -16,8 +16,7 @@ use llm_base::{
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Gpt2 {
-    // the context size ("memory") the model should use when evaluating a prompt
-    context_size: usize,
+    params: ModelParameters,
 
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
@@ -86,13 +85,11 @@ impl KnownModel for Gpt2 {
             layers.push(layer);
         }
 
-        let (context, _) = tl.finish();
-
-        let ModelParameters { context_size, .. } = params;
+        let context = tl.finish();
 
         Ok(Gpt2 {
             hyperparameters,
-            context_size,
+            params,
             tokenizer,
             layers,
             ln_f_g,
@@ -107,7 +104,7 @@ impl KnownModel for Gpt2 {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            self.context_size,
+            &self.params,
             self.hyperparameters.n_layer,
             self.hyperparameters.n_embd,
             self.hyperparameters.n_vocab,
@@ -117,14 +114,12 @@ impl KnownModel for Gpt2 {
     fn evaluate(
         &self,
         session: &mut InferenceSession,
-        params: &InferenceParameters,
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let num_threads = params.n_threads;
-        let ctx_size = self.context_size;
+        let ctx_size = self.params.context_size;
 
         let Hyperparameters {
             n_embd,
@@ -134,8 +129,8 @@ impl KnownModel for Gpt2 {
             ..
         } = self.hyperparameters;
 
-        let outputs = session.compute(self.context.clone(), input_tokens, |mut builder| {
-            let ctx0 = builder.ctx0;
+        let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let ctx0 = builder.ctx0.borrow();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
                 builder.memory_v.element_size(),
@@ -152,9 +147,9 @@ impl KnownModel for Gpt2 {
                 &ctx0.op_get_rows(&self.wpe, &position),
             );
 
-            let mut gf = ggml::ComputationGraph::new(num_threads);
+            let mut gf = ggml::ComputationGraph::new();
             for il in 0..n_layer {
-                builder.use_scratch(Some(0));
+                ctx0.use_scratch(builder.get_scratch(0));
 
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
@@ -268,7 +263,7 @@ impl KnownModel for Gpt2 {
                 // feed-forward
                 let ff_in = current.share();
 
-                builder.use_scratch(Some(1));
+                ctx0.use_scratch(builder.get_scratch(1));
 
                 // feed-forward normalization
                 current = ctx0.op_norm(&ff_in);
@@ -298,7 +293,7 @@ impl KnownModel for Gpt2 {
                 input_layer = ctx0.op_add(&current, &ff_in);
             }
 
-            builder.use_scratch(Some(0));
+            ctx0.use_scratch(builder.get_scratch(0));
 
             // normalization
             input_layer = ctx0.op_norm(&input_layer);
@@ -307,7 +302,7 @@ impl KnownModel for Gpt2 {
                 &ctx0.op_repeat(&self.ln_f_b, &input_layer),
             );
 
-            builder.use_scratch(None);
+            ctx0.use_scratch(None);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
@@ -338,7 +333,7 @@ impl KnownModel for Gpt2 {
     }
 
     fn context_size(&self) -> usize {
-        self.context_size
+        self.params.context_size
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {

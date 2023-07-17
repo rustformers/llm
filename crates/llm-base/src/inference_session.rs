@@ -1,14 +1,15 @@
-use ggml::{Buffer, ComputationGraph, Context, Tensor};
+use ggml::{Buffer, ComputationGraph, Context, GraphExecutionPlan, Tensor};
 use serde::Serialize;
-use std::{fmt::Display, sync::Arc};
+use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
+use tracing::{instrument, log};
 
 #[cfg(feature = "metal")]
-use ggml::metal::MetalContext;
+use ggml::accelerator::metal::MetalContext;
 
 use crate::{
-    mulf, util, InferenceParameters, Model, OutputRequest, Prompt, TokenId, TokenUtf8Buffer,
-    TokenizationError,
+    mulf, util, InferenceParameters, Model, ModelParameters, OutputRequest, Prompt, TokenId,
+    TokenUtf8Buffer, TokenizationError,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -93,19 +94,17 @@ pub struct InferenceSession {
 }
 
 pub struct BuildContext<'session> {
-    pub ctx0: &'session Context,
+    //FIXME: Borrowing issue, dont know how to fix it
+    pub ctx0: RefCell<&'session mut Context>,
     pub embd: &'session Tensor,
     pub memory_k: &'session Tensor,
     pub memory_v: &'session Tensor,
-    pub scratch: &'session mut ScratchBuffers,
+    pub scratch: &'session ScratchBuffers,
 }
 
 impl<'session> BuildContext<'session> {
-    pub fn use_scratch(&mut self, idx: Option<usize>) {
-        self.ctx0.use_scratch(match idx {
-            None => None,
-            Some(idx) => Some(&mut self.scratch[idx]),
-        })
+    pub fn get_scratch(&self, idx: usize) -> Option<&Buffer> {
+        Some(&self.scratch[idx])
     }
 }
 
@@ -114,39 +113,47 @@ impl InferenceSession {
     /// Create a new InferenceSession
     pub fn new(
         config: InferenceSessionConfig,
-        n_ctx: usize,
+        params: &ModelParameters,
         n_layer: usize,
         n_embd: usize,
         n_vocab: usize,
     ) -> InferenceSession {
-        let ctx_size = {
-            let mut ctx_size = 0;
-            ctx_size += mulf!(
-                n_ctx,
+        let ModelParameters {
+            use_gpu,
+            context_size,
+            ..
+        } = *params;
+
+        let context_byte_size = {
+            let mut size = 0;
+            size += mulf!(
+                context_size,
                 n_layer,
                 n_embd,
                 ggml::type_sizef(config.memory_k_type.into())
             ); // memory_k
-            ctx_size += mulf!(
-                n_ctx,
+            size += mulf!(
+                context_size,
                 n_layer,
                 n_embd,
                 ggml::type_sizef(config.memory_v_type.into())
             ); // memory_v
-            ctx_size += (5 + 10 * n_layer) * 256; // object overhead
+            size += (5 + 10 * n_layer) * 256; // object overhead
 
-            ctx_size
+            size
         };
 
-        let session_ctx = Arc::new(ggml::Context::init(ctx_size, true));
+        if use_gpu {
+            ggml::accelerator::initialize(0);
+            ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
+        }
+
+        let session_ctx = Arc::new(ggml::Context::new_with_allocate(context_byte_size));
 
         // Initialize key + value memory tensors
-        let n_mem = n_layer * n_ctx;
+        let n_mem = n_layer * context_size;
         let n_elements = n_embd * n_mem;
-        let memory_k = session_ctx.new_tensor_1d(config.memory_k_type.into(), n_elements);
-        let memory_v = session_ctx.new_tensor_1d(config.memory_v_type.into(), n_elements);
-        ggml::set_name(&memory_k, "memory_k");
-        ggml::set_name(&memory_v, "memory_v");
+        let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
         let scratch = scratch_buffers();
 
@@ -167,14 +174,14 @@ impl InferenceSession {
         };
 
         let eval = Buffer::new(buf_size);
-        let ctx0 = ggml::Context::init_buffer(eval);
+        let ctx0 = ggml::Context::new_with_buffer(eval);
 
         // Set up Metal support
         #[cfg(feature = "metal")]
         let metal_context = {
-            if config.use_gpu {
-                let mut metal_context = MetalContext::new();
-                metal_context.add_scratch_buffer(ctx0.buffer.as_ref().unwrap());
+            if use_gpu {
+                let mut metal_context = MetalContext::new(config.n_threads);
+                metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
 
                 for buf in scratch.iter() {
                     metal_context.add_scratch_buffer(buf);
@@ -188,7 +195,7 @@ impl InferenceSession {
 
         InferenceSession {
             _session_ctx: session_ctx,
-            _memory_size: ctx_size,
+            _memory_size: context_byte_size,
             config,
             memory_k,
             memory_v,
@@ -216,13 +223,14 @@ impl InferenceSession {
         F: FnOnce(BuildContext) -> (ComputationGraph, GraphOutputs),
     {
         // Build a graph
-        self.ctx0 = ggml::Context::init_buffer(self.ctx0.buffer.take().unwrap());
-        let ctx0 = &self.ctx0;
-        let mut embd = ctx0.new_tensor_1d(ggml::Type::I32, input_tokens.len());
-        ggml::set_name(&embd, "embd");
+        self.ctx0.recreate();
+        let ctx0 = &mut self.ctx0;
+        let mut embd = ctx0
+            .new_tensor_1d(ggml::Type::I32, input_tokens.len())
+            .set_name("embd");
 
         let bc = BuildContext {
-            ctx0,
+            ctx0: RefCell::new(ctx0),
             embd: &embd,
             memory_k: &self.memory_k,
             memory_v: &self.memory_v,
@@ -253,15 +261,18 @@ impl InferenceSession {
                     metal_context.graph_compute(&mut built_gf);
                     metal_context.get_tensor(&built_result.result);
                 } else {
-                    ctx0.graph_compute(&mut built_gf);
+                    let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
+                    plan.execute(ctx0);
                 }
             } else {
-                ctx0.graph_compute(&mut built_gf);
+                let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
+                plan.execute(ctx0);
             }
         }
         #[cfg(not(feature = "metal"))]
         {
-            ctx0.graph_compute(&mut built_gf);
+            let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
+            plan.execute(ctx0);
         }
 
         // Adjust the required memory per token if we didn't know that already
@@ -280,10 +291,10 @@ impl InferenceSession {
     }
 
     /// Feed a prompt to the model for this session.
+    #[instrument(skip_all)]
     pub fn feed_prompt<'a, E: std::error::Error + Send + Sync + 'static, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
-        params: &InferenceParameters,
         prompt: P,
         output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
@@ -297,8 +308,8 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        for batch in prompt_tokens.chunks(params.n_batch) {
-            model.evaluate(self, params, batch, output_request);
+        for batch in prompt_tokens.chunks(self.config.n_batch) {
+            model.evaluate(self, batch, output_request);
             for &tk in batch {
                 let should_call_callback = Some(tk) != model.bot_token_id();
 
@@ -329,6 +340,7 @@ impl InferenceSession {
                 self.decoded_tokens.append(&mut token);
             }
         }
+        log::trace!("Finished feed prompt");
 
         Ok(())
     }
@@ -361,6 +373,7 @@ impl InferenceSession {
     }
 
     /// Infer the next token for this session.
+    #[instrument(level = "trace", skip_all)]
     pub fn infer_next_token(
         &mut self,
         model: &dyn Model,
@@ -378,7 +391,7 @@ impl InferenceSession {
         self.tokens.push(next_token);
 
         // Then, evaluate the network again to compute the new last_logits
-        model.evaluate(self, params, &[next_token], output_request);
+        model.evaluate(self, &[next_token], output_request);
 
         // Return the next token
         if next_token as TokenId == model.eot_token_id() {
@@ -407,6 +420,7 @@ impl InferenceSession {
     /// generated (specified by [InferenceRequest::maximum_token_count]).
     ///
     /// This is a wrapper around [Self::feed_prompt] and [Self::infer_next_token].
+    #[instrument(skip_all)]
     pub fn infer<E: std::error::Error + Send + Sync + 'static>(
         &mut self,
         model: &dyn Model,
@@ -431,6 +445,10 @@ impl InferenceSession {
                 }
             }
         }
+        log::trace!(
+            "Starting inference request with max_token_count: {}",
+            maximum_token_count
+        );
 
         let mut stats = InferenceStats::default();
         let start_at = std::time::SystemTime::now();
@@ -442,7 +460,6 @@ impl InferenceSession {
         if !request.prompt.is_empty() {
             self.feed_prompt(
                 model,
-                parameters,
                 request.prompt,
                 output_request,
                 feed_prompt_callback(&mut callback),
@@ -492,7 +509,6 @@ impl InferenceSession {
     pub fn perplexity<'a, P: Into<Prompt<'a>>>(
         &mut self,
         model: &dyn Model,
-        parameters: &InferenceParameters,
         prompt: P,
         mut perplexity_callback: impl FnMut(usize, f32),
     ) -> Result<(), TokenizationError> {
@@ -502,19 +518,19 @@ impl InferenceSession {
 
         let mut count = 0;
 
-        // TODO: make this handle <n_ctx tokens
-        let n_ctx = model.context_size();
-        let n_chunk = tokens.len() / n_ctx;
+        // TODO: make this handle <context_size tokens
+        let context_size = model.context_size();
+        let n_chunk = tokens.len() / context_size;
         let n_vocab = model.tokenizer().len();
-        let n_batch = parameters.n_batch;
+        let n_batch = self.config.n_batch;
 
         let mut nll = 0.0;
 
         for i in 0..n_chunk {
-            let start = i * n_ctx;
-            let end = (i + 1) * n_ctx;
+            let start = i * context_size;
+            let end = (i + 1) * context_size;
 
-            let num_batches = (n_ctx + n_batch - 1) / n_batch;
+            let num_batches = (context_size + n_batch - 1) / n_batch;
 
             let mut logits = vec![];
 
@@ -537,7 +553,6 @@ impl InferenceSession {
 
                 model.evaluate(
                     self,
-                    parameters,
                     &tokens[batch_start..batch_start + batch_size],
                     &mut output_request,
                 );
@@ -549,7 +564,7 @@ impl InferenceSession {
                 logits.extend(output_request.all_logits.unwrap());
             }
 
-            for j in 512.min(n_ctx / 2)..(n_ctx - 1) {
+            for j in 512.min(context_size / 2)..(context_size - 1) {
                 let logits = &logits[j * n_vocab..(j + 1) * n_vocab];
                 let probability = util::softmax(logits)[tokens[start + j + 1] as usize];
                 nll += -probability.ln();
@@ -628,6 +643,14 @@ impl InferenceSession {
     /// All decoded tokens generated by this inference session
     pub fn decoded_tokens(&self) -> &[u8] {
         self.decoded_tokens.as_ref()
+    }
+}
+
+impl Drop for InferenceSession {
+    fn drop(&mut self) {
+        // If we are using an accelerator, we need to free the scratch memory.
+        // The k/v memory is freed by the ctx0 destructor.
+        ggml::accelerator::free_scratch();
     }
 }
 
@@ -767,15 +790,39 @@ pub struct InferenceSessionConfig {
     /// The type of the memory V tensor.
     pub memory_v_type: ModelKVMemoryType,
 
-    /// Whether to use GPU acceleration
-    pub use_gpu: bool,
+    /// Controls batch/chunk size for prompt ingestion in [InferenceSession::feed_prompt].
+    ///
+    /// This is the number of tokens that will be ingested at once. This is useful for
+    /// trying to speed up the ingestion of prompts, as it allows for parallelization.
+    /// However, you will be fundamentally limited by your machine's ability to evaluate
+    /// the transformer model, so increasing the batch size will not always help.
+    ///
+    /// A reasonable default value is 8.
+    pub n_batch: usize,
+    /// The number of threads to use. This is dependent on your user's system,
+    /// and should be selected accordingly.
+    ///
+    /// Note that you should aim for a value close to the number of physical cores
+    /// on the system, as this will give the best performance. This means that, for
+    /// example, on a 16-core system with hyperthreading, you should set this to 16.
+    ///
+    /// Also note that not all cores on a system are equal, and that you may need to
+    /// experiment with this value to find the optimal value for your use case. For example,
+    /// Apple Silicon and modern Intel processors have "performance" and "efficiency" cores,
+    /// and you may want to only use the performance cores.
+    ///
+    /// A reasonable default value is 8, as most modern high-performance computers have
+    /// 8 physical cores. Adjust to your needs.
+    pub n_threads: usize,
 }
+
 impl Default for InferenceSessionConfig {
     fn default() -> Self {
         Self {
             memory_k_type: ModelKVMemoryType::Float16,
             memory_v_type: ModelKVMemoryType::Float16,
-            use_gpu: false,
+            n_batch: 8,
+            n_threads: 8,
         }
     }
 }
@@ -930,4 +977,32 @@ pub fn conversation_inference_callback<'a, E: std::error::Error + Send + Sync + 
         InferenceResponse::EotToken => Ok(InferenceFeedback::Halt),
         _ => Ok(InferenceFeedback::Continue),
     }
+}
+
+/// Create the memory K/V tensors for the inference-session.
+fn kv_memory(
+    context: &Context,
+    config: &InferenceSessionConfig,
+    use_gpu: bool,
+    n_elements: usize,
+) -> (Tensor, Tensor) {
+    let memory_k = context
+        .new_tensor_1d(config.memory_k_type.into(), n_elements)
+        .set_name("memory_k");
+    let memory_v = context
+        .new_tensor_1d(config.memory_v_type.into(), n_elements)
+        .set_name("memory_v");
+
+    if use_gpu {
+        // CUDA requires the K/V-Memory to be on the GPU but excluded from the scratch buffer.
+        // For OpenCL this is a no-op.
+        //
+        // Note that these must be manually freed from the accelerator in the `InferenceSession`
+        // destructor. This is because `offload_no_scratch` does not update the `offloaded_tensors`
+        // map, because reasons.
+        memory_k.offload_no_scratch();
+        memory_v.offload_no_scratch();
+    }
+
+    (memory_k, memory_v)
 }

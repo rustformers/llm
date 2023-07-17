@@ -334,7 +334,8 @@ impl Generate {
         InferenceSessionConfig {
             memory_k_type: mem_typ,
             memory_v_type: mem_typ,
-            use_gpu: self.use_gpu,
+            n_batch: self.batch_size,
+            n_threads: self.num_threads(),
         }
     }
 
@@ -348,8 +349,6 @@ impl Generate {
 
     pub fn inference_parameters(&self, eot: llm::TokenId) -> InferenceParameters {
         InferenceParameters {
-            n_threads: self.num_threads(),
-            n_batch: self.batch_size,
             sampler: Arc::new(llm::samplers::TopPTopK {
                 top_k: self.top_k,
                 top_p: self.top_p,
@@ -457,6 +456,10 @@ pub struct ModelLoad {
     /// LoRA adapter to use for the model
     #[arg(long, num_args(0..))]
     pub lora_paths: Option<Vec<PathBuf>>,
+
+    /// Number of layers to run on the GPU. If not specified, all layers will be run on the GPU.
+    #[arg(long)]
+    pub gpu_layers: Option<usize>,
 }
 impl ModelLoad {
     pub fn load(&self, use_gpu: bool) -> eyre::Result<Box<dyn Model>> {
@@ -465,6 +468,7 @@ impl ModelLoad {
             context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
             use_gpu,
+            gpu_layers: self.gpu_layers,
         };
 
         let mut sp = Some(spinoff::Spinner::new(

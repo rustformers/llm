@@ -7,6 +7,7 @@ use std::{
 use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{self, Context, ContextCompat};
+use is_terminal::IsTerminal;
 
 mod cli_args;
 mod interactive;
@@ -14,10 +15,12 @@ mod snapshot;
 mod util;
 
 fn main() -> eyre::Result<()> {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .parse_default_env()
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_ansi(std::io::stderr().is_terminal())
         .init();
+
     color_eyre::install()?;
 
     let args = Args::parse();
@@ -32,6 +35,7 @@ fn main() -> eyre::Result<()> {
     }
 }
 
+#[tracing::instrument(skip_all)]
 fn infer(args: &cli_args::Infer) -> eyre::Result<()> {
     let prompt = load_prompt_file_with_prompt(&args.prompt_file, args.prompt.as_deref())?;
     let inference_session_config = args.generate.inference_session_config();
@@ -46,46 +50,55 @@ fn infer(args: &cli_args::Infer) -> eyre::Result<()> {
     let parameters = args.generate.inference_parameters(model.eot_token_id());
 
     let mut rng = args.generate.rng();
-    let res = session.infer::<Infallible>(
-        model.as_ref(),
-        &mut rng,
-        &llm::InferenceRequest {
-            prompt: prompt.as_str().into(),
-            parameters: &parameters,
-            play_back_previous_tokens: session_loaded,
-            maximum_token_count: args.generate.num_predict,
-        },
-        // OutputRequest
-        &mut Default::default(),
-        |r| {
-            match r {
-                llm::InferenceResponse::PromptToken(t) if !args.hide_prompt => util::print_token(t),
-                llm::InferenceResponse::InferredToken(t) => util::print_token(t),
-                _ => {}
-            }
-            Ok(llm::InferenceFeedback::Continue)
-        },
-    );
-    println!();
 
-    match res {
-        Ok(stats) => {
-            if args.stats {
-                println!();
-                println!("{}", stats);
-                println!();
+    let span = tracing::trace_span!("infer");
+
+    span.in_scope(|| {
+        // do work inside the span...
+        let res = session.infer::<Infallible>(
+            model.as_ref(),
+            &mut rng,
+            &llm::InferenceRequest {
+                prompt: prompt.as_str().into(),
+                parameters: &parameters,
+                play_back_previous_tokens: session_loaded,
+                maximum_token_count: args.generate.num_predict,
+            },
+            // OutputRequest
+            &mut Default::default(),
+            |r| {
+                match r {
+                    llm::InferenceResponse::PromptToken(t) if !args.hide_prompt => {
+                        util::print_token(t)
+                    }
+                    llm::InferenceResponse::InferredToken(t) => util::print_token(t),
+                    _ => {}
+                }
+                Ok(llm::InferenceFeedback::Continue)
+            },
+        );
+
+        println!();
+
+        match res {
+            Ok(stats) => {
+                if args.stats {
+                    println!();
+                    println!("{}", stats);
+                    println!();
+                }
+            }
+            Err(llm::InferenceError::ContextFull) => {
+                log::warn!("Context window full, stopping inference.")
+            }
+            Err(llm::InferenceError::TokenizationFailed(err)) => {
+                log::error!("A tokenization-related failure occurred: {}", err);
+            }
+            Err(llm::InferenceError::UserCallback(_)) | Err(llm::InferenceError::EndOfText) => {
+                unreachable!("cannot fail")
             }
         }
-        Err(llm::InferenceError::ContextFull) => {
-            log::warn!("Context window full, stopping inference.")
-        }
-        Err(llm::InferenceError::TokenizationFailed(err)) => {
-            log::error!("A tokenization-related failure occurred: {}", err);
-        }
-        Err(llm::InferenceError::UserCallback(_)) | Err(llm::InferenceError::EndOfText) => {
-            unreachable!("cannot fail")
-        }
-    }
+    });
 
     if let Some(session_path) = args.save_session.as_ref().or(args.persist_session.as_ref()) {
         // Write the memory to the cache file
@@ -101,16 +114,10 @@ fn perplexity(args: &cli_args::Perplexity) -> eyre::Result<()> {
     let model = args.model_load.load(args.generate.use_gpu)?;
     let (mut session, _) =
         snapshot::read_or_create_session(model.as_ref(), None, None, inference_session_config);
-    let parameters = args.generate.inference_parameters(model.eot_token_id());
 
-    session.perplexity(
-        model.as_ref(),
-        &parameters,
-        prompt.as_str(),
-        |chunk, perplexity| {
-            println!("Perplexity[{chunk}]: {perplexity}");
-        },
-    )?;
+    session.perplexity(model.as_ref(), prompt.as_str(), |chunk, perplexity| {
+        println!("Perplexity[{chunk}]: {perplexity}");
+    })?;
 
     Ok(())
 }

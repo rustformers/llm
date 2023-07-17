@@ -14,10 +14,11 @@ use crate::{
 pub use ggml::{format::FormatMagic, ContainerType};
 use ggml::{
     format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
-    Context,
+    Context, MAX_NAME_LENGTH,
 };
 use memmap2::Mmap;
 use thiserror::Error;
+use tracing::log;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
 /// Information about the file.
@@ -30,7 +31,7 @@ pub struct FileType {
 impl From<FileType> for i32 {
     fn from(value: FileType) -> Self {
         (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
-            + ggml::sys::llama::llama_ftype::from(value.format) as i32
+            + ggml::sys::llama::llama_ftype::from(value.format)
     }
 }
 impl TryFrom<i32> for FileType {
@@ -396,8 +397,8 @@ impl LoadError {
 pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
-    /// Finish loading the model, and extract all of the state from the loader.
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>);
+    /// Finish loading the model, returning the context.
+    fn finish(self) -> Context;
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -436,12 +437,14 @@ pub fn load<M: KnownModel>(
         path: path.to_owned(),
     })?;
     let mut reader = BufReader::new(&file);
+    log::trace!("Read model file from {:?}", path);
 
     let tokenizer = tokenizer_source.retrieve(path)?;
     let mut loader = Loader::new(tokenizer, load_progress_callback);
 
     ggml::format::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
+    log::trace!("Loaded GGML model from reader");
 
     let Loader {
         hyperparameters,
@@ -469,6 +472,10 @@ pub fn load<M: KnownModel>(
     } else {
         quantization_version
     };
+    log::trace!(
+        "Determined quantization version of model as {:?}",
+        quantization_version
+    );
 
     // TODO: this is temporary while we figure out how to handle this
     if tensors.values().any(|t| t.element_type.is_quantized()) {
@@ -482,6 +489,7 @@ pub fn load<M: KnownModel>(
         .values()
         .map(|ti| ti.calc_absolute_size(use_mmap))
         .sum::<usize>();
+    log::trace!("Context size: {:?}", ctx_size);
 
     let mut lora_adapters: Option<Vec<LoraAdapter>> = None;
     if let Some(lora_paths) = &params.lora_adapters {
@@ -508,6 +516,7 @@ pub fn load<M: KnownModel>(
                     .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
                     .collect();
 
+                log::trace!("Loaded LoRA weights");
                 // Return the LoRA patches
                 Ok::<_, LoadError>(LoraAdapter {
                     scaling: lora_loader.hyperparameters.calculate_scaling(),
@@ -527,10 +536,10 @@ pub fn load<M: KnownModel>(
         unsafe {
             let mmap = Mmap::map(&file)?;
             let file_size = mmap.len() as u64;
-            (Context::init_mmap(mmap), file_size)
+            (Context::new_with_mmap(mmap), file_size)
         }
     } else {
-        (Context::init(ctx_size, true), file.metadata()?.len())
+        (Context::new_with_allocate(ctx_size), file.metadata()?.len())
     };
 
     let tensors_len = tensors.len();
@@ -550,6 +559,8 @@ pub fn load<M: KnownModel>(
         file_size,
         tensor_count: tensors_len,
     });
+
+    log::trace!("Loaded model");
 
     Ok(model)
 }
@@ -646,7 +657,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             &self.context,
             &mut self.file,
             &self.path,
-            self.context.mmap.as_ref(),
+            self.context.storage().as_mmap(),
         );
 
         let mut tensor = main_context.get_tensor(info)?;
@@ -670,8 +681,8 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> (Context, HashMap<String, ggml::Tensor>) {
-        (self.context, self.loaded_tensors)
+    fn finish(self) -> Context {
+        self.context
     }
 }
 
@@ -741,7 +752,14 @@ impl<'a> FileContext<'a> {
             }
         }
 
-        Ok(tensor)
+        // The tensor name is truncated to its maximum length.
+        let tensor_name = if name.len() >= MAX_NAME_LENGTH {
+            &name[name.len() - MAX_NAME_LENGTH..]
+        } else {
+            name
+        };
+
+        Ok(tensor.set_name(tensor_name))
     }
 }
 
