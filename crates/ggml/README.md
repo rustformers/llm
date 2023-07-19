@@ -4,7 +4,7 @@
 (ML) - the "GG" refers to the initials of its originator
 ([Georgi Gerganov](https://ggerganov.com/)). In addition to defining low-level
 machine learning primitives (like a [tensor](#weights) type), GGML defines a
-binary format for distributing large language models (LLMs) This crate provides
+binary format for distributing large language models (LLMs). This crate provides
 Rust [bindings](sys) into the reference implementation of GGML, as well as a
 collection of [native](src) Rust helpers to provide safe, idiomatic access to
 those bindings. GGML makes use of a technique called
