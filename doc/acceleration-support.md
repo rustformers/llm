@@ -1,6 +1,6 @@
 # Acceleration Support
 
-The `ggml-sys` crate includes various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and `ggml-sys` can only be built with a single active acceleration backend at a time. If cublas and clblast are both specified, cublas is prioritized and clblast is ignored.
+The `llm` ecosystem of crates, including `llm`, `llm-base` and `ggml` support various acceleration backends, selectable via `--features` flags. The availability of supported backends varies by platform, and these crates can only be built with a single active acceleration backend at a time. If CuBLAS and CLBlast are both specified, CuBLAS is prioritized and CLBlast is ignored.
 
 | Platform/OS | `cublas`           | `clblast`          | `metal`            |
 | ----------- | ------------------ | ------------------ | ------------------ |
@@ -10,22 +10,24 @@ The `ggml-sys` crate includes various acceleration backends, selectable via `--f
 
 ## Utilizing GPU Support
 
-To activate GPU support, set the `use_gpu` attribute of the `ModelParameters` to `true`. 
+To activate GPU support (assuming that you have enabled one of the features above), set the `use_gpu` attribute of the `ModelParameters` to `true`.
 
-- **CLI Users:** You can enable GPU support by adding the `--use-gpu` flag.
-  
-- **Backend Consideration:** For users leveraging the `cublas` or `clblast` backends, you can specify the number of layers you wish to offload to your GPU with the `gpu_layers` parameter in the `ModelParameters`. By default, all layers are offloaded. However, if your model size exceeds your GPU's VRAM, you can specify a limit, like `20`, to offload only the first 20 layers. For CLI users, this can be achieved using the `--gpu-layers` parameter.
+- **CLI Users**: You can enable GPU support by adding the `--use-gpu` flag.
 
-**Example:** To run a `llama` model with CUDA acceleration and offload all its layers, your CLI command might resemble:
+- **Backend Consideration**: For users leveraging the `cublas` or `clblast` backends, you can specify the number of layers you wish to offload to your GPU with the `gpu_layers` parameter in the `ModelParameters`. By default, all layers are offloaded.
+
+  However, if your model size exceeds your GPU's VRAM, you can specify a limit, like `20`, to offload only the first 20 layers. For CLI users, this can be achieved using the `--gpu-layers` parameter.
+
+**Example**: To run a `llama` model with CUDA acceleration and offload all its layers, your CLI command might resemble:
 
 ```bash
-cargo run --release --features cublas -- infer -a llama -m [path/to/model.bin] --use-gpu -p "Help a Lama is standing in my garden!"
+cargo run --release --features cublas -- infer -a llama -m [path/to/model.bin] --use-gpu -p "Help a llama is standing in my garden!"
 ```
 
-💡 **Pro Tip:** For those with ample VRAM using `cublas` or `clblast`, you can significantly reduce your prompt's feed time by increasing the batch size, for example, to `256` or `512` (default is `8`). 
+💡 **Protip**: For those with ample VRAM using `cublas` or `clblast`, you can significantly reduce your prompt's feed time by increasing the batch size; for example, you can use `256` or `512` (default is `8`).
 
 - Programmatic users of `llm` can adjust this by setting the `n_batch` parameter in the `InferenceSessionConfig` when initializing a session.
-  
+
 - CLI users can utilize the `--batch-size` parameter to achieve this.
 
 ## Supported Accelerated Models
@@ -34,19 +36,17 @@ While specific accelerators only support certain model architectures, some unmar
 
 | Model/accelerator | `cublas` | `clblast` | `metal` |
 | ----------------- | -------- | --------- | ------- |
-| LLaMA             | ✅       | ✅       | ✅      |
-| MPT               | ❌       | ❌       | ❌      |
-| Falcon            | ❌       | ❌       | ❌      |
-| GPT-NeoX          | ❌       | ❌       | ❌      |
-| GPT-J             | ❌       | ❌       | ❌      |
-| GPT-2             | ❌       | ❌       | ❌      |
-| BLOOM             | ❌       | ❌       | ❌      |
-
-
+| LLaMA             | ✅       | ✅        | ✅      |
+| MPT               | ❌       | ❌        | ❌      |
+| Falcon            | ❌       | ❌        | ❌      |
+| GPT-NeoX          | ❌       | ❌        | ❌      |
+| GPT-J             | ❌       | ❌        | ❌      |
+| GPT-2             | ❌       | ❌        | ❌      |
+| BLOOM             | ❌       | ❌        | ❌      |
 
 ## Pre-requisites for Building with Accelerated Support
 
-To effectively build with acceleration support, certain dependencies must be installed. These dependencies are contingent upon your chosen platform and the specific acceleration backend you're working with.
+To build with acceleration support, certain dependencies must be installed. These dependencies are contingent upon your chosen platform and the specific acceleration backend you're working with.
 
 For developers aiming to distribute packages equipped with acceleration capabilities, our [CI/CD setup](../.github/workflows/rust.yml) serves as an exemplary foundation.
 
@@ -95,11 +95,11 @@ Please choose the option that best suits your needs and environment configuratio
 
 #### CuBLAS
 
-You need to have CUDA installed on your system. CUDA can be downloaded and installed from the official [Nvidia site](https://developer.nvidia.com/cuda-downloads). On Linux distributions that do not have CUDA_PATH set, the environment variables CUDA_INCLUDE_PATH and CUDA_LIB_PATH can be set to their corresponding paths.
+You need to have CUDA installed on your system. CUDA can be downloaded and installed from the official [Nvidia site](https://developer.nvidia.com/cuda-downloads). On Linux distributions that do not have `CUDA_PATH` set, the environment variables `CUDA_INCLUDE_PATH` and `CUDA_LIB_PATH` can be set to their corresponding paths.
 
 #### CLBlast
 
-CLBlast can be installed on Linux through various package managers. For example, using `apt` you can install it via `sudo apt install clblast`. After installation, make sure that the `OPENCL_PATH` and `CLBLAST_PATH` environment variables are correctly set. Additionally the environment variables OPENCL_INCLUDE_PATH/OPENCL_LIB_PATH & CBLAST_INCLUDE_PATH/CLBLAST_LIB_PATH can be used to specify the location of the files. All environment variables are supported by all listed operating systems.
+CLBlast can be installed on Linux through various package managers. For example, using `apt` you can install it via `sudo apt install clblast`. After installation, make sure that the `OPENCL_PATH` and `CLBLAST_PATH` environment variables are correctly set. Additionally the environment variables `OPENCL_INCLUDE_PATH`/`OPENCL_LIB_PATH` & `CBLAST_INCLUDE_PATH`/`CLBLAST_LIB_PATH` can be used to specify the location of the files. All environment variables are supported by all listed operating systems.
 
 ### MacOS
 
