@@ -77,7 +77,9 @@ use std::{
 // Try not to expose too many GGML details here.
 // This is the "user-facing" API, and GGML may not always be our backend.
 pub use llm_base::{
-    conversation_inference_callback, feed_prompt_callback, ggml::format as ggml_format, load,
+    conversation_inference_callback, feed_prompt_callback,
+    ggml::accelerator::get_accelerator as ggml_get_accelerator,
+    ggml::accelerator::Accelerator as GgmlAccelerator, ggml::format as ggml_format, load,
     load_progress_callback_stdout, quantize, samplers, ElementType, FileType, FileTypeFormat,
     FormatMagic, Hyperparameters, InferenceError, InferenceFeedback, InferenceParameters,
     InferenceRequest, InferenceResponse, InferenceSession, InferenceSessionConfig,

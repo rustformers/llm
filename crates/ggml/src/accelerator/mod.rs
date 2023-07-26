@@ -19,9 +19,9 @@ pub enum Accelerator {
 
 /// Returns the accelerator `ggml` was compiled with.
 pub fn get_accelerator() -> Accelerator {
-    #[cfg(feature = "cublas")]
-    return Accelerator::CLBlast;
     #[cfg(feature = "clblast")]
+    return Accelerator::CLBlast;
+    #[cfg(feature = "cublas")]
     return Accelerator::CuBLAS;
     #[cfg(feature = "metal")]
     return Accelerator::Metal;
