@@ -8,7 +8,10 @@ use std::{
 
 use memmap2::Mmap;
 
-use crate::{accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, Tensor, Type};
+use crate::{
+    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, CustomRoPEArguments, Tensor,
+    Type,
+};
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
 /// `ggml_init` and dropping via `ggml_free`.
@@ -267,7 +270,8 @@ impl Context {
 
     /// Creates a new tensor with the values of `a`, but normalized using RMSNorm.
     pub fn op_rms_norm(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_rms_norm(self.as_ptr(), a.ptr.as_ptr()) };
+        let tensor =
+            unsafe { sys::ggml_rms_norm(self.as_ptr(), a.ptr.as_ptr(), crate::DEFAULT_EPS) };
         self.new_tensor_raw(tensor)
     }
 
@@ -527,16 +531,36 @@ impl Context {
     }
 
     /// In-place; applies ROtary Positional Encoding.
-    pub fn op_rope_inplace(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
+    pub fn op_rope_inplace(
+        &self,
+        a: &Tensor,
+        npast: usize,
+        ndims: usize,
+        mode: i32,
+        custom_args: &Option<CustomRoPEArguments>,
+    ) -> Tensor {
         let tensor = unsafe {
-            sys::ggml_rope_inplace(
-                self.as_ptr(),
-                a.ptr.as_ptr(),
-                usize_to_i32(npast),
-                usize_to_i32(ndims),
-                mode,
-                0,
-            )
+            if let Some(custom_args) = custom_args {
+                sys::ggml_rope_custom_inplace(
+                    self.as_ptr(),
+                    a.ptr.as_ptr(),
+                    usize_to_i32(npast),
+                    usize_to_i32(ndims),
+                    mode,
+                    1,
+                    custom_args.base as f32,
+                    custom_args.scale,
+                )
+            } else {
+                sys::ggml_rope_inplace(
+                    self.as_ptr(),
+                    a.ptr.as_ptr(),
+                    usize_to_i32(npast),
+                    usize_to_i32(ndims),
+                    mode,
+                    0,
+                )
+            }
         };
         self.new_tensor_raw(tensor)
     }

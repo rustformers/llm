@@ -193,8 +193,8 @@ impl KnownModel for GptNeoX {
                 ));
 
                 // self-attention using mode = 2 for GPT-NeoX mode
-                qcur = ctx0.op_rope_inplace(&qcur, n_past, n_rot, 2);
-                kcur = ctx0.op_rope_inplace(&kcur, n_past, n_rot, 2);
+                qcur = ctx0.op_rope_inplace(&qcur, n_past, n_rot, 2, &self.params.rope_arguments);
+                kcur = ctx0.op_rope_inplace(&kcur, n_past, n_rot, 2, &self.params.rope_arguments);
 
                 // store key and value to memory
                 vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, n_embd, n));

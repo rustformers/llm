@@ -173,6 +173,7 @@ impl KnownModel for Llama {
                         session_len,
                         n_rot,
                         0,
+                        &self.params.rope_arguments,
                     )
                     .set_name("Qcur");
                 let k_current = ctx0
@@ -186,6 +187,7 @@ impl KnownModel for Llama {
                         session_len,
                         n_rot,
                         0,
+                        &self.params.rope_arguments,
                     )
                     .set_name("Kcur");
 

@@ -8,8 +8,9 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
-    ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, TokenizerSource,
+    ggml_format, CustomRoPEArguments, ElementType, InferenceParameters, InferenceSessionConfig,
+    InvalidTokenBias, LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    TokenizerSource,
 };
 use rand::SeedableRng;
 
@@ -431,6 +432,32 @@ impl ModelAndTokenizer {
 }
 
 #[derive(Parser, Debug)]
+pub struct RoPEScaling {
+    #[arg(long)]
+    pub rope_base: Option<usize>,
+
+    #[arg(long)]
+    pub rope_scaling: Option<f32>,
+}
+
+impl RoPEScaling {
+    pub fn to_rope_arguments(&self) -> Option<CustomRoPEArguments> {
+        match (self.rope_base, self.rope_scaling) {
+            (Some(base), Some(scale)) => Some(CustomRoPEArguments { base, scale }),
+            (None, Some(scale)) => Some(CustomRoPEArguments {
+                scale,
+                ..Default::default()
+            }),
+            (Some(base), None) => Some(CustomRoPEArguments {
+                base,
+                ..Default::default()
+            }),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
 pub struct ModelLoad {
     #[command(flatten)]
     pub model_and_tokenizer: ModelAndTokenizer,
@@ -460,7 +487,11 @@ pub struct ModelLoad {
     /// Number of layers to run on the GPU. If not specified, all layers will be run on the GPU.
     #[arg(long)]
     pub gpu_layers: Option<usize>,
+
+    #[command(flatten)]
+    pub rope_scaling: RoPEScaling,
 }
+
 impl ModelLoad {
     pub fn load(&self, use_gpu: bool) -> eyre::Result<Box<dyn Model>> {
         let params = ModelParameters {
@@ -469,6 +500,7 @@ impl ModelLoad {
             lora_adapters: self.lora_paths.clone(),
             use_gpu,
             gpu_layers: self.gpu_layers,
+            rope_arguments: self.rope_scaling.to_rope_arguments(),
         };
 
         let mut sp = Some(spinoff::Spinner::new(

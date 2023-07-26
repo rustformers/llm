@@ -127,6 +127,27 @@ pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
 /// The maximum length of a `ggml` tensor-name.
 pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 
+/// Default epsilon to use for RMS computation.
+pub const DEFAULT_EPS: f32 = sys::llama::LLAMA_DEFAULT_RMS_EPS as f32;
+
+/// Values to use for the custom RoPE operation. Formula: theta_i = scale * base^(−2(i−1)/d), for i in \[1, 2, ..., d/2\]
+#[derive(Debug, Clone)]
+pub struct CustomRoPEArguments {
+    /// The scale to use.
+    pub scale: f32,
+    /// The base value to use.
+    pub base: usize,
+}
+
+impl Default for CustomRoPEArguments {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            base: 10_000,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// The type of a value in `ggml`.
 pub enum Type {

@@ -157,6 +157,7 @@ impl KnownModel for GptJ {
                     session_len,
                     n_rot,
                     0,
+                    &self.params.rope_arguments,
                 );
                 let kcur = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
@@ -168,6 +169,7 @@ impl KnownModel for GptJ {
                     session_len,
                     n_rot,
                     0,
+                    &self.params.rope_arguments,
                 );
 
                 // self-attention store key and value to memory
