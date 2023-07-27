@@ -158,13 +158,18 @@ pub const ggml_unary_op_GGML_UNARY_OP_GELU: ggml_unary_op = 7;
 pub const ggml_unary_op_GGML_UNARY_OP_GELU_QUICK: ggml_unary_op = 8;
 pub const ggml_unary_op_GGML_UNARY_OP_SILU: ggml_unary_op = 9;
 pub type ggml_unary_op = ::std::os::raw::c_int;
+pub const ggml_object_type_GGML_OBJECT_TENSOR: ggml_object_type = 0;
+pub const ggml_object_type_GGML_OBJECT_GRAPH: ggml_object_type = 1;
+pub const ggml_object_type_GGML_OBJECT_WORK_BUFFER: ggml_object_type = 2;
+pub type ggml_object_type = ::std::os::raw::c_int;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_object {
     pub offs: usize,
     pub size: usize,
     pub next: *mut ggml_object,
-    pub padding: [::std::os::raw::c_char; 8usize],
+    pub type_: ggml_object_type,
+    pub padding: [::std::os::raw::c_char; 4usize],
 }
 #[test]
 fn bindgen_test_layout_ggml_object() {
@@ -211,8 +216,18 @@ fn bindgen_test_layout_ggml_object() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).padding) as usize - ptr as usize },
+        unsafe { ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize },
         24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(ggml_object),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).padding) as usize - ptr as usize },
+        28usize,
         concat!(
             "Offset of field: ",
             stringify!(ggml_object),
@@ -633,6 +648,7 @@ fn bindgen_test_layout_ggml_cgraph() {
         )
     );
 }
+pub const GGML_GRAPH_SIZE: usize = 164520;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_scratch {
@@ -1844,6 +1860,18 @@ extern "C" {
         gf: *mut ggml_cgraph,
         keep: bool,
     ) -> ggml_cgraph;
+}
+extern "C" {
+    pub fn ggml_new_graph(ctx: *mut ggml_context) -> *mut ggml_cgraph;
+}
+extern "C" {
+    pub fn ggml_build_forward_ctx(
+        ctx: *mut ggml_context,
+        tensor: *mut ggml_tensor,
+    ) -> *mut ggml_cgraph;
+}
+extern "C" {
+    pub fn ggml_graph_overhead() -> usize;
 }
 extern "C" {
     pub fn ggml_graph_plan(
