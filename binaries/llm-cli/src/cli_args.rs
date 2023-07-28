@@ -9,7 +9,8 @@ use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
     ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
-    LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias, TokenizerSource,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides, TokenBias,
+    TokenizerSource,
 };
 use rand::SeedableRng;
 
@@ -431,6 +432,29 @@ impl ModelAndTokenizer {
 }
 
 #[derive(Parser, Debug)]
+pub struct RoPEScaling {
+    #[arg(long)]
+    pub rope_freq_base: Option<usize>,
+
+    #[arg(long)]
+    pub rope_freq_scale: Option<f32>,
+}
+
+impl RoPEScaling {
+    pub fn to_rope_arguments(&self) -> Option<RoPEOverrides> {
+        if self.rope_freq_base.is_none() && self.rope_freq_scale.is_none() {
+            return None;
+        }
+
+        let default = RoPEOverrides::default();
+        Some(RoPEOverrides {
+            frequency_base: self.rope_freq_base.unwrap_or(default.frequency_base),
+            frequency_scale: self.rope_freq_scale.unwrap_or(default.frequency_scale),
+        })
+    }
+}
+
+#[derive(Parser, Debug)]
 pub struct ModelLoad {
     #[command(flatten)]
     pub model_and_tokenizer: ModelAndTokenizer,
@@ -460,7 +484,11 @@ pub struct ModelLoad {
     /// Number of layers to run on the GPU. If not specified, all layers will be run on the GPU.
     #[arg(long)]
     pub gpu_layers: Option<usize>,
+
+    #[command(flatten)]
+    pub rope_scaling: RoPEScaling,
 }
+
 impl ModelLoad {
     pub fn load(&self, use_gpu: bool) -> eyre::Result<Box<dyn Model>> {
         let params = ModelParameters {
@@ -469,6 +497,7 @@ impl ModelLoad {
             lora_adapters: self.lora_paths.clone(),
             use_gpu,
             gpu_layers: self.gpu_layers,
+            rope_overrides: self.rope_scaling.to_rope_arguments(),
         };
 
         let mut sp = Some(spinoff::Spinner::new(

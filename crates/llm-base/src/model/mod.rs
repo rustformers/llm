@@ -207,6 +207,8 @@ pub struct ModelParameters {
     pub use_gpu: bool,
     /// If `use_gpu` is active this defines the number of layers to offload to the gpu. If `None`, all layers will be offloaded.
     pub gpu_layers: Option<usize>,
+    /// The arguments/overrides to pass to the [custom RoPE](https://arxiv.org/pdf/2306.15595.pdf) function, if it is used by the model.
+    pub rope_overrides: Option<ggml::RoPEOverrides>,
 }
 
 impl Default for ModelParameters {
@@ -217,6 +219,7 @@ impl Default for ModelParameters {
             lora_adapters: None,
             use_gpu: false,
             gpu_layers: None,
+            rope_overrides: None,
         }
     }
 }

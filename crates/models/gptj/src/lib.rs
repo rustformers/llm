@@ -147,6 +147,7 @@ impl KnownModel for GptJ {
                 let input_sa = current.share();
 
                 // self-attention
+                let overrides = self.params.rope_overrides.as_ref();
                 let qcur = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
                         &ctx0.op_mul_mat(&self.layers[il].c_attn_q_proj_w, &current),
@@ -157,6 +158,7 @@ impl KnownModel for GptJ {
                     session_len,
                     n_rot,
                     0,
+                    overrides,
                 );
                 let kcur = ctx0.op_rope_inplace(
                     &ctx0.op_reshape_3d(
@@ -168,6 +170,7 @@ impl KnownModel for GptJ {
                     session_len,
                     n_rot,
                     0,
+                    overrides,
                 );
 
                 // self-attention store key and value to memory

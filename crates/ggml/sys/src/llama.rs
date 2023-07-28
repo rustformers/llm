@@ -12,6 +12,7 @@ pub const LLAMA_FILE_MAGIC_UNVERSIONED: u32 = 1734831468;
 pub const LLAMA_SESSION_MAGIC: u32 = 1734833006;
 pub const LLAMA_SESSION_VERSION: u32 = 1;
 pub const LLAMA_DEFAULT_SEED: u32 = 4294967295;
+pub const LLAMA_DEFAULT_RMS_EPS: f64 = 0.000005;
 pub const LLAMA_FTYPE_ALL_F32: llama_ftype = 0;
 pub const LLAMA_FTYPE_MOSTLY_F16: llama_ftype = 1;
 pub const LLAMA_FTYPE_MOSTLY_Q4_0: llama_ftype = 2;

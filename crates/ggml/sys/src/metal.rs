@@ -41,5 +41,11 @@ extern "C" {
     pub fn ggml_metal_get_tensor(ctx: *mut ggml_metal_context, t: *mut ggml_tensor);
 }
 extern "C" {
+    pub fn ggml_metal_graph_find_concurrency(ctx: *mut ggml_metal_context, gf: *mut ggml_cgraph);
+}
+extern "C" {
+    pub fn ggml_metal_if_optimized(ctx: *mut ggml_metal_context) -> bool;
+}
+extern "C" {
     pub fn ggml_metal_graph_compute(ctx: *mut ggml_metal_context, gf: *mut ggml_cgraph);
 }
