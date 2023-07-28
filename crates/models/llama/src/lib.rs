@@ -162,6 +162,7 @@ impl KnownModel for Llama {
 
                 // self-attention
                 // compute Q and K and RoPE them
+                let overrides = self.params.rope_overrides.as_ref();
                 let q_current = ctx0
                     .op_rope_inplace(
                         &ctx0.op_reshape_3d(
@@ -173,7 +174,7 @@ impl KnownModel for Llama {
                         session_len,
                         n_rot,
                         0,
-                        &self.params.rope_arguments,
+                        overrides,
                     )
                     .set_name("Qcur");
                 let k_current = ctx0
@@ -187,7 +188,7 @@ impl KnownModel for Llama {
                         session_len,
                         n_rot,
                         0,
-                        &self.params.rope_arguments,
+                        overrides,
                     )
                     .set_name("Kcur");
 

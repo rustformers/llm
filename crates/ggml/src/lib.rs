@@ -130,20 +130,22 @@ pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 /// Default epsilon to use for RMS computation.
 pub const DEFAULT_EPS: f32 = sys::llama::LLAMA_DEFAULT_RMS_EPS as f32;
 
-/// Values to use for the custom RoPE operation. Formula: theta_i = scale * base^(−2(i−1)/d), for i in \[1, 2, ..., d/2\]
+/// Value overrides to use for RoPE.
+///
+/// Formula: `theta_i = scale * base^(−2(i−1)/d), for i in [1, 2, ..., d/2]`
 #[derive(Debug, Clone)]
-pub struct CustomRoPEArguments {
-    /// The scale to use.
-    pub scale: f32,
-    /// The base value to use.
-    pub base: usize,
+pub struct RoPEOverrides {
+    /// The frequency scale to use.
+    pub frequency_scale: f32,
+    /// The frequency base value to use.
+    pub frequency_base: usize,
 }
 
-impl Default for CustomRoPEArguments {
+impl Default for RoPEOverrides {
     fn default() -> Self {
         Self {
-            scale: 1.0,
-            base: 10_000,
+            frequency_scale: 1.0,
+            frequency_base: 10_000,
         }
     }
 }

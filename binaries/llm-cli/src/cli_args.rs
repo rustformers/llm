@@ -8,8 +8,8 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
-    ggml_format, CustomRoPEArguments, ElementType, InferenceParameters, InferenceSessionConfig,
-    InvalidTokenBias, LoadProgress, Model, ModelKVMemoryType, ModelParameters, TokenBias,
+    ggml_format, ElementType, InferenceParameters, InferenceSessionConfig, InvalidTokenBias,
+    LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides, TokenBias,
     TokenizerSource,
 };
 use rand::SeedableRng;
@@ -434,26 +434,23 @@ impl ModelAndTokenizer {
 #[derive(Parser, Debug)]
 pub struct RoPEScaling {
     #[arg(long)]
-    pub rope_base: Option<usize>,
+    pub rope_freq_base: Option<usize>,
 
     #[arg(long)]
-    pub rope_scaling: Option<f32>,
+    pub rope_freq_scale: Option<f32>,
 }
 
 impl RoPEScaling {
-    pub fn to_rope_arguments(&self) -> Option<CustomRoPEArguments> {
-        match (self.rope_base, self.rope_scaling) {
-            (Some(base), Some(scale)) => Some(CustomRoPEArguments { base, scale }),
-            (None, Some(scale)) => Some(CustomRoPEArguments {
-                scale,
-                ..Default::default()
-            }),
-            (Some(base), None) => Some(CustomRoPEArguments {
-                base,
-                ..Default::default()
-            }),
-            _ => None,
+    pub fn to_rope_arguments(&self) -> Option<RoPEOverrides> {
+        if self.rope_freq_base.is_none() && self.rope_freq_scale.is_none() {
+            return None;
         }
+
+        let default = RoPEOverrides::default();
+        Some(RoPEOverrides {
+            frequency_base: self.rope_freq_base.unwrap_or(default.frequency_base),
+            frequency_scale: self.rope_freq_scale.unwrap_or(default.frequency_scale),
+        })
     }
 }
 
@@ -500,7 +497,7 @@ impl ModelLoad {
             lora_adapters: self.lora_paths.clone(),
             use_gpu,
             gpu_layers: self.gpu_layers,
-            rope_arguments: self.rope_scaling.to_rope_arguments(),
+            rope_overrides: self.rope_scaling.to_rope_arguments(),
         };
 
         let mut sp = Some(spinoff::Spinner::new(

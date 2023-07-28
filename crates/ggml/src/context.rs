@@ -9,8 +9,7 @@ use std::{
 use memmap2::Mmap;
 
 use crate::{
-    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, CustomRoPEArguments, Tensor,
-    Type,
+    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, RoPEOverrides, Tensor, Type,
 };
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
@@ -537,10 +536,10 @@ impl Context {
         npast: usize,
         ndims: usize,
         mode: i32,
-        custom_args: &Option<CustomRoPEArguments>,
+        overrides: Option<&RoPEOverrides>,
     ) -> Tensor {
         let tensor = unsafe {
-            if let Some(custom_args) = custom_args {
+            if let Some(custom_args) = overrides {
                 sys::ggml_rope_custom_inplace(
                     self.as_ptr(),
                     a.ptr.as_ptr(),
@@ -548,8 +547,8 @@ impl Context {
                     usize_to_i32(ndims),
                     mode,
                     1,
-                    custom_args.base as f32,
-                    custom_args.scale,
+                    custom_args.frequency_base as f32,
+                    custom_args.frequency_scale,
                 )
             } else {
                 sys::ggml_rope_inplace(

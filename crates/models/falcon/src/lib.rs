@@ -193,20 +193,9 @@ impl KnownModel for Falcon {
                 );
 
                 // using mode = 2 for neox mode
-                qcur = ctx0.op_rope_inplace(
-                    &qcur,
-                    session_len,
-                    head_dim,
-                    2,
-                    &self.params.rope_arguments,
-                );
-                kcur = ctx0.op_rope_inplace(
-                    &kcur,
-                    session_len,
-                    head_dim,
-                    2,
-                    &self.params.rope_arguments,
-                );
+                let overrides = self.params.rope_overrides.as_ref();
+                qcur = ctx0.op_rope_inplace(&qcur, session_len, head_dim, 2, overrides);
+                kcur = ctx0.op_rope_inplace(&kcur, session_len, head_dim, 2, overrides);
 
                 // store key and value to memory
 
