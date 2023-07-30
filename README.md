@@ -192,8 +192,7 @@ of GGML models.
 
 ### r/LocalLLaMA
 
-This Reddit community maintains
-[a wiki](https://www.reddit.com/r/LocalLLaMA/wiki/index/) related to GGML
+This Reddit community maintains a wiki related to GGML
 models, including well organized lists of links for acquiring
 [GGML models](https://www.reddit.com/r/LocalLLaMA/wiki/models/) (mostly from
 Hugging Face 🤗).
