@@ -308,7 +308,7 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        for batch in prompt_tokens.chunks(self.config.n_batch) {
+        'outer: for batch in prompt_tokens.chunks(self.config.n_batch) {
             model.evaluate(self, batch, output_request);
             for &tk in batch {
                 let should_call_callback = Some(tk) != model.bot_token_id();
@@ -330,7 +330,7 @@ impl InferenceSession {
                         Err(e) => return Err(InferenceError::UserCallback(Box::new(e))),
                         Ok(f) => match f {
                             InferenceFeedback::Continue => (),
-                            InferenceFeedback::Halt => break,
+                            InferenceFeedback::Halt => break 'outer,
                         },
                     }
                 }
