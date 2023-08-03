@@ -159,16 +159,13 @@ impl KnownModel for GptNeoX {
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
-                    &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_1_g, &current), &current),
-                    &ctx0.op_repeat(&self.layers[il].ln_1_b, &current),
+                    &ctx0.op_mul(&current, &self.layers[il].ln_1_g),
+                    &self.layers[il].ln_1_b,
                 );
 
                 // self-attention compute QKV
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_attn_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_attn_attn_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_attn_attn_b);
 
                 let nb = current.get_nb()[1];
                 let f32_size = std::mem::size_of::<f32>();
@@ -269,10 +266,7 @@ impl KnownModel for GptNeoX {
 
                 // self-attention projection
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_attn_proj_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_attn_proj_b);
 
                 // use the second scratch for the feed forward
                 ctx0.use_scratch(builder.get_scratch(1));
@@ -305,10 +299,7 @@ impl KnownModel for GptNeoX {
             // normalize the output
             input_layer = ctx0.op_norm(&input_layer);
             // inpL = ln_f_g*inpL + ln_f_b
-            input_layer = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
-                &ctx0.op_repeat(&self.ln_f_b, &input_layer),
-            );
+            input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
@@ -470,16 +461,13 @@ fn feed_forward_network(context: &ggml::Context, layer: &Layer, input: &Tensor) 
     let mut current = context.op_norm(input);
 
     //gain and bias
-    current = context.op_add(
-        &context.op_mul(&context.op_repeat(&layer.ln_2_g, &current), &current),
-        &context.op_repeat(&layer.ln_2_b, &current),
-    );
+    current = context.op_add(&context.op_mul(&current, &layer.ln_2_g), &layer.ln_2_b);
 
     // apply weights
     current = context.op_mul_mat(&layer.c_mlp_fc_w, &current);
 
     // apply bias
-    current = context.op_add(&context.op_repeat(&layer.c_mlp_fc_b, &current), &current);
+    current = context.op_add(&current, &layer.c_mlp_fc_b);
 
     // GELU activation
     current = context.op_gelu(&current);
@@ -488,7 +476,7 @@ fn feed_forward_network(context: &ggml::Context, layer: &Layer, input: &Tensor) 
     // cur = proj_w*cur + proj_b
     current = context.op_mul_mat(&layer.c_mlp_proj_w, &current);
 
-    current = context.op_add(&context.op_repeat(&layer.c_mlp_proj_b, &current), &current);
+    current = context.op_add(&current, &layer.c_mlp_proj_b);
 
     current
 }
