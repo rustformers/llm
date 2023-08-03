@@ -171,11 +171,8 @@ impl KnownModel for Falcon {
                 // self-attention
                 layernorm_output = ctx0.op_norm(&input_layer);
                 layernorm_output = ctx0.op_add(
-                    &ctx0.op_mul(
-                        &ctx0.op_repeat(&self.layers[il].input_layernorm, &layernorm_output),
-                        &layernorm_output,
-                    ),
-                    &ctx0.op_repeat(&self.layers[il].input_layernorm_b, &layernorm_output),
+                    &ctx0.op_mul(&layernorm_output, &self.layers[il].input_layernorm),
+                    &self.layers[il].input_layernorm_b,
                 );
 
                 if n_head_kv == 1 {
@@ -185,17 +182,8 @@ impl KnownModel for Falcon {
                     // Falcon-40B only
                     current = ctx0.op_norm(&input_layer);
                     current = ctx0.op_add(
-                        &ctx0.op_mul(
-                            &ctx0.op_repeat(
-                                self.layers[il].attention_norm.as_ref().unwrap(),
-                                &current,
-                            ),
-                            &current,
-                        ),
-                        &ctx0.op_repeat(
-                            self.layers[il].attention_norm_b.as_ref().unwrap(),
-                            &current,
-                        ),
+                        &ctx0.op_mul(&current, self.layers[il].attention_norm.as_ref().unwrap()),
+                        self.layers[il].attention_norm_b.as_ref().unwrap(),
                     );
                 }
 
@@ -327,11 +315,8 @@ impl KnownModel for Falcon {
             input_layer = ctx0.op_norm(&input_layer);
 
             input_layer = ctx0.op_add(
-                &ctx0.op_mul(
-                    &ctx0.op_repeat(&self.output_norm, &input_layer),
-                    &input_layer,
-                ),
-                &ctx0.op_repeat(&self.output_norm_b, &input_layer),
+                &ctx0.op_mul(&input_layer, &self.output_norm),
+                &self.output_norm_b,
             );
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
