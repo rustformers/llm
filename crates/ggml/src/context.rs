@@ -274,13 +274,13 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// Creates a new tensor with the multiplication of `a` and `b`.
+    /// Creates a new tensor with the multiplication of `a` and `b`. Supports broadcasting if the dimensions are compatible, menaing the first dimensions of `a` must be devisible by the first dimensions of `b`.
     pub fn op_mul(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_mul(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    /// Unknown.
+    /// Repeats the `a` tensor along the first dimension of the `b` tensor.  
     pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_repeat(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
@@ -298,7 +298,7 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// Creates a new tensor with the addition of `a` and `b`.
+    /// Creates a new tensor with the addition of `a` and `b`. Supports broadcasting if the dimensions are compatible, menaing the first dimensions of `a` must be devisible by the first dimensions of `b`.
     pub fn op_add(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_add(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
