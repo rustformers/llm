@@ -140,8 +140,8 @@ impl KnownModel for GptJ {
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
-                    &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_1_g, &current), &current),
-                    &ctx0.op_repeat(&self.layers[il].ln_1_b, &current),
+                    &ctx0.op_mul(&current, &self.layers[il].ln_1_g),
+                    &self.layers[il].ln_1_b,
                 );
 
                 let input_sa = current.share();
@@ -241,19 +241,13 @@ impl KnownModel for GptJ {
                 let ff_in = current.share();
 
                 current = ctx0.op_mul_mat(&self.layers[il].c_mlp_fc_w, &input_sa);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_mlp_fc_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_mlp_fc_b);
 
                 current = ctx0.op_gelu(&current);
 
                 // feed-forward projection
                 current = ctx0.op_mul_mat(&self.layers[il].c_mlp_proj_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_mlp_proj_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_mlp_proj_b);
 
                 current = ctx0.op_add(&current, &ff_in);
 
@@ -263,16 +257,13 @@ impl KnownModel for GptJ {
 
             // norm
             input_layer = ctx0.op_norm(&input_layer);
-            input_layer = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
-                &ctx0.op_repeat(&self.ln_f_b, &input_layer),
-            );
+            input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
-            input_layer = ctx0.op_add(&ctx0.op_repeat(&self.lmh_b, &input_layer), &input_layer);
+            input_layer = ctx0.op_add(&input_layer, &self.lmh_b);
 
             (
                 gf,
