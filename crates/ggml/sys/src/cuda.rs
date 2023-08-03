@@ -61,6 +61,9 @@ extern "C" {
     pub fn ggml_cuda_set_main_device(main_device: ::std::os::raw::c_int);
 }
 extern "C" {
+    pub fn ggml_cuda_set_mul_mat_q(mul_mat_q: bool);
+}
+extern "C" {
     pub fn ggml_cuda_set_scratch_size(scratch_size: usize);
 }
 extern "C" {

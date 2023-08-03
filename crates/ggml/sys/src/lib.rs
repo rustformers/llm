@@ -1568,6 +1568,18 @@ extern "C" {
     ) -> *mut ggml_tensor;
 }
 extern "C" {
+    pub fn ggml_rope_custom(
+        ctx: *mut ggml_context,
+        a: *mut ggml_tensor,
+        n_past: ::std::os::raw::c_int,
+        n_dims: ::std::os::raw::c_int,
+        mode: ::std::os::raw::c_int,
+        n_ctx: ::std::os::raw::c_int,
+        freq_base: f32,
+        freq_scale: f32,
+    ) -> *mut ggml_tensor;
+}
+extern "C" {
     pub fn ggml_rope_custom_inplace(
         ctx: *mut ggml_context,
         a: *mut ggml_tensor,
