@@ -154,16 +154,13 @@ impl KnownModel for Gpt2 {
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
-                    &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_1_g, &current), &current),
-                    &ctx0.op_repeat(&self.layers[il].ln_1_b, &current),
+                    &ctx0.op_mul(&current, &self.layers[il].ln_1_g),
+                    &self.layers[il].ln_1_b,
                 );
 
                 // attn
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_attn_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_attn_attn_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_attn_attn_b);
 
                 // self-attn
                 let nb = current.get_nb()[1];
@@ -252,10 +249,7 @@ impl KnownModel for Gpt2 {
 
                 // projection
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_attn_proj_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_attn_proj_b);
 
                 // add input
                 current = ctx0.op_add(&current, &input_layer);
@@ -268,26 +262,20 @@ impl KnownModel for Gpt2 {
                 // feed-forward normalization
                 current = ctx0.op_norm(&ff_in);
                 current = ctx0.op_add(
-                    &ctx0.op_mul(&ctx0.op_repeat(&self.layers[il].ln_2_g, &current), &current),
-                    &ctx0.op_repeat(&self.layers[il].ln_2_b, &current),
+                    &ctx0.op_mul(&current, &self.layers[il].ln_2_g),
+                    &self.layers[il].ln_2_b,
                 );
 
                 // feed-forward fully connected
                 current = ctx0.op_mul_mat(&self.layers[il].c_mlp_fc_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_mlp_fc_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_mlp_fc_b);
 
                 // feed-forward activation
                 current = ctx0.op_gelu(&current);
 
                 // feed-forward projection
                 current = ctx0.op_mul_mat(&self.layers[il].c_mlp_proj_w, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].c_mlp_proj_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].c_mlp_proj_b);
 
                 // input for next layer
                 input_layer = ctx0.op_add(&current, &ff_in);
@@ -297,10 +285,7 @@ impl KnownModel for Gpt2 {
 
             // normalization
             input_layer = ctx0.op_norm(&input_layer);
-            input_layer = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
-                &ctx0.op_repeat(&self.ln_f_b, &input_layer),
-            );
+            input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
 
             ctx0.use_scratch(None);
 
