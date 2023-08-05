@@ -83,7 +83,7 @@ impl MetalContext {
         unsafe {
             metal::ggml_metal_graph_compute(
                 self.ptr.as_ptr(),
-                &mut graph.inner as *mut ggml_sys::ggml_cgraph as *mut metal::ggml_cgraph,
+                graph.inner as *mut ggml_sys::ggml_cgraph as *mut metal::ggml_cgraph,
             );
         }
     }
