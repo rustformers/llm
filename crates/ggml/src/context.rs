@@ -9,7 +9,8 @@ use std::{
 use memmap2::Mmap;
 
 use crate::{
-    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, RoPEOverrides, Tensor, Type,
+    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, RoPEOverrides,
+    Tensor, Type,
 };
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
@@ -169,6 +170,21 @@ impl Context {
     pub fn recreate(&mut self) {
         // This is the only operation that can consume the `self.storage`, so we can unwrap here.
         *self = Self::new(self.storage.take().unwrap());
+    }
+
+    ///Crate a new [ComputationGraph] in this context.
+    pub fn create_compute_graph(&self) -> ComputationGraph {
+        let context = self.inner.to_owned().ptr.as_ptr();
+        unsafe {
+            let graph = sys::ggml_new_graph(context);
+            ComputationGraph::from_raw(graph)
+        }
+    }
+
+    /// Prints all ggml objects in this context. Mainly used for debugging.
+    pub fn list_ggml_objects(&self) {
+        let context = self.inner.to_owned().ptr.as_ptr();
+        unsafe { sys::ggml_print_objects(context) }
     }
 
     /// If offloading is enabled, all tensors created by this context will be offloaded to the GPU

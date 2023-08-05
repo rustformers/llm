@@ -159,7 +159,7 @@ impl KnownModel for Falcon {
             let memory_v = builder.memory_v;
             let memory_v_size = memory_v.element_size();
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
 
             let mut current: Tensor;
             let mut layernorm_output: Tensor;

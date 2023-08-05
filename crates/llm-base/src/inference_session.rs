@@ -170,7 +170,7 @@ impl InferenceSession {
             } else {
                 1024
             };
-            buf_size_mb * 1024 * 1024
+            buf_size_mb * 1024 * 1024 + ggml::graph_overhead()
         };
 
         let eval = Buffer::new(buf_size);

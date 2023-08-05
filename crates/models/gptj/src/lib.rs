@@ -160,7 +160,7 @@ impl KnownModel for GptJ {
 
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 ctx0.set_offloading(self.params.should_offload(il));
 
