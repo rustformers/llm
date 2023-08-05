@@ -148,7 +148,7 @@ impl KnownModel for Bloom {
             input_layer = ctx0.op_mul(&input_layer, &self.norm);
             input_layer = ctx0.op_add(&input_layer, &self.norm_bias);
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;

@@ -57,38 +57,70 @@ impl KnownModel for GptNeoX {
 
         // model-global weights
         let wte = tl.load("gpt_neox.embed_in.weight")?;
-        let ln_f_g = tl.load("gpt_neox.final_layer_norm.weight")?;
-        let ln_f_b = tl.load("gpt_neox.final_layer_norm.bias")?;
-        let lmh_g = tl.load("embed_out.weight")?;
+
+        let backend = params.backend(0);
+
+        let ln_f_g = tl
+            .load("gpt_neox.final_layer_norm.weight")?
+            .transfer_to(backend);
+        let ln_f_b = tl
+            .load("gpt_neox.final_layer_norm.bias")?
+            .transfer_to(backend);
+        let lmh_g = tl.load("embed_out.weight")?.transfer_to(backend);
 
         let mut layers = Vec::new();
         for i in 0..hyperparameters.n_layer {
+            let backend = params.backend(i);
             let layer = Layer {
-                ln_1_g: tl.load(&format!("gpt_neox.layers.{i}.input_layernorm.weight"))?,
-                ln_1_b: tl.load(&format!("gpt_neox.layers.{i}.input_layernorm.bias"))?,
+                ln_1_g: tl
+                    .load(&format!("gpt_neox.layers.{i}.input_layernorm.weight"))?
+                    .transfer_to(backend),
+                ln_1_b: tl
+                    .load(&format!("gpt_neox.layers.{i}.input_layernorm.bias"))?
+                    .transfer_to(backend),
 
-                c_attn_attn_w: tl.load(&format!(
-                    "gpt_neox.layers.{i}.attention.query_key_value.weight"
-                ))?,
-                c_attn_attn_b: tl.load(&format!(
-                    "gpt_neox.layers.{i}.attention.query_key_value.bias"
-                ))?,
+                c_attn_attn_w: tl
+                    .load(&format!(
+                        "gpt_neox.layers.{i}.attention.query_key_value.weight"
+                    ))?
+                    .transfer_to(backend),
+                c_attn_attn_b: tl
+                    .load(&format!(
+                        "gpt_neox.layers.{i}.attention.query_key_value.bias"
+                    ))?
+                    .transfer_to(backend),
 
-                c_attn_proj_w: tl.load(&format!("gpt_neox.layers.{i}.attention.dense.weight"))?,
-                c_attn_proj_b: tl.load(&format!("gpt_neox.layers.{i}.attention.dense.bias"))?,
+                c_attn_proj_w: tl
+                    .load(&format!("gpt_neox.layers.{i}.attention.dense.weight"))?
+                    .transfer_to(backend),
+                c_attn_proj_b: tl
+                    .load(&format!("gpt_neox.layers.{i}.attention.dense.bias"))?
+                    .transfer_to(backend),
 
-                ln_2_g: tl.load(&format!(
-                    "gpt_neox.layers.{i}.post_attention_layernorm.weight"
-                ))?,
-                ln_2_b: tl.load(&format!(
-                    "gpt_neox.layers.{i}.post_attention_layernorm.bias"
-                ))?,
+                ln_2_g: tl
+                    .load(&format!(
+                        "gpt_neox.layers.{i}.post_attention_layernorm.weight"
+                    ))?
+                    .transfer_to(backend),
+                ln_2_b: tl
+                    .load(&format!(
+                        "gpt_neox.layers.{i}.post_attention_layernorm.bias"
+                    ))?
+                    .transfer_to(backend),
 
-                c_mlp_fc_w: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.weight"))?,
-                c_mlp_fc_b: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.bias"))?,
+                c_mlp_fc_w: tl
+                    .load(&format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.weight"))?
+                    .transfer_to(backend),
+                c_mlp_fc_b: tl
+                    .load(&format!("gpt_neox.layers.{i}.mlp.dense_h_to_4h.bias"))?
+                    .transfer_to(backend),
 
-                c_mlp_proj_w: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.weight"))?,
-                c_mlp_proj_b: tl.load(&format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.bias"))?,
+                c_mlp_proj_w: tl
+                    .load(&format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.weight"))?
+                    .transfer_to(backend),
+                c_mlp_proj_b: tl
+                    .load(&format!("gpt_neox.layers.{i}.mlp.dense_4h_to_h.bias"))?
+                    .transfer_to(backend),
             };
 
             layers.push(layer);
@@ -142,7 +174,7 @@ impl KnownModel for GptNeoX {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
-            let ctx0 = builder.ctx0.borrow();
+            let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
             let (memory_k_size, memory_v_size) = (
@@ -150,9 +182,10 @@ impl KnownModel for GptNeoX {
                 builder.memory_v.element_size(),
             );
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
 
             for il in 0..n_layer {
+                ctx0.set_offloading(self.params.should_offload(il));
                 // attention uses first scratch buffer
                 ctx0.use_scratch(builder.get_scratch(0));
 
@@ -305,7 +338,7 @@ impl KnownModel for GptNeoX {
 
             // Disable the scratchbuffer
             ctx0.use_scratch(None);
-
+            ctx0.set_offloading(false);
             // apply language model head
             input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
 

@@ -21,6 +21,7 @@ pub mod util;
 pub mod accelerator;
 
 pub use context::{Context, ContextStorage};
+
 pub use tensor::Tensor;
 
 pub use ggml_sys as sys;
@@ -319,44 +320,32 @@ impl Drop for Buffer {
 
 /// A `ggml` computation graph. Keeps track of all state during computation.
 pub struct ComputationGraph {
-    inner: sys::ggml_cgraph,
+    inner: *mut sys::ggml_cgraph,
 }
 
 impl ComputationGraph {
-    /// Create a new [ComputationGraph] with the specified `n_threads`.
-    pub fn new() -> Self {
-        Self {
-            inner: sys::ggml_cgraph {
-                // SAFETY: This should be safe to zero. The original C++ impl
-                // just leaves it uninitialized
-                ..unsafe { std::mem::zeroed::<sys::ggml_cgraph>() }
-            },
-        }
+    /// Create a new [ComputationGraph] from a raw [sys::ggml_cgraph].
+    pub fn from_raw(raw_context: *mut sys::ggml_cgraph) -> Self {
+        Self { inner: raw_context }
     }
 
     /// Build this computational graph in the forward direction in preparation for computation.
     pub fn build_forward_expand(&mut self, tensor: &Tensor) {
-        unsafe { sys::ggml_build_forward_expand(&mut self.inner, tensor.ptr.as_ptr()) }
-    }
-}
-
-impl Default for ComputationGraph {
-    fn default() -> Self {
-        Self::new()
+        unsafe { sys::ggml_build_forward_expand(self.inner, tensor.ptr.as_ptr()) }
     }
 }
 
 /// A `ggml` execution plan. Contains the information needed to execute a computation graph.
 pub struct GraphExecutionPlan {
     inner: sys::ggml_cplan,
-    inner_graph: sys::ggml_cgraph,
+    inner_graph: *mut sys::ggml_cgraph,
 }
 
 impl GraphExecutionPlan {
     /// Create a new [GraphExecutionPlan] from a [ComputationGraph] and the number of threads to use.
     pub fn new(graph: &mut ComputationGraph, n_threads: usize) -> Self {
         Self {
-            inner: unsafe { sys::ggml_graph_plan(&mut graph.inner, usize_to_i32(n_threads)) },
+            inner: unsafe { sys::ggml_graph_plan(graph.inner, usize_to_i32(n_threads)) },
             inner_graph: graph.inner,
         }
     }
@@ -383,7 +372,7 @@ impl GraphExecutionPlan {
         self.assign_work_buffer(&mut work_buffer);
 
         unsafe {
-            sys::ggml_graph_compute(&mut self.inner_graph, &mut self.inner);
+            sys::ggml_graph_compute(self.inner_graph, &mut self.inner);
         }
     }
 }
@@ -501,4 +490,9 @@ pub fn cpu_has_blas() -> bool {
 /// Returns true if the current system has GPU BLAS support.
 pub fn cpu_has_gpublas() -> bool {
     unsafe { sys::ggml_cpu_has_gpublas() != 0 }
+}
+
+/// Returns the graph overhead in bytes.
+pub fn graph_overhead() -> usize {
+    unsafe { sys::ggml_graph_overhead() }
 }

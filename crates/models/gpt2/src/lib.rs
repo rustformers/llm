@@ -147,7 +147,7 @@ impl KnownModel for Gpt2 {
                 &ctx0.op_get_rows(&self.wpe, &position),
             );
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 ctx0.use_scratch(builder.get_scratch(0));
 

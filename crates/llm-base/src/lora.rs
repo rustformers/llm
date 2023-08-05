@@ -114,7 +114,7 @@ impl LoraAdapter {
 
         //Build a ggml context and apply the patch
 
-        let mut gf = ggml::ComputationGraph::new();
+        let mut gf = patch_context.create_compute_graph();
 
         // LoRA formula: w = w + ba*s
         let mut ba = patch_context.op_mul_mat(&a, &b);

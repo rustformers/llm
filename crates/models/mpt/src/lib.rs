@@ -123,7 +123,7 @@ impl KnownModel for Mpt {
 
             let f32_size = std::mem::size_of::<f32>();
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 // attention uses first scratch buffer
                 ctx0.use_scratch(builder.get_scratch(0));
