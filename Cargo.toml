@@ -32,6 +32,7 @@ clap = { version = "4.1.8", features = ["derive"] }
 memmap2 = "0.5.10"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = { version = "0.1", features = ["log"] }
+llm-samplers = "=0.0.6"
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]

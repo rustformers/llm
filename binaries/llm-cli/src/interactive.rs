@@ -125,7 +125,7 @@ fn initialize_common_state(
     let model = model_load.load(generate.use_gpu)?;
     Ok((
         generate.inference_session_config(),
-        generate.inference_parameters(model.eot_token_id()),
+        generate.inference_parameters(model.eot_token_id(), model.tokenizer().len())?,
         model,
         generate.rng(),
     ))

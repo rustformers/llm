@@ -1285,6 +1285,7 @@ dependencies = [
  "bytemuck",
  "ggml",
  "half",
+ "llm-samplers",
  "memmap2",
  "partial_sort",
  "rand",
@@ -1314,6 +1315,7 @@ dependencies = [
  "env_logger",
  "is-terminal",
  "llm",
+ "llm-samplers",
  "log",
  "num_cpus",
  "rand",
@@ -1371,6 +1373,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "llm-samplers"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7553f60d113c9cdc6a5402456a31cd9a273bef79f6f16d8a4f7b4bedf5f754b2"
+dependencies = [
+ "anyhow",
+ "num-traits",
+ "rand",
+ "thiserror",
+]
+
+[[package]]
 name = "llm-test"
 version = "0.2.0-dev"
 dependencies = [
@@ -1379,6 +1393,7 @@ dependencies = [
  "env_logger",
  "indicatif",
  "llm",
+ "llm-samplers",
  "log",
  "rand",
  "reqwest",
@@ -1569,6 +1584,15 @@ checksum = "77a8165726e8236064dbb45459242600304b42a5ea24ee2948e18e023bf7ba84"
 dependencies = [
  "overload",
  "winapi",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]

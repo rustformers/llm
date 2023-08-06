@@ -385,7 +385,13 @@ impl InferenceSession {
             return Err(InferenceError::ContextFull);
         }
 
-        let next_token = params.sampler.sample(&self.tokens, &self.last_logits, rng);
+        let next_token = crate::samplers::sample_token(
+            params.sampler.clone(),
+            rng,
+            &self.tokens,
+            self.last_logits.iter().copied(),
+        )
+        .map_err(InferenceError::SamplerFailure)?;
 
         // Update the tokens for this session
         self.tokens.push(next_token);
@@ -687,6 +693,9 @@ pub enum InferenceError {
     #[error("the user-specified callback returned an error")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error + Send + Sync>),
+    /// Sampling returned an error.
+    #[error("token sampling failed")]
+    SamplerFailure(crate::samplers::SamplingError),
 }
 
 #[derive(Error, Debug)]

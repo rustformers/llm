@@ -17,7 +17,7 @@ pub mod model;
 pub mod samplers;
 pub mod util;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub use ggml;
 pub use ggml::Type as ElementType;
@@ -28,6 +28,7 @@ pub use inference_session::{
     InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
     ModelKVMemoryType, RewindError, SnapshotError,
 };
+pub use llm_samplers::prelude::{Sampler, SamplerChain};
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, FormatMagic,
     LoadError, LoadProgress, Loader, TensorLoader,
@@ -37,7 +38,6 @@ pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
-pub use samplers::Sampler;
 pub use tokenizer::{
     InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Tokenizer, TokenizerLoadError,
     TokenizerSource,
@@ -57,9 +57,10 @@ pub struct InferenceParameters {
     /// from this distribution to generate the next token. Using a different sampler may
     /// change the output of the model, or control how deterministic the generated text is.
     ///
-    /// A recommended default sampler is [TopPTopK](samplers::TopPTopK), which is a standard
-    /// sampler that offers a [Default](samplers::TopPTopK::default) implementation.
-    pub sampler: Arc<dyn Sampler>,
+    /// This can be anything that implements [Sampler]. Refer to
+    /// the `llm-samplers` documentation for possible samplers and suggested
+    /// combinations: <https://docs.rs/llm-samplers>
+    pub sampler: Arc<Mutex<dyn Sampler<TokenId, f32>>>,
 }
 
 //Since Sampler implements Send and Sync, InferenceParameters should too.
@@ -69,7 +70,7 @@ unsafe impl Sync for InferenceParameters {}
 impl Default for InferenceParameters {
     fn default() -> Self {
         Self {
-            sampler: Arc::new(samplers::TopPTopK::default()),
+            sampler: samplers::default_samplers(),
         }
     }
 }

@@ -47,7 +47,9 @@ fn infer(args: &cli_args::Infer) -> eyre::Result<()> {
         args.load_session.as_deref(),
         inference_session_config,
     );
-    let parameters = args.generate.inference_parameters(model.eot_token_id());
+    let parameters = args
+        .generate
+        .inference_parameters(model.eot_token_id(), model.tokenizer().len())?;
 
     let mut rng = args.generate.rng();
 
@@ -93,6 +95,9 @@ fn infer(args: &cli_args::Infer) -> eyre::Result<()> {
             }
             Err(llm::InferenceError::TokenizationFailed(err)) => {
                 log::error!("A tokenization-related failure occurred: {}", err);
+            }
+            Err(llm::InferenceError::SamplerFailure(err)) => {
+                log::error!("A sampling-related failure occurred: {}", err);
             }
             Err(llm::InferenceError::UserCallback(_)) | Err(llm::InferenceError::EndOfText) => {
                 unreachable!("cannot fail")

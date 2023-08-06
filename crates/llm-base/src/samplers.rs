@@ -1,162 +1,366 @@
-//! Defines the samplers used for generation.
+//! Types and methods used for constructing and running
+//! the samplers used for generation.
 //!
-//! You can define your own [Sampler] by implementing the trait.
+//! The `llm-samplers` crate is also re-exported here for convenient use as `llm_samplers`.
 
-use std::fmt::Debug;
+use std::{
+    error::Error,
+    fmt,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
-use partial_sort::PartialSort;
-use rand::{distributions::WeightedIndex, prelude::Distribution};
+use thiserror::Error;
 
-use crate::{TokenBias, TokenId};
+pub use llm_samplers;
 
-/// A sampler for generation.
-pub trait Sampler: Debug + Send + Sync {
-    /// Given the previous tokens, the logits from the most recent evaluation, and a source of randomness,
-    /// sample from the logits and return the token ID.
-    fn sample(
-        &self,
-        previous_tokens: &[TokenId],
-        logits: &[f32],
-        rng: &mut dyn rand::RngCore,
-    ) -> TokenId;
+use llm_samplers::{configure::*, prelude::*};
+
+use crate::TokenId;
+
+#[derive(Debug, Error)]
+/// Errors related to constructing samplers from string definitions.
+pub enum SamplerConfigurationError {
+    #[error("An incompatible combination of samplers was requested: {0}")]
+    /// Not all combinations of samplers are valid. This error will be returned
+    /// when an invalid combination is specified.
+    SamplerCombinationError(String),
+
+    #[error("Error configuring sampler {name}: {err}")]
+    /// The sampler name was unknown or the options to it were invalid.
+    BuildSamplerError {
+        /// Name of the sampler that failed.
+        name: String,
+        /// The actual error.
+        err: Box<dyn Error + Send + Sync + 'static>,
+    },
 }
 
-/// Top-P Top-K sampling.
-///
-/// A standard sampler that uses top-K sampling (the top-K tokens with the highest
-/// probability are considered) and top-P sampling (only tokens with a cumulative
-/// probability of `P` are considered).
-///
-/// It also implements [CTRL](https://arxiv.org/abs/1909.05858)'s repetition penalty,
-/// and the ability to bias the generation of individual tokens.
-#[derive(Clone, Debug)]
-pub struct TopPTopK {
-    /// The top K words by score are kept during sampling.
-    pub top_k: usize,
-    /// The cumulative probability after which no more words are kept for sampling.
-    pub top_p: f32,
-    /// The penalty for repeating tokens. Higher values make the generation less
-    /// likely to get into a loop, but may harm results when repetitive outputs
-    /// are desired.
-    pub repeat_penalty: f32,
-    /// Temperature (randomness) used for sampling. A higher number is more random.
-    pub temperature: f32,
-    /// A list of tokens to bias against in the process of generation.
-    pub bias_tokens: TokenBias,
-    /// The number of tokens to consider for the repetition penalty.
-    pub repetition_penalty_last_n: usize,
+#[derive(Debug, Error)]
+/// Errors that occured during sampling.
+pub enum SamplingError {
+    #[error("Sampling failed to produce a token")]
+    /// Sampling didn't produce a token.
+    NoToken,
+
+    #[error("An error occured constructing logits for sampling: {0}")]
+    /// Constructing logits failed. This can usually only happen if a logit is NaN.
+    LogitsError(Box<dyn Error + Send + Sync + 'static>),
+
+    #[error("An internal error occured during sampling: {0}")]
+    /// Sampling failed.
+    InternalSamplingError(Box<dyn Error + Send + Sync + 'static>),
 }
-impl Default for TopPTopK {
+
+#[derive(Debug)]
+/// Used for configuring samplers dynamically from string definitions.
+/// For example, commandline arguments. Constructing this structure manually is
+/// not recommended. Use the [build_sampler] function or the [FromStr] instance
+/// to ensure a valid configuration.
+pub struct ConfiguredSamplers {
+    /// A builder from the `llm-samplers` crate.
+    pub builder: SamplerChainBuilder,
+    /// Mirostat 1 is present.
+    pub mirostat1: bool,
+    /// Mirostat 2 is present.
+    pub mirostat2: bool,
+    /// Samplers incompatible with Mirostat 1 and 2 are present.
+    pub incompat_mirostat: bool,
+}
+
+/// Construct a default instance of the structure. The `builder`
+/// field contains a list of slots that may be optional.
+///
+/// We call a configuration of samplers that run in a certain order a "chain".
+/// Here is a description of the default chain `llm` uses:
+///
+/// 1. Repetition (present by default, multiple allowed)
+/// 2. Frequency/Presence (optional, multiple allowed)
+/// 3. Sequence Repetition (optional, multiple allowed)
+/// 4. Top-K (present by default - incompatible with Mirostat)
+/// 5. Tail Free (optional - incompatible with Mirostat)
+/// 6. Locally Typical (optional - incompatible with Mirostat)
+/// 7. Top-P (present by default - incompatible with Mirostat)
+/// 8. Temperature (present by default)
+/// 9. A Mirostat 1 or 2 sampler if configured, otherwise Random Distribution.
+///
+/// Samplers listed as "present by default" but incompatible with Mirostat will
+/// only be enabled by default if there is no Mirostat sampler enabled.
+///
+/// It's worth mentioning that "present by default" samplers that allow multiple instances
+/// will add at least one entry if the user didn't specify the sampler. If they _did_ specify
+/// it then no extra "default" sampler of that type will be added. So, for example,
+/// if you wanted both the default Repetition sampler _and_ one with custom options, you'd
+/// need to configure the Repetition sampler twice.
+impl Default for ConfiguredSamplers {
     fn default() -> Self {
         Self {
-            top_k: 40,
-            top_p: 0.95,
-            repeat_penalty: 1.30,
-            temperature: 0.80,
-            bias_tokens: TokenBias::empty(),
-            repetition_penalty_last_n: 512,
+            builder: SamplerChainBuilder::from([
+                (
+                    "repetition",
+                    SamplerSlot::new_chain(
+                        || Box::new(SampleRepetition::default().penalty(1.30).last_n(64)),
+                        [],
+                    ),
+                ),
+                (
+                    "freqpresence",
+                    SamplerSlot::new_chain(
+                        || Box::new(SampleFreqPresence::default().last_n(64)),
+                        [],
+                    ),
+                ),
+                (
+                    "seqrepetition",
+                    SamplerSlot::new_chain(|| Box::<SampleSeqRepetition>::default(), []),
+                ),
+                (
+                    "topk",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTopK::default().k(40)),
+                        Option::<SampleTopK>::None,
+                    ),
+                ),
+                (
+                    "tailfree",
+                    SamplerSlot::new_single(
+                        || Box::<SampleTailFree>::default(),
+                        Option::<SampleTailFree>::None,
+                    ),
+                ),
+                (
+                    "locallytypical",
+                    SamplerSlot::new_single(
+                        || Box::<SampleLocallyTypical>::default(),
+                        Option::<SampleLocallyTypical>::None,
+                    ),
+                ),
+                (
+                    "topp",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTopP::default().p(0.95)),
+                        Option::<SampleTopP>::None,
+                    ),
+                ),
+                (
+                    "temperature",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTemperature::default().temperature(0.8)),
+                        Option::<SampleTemperature>::None,
+                    ),
+                ),
+                (
+                    "mirostat1",
+                    SamplerSlot::new_single(
+                        || Box::<SampleMirostat1>::default(),
+                        Option::<SampleMirostat1>::None,
+                    ),
+                ),
+                (
+                    "mirostat2",
+                    SamplerSlot::new_single(
+                        || Box::<SampleMirostat2>::default(),
+                        Option::<SampleMirostat2>::None,
+                    ),
+                ),
+            ]),
+            mirostat1: false,
+            mirostat2: false,
+            incompat_mirostat: false,
         }
     }
 }
-impl Sampler for TopPTopK {
-    fn sample(
-        &self,
-        previous_tokens: &[TokenId],
-        logits: &[f32],
-        rng: &mut dyn rand::RngCore,
-    ) -> TokenId {
-        let Self {
-            top_k,
-            top_p,
-            repeat_penalty,
-            temperature,
-            repetition_penalty_last_n,
-            ..
-        } = *self;
-        let bias_tokens = &self.bias_tokens;
 
-        let n_logits = logits.len();
-        let mut logits_id = Vec::<(f32, TokenId)>::with_capacity(n_logits);
+impl ConfiguredSamplers {
+    /// Ensures the default slots are populated after processing options.
+    /// Currently this is: temperature and repetition samplers
+    /// Then if neither Mirostat 1 or 2 are enabled: top-p and top-k.
+    pub fn ensure_default_slots(&mut self) {
+        self.builder.iter_mut().for_each(|(name, slot)| {
+            let mirostat = self.mirostat1 || self.mirostat2;
+            match name as &str {
+                "temperature" | "repetition" => slot.ensure_present(),
+                "topp" | "topk" if !mirostat => slot.ensure_present(),
+                _ => (),
+            }
+        });
 
-        // TODO: consider if this can be modularized and this sampler can be composed out of multiple pieces,
-        // instead of having this monolithic function that embeds the repetition penalty and token bias
-        {
-            let scale = 1.0 / temperature;
-            for (i, &logit) in logits.iter().enumerate() {
-                let tid = i as TokenId;
+        if !(self.mirostat1 || self.mirostat2) {
+            self.builder += (
+                "randdistrib".to_string(),
+                SamplerSlot::new_static(|| Box::<SampleRandDistrib>::default()),
+            )
+        }
+    }
 
-                let val = if let Some(logit_override) = bias_tokens.get(tid) {
-                    logit_override
-                } else if previous_tokens[previous_tokens
-                    .len()
-                    .saturating_sub(repetition_penalty_last_n)..]
-                    .contains(&(i as TokenId))
-                {
-                    // repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
-                    // credit https://github.com/facebookresearch/llama/compare/main...shawwn:llama:main
+    /// Ensure that the configured samplers are compatible with each other.
+    /// For example, if Mirostat 1 and Mirostat 2 are enabled, this would
+    /// be invalid.
+    pub fn ensure_valid(&self) -> Result<(), SamplerConfigurationError> {
+        if self.mirostat1 && self.mirostat2 {
+            Err(SamplerConfigurationError::SamplerCombinationError(
+                "Cannot enable both Mirostat 1 and Mirostat 2 samplers".to_string(),
+            ))?
+        } else if (self.mirostat1 || self.mirostat2) && self.incompat_mirostat {
+            Err(SamplerConfigurationError::SamplerCombinationError(
+                "Cannot enable top-p, top-k, locally typical or tail free samplers with Mirostat 1 or 2".to_string(),
+            ))?
+        }
+        Ok(())
+    }
+}
 
-                    // if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
-                    if logits[i] < 0.0 {
-                        logit * scale * repeat_penalty
-                    } else {
-                        logit * scale / repeat_penalty
-                    }
+/// The structure is generally build from a string definition.
+/// Configuring as individual sampler takes the form `sampler_name:key1=value1:key2=value2`.
+/// Underscore and dash are ignored when comparing sampler names and comparison is
+/// case-insensitive. A partial key name may be specified as long as it's not ambiguous.
+/// If the sampler only has one option (for example Temperature) the key and equals sign can
+/// be left out entirely.
+///
+/// Separate multiple sampler configuration strings with space or forward slash.
+/// Blank entries are allowed.
+impl FromStr for ConfiguredSamplers {
+    type Err = SamplerConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut result = Self::default();
+
+        let s = s.trim().to_lowercase();
+        let opts = s
+            .split(|c: char| c == '/' || c.is_whitespace())
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                if let Some((name, opts)) = s.split_once(':') {
+                    (
+                        name.trim()
+                            .chars()
+                            .filter(|c| *c != '_' && *c != '-')
+                            .collect(),
+                        opts.trim(),
+                    )
                 } else {
-                    logit * scale
-                };
-                logits_id.push((val, tid));
-            }
-        }
-
-        // find the top K tokens
-        {
-            logits_id.partial_sort(top_k, |a, b| {
-                // Sort descending
-                b.0.total_cmp(&a.0)
-            });
-            logits_id.truncate(top_k);
-        }
-
-        let maxl = logits_id
-            .iter()
-            .map(|x| x.0)
-            .max_by(f32::total_cmp)
-            .unwrap();
-
-        // compute probs for the top K tokens
-        let mut probs: Vec<f32> = logits_id
-            .iter()
-            .copied()
-            .map(|(k, _)| (k - maxl).exp())
-            .collect();
-        let sum: f32 = probs.iter().copied().sum();
-
-        // Normalize the probs
-        for p in probs.iter_mut() {
-            *p /= sum;
-        }
-
-        // Top p sampling
-        if top_p < 1.0 {
-            let mut cumsum = 0.0;
-            for i in 0..probs.len() {
-                cumsum += probs[i];
-                if cumsum >= top_p {
-                    probs.truncate(i + 1);
-                    logits_id.truncate(i + 1);
-                    break;
+                    (s.trim().to_string(), "")
                 }
-            }
+            })
+            .inspect(|(name, _slot)| match name.as_str() {
+                "mirostat1" => result.mirostat1 = true,
+                "mirostat2" => result.mirostat2 = true,
+                "topp" | "topk" | "locallytypical" | "tailfree" => result.incompat_mirostat = true,
+                _ => (),
+            })
+            .collect::<Vec<_>>();
 
-            cumsum = 1.0 / cumsum;
-            for p in probs.iter_mut() {
-                *p *= cumsum;
-            }
-        }
+        opts.into_iter().try_for_each(|(name, args)| {
+            result.builder.configure(&name, args).map_err(|err| {
+                SamplerConfigurationError::BuildSamplerError {
+                    name: name.to_string(),
+                    err: err.into(),
+                }
+            })
+        })?;
 
-        let dist = WeightedIndex::new(&probs).expect("WeightedIndex error");
-        let idx = dist.sample(rng);
+        result.ensure_default_slots();
+        result.ensure_valid()?;
 
-        logits_id[idx].1
+        Ok(result)
+    }
+}
+
+/// Sample a token. This convenience function handles building
+/// the sampler resources and logits objects the sampler needs.
+pub fn sample_token(
+    mut sampler: impl Sampler<TokenId, f32>,
+    rng: &mut impl rand::Rng,
+    previous_tokens: &[TokenId],
+    last_logits: impl IntoIterator<Item = f32>,
+) -> Result<TokenId, SamplingError> {
+    Logits::try_from_iter(last_logits.into_iter())
+        .map_err(|err| SamplingError::LogitsError(err.into()))?
+        .sample_token(
+            &mut SamplerResources {
+                previous_tokens,
+                rng,
+            },
+            &mut sampler,
+        )
+        .map_err(|err| SamplingError::InternalSamplingError(err.into()))?
+        .ok_or_else(|| SamplingError::NoToken)
+}
+
+/// Build a sampler object with the supplied options, vocab size and token bias list.
+///
+/// Note that this is just a convenience function for building a sampler from
+/// string definitions such as commandline arguments. The only limit on constructing
+/// your own samplers is your sampler or samplers must implement the [Sampler] trait
+/// from the `llm-samplers` crate.
+pub fn build_sampler(
+    n_vocab: usize,
+    bias: &[(TokenId, f32)],
+    args: &[impl AsRef<str>],
+) -> Result<Arc<Mutex<dyn Sampler<TokenId, f32>>>, SamplerConfigurationError> {
+    let mut samplers = SamplerChain::new();
+
+    if !bias.is_empty() {
+        samplers += SampleFlatBias::new(bias.iter().copied());
+    }
+
+    let sampler_options = args
+        .iter()
+        .map(|s| s.as_ref().trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| "/".to_string() + s)
+        .collect::<String>();
+
+    let mut configured_samplers = ConfiguredSamplers::from_str(&sampler_options)?;
+    if configured_samplers.mirostat1 {
+        configured_samplers
+            .builder
+            .configure("mirostat1", format!("n_vocab={n_vocab}"))
+            .map_err(|err| SamplerConfigurationError::BuildSamplerError {
+                name: "mirostat1".to_string(),
+                err: err.into(),
+            })?;
+    }
+    samplers += configured_samplers.builder.into_chain();
+    Ok(Arc::new(Mutex::new(samplers)))
+}
+
+/// Get the default sampler chain.
+pub fn default_samplers() -> Arc<Mutex<dyn Sampler<TokenId, f32>>> {
+    let mut result = ConfiguredSamplers::default();
+    result.ensure_default_slots();
+    Arc::new(Mutex::new(result.builder.into_chain()))
+}
+
+// Structure used to temporarily hold resources for the `llm-samplers`
+// sampler.
+struct SamplerResources<'pt, 'r> {
+    previous_tokens: &'pt [TokenId],
+    rng: &'r mut dyn rand::RngCore,
+}
+
+impl<'pt, 'r> fmt::Debug for SamplerResources<'pt, 'r> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SamplerResources")
+            .field("previous_tokens", &self.previous_tokens)
+            .field("rng", &"<dyn RngCore>")
+            .finish()
+    }
+}
+
+impl<'pt, 'r> HasSamplerResources for SamplerResources<'pt, 'r> {
+    type TokenId = TokenId;
+
+    fn with_rng_mut(
+        &mut self,
+        fun: &mut dyn FnMut(&mut dyn rand::RngCore),
+    ) -> Result<(), SamplerError> {
+        fun(self.rng);
+        Ok(())
+    }
+
+    fn with_last_tokens(&self, fun: &mut dyn FnMut(&[Self::TokenId])) -> Result<(), SamplerError> {
+        fun(self.previous_tokens);
+        Ok(())
     }
 }
