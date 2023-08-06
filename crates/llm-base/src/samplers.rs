@@ -8,234 +8,168 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use llm_samplers::prelude::*;
+use llm_samplers::{configure::*, prelude::*};
 
 use crate::TokenId;
 
-/// This structure holds specific samplers that have already
-/// been configured and provides some convenience methods
-/// for constructing samplers with default settings.
-#[derive(Debug, Default, Clone)]
-pub struct ConfiguredSamplers {
-    bias: Option<SampleFlatBias<TokenId, f32>>,
-    repetition: Option<SampleRepetition<TokenId, f32>>,
-    freq_presence: Option<SampleFreqPresence<TokenId, f32>>,
-    top_k: Option<SampleTopK>,
-    tail_free: Option<SampleTailFree<f32>>,
-    locally_typical: Option<SampleLocallyTypical<f32>>,
-    top_p: Option<SampleTopP<f32>>,
-    temperature: Option<SampleTemperature<f32>>,
-    mirostat1: Option<SampleMirostat1<TokenId, f32>>,
-    mirostat2: Option<SampleMirostat2<TokenId, f32>>,
+#[derive(Debug)]
+struct ConfiguredSamplers {
+    builder: SamplerChainBuilder,
+    mirostat1: bool,
+    mirostat2: bool,
+    incompat_mirostat: bool,
 }
 
-impl ConfiguredSamplers {
-    /// Sets the token bias list
-    pub fn set_token_bias(&mut self, bias: impl IntoIterator<Item = (TokenId, f32)>) {
-        self.bias = Some(SampleFlatBias::new(bias))
-    }
-
-    /// Creates a temperature new sampler with default options.
-    pub fn new_temperature() -> SampleTemperature<f32> {
-        SampleTemperature::default().temperature(0.8)
-    }
-
-    /// Creates a new repetition sampler with default options.
-    pub fn new_repetition() -> SampleRepetition<TokenId, f32> {
-        SampleRepetition::default().penalty(1.30).last_n(64)
-    }
-
-    /// Creates a new frequency/presence sampler with default options.
-    pub fn new_freq_presence() -> SampleFreqPresence<TokenId, f32> {
-        SampleFreqPresence::default()
-            .frequency(0.0)
-            .presence(0.0)
-            .last_n(64)
-    }
-
-    /// Creates a new top k sampler with default options.
-    pub fn new_top_k() -> SampleTopK {
-        SampleTopK::default().k(40)
-    }
-
-    /// Creates a new top p sampler with default options.
-    pub fn new_top_p() -> SampleTopP<f32> {
-        SampleTopP::default().p(0.95)
-    }
-
-    /// Creates a new tail free sampler with default options.
-    pub fn new_tail_free() -> SampleTailFree<f32> {
-        SampleTailFree::default().z(1.0)
-    }
-
-    /// Creates a new locally typical sampler with default options.
-    pub fn new_locally_typical() -> SampleLocallyTypical<f32> {
-        SampleLocallyTypical::default().p(1.0)
-    }
-
-    /// Creates a new mirostat 1 sampler with default options.
-    pub fn new_mirostat1() -> SampleMirostat1<TokenId, f32> {
-        SampleMirostat1::default().eta(0.1).tau(5.0)
-    }
-
-    /// Creates a new mirostat 2 sampler with default options.
-    pub fn new_mirostat2() -> SampleMirostat2<TokenId, f32> {
-        SampleMirostat2::default().eta(0.1).tau(5.0)
-    }
-}
-
-impl From<ConfiguredSamplers> for SamplerChain<TokenId, f32> {
-    fn from(val: ConfiguredSamplers) -> Self {
-        let mut chain = SamplerChain::new();
-
-        if let Some(sampler) = val.bias {
-            chain += sampler;
+impl Default for ConfiguredSamplers {
+    fn default() -> Self {
+        Self {
+            builder: SamplerChainBuilder::from([
+                (
+                    "repetition",
+                    SamplerSlot::new_chain(
+                        || Box::new(SampleRepetition::default().penalty(1.30).last_n(64)),
+                        [],
+                    ),
+                ),
+                (
+                    "freqpresence",
+                    SamplerSlot::new_chain(
+                        || Box::new(SampleFreqPresence::default().last_n(64)),
+                        [],
+                    ),
+                ),
+                (
+                    "seqrepetition",
+                    SamplerSlot::new_chain(|| Box::<SampleSeqRepetition>::default(), []),
+                ),
+                (
+                    "topk",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTopK::default().k(40)),
+                        Option::<SampleTopK>::None,
+                    ),
+                ),
+                (
+                    "tailfree",
+                    SamplerSlot::new_single(
+                        || Box::<SampleTailFree>::default(),
+                        Option::<SampleTailFree>::None,
+                    ),
+                ),
+                (
+                    "locallytypical",
+                    SamplerSlot::new_single(
+                        || Box::<SampleLocallyTypical>::default(),
+                        Option::<SampleLocallyTypical>::None,
+                    ),
+                ),
+                (
+                    "topp",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTopP::default().p(0.95)),
+                        Option::<SampleTopP>::None,
+                    ),
+                ),
+                (
+                    "temperature",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTemperature::default().temperature(0.8)),
+                        Option::<SampleTemperature>::None,
+                    ),
+                ),
+                (
+                    "mirostat1",
+                    SamplerSlot::new_single(
+                        || Box::<SampleMirostat1>::default(),
+                        Option::<SampleMirostat1>::None,
+                    ),
+                ),
+                (
+                    "mirostat2",
+                    SamplerSlot::new_single(
+                        || Box::<SampleMirostat2>::default(),
+                        Option::<SampleMirostat2>::None,
+                    ),
+                ),
+            ]),
+            mirostat1: false,
+            mirostat2: false,
+            incompat_mirostat: false,
         }
-        if let Some(sampler) = val.repetition {
-            chain += sampler;
-        }
-        if let Some(sampler) = val.freq_presence {
-            chain += sampler;
-        }
-
-        if let Some(mirosampler) = val.mirostat1 {
-            if let Some(sampler) = val.temperature {
-                chain += sampler;
-            }
-            chain += mirosampler;
-            return chain;
-        } else if let Some(mirosampler) = val.mirostat2 {
-            if let Some(sampler) = val.temperature {
-                chain += sampler;
-            }
-            chain += mirosampler;
-            return chain;
-        }
-
-        if let Some(sampler) = val.top_k {
-            chain += sampler;
-        }
-        if let Some(sampler) = val.tail_free {
-            chain += sampler;
-        }
-        if let Some(sampler) = val.locally_typical {
-            chain += sampler;
-        }
-        if let Some(sampler) = val.top_p {
-            chain += sampler;
-        }
-        if let Some(sampler) = val.temperature {
-            chain += sampler;
-        }
-        chain += SampleRandDistrib::new();
-        chain
     }
 }
 
 impl ConfiguredSamplers {
-    fn from_args(args: Vec<ConfiguredSampler>, n_vocab: usize) -> Self {
-        let mut result = Self::default();
-
-        args.into_iter().for_each(|arg| match arg {
-            ConfiguredSampler::Repetition(sampler) => result.repetition = Some(sampler),
-            ConfiguredSampler::FreqPresence(sampler) => result.freq_presence = Some(sampler),
-            ConfiguredSampler::TopK(sampler) => result.top_k = Some(sampler),
-            ConfiguredSampler::TailFree(sampler) => result.tail_free = Some(sampler),
-            ConfiguredSampler::LocallyTypical(sampler) => result.locally_typical = Some(sampler),
-            ConfiguredSampler::TopP(sampler) => result.top_p = Some(sampler),
-            ConfiguredSampler::Temperature(sampler) => result.temperature = Some(sampler),
-            ConfiguredSampler::Mirostat1(sampler) => {
-                result.mirostat1 = Some(sampler.n_vocab(n_vocab))
+    pub fn ensure_default_slots(&mut self) {
+        self.builder.iter_mut().for_each(|(name, slot)| {
+            let mirostat = self.mirostat1 || self.mirostat2;
+            match name as &str {
+                "temperature" | "repetition" => slot.ensure_present(),
+                "topp" | "topk" if !mirostat => slot.ensure_present(),
+                _ => (),
             }
-            ConfiguredSampler::Mirostat2(sampler) => result.mirostat2 = Some(sampler),
         });
 
-        if result.temperature.is_none() {
-            result.temperature = Some(ConfiguredSamplers::new_temperature())
+        if !(self.mirostat1 || self.mirostat2) {
+            self.builder += (
+                "randdistrib".to_string(),
+                SamplerSlot::new_static(|| Box::<SampleRandDistrib>::default()),
+            )
         }
-        if result.repetition.is_none() {
-            result.repetition = Some(ConfiguredSamplers::new_repetition())
-        }
-        if result.mirostat1.is_some() || result.mirostat2.is_some() {
-            return result;
-        }
+    }
 
-        if result.top_k.is_none() {
-            result.top_k = Some(ConfiguredSamplers::new_top_k())
+    pub fn ensure_valid(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.mirostat1 && self.mirostat2 {
+            Err(Box::<dyn Error + Send + Sync>::from(
+                "Cannot enable both Mirostat 1 and Mirostat 2 samplers",
+            ))?
+        } else if (self.mirostat1 || self.mirostat2) && self.incompat_mirostat {
+            Err(Box::<dyn Error + Send + Sync>::from(
+                "Cannot enable top-p, top-k, locally typical or tail free samplers with Mirostat 1 or 2",
+            ))?
         }
-        if result.top_p.is_none() {
-            result.top_p = Some(ConfiguredSamplers::new_top_p())
-        }
-        result
+        Ok(())
     }
 }
 
-/// A specific type of sampler that has been configured
-#[derive(Clone, Debug)]
-pub enum ConfiguredSampler {
-    /// Holds the configured sampler
-    Repetition(SampleRepetition<TokenId, f32>),
-    /// Holds the configured sampler
-    FreqPresence(SampleFreqPresence<TokenId, f32>),
-    /// Holds the configured sampler
-    TopK(SampleTopK),
-    /// Holds the configured sampler
-    TailFree(SampleTailFree<f32>),
-    /// Holds the configured sampler
-    LocallyTypical(SampleLocallyTypical<f32>),
-    /// Holds the configured sampler
-    TopP(SampleTopP<f32>),
-    /// Holds the configured sampler
-    Temperature(SampleTemperature<f32>),
-    /// Holds the configured sampler
-    Mirostat1(SampleMirostat1<TokenId, f32>),
-    /// Holds the configured sampler
-    Mirostat2(SampleMirostat2<TokenId, f32>),
-}
-
-impl FromStr for ConfiguredSampler {
+impl FromStr for ConfiguredSamplers {
     type Err = Box<dyn Error + Send + Sync + 'static>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (name, args) = if let Some(val) = s.split_once(':') {
-            val
-        } else {
-            return Err(Box::from("Bad format for sampler argument"));
-        };
+        let mut result = Self::default();
 
-        Ok(match name.trim() {
-            "repetition" => ConfiguredSamplers::new_repetition()
-                .configure(args)
-                .map(Self::Repetition)?,
-            "frequency" | "presence" | "freqpresence" => ConfiguredSamplers::new_freq_presence()
-                .configure(args)
-                .map(Self::FreqPresence)?,
-            "topk" | "top_k" => {
-                ConfigurableSampler::<_, f32>::configure(ConfiguredSamplers::new_top_k(), args)
-                    .map(Self::TopK)?
-            }
-            "topp" | "top_p" => ConfiguredSamplers::new_top_p()
-                .configure(args)
-                .map(Self::TopP)?,
-            "temperature" | "temp" => ConfigurableSampler::<TokenId, _>::configure(
-                ConfiguredSamplers::new_temperature(),
-                args,
-            )
-            .map(Self::Temperature)?,
-            "tailfree" | "tail_free" => ConfiguredSamplers::new_tail_free()
-                .configure(args)
-                .map(Self::TailFree)?,
-            "locallytypical" | "locally_typical" => ConfiguredSamplers::new_locally_typical()
-                .configure(args)
-                .map(Self::LocallyTypical)?,
-            "mirostat1" => ConfiguredSamplers::new_mirostat1()
-                .configure(args)
-                .map(Self::Mirostat1)?,
-            "mirostat2" => ConfiguredSamplers::new_mirostat2()
-                .configure(args)
-                .map(Self::Mirostat2)?,
-            unknown => return Err(Box::from(format!("Unknown sampler: {unknown}"))),
-        })
+        let s = s.trim().to_lowercase();
+        let opts = s
+            .split(|c: char| c == '/' || c.is_whitespace())
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                if let Some((name, opts)) = s.split_once(':') {
+                    (
+                        name.trim()
+                            .chars()
+                            .filter(|c| *c != '_' && *c != '-')
+                            .collect(),
+                        opts.trim(),
+                    )
+                } else {
+                    (s.trim().to_string(), "")
+                }
+            })
+            .inspect(|(name, _slot)| match name.as_str() {
+                "mirostat1" => result.mirostat1 = true,
+                "mirostat2" => result.mirostat2 = true,
+                "topp" | "topk" | "locallytypical" | "tailfree" => result.incompat_mirostat = true,
+                _ => (),
+            })
+            .collect::<Vec<_>>();
+
+        opts.into_iter()
+            .try_for_each(|(name, args)| result.builder.configure(name, args))?;
+
+        result.ensure_default_slots();
+        result.ensure_valid()?;
+
+        Ok(result)
     }
 }
 
@@ -259,17 +193,37 @@ pub fn sample_token(
 }
 
 /// Build a sampler with the supplied options, vocab size and token bias list.
+#[allow(clippy::type_complexity)]
 pub fn build_sampler(
     n_vocab: usize,
     bias: &[(TokenId, f32)],
-    args: Vec<ConfiguredSampler>,
-) -> Arc<Mutex<dyn Sampler<TokenId, f32>>> {
-    let mut settings = ConfiguredSamplers::from_args(args, n_vocab);
+    args: &[impl AsRef<str>],
+) -> Result<Arc<Mutex<dyn Sampler<TokenId, f32>>>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut samplers = SamplerChain::new();
+
     if !bias.is_empty() {
-        settings.set_token_bias(bias.iter().copied())
+        samplers += SampleFlatBias::new(bias.iter().copied());
     }
-    let chain: SamplerChain<TokenId, f32> = settings.into();
-    Arc::new(Mutex::new(chain))
+
+    let mut sampler_options = args
+        .iter()
+        .map(|s| s.as_ref().trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| "/".to_string() + s)
+        .collect::<String>();
+    if sampler_options.contains("/mirostat1") {
+        sampler_options += &format!("/mirostat1:n_vocab={n_vocab}");
+    }
+    let configured_samplers = ConfiguredSamplers::from_str(&sampler_options)?.builder;
+    samplers += configured_samplers.into_chain();
+    Ok(Arc::new(Mutex::new(samplers)))
+}
+
+/// Get the default sampler chain.
+pub fn default_samplers() -> Arc<Mutex<dyn Sampler<TokenId, f32>>> {
+    let mut result = ConfiguredSamplers::default();
+    result.ensure_default_slots();
+    Arc::new(Mutex::new(result.builder.into_chain()))
 }
 
 // Struct used to temporarily hold resources for the `llm_samplers`

@@ -69,10 +69,8 @@ unsafe impl Sync for InferenceParameters {}
 
 impl Default for InferenceParameters {
     fn default() -> Self {
-        let chain: SamplerChain<TokenId, f32> =
-            crate::samplers::ConfiguredSamplers::default().into();
         Self {
-            sampler: Arc::new(Mutex::new(chain)),
+            sampler: samplers::default_samplers(),
         }
     }
 }
