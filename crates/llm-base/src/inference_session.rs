@@ -695,7 +695,7 @@ pub enum InferenceError {
     UserCallback(Box<dyn std::error::Error + Send + Sync>),
     /// Sampling returned an error.
     #[error("token sampling failed")]
-    SamplerFailure(Box<dyn std::error::Error + Send + Sync>),
+    SamplerFailure(crate::samplers::SamplingError),
 }
 
 #[derive(Error, Debug)]
