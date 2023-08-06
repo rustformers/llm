@@ -49,7 +49,7 @@ fn infer(args: &cli_args::Infer) -> eyre::Result<()> {
     );
     let parameters = args
         .generate
-        .inference_parameters(model.eot_token_id(), model.tokenizer().len());
+        .inference_parameters(model.eot_token_id(), model.tokenizer().len())?;
 
     let mut rng = args.generate.rng();
 
