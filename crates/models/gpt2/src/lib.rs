@@ -56,30 +56,57 @@ impl KnownModel for Gpt2 {
         let mut tl = tensor_loader;
 
         // model-global weights
-        let ln_f_g = tl.load("model/ln_f/g")?;
-        let ln_f_b = tl.load("model/ln_f/b")?;
-        let wte = tl.load("model/wte")?;
         let wpe = tl.load("model/wpe")?;
+
+        let backend = params.backend(0);
+
+        let wte = tl.load("model/wte")?.transfer_to(backend);
+
+        let ln_f_g = tl.load("model/ln_f/g")?.transfer_to(backend);
+        let ln_f_b = tl.load("model/ln_f/b")?.transfer_to(backend);
 
         // GPT-2's language model head is optional; if it is not present,
         // the `wte` tensor is used instead.
-        let lm_head = tl.load("model/lm_head").ok();
+        let lm_head = {
+            if let Ok(tensor) = tl.load("model/lm_head") {
+                Some(tensor.transfer_to(backend))
+            } else {
+                None
+            }
+        };
 
         let mut layers = Vec::new();
         for i in 0..hyperparameters.n_layer {
+            let backend = params.backend(i);
             let layer = Layer {
-                ln_1_g: tl.load(&format!("model/h{i}/ln_1/g"))?,
-                ln_1_b: tl.load(&format!("model/h{i}/ln_1/b"))?,
-                ln_2_g: tl.load(&format!("model/h{i}/ln_2/g"))?,
-                ln_2_b: tl.load(&format!("model/h{i}/ln_2/b"))?,
-                c_attn_attn_w: tl.load(&format!("model/h{i}/attn/c_attn/w"))?,
-                c_attn_attn_b: tl.load(&format!("model/h{i}/attn/c_attn/b"))?,
-                c_attn_proj_w: tl.load(&format!("model/h{i}/attn/c_proj/w"))?,
-                c_attn_proj_b: tl.load(&format!("model/h{i}/attn/c_proj/b"))?,
-                c_mlp_fc_w: tl.load(&format!("model/h{i}/mlp/c_fc/w"))?,
-                c_mlp_fc_b: tl.load(&format!("model/h{i}/mlp/c_fc/b"))?,
-                c_mlp_proj_w: tl.load(&format!("model/h{i}/mlp/c_proj/w"))?,
-                c_mlp_proj_b: tl.load(&format!("model/h{i}/mlp/c_proj/b"))?,
+                ln_1_g: tl.load(&format!("model/h{i}/ln_1/g"))?.transfer_to(backend),
+                ln_1_b: tl.load(&format!("model/h{i}/ln_1/b"))?.transfer_to(backend),
+                ln_2_g: tl.load(&format!("model/h{i}/ln_2/g"))?.transfer_to(backend),
+                ln_2_b: tl.load(&format!("model/h{i}/ln_2/b"))?.transfer_to(backend),
+                c_attn_attn_w: tl
+                    .load(&format!("model/h{i}/attn/c_attn/w"))?
+                    .transfer_to(backend),
+                c_attn_attn_b: tl
+                    .load(&format!("model/h{i}/attn/c_attn/b"))?
+                    .transfer_to(backend),
+                c_attn_proj_w: tl
+                    .load(&format!("model/h{i}/attn/c_proj/w"))?
+                    .transfer_to(backend),
+                c_attn_proj_b: tl
+                    .load(&format!("model/h{i}/attn/c_proj/b"))?
+                    .transfer_to(backend),
+                c_mlp_fc_w: tl
+                    .load(&format!("model/h{i}/mlp/c_fc/w"))?
+                    .transfer_to(backend),
+                c_mlp_fc_b: tl
+                    .load(&format!("model/h{i}/mlp/c_fc/b"))?
+                    .transfer_to(backend),
+                c_mlp_proj_w: tl
+                    .load(&format!("model/h{i}/mlp/c_proj/w"))?
+                    .transfer_to(backend),
+                c_mlp_proj_b: tl
+                    .load(&format!("model/h{i}/mlp/c_proj/b"))?
+                    .transfer_to(backend),
             };
 
             layers.push(layer);
@@ -130,7 +157,7 @@ impl KnownModel for Gpt2 {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
-            let ctx0 = builder.ctx0.borrow();
+            let mut ctx0 = builder.ctx0.borrow_mut();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
                 builder.memory_v.element_size(),
@@ -149,8 +176,8 @@ impl KnownModel for Gpt2 {
 
             let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
+                ctx0.set_offloading(self.params.should_offload(il));
                 ctx0.use_scratch(builder.get_scratch(0));
-
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
@@ -288,6 +315,7 @@ impl KnownModel for Gpt2 {
             input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
 
             ctx0.use_scratch(None);
+            ctx0.set_offloading(false);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
