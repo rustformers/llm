@@ -40,7 +40,7 @@ While specific accelerators only support certain model architectures, some unmar
 | MPT               | ❌       | ❌        | ❌      |
 | Falcon            | ❌       | ❌        | ❌      |
 | GPT-NeoX          | ❌       | ❌        | ❌      |
-| GPT-J             | ❌       | ❌        | ❌      |
+| GPT-J             | ✅       | ❌        | ❌      |
 | GPT-2             | ❌       | ❌        | ❌      |
 | BLOOM             | ❌       | ❌        | ❌      |
 
