@@ -56,10 +56,9 @@ impl KnownModel for Gpt2 {
         let mut tl = tensor_loader;
 
         // model-global weights
-        let wpe = tl.load("model/wpe")?;
-
         let backend = params.backend(0);
 
+        let wpe = tl.load("model/wpe")?.transfer_to(backend);
         let wte = tl.load("model/wte")?.transfer_to(backend);
 
         let ln_f_g = tl.load("model/ln_f/g")?.transfer_to(backend);
