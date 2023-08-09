@@ -7,7 +7,7 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
-    ggml_format, samplers::build_sampler, ElementType, InferenceParameters, InferenceSessionConfig,
+    ggml_format, samplers::build_sampler, InferenceParameters, InferenceSessionConfig,
     InvalidTokenBias, LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides,
     TokenBias, TokenId, TokenizerSource,
 };
@@ -693,15 +693,36 @@ pub enum QuantizationTarget {
     Q5_1,
     /// Quantized 8-bit (type 0).
     Q8_0,
+    #[allow(non_camel_case_types)]
+    /// Quantized 2-bit (K-Type) ~2.5625 bits per weight.
+    Q2_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 3-bit (K-Type) ~3.4375 bits per weight.
+    Q3_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 4-bit K-Type) ~4.5 bits per weight.
+    Q4_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 5-bit (K-Type) ~5.5 bits per weight.
+    Q5_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 6-bit (K-Type) ~6.5625 bits per weight.
+    Q6_K,
 }
-impl From<QuantizationTarget> for ElementType {
+
+impl From<QuantizationTarget> for llm::QuantizationTarget {
     fn from(t: QuantizationTarget) -> Self {
         match t {
-            QuantizationTarget::Q4_0 => ElementType::Q4_0,
-            QuantizationTarget::Q4_1 => ElementType::Q4_1,
-            QuantizationTarget::Q5_0 => ElementType::Q5_0,
-            QuantizationTarget::Q5_1 => ElementType::Q5_1,
-            QuantizationTarget::Q8_0 => ElementType::Q8_0,
+            QuantizationTarget::Q4_0 => llm::QuantizationTarget::Q4_0,
+            QuantizationTarget::Q4_1 => llm::QuantizationTarget::Q4_1,
+            QuantizationTarget::Q5_0 => llm::QuantizationTarget::Q5_0,
+            QuantizationTarget::Q5_1 => llm::QuantizationTarget::Q5_1,
+            QuantizationTarget::Q8_0 => llm::QuantizationTarget::Q8_0,
+            QuantizationTarget::Q2_K => llm::QuantizationTarget::Q2_K,
+            QuantizationTarget::Q3_K => llm::QuantizationTarget::Q3_K,
+            QuantizationTarget::Q4_K => llm::QuantizationTarget::Q4_K,
+            QuantizationTarget::Q5_K => llm::QuantizationTarget::Q5_K,
+            QuantizationTarget::Q6_K => llm::QuantizationTarget::Q6_K,
         }
     }
 }

@@ -9,6 +9,7 @@ use half::f16;
 use regex::Regex;
 use std::{
     collections::HashMap,
+    fmt,
     io::{BufRead, Seek, Write},
     path::PathBuf,
     sync::Arc,
@@ -36,6 +37,17 @@ pub enum QuantizeProgress<'a> {
     TensorQuantizing {
         /// Name of the tensor.
         name: &'a str,
+    },
+    /// A tensor is being quantized.
+    TensorFallback {
+        /// Name of the tensor.
+        name: &'a str,
+        /// Size of the tensor.
+        dims: [usize; 2],
+        /// Quantization target.
+        target: QuantizationTarget,
+        /// Quantization fallback.
+        fallback: QuantizationTarget,
     },
     /// A tensor has been quantized.
     TensorQuantized {
@@ -141,16 +153,9 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     writer: &mut W,
     tokenizer: Tokenizer,
     save_container_type: ggml::format::SaveContainerType,
-    quantization_type: ggml::Type,
+    quantization_type: QuantizationTarget,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
-    // Sanity check
-    let quantization_target = QuantizationTarget::try_from(quantization_type).map_err(|_| {
-        QuantizeError::InvalidQuantizationTarget {
-            element_type: quantization_type,
-        }
-    })?;
-
     // Load the model
     let progress_callback = Arc::new(progress_callback);
 
@@ -175,7 +180,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
 
     if let Some(ft) = hyperparameters.file_type_mut() {
         ft.quantization_version = ggml::QNT_VERSION;
-        ft.format = quantization_target
+        ft.format = quantization_type
             .try_into()
             .expect("format has no corresponding ftype");
     }
@@ -188,7 +193,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     let to_quantize = M::quantize_tensors();
     let to_skip = M::skip_quantize_tensors();
     let mut saver = QuantizeSaver::new(
-        quantization_target,
+        quantization_type,
         &hyperparameters,
         &tensors,
         &to_quantize,
@@ -221,27 +226,82 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum QuantizationTarget {
+/// The quantization target.
+pub enum QuantizationTarget {
+    /// Quantized 4-bit (type 0).
     Q4_0,
+    /// Quantized 4-bit (type 1).
     Q4_1,
+    /// Quantized 5-bit (type 0).
     Q5_0,
+    /// Quantized 5-bit (type 1).
     Q5_1,
+    /// Quantized 8-bit (type 0).
     Q8_0,
+    #[allow(non_camel_case_types)]
+    /// Quantized 2-bit (K-Type) ~2.5625 bits per weight.
+    Q2_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 3-bit (K-Type) ~3.4375 bits per weight.
+    Q3_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 4-bit K-Type) ~4.5 bits per weight.
+    Q4_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 5-bit (K-Type) ~5.5 bits per weight.
+    Q5_K,
+    #[allow(non_camel_case_types)]
+    /// Quantized 6-bit (K-Type) ~6.5625 bits per weight.
+    Q6_K,
 }
-impl TryFrom<ggml::Type> for QuantizationTarget {
-    type Error = ();
 
-    fn try_from(value: ggml::Type) -> Result<Self, Self::Error> {
-        match value {
-            ggml::Type::Q4_0 => Ok(QuantizationTarget::Q4_0),
-            ggml::Type::Q4_1 => Ok(QuantizationTarget::Q4_1),
-            ggml::Type::Q5_0 => Ok(QuantizationTarget::Q5_0),
-            ggml::Type::Q5_1 => Ok(QuantizationTarget::Q5_1),
-            ggml::Type::Q8_0 => Ok(QuantizationTarget::Q8_0),
-            _ => Err(()),
+impl QuantizationTarget {
+    /// Returns true if the quantization target is a K-Type quantization.
+    fn is_k_quant(self) -> bool {
+        matches!(
+            self,
+            QuantizationTarget::Q2_K
+                | QuantizationTarget::Q3_K
+                | QuantizationTarget::Q4_K
+                | QuantizationTarget::Q5_K
+                | QuantizationTarget::Q6_K
+        )
+    }
+
+    /// Returns the fallback quantization target if the current quantization target is a K-Type quantization.
+    fn fallback(self) -> QuantizationTarget {
+        if !self.is_k_quant() {
+            self
+        } else {
+            match self {
+                QuantizationTarget::Q2_K => QuantizationTarget::Q4_0,
+                QuantizationTarget::Q3_K => QuantizationTarget::Q4_0,
+                QuantizationTarget::Q4_K => QuantizationTarget::Q4_0,
+                QuantizationTarget::Q5_K => QuantizationTarget::Q5_0,
+                QuantizationTarget::Q6_K => QuantizationTarget::Q5_0,
+                _ => QuantizationTarget::Q8_0,
+            }
         }
     }
 }
+
+impl fmt::Display for QuantizationTarget {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QuantizationTarget::Q4_0 => write!(f, "Q4_0"),
+            QuantizationTarget::Q4_1 => write!(f, "Q4_1"),
+            QuantizationTarget::Q5_0 => write!(f, "Q5_0"),
+            QuantizationTarget::Q5_1 => write!(f, "Q5_1"),
+            QuantizationTarget::Q8_0 => write!(f, "Q8_0"),
+            QuantizationTarget::Q2_K => write!(f, "Q2_K"),
+            QuantizationTarget::Q3_K => write!(f, "Q3_K"),
+            QuantizationTarget::Q4_K => write!(f, "Q4_K"),
+            QuantizationTarget::Q5_K => write!(f, "Q5_K"),
+            QuantizationTarget::Q6_K => write!(f, "Q6_K"),
+        }
+    }
+}
+
 impl From<QuantizationTarget> for ggml::Type {
     fn from(value: QuantizationTarget) -> Self {
         match value {
@@ -250,6 +310,11 @@ impl From<QuantizationTarget> for ggml::Type {
             QuantizationTarget::Q5_0 => ggml::Type::Q5_0,
             QuantizationTarget::Q5_1 => ggml::Type::Q5_1,
             QuantizationTarget::Q8_0 => ggml::Type::Q8_0,
+            QuantizationTarget::Q2_K => ggml::Type::Q2_K,
+            QuantizationTarget::Q3_K => ggml::Type::Q3_K,
+            QuantizationTarget::Q4_K => ggml::Type::Q4_K,
+            QuantizationTarget::Q5_K => ggml::Type::Q5_K,
+            QuantizationTarget::Q6_K => ggml::Type::Q6_K,
         }
     }
 }
@@ -261,6 +326,11 @@ impl From<QuantizationTarget> for FileTypeFormat {
             QuantizationTarget::Q5_0 => FileTypeFormat::MostlyQ5_0,
             QuantizationTarget::Q5_1 => FileTypeFormat::MostlyQ5_1,
             QuantizationTarget::Q8_0 => FileTypeFormat::MostlyQ8_0,
+            QuantizationTarget::Q2_K => FileTypeFormat::MostlyQ2_K,
+            QuantizationTarget::Q3_K => FileTypeFormat::MostlyQ3_K_M,
+            QuantizationTarget::Q4_K => FileTypeFormat::MostlyQ4_K_M,
+            QuantizationTarget::Q5_K => FileTypeFormat::MostlyQ5_K_M,
+            QuantizationTarget::Q6_K => FileTypeFormat::MostlyQ6_K,
         }
     }
 }
@@ -346,6 +416,23 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
         let (element_type, data) = if quantize {
             (self.progress_callback)(QuantizeProgress::TensorQuantizing { name: tensor_name });
 
+            let mut target = self.quantization_target;
+            //Check if the target is a k_quant and check the tensors dimensions
+            if target.is_k_quant() {
+                let nx = tensor.dims[0];
+                let ny = tensor.dims[1];
+                if (nx % ggml::K_QUANT_BLOCK_SIZE != 0) || (ny % ggml::K_QUANT_BLOCK_SIZE != 0) {
+                    //If the tensor is not a multiple of the block size, fallback to normal q-quants
+                    target = target.fallback();
+                    (self.progress_callback)(QuantizeProgress::TensorFallback {
+                        name: tensor_name,
+                        dims: tensor.dims,
+                        target: self.quantization_target,
+                        fallback: target,
+                    });
+                }
+            }
+
             let data_f32: Vec<f32> = match tensor.element_type {
                 ggml::Type::F32 => raw_data
                     .chunks_exact(4)
@@ -360,7 +447,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
                 _ => unreachable!(),
             };
 
-            let result = match self.quantization_target {
+            let result = match target {
                 QuantizationTarget::Q4_0 => {
                     ggml::quantize_q4_0(&data_f32, tensor.n_elements, tensor.dims[0])
                 }
@@ -375,6 +462,21 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
                 }
                 QuantizationTarget::Q8_0 => {
                     ggml::quantize_q8_0(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q2_K => {
+                    ggml::quantize_q2_k(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q3_K => {
+                    ggml::quantize_q3_k(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q4_K => {
+                    ggml::quantize_q4_k(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q5_K => {
+                    ggml::quantize_q5_k(&data_f32, tensor.n_elements, tensor.dims[0])
+                }
+                QuantizationTarget::Q6_K => {
+                    ggml::quantize_q6_k(&data_f32, tensor.n_elements, tensor.dims[0])
                 }
             };
             let new_data = result.output;
@@ -394,7 +496,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
 
             self.total_size_new += new_data.len();
 
-            (self.quantization_target.into(), new_data)
+            (target.into(), new_data)
         } else {
             (self.progress_callback)(QuantizeProgress::TensorSkipped {
                 name: tensor_name,

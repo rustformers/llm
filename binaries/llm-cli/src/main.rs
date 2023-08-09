@@ -257,6 +257,11 @@ fn quantize(args: &cli_args::Quantize) -> eyre::Result<()> {
                     } => log::info!(
                         "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
                     ),
+                    QuantizeProgress::TensorFallback { name, dims, target, fallback } => {
+                        log::info!(
+                            "Falling back to {fallback} for tensor `{name}` ({dims:?} {target})", 
+                        )
+                    }
                 },
             )
             .wrap_err("failed to quantize model")

@@ -36,7 +36,7 @@ pub use loader::{
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
 pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
-pub use quantize::{quantize, QuantizeError, QuantizeProgress};
+pub use quantize::{quantize, QuantizationTarget, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use tokenizer::{
     InvalidTokenBias, Prompt, TokenBias, TokenId, TokenizationError, Tokenizer, TokenizerLoadError,

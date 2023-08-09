@@ -130,6 +130,9 @@ pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 /// Default epsilon to use for RMS computation.
 pub const DEFAULT_EPS: f32 = sys::llama::LLAMA_DEFAULT_RMS_EPS as f32;
 
+/// Block size used for the k-quantization algorithm.
+pub const K_QUANT_BLOCK_SIZE: usize = sys::QK_K as usize;
+
 /// Value overrides to use for RoPE.
 ///
 /// Formula: `theta_i = scale * base^(−2(i−1)/d), for i in [1, 2, ..., d/2]`
@@ -465,6 +468,46 @@ pub fn quantize_q5_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> Qua
 /// is the first dimension of `src`.
 pub fn quantize_q8_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
     quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q8_0)
+}
+
+/// Quantizes `src` into `dst` using `q2_k` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q2_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q2_K)
+}
+
+/// Quantizes `src` into `dst` using `q3_k` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q3_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q3_K)
+}
+
+/// Quantizes `src` into `dst` using `q4_k` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q4_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q4_K)
+}
+
+/// Quantizes `src` into `dst` using `q5_k` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q5_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_K)
+}
+
+/// Quantizes `src` into `dst` using `q6_k` quantization.
+///
+/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
+/// is the first dimension of `src`.
+pub fn quantize_q6_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
+    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q6_K)
 }
 
 fn quantize_impl(
