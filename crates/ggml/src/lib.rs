@@ -7,10 +7,7 @@
 //! All [Tensor]s are nodes in this computational graph, and values cannot be retrieved until computation is completed.
 #![deny(missing_docs)]
 
-use std::{
-    alloc::Layout,
-    os::raw::{c_int, c_void},
-};
+use std::{alloc::Layout, os::raw::c_void};
 
 mod context;
 mod tensor;
@@ -430,104 +427,26 @@ pub struct QuantizationResult {
     pub history: Vec<i64>,
 }
 
-/// Quantizes `src` into `dst` using `q4_0` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q4_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q4_0)
-}
-
-/// Quantizes `src` into `dst` using `q4_1` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q4_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q4_1)
-}
-
-/// Quantizes `src` into `dst` using `q5_0` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q5_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_0)
-}
-
-/// Quantizes `src` into `dst` using `q5_1` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q5_1(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_1)
-}
-
-/// Quantizes `src` into `dst` using `q8_0` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q8_0(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q8_0)
-}
-
-/// Quantizes `src` into `dst` using `q2_k` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q2_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q2_K)
-}
-
-/// Quantizes `src` into `dst` using `q3_k` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q3_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q3_K)
-}
-
-/// Quantizes `src` into `dst` using `q4_k` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q4_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q4_K)
-}
-
-/// Quantizes `src` into `dst` using `q5_k` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q5_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q5_K)
-}
-
-/// Quantizes `src` into `dst` using `q6_k` quantization.
-///
-/// You must ensure that `src.len() == n_elements`, and `n_elements_0`
-/// is the first dimension of `src`.
-pub fn quantize_q6_k(src: &[f32], n_elements: usize, n_elements_0: usize) -> QuantizationResult {
-    quantize_impl(src, n_elements, n_elements_0, sys::ggml_quantize_q6_K)
-}
-
-fn quantize_impl(
+/// Quantize a slice of floats into a [QuantizationResult].
+pub fn quantize(
+    target: Type,
     src: &[f32],
+    start: usize,
     n_elements: usize,
-    n_elements_0: usize,
-    quantizer: unsafe extern "C" fn(*const f32, *mut c_void, c_int, c_int, *mut i64) -> usize,
+    hist: Option<Vec<i64>>,
 ) -> QuantizationResult {
     assert_eq!(src.len(), n_elements);
-    assert_eq!(n_elements % n_elements_0, 0);
 
     // A conservative multiplier of 4 is used here.
     let mut output = vec![0u8; n_elements * 4];
-    let mut history = vec![0i64; 16];
+    let mut history = hist.unwrap_or(vec![0i64; 16]);
     let output_size = unsafe {
-        quantizer(
+        sys::ggml_quantize_chunk(
+            target.into(),
             src.as_ptr(),
             output.as_mut_ptr() as *mut c_void,
+            start.try_into().unwrap(),
             n_elements.try_into().unwrap(),
-            n_elements_0.try_into().unwrap(),
             history.as_mut_ptr(),
         )
     };

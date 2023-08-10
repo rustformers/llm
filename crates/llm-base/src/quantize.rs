@@ -447,38 +447,7 @@ impl<F: Fn(QuantizeProgress), H: Hyperparameters, R: BufRead + Seek> SaveHandler
                 _ => unreachable!(),
             };
 
-            let result = match target {
-                QuantizationTarget::Q4_0 => {
-                    ggml::quantize_q4_0(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q4_1 => {
-                    ggml::quantize_q4_1(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q5_0 => {
-                    ggml::quantize_q5_0(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q5_1 => {
-                    ggml::quantize_q5_1(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q8_0 => {
-                    ggml::quantize_q8_0(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q2_K => {
-                    ggml::quantize_q2_k(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q3_K => {
-                    ggml::quantize_q3_k(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q4_K => {
-                    ggml::quantize_q4_k(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q5_K => {
-                    ggml::quantize_q5_k(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-                QuantizationTarget::Q6_K => {
-                    ggml::quantize_q6_k(&data_f32, tensor.n_elements, tensor.dims[0])
-                }
-            };
+            let result = ggml::quantize(target.into(), &data_f32, 0, tensor.n_elements, None);
             let new_data = result.output;
 
             let mut history_new = vec![];
