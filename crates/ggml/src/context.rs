@@ -9,7 +9,8 @@ use std::{
 use memmap2::Mmap;
 
 use crate::{
-    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, RoPEOverrides, Tensor, Type,
+    accelerator::Backend, sys, usize_to_i32, usize_to_i64, Buffer, ComputationGraph, RoPEOverrides,
+    Tensor, Type,
 };
 
 /// Acts as a RAII-guard over a `sys::ggml_context`, allocating via
@@ -171,6 +172,21 @@ impl Context {
         *self = Self::new(self.storage.take().unwrap());
     }
 
+    ///Crate a new [ComputationGraph] in this context.
+    pub fn create_compute_graph(&self) -> ComputationGraph {
+        let context = self.inner.to_owned().ptr.as_ptr();
+        unsafe {
+            let graph = sys::ggml_new_graph(context);
+            ComputationGraph::from_raw(graph)
+        }
+    }
+
+    /// Prints all ggml objects in this context. Mainly used for debugging.
+    pub fn list_ggml_objects(&self) {
+        let context = self.inner.to_owned().ptr.as_ptr();
+        unsafe { sys::ggml_print_objects(context) }
+    }
+
     /// If offloading is enabled, all tensors created by this context will be offloaded to the GPU
     pub fn set_offloading(&mut self, can_offload: bool) {
         self.can_offload = can_offload;
@@ -274,13 +290,13 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// Creates a new tensor with the multiplication of `a` and `b`.
+    /// Creates a new tensor with the multiplication of `a` and `b`. Supports broadcasting if the dimensions are compatible, menaing the first dimensions of `a` must be devisible by the first dimensions of `b`.
     pub fn op_mul(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_mul(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 
-    /// Unknown.
+    /// Repeats the `a` tensor along the first dimension of the `b` tensor.  
     pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_repeat(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
@@ -298,7 +314,7 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// Creates a new tensor with the addition of `a` and `b`.
+    /// Creates a new tensor with the addition of `a` and `b`. Supports broadcasting if the dimensions are compatible, menaing the first dimensions of `a` must be devisible by the first dimensions of `b`.
     pub fn op_add(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_add(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)

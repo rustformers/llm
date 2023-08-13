@@ -145,10 +145,10 @@ impl KnownModel for Bloom {
 
             // normalize embeddings
             input_layer = ctx0.op_norm(&input_layer);
-            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
-            input_layer = ctx0.op_add(&ctx0.op_repeat(&self.norm_bias, &input_layer), &input_layer);
+            input_layer = ctx0.op_mul(&input_layer, &self.norm);
+            input_layer = ctx0.op_add(&input_layer, &self.norm_bias);
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
@@ -157,21 +157,12 @@ impl KnownModel for Bloom {
                 current = ctx0.op_norm(&input_layer);
 
                 // cur = attention_norm * cur
-                current = ctx0.op_mul(
-                    &ctx0.op_repeat(&self.layers[il].attention_norm, &current),
-                    &current,
-                );
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].attention_norm_b, &current),
-                    &current,
-                );
+                current = ctx0.op_mul(&current, &self.layers[il].attention_norm);
+                current = ctx0.op_add(&current, &self.layers[il].attention_norm_b);
 
                 //attention
                 current = ctx0.op_mul_mat(&self.layers[il].query_key_value, &current);
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].query_key_value_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].query_key_value_b);
 
                 // self-attention
                 let nb = current.get_nb()[1];
@@ -293,7 +284,7 @@ impl KnownModel for Bloom {
 
                 // projection
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
-                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].wo_b, &current), &current);
+                current = ctx0.op_add(&current, &self.layers[il].wo_b);
 
                 let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
@@ -302,19 +293,13 @@ impl KnownModel for Bloom {
                 current = ctx0.op_norm(&input_feed_forward);
 
                 // cur = ffn_norm*cur + ffn_norm_b
-                current = ctx0.op_mul(
-                    &ctx0.op_repeat(&self.layers[il].ffn_norm, &current),
-                    &current,
-                );
+                current = ctx0.op_mul(&current, &self.layers[il].ffn_norm);
 
-                current = ctx0.op_add(
-                    &ctx0.op_repeat(&self.layers[il].ffn_norm_b, &current),
-                    &current,
-                );
+                current = ctx0.op_add(&current, &self.layers[il].ffn_norm_b);
 
                 current = ctx0.op_mul_mat(&self.layers[il].w1, &current);
 
-                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].w1_b, &current), &current);
+                current = ctx0.op_add(&current, &self.layers[il].w1_b);
 
                 // SILU activation
 
@@ -322,7 +307,7 @@ impl KnownModel for Bloom {
 
                 current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
 
-                current = ctx0.op_add(&ctx0.op_repeat(&self.layers[il].w2_b, &current), &current);
+                current = ctx0.op_add(&current, &self.layers[il].w2_b);
 
                 current = ctx0.op_add(&current, &input_feed_forward);
 
@@ -334,15 +319,9 @@ impl KnownModel for Bloom {
             input_layer = ctx0.op_norm(&input_layer);
 
             // inpL = norm*inpL
-            input_layer = ctx0.op_mul(
-                &ctx0.op_repeat(&self.output_norm, &input_layer),
-                &input_layer,
-            );
+            input_layer = ctx0.op_mul(&input_layer, &self.output_norm);
 
-            input_layer = ctx0.op_add(
-                &ctx0.op_repeat(&self.output_norm_bias, &input_layer),
-                &input_layer,
-            );
+            input_layer = ctx0.op_add(&input_layer, &self.output_norm_bias);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 

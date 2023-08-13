@@ -58,14 +58,19 @@ impl KnownModel for Falcon {
 
         // model-gobal weights
         let tok_embeddings = tl.load("transformer.word_embeddings.weight")?;
-        let output_norm = tl.load("transformer.ln_f.weight")?;
-        let output_norm_b = tl.load("transformer.ln_f.bias")?;
-        let lm_head = tl.load("lm_head.weight")?;
+
+        let backend = params.backend(0);
+
+        let output_norm = tl.load("transformer.ln_f.weight")?.transfer_to(backend);
+        let output_norm_b = tl.load("transformer.ln_f.bias")?.transfer_to(backend);
+        let lm_head = tl.load("lm_head.weight")?.transfer_to(backend);
 
         let mut layers = Vec::new();
         // utilizing n_head_kv to determine the model version (parameters)
         let Hyperparameters { n_head_kv, .. } = hyperparameters;
         for i in 0..hyperparameters.n_layer {
+            let backend = params.backend(i);
+
             let (input_layernorm_name, attention_norm_name) = if n_head_kv == 1 {
                 // falcon 7b
                 (format!("transformer.h.{i}.input_layernorm"), None)
@@ -76,24 +81,47 @@ impl KnownModel for Falcon {
                     Some(format!("transformer.h.{i}.ln_attn")),
                 )
             };
+
+            let (attention_norm_weight, attention_norm_bias) =
+                if let Some(norm_name) = attention_norm_name {
+                    (
+                        Some(
+                            tl.load(&format!("{}.weight", norm_name))?
+                                .transfer_to(backend),
+                        ),
+                        Some(
+                            tl.load(&format!("{}.bias", norm_name))?
+                                .transfer_to(backend),
+                        ),
+                    )
+                } else {
+                    (None, None)
+                };
+
             let layer = Layer {
-                input_layernorm: tl.load(&format!("{}.weight", input_layernorm_name))?,
-                input_layernorm_b: tl.load(&format!("{}.bias", input_layernorm_name))?,
-                attention_norm: attention_norm_name
-                    .as_ref()
-                    .map(|path| tl.load(&format!("{}.weight", path)))
-                    .transpose()?,
-                attention_norm_b: attention_norm_name
-                    .map(|path| tl.load(&format!("{}.bias", path)))
-                    .transpose()?,
+                input_layernorm: tl
+                    .load(&format!("{}.weight", input_layernorm_name))?
+                    .transfer_to(backend),
+                input_layernorm_b: tl
+                    .load(&format!("{}.bias", input_layernorm_name))?
+                    .transfer_to(backend),
+                attention_norm: attention_norm_weight,
+                attention_norm_b: attention_norm_bias,
+                query_key_value: tl
+                    .load(&format!(
+                        "transformer.h.{i}.self_attention.query_key_value.weight"
+                    ))?
+                    .transfer_to(backend),
+                wo: tl
+                    .load(&format!("transformer.h.{i}.self_attention.dense.weight"))?
+                    .transfer_to(backend),
 
-                query_key_value: tl.load(&format!(
-                    "transformer.h.{i}.self_attention.query_key_value.weight"
-                ))?,
-                wo: tl.load(&format!("transformer.h.{i}.self_attention.dense.weight"))?,
-
-                ffn_up: tl.load(&format!("transformer.h.{i}.mlp.dense_h_to_4h.weight"))?,
-                ffn_down: tl.load(&format!("transformer.h.{i}.mlp.dense_4h_to_h.weight"))?,
+                ffn_up: tl
+                    .load(&format!("transformer.h.{i}.mlp.dense_h_to_4h.weight"))?
+                    .transfer_to(backend),
+                ffn_down: tl
+                    .load(&format!("transformer.h.{i}.mlp.dense_4h_to_h.weight"))?
+                    .transfer_to(backend),
             };
 
             layers.push(layer);
@@ -147,7 +175,7 @@ impl KnownModel for Falcon {
         let n = input_len;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
-            let ctx0 = builder.ctx0.borrow();
+            let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, embd);
 
@@ -159,7 +187,7 @@ impl KnownModel for Falcon {
             let memory_v = builder.memory_v;
             let memory_v_size = memory_v.element_size();
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
 
             let mut current: Tensor;
             let mut layernorm_output: Tensor;
@@ -167,15 +195,13 @@ impl KnownModel for Falcon {
             for il in 0..n_layer {
                 // attention uses first scratch buffer
                 ctx0.use_scratch(builder.get_scratch(0));
+                ctx0.set_offloading(self.params.should_offload(il));
 
                 // self-attention
                 layernorm_output = ctx0.op_norm(&input_layer);
                 layernorm_output = ctx0.op_add(
-                    &ctx0.op_mul(
-                        &ctx0.op_repeat(&self.layers[il].input_layernorm, &layernorm_output),
-                        &layernorm_output,
-                    ),
-                    &ctx0.op_repeat(&self.layers[il].input_layernorm_b, &layernorm_output),
+                    &ctx0.op_mul(&layernorm_output, &self.layers[il].input_layernorm),
+                    &self.layers[il].input_layernorm_b,
                 );
 
                 if n_head_kv == 1 {
@@ -185,17 +211,8 @@ impl KnownModel for Falcon {
                     // Falcon-40B only
                     current = ctx0.op_norm(&input_layer);
                     current = ctx0.op_add(
-                        &ctx0.op_mul(
-                            &ctx0.op_repeat(
-                                self.layers[il].attention_norm.as_ref().unwrap(),
-                                &current,
-                            ),
-                            &current,
-                        ),
-                        &ctx0.op_repeat(
-                            self.layers[il].attention_norm_b.as_ref().unwrap(),
-                            &current,
-                        ),
+                        &ctx0.op_mul(&current, self.layers[il].attention_norm.as_ref().unwrap()),
+                        self.layers[il].attention_norm_b.as_ref().unwrap(),
                     );
                 }
 
@@ -327,15 +344,13 @@ impl KnownModel for Falcon {
             input_layer = ctx0.op_norm(&input_layer);
 
             input_layer = ctx0.op_add(
-                &ctx0.op_mul(
-                    &ctx0.op_repeat(&self.output_norm, &input_layer),
-                    &input_layer,
-                ),
-                &ctx0.op_repeat(&self.output_norm_b, &input_layer),
+                &ctx0.op_mul(&input_layer, &self.output_norm),
+                &self.output_norm_b,
             );
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
+            ctx0.set_offloading(false);
             ctx0.use_scratch(None);
 
             // lm_head

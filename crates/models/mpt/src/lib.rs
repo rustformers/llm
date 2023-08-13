@@ -123,16 +123,13 @@ impl KnownModel for Mpt {
 
             let f32_size = std::mem::size_of::<f32>();
 
-            let mut gf = ggml::ComputationGraph::new();
+            let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 // attention uses first scratch buffer
                 ctx0.use_scratch(builder.get_scratch(0));
 
                 let mut current = ctx0.op_norm(&input_layer);
-                current = ctx0.op_mul(
-                    &ctx0.op_repeat(&self.layers[il].norm_1_weight, &current),
-                    &current,
-                );
+                current = ctx0.op_mul(&current, &self.layers[il].norm_1_weight);
 
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_wqkv_weight, &current);
 
@@ -222,10 +219,7 @@ impl KnownModel for Mpt {
                 ctx0.use_scratch(builder.get_scratch(1));
 
                 current = ctx0.op_norm(&input_layer);
-                current = ctx0.op_mul(
-                    &ctx0.op_repeat(&self.layers[il].norm_2_weight, &current),
-                    &current,
-                );
+                current = ctx0.op_mul(&current, &self.layers[il].norm_2_weight);
 
                 current = ctx0.op_mul_mat(&self.layers[il].ffn_up_proj, &current);
 
@@ -242,7 +236,7 @@ impl KnownModel for Mpt {
 
             // norm
             input_layer = ctx0.op_norm(&input_layer);
-            input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+            input_layer = ctx0.op_mul(&input_layer, &self.norm);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
