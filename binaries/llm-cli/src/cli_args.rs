@@ -519,6 +519,7 @@ impl ModelLoad {
             use_gpu,
             gpu_layers: self.gpu_layers,
             rope_overrides: self.rope_scaling.to_rope_arguments(),
+            n_gqa: None,
         };
 
         let mut sp = Some(spinoff::Spinner::new(
