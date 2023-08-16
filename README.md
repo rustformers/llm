@@ -113,11 +113,27 @@ Bindings for this library are available in the following languages:
 
 The easiest way to get started with `llm-cli` is to download a pre-built
 executable from a [released](https://github.com/rustformers/llm/releases)
-version of `llm`, although this may not have all the features present on the
-`main` branch. The following methods involve building `llm`, which requires Rust
-v1.65.0 or above and a modern C toolchain.
+version of `llm`, but the releases are currently out of date and we recommend
+you [install from source](#installing-from-source) instead.
+
+### Installing from Source
+
+To install the `main` branch of `llm` with the most recent features to your Cargo `bin`
+directory, which `rustup` is likely to have added to your `PATH`, run:
+
+```shell
+cargo install --git https://github.com/rustformers/llm llm-cli
+```
+
+The CLI application can then be run through `llm`. See also [features](#features) and
+[acceleration support](doc/acceleration-support.md) to turn features on as required.
+Note that GPU support (CUDA, OpenCL, Metal) will not work unless you build with the relevant feature.
 
 ### Installing with `cargo`
+
+Note that the currently published version is out of date and does not include
+support for the most recent models. We currently recommend that you
+[install from source](#installing-from-source).
 
 To install the most recently released version of `llm` to your Cargo `bin`
 directory, which `rustup` is likely to have added to your `PATH`, run:
@@ -126,26 +142,8 @@ directory, which `rustup` is likely to have added to your `PATH`, run:
 cargo install llm-cli
 ```
 
-The CLI application can then be run through `llm`.
-
-### Building from Source
-
-To make use of the features on the `main` branch, clone the repository and then
-build it with
-
-```shell
-git clone --recurse-submodules https://github.com/rustformers/llm
-cd llm
-cargo build --release
-```
-
-The resulting binary will be at `target/release/llm[.exe]`.
-
-It can also be run directly through Cargo, with
-
-```shell
-cargo run --release -- $ARGS
-```
+The CLI application can then be run through `llm`. See also [features](#features)
+to turn features on as required.
 
 ### Features
 
@@ -158,7 +156,7 @@ To disable this, disable the default features for the build:
 cargo build --release --no-default-features
 ```
 
-To enable hardware acceleration, see [Acceleration Support for Building section](doc/CONTRIBUTING.md#acceleration-support-for-building), which is also applicable to the CLI.
+To enable hardware acceleration, see [Acceleration Support for Building section](doc/acceleration-support.md), which is also applicable to the CLI.
 
 ## Getting Models
 
