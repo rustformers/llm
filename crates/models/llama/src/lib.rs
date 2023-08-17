@@ -422,15 +422,15 @@ pub struct Hyperparameters {
 
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
-        let n_head = util::read_i32(reader)?.try_into()?;
-        let n_layer = util::read_i32(reader)?.try_into()?;
         let n_vocab = util::read_i32(reader)?.try_into()?;
         let n_embd = util::read_i32(reader)?.try_into()?;
         let n_mult = util::read_i32(reader)?.try_into()?;
+        let n_head = util::read_i32(reader)?.try_into()?;
+        let n_layer = util::read_i32(reader)?.try_into()?;
         let n_rot = util::read_i32(reader)?.try_into()?;
         let file_type = util::read_filetype(reader)?;
 
-        // n_head_kv == n_heads for  Multi-Head Attention
+        // Defaults to multi-head attention where n_head_kv == n_heads
         let n_head_kv = n_head;
 
         Ok(Hyperparameters {
