@@ -1,7 +1,7 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{cell::Cell, error::Error, sync::Arc};
+use std::{error::Error, sync::Arc};
 
 use llm_base::{
     ggml::{self},
@@ -18,7 +18,7 @@ pub struct Llama {
     params: ModelParameters,
     hyperparameters: Hyperparameters,
     tokenizer: Tokenizer,
-    version: LlamaModelVersion,
+    _version: LlamaModelVersion,
     // model-global weights
     // weighted token embeddings
     wte: ggml::Tensor,
@@ -119,7 +119,7 @@ impl KnownModel for Llama {
         Ok(Self {
             hyperparameters,
             params,
-            version,
+            _version: version,
             tokenizer,
             wte,
             norm,
