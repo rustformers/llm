@@ -95,7 +95,7 @@ impl KnownModel for Llama {
         let context = tl.finish();
 
         // TODO: read from file
-        let version = match hyperparameters.n_layer {
+        let mut version = match hyperparameters.n_layer {
             26 => LlamaModelVersion::Model3b,
             32 => LlamaModelVersion::Model7b,
             40 => LlamaModelVersion::Model13b,
@@ -112,6 +112,7 @@ impl KnownModel for Llama {
                     "assuming 70B Llama2 model based on GQA == 8"
                 );
                 hyperparameters.n_head_kv = hyperparameters.n_head / n_gqa;
+                version = LlamaModelVersion::Model70b;
             }
         }
 
@@ -205,7 +206,7 @@ impl KnownModel for Llama {
                         &ctx0.op_reshape_3d(
                             &ctx0.op_mul_mat(&self.layers[il].wk, &current),
                             n_embd / n_head,
-                            n_head,
+                            n_head_kv,
                             input_len,
                         ),
                         session_len,
@@ -252,7 +253,7 @@ impl KnownModel for Llama {
                                 il * ctx_size * builder.memory_k.element_size() * n_embd,
                             ),
                             n_embd / n_head,
-                            n_head,
+                            n_head_kv,
                             session_len + input_len,
                         ),
                         (0, 2, 1, 3),
@@ -282,7 +283,7 @@ impl KnownModel for Llama {
                 let v = ctx0
                     .op_view_3d(
                         builder.memory_v,
-                        (session_len + input_len, n_embd / n_head, n_head),
+                        (session_len + input_len, n_embd / n_head, n_head_kv),
                         (
                             ctx_size * builder.memory_v.element_size(),
                             ctx_size * builder.memory_v.element_size() * n_embd / n_head,
