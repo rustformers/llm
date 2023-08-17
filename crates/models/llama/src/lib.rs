@@ -161,6 +161,7 @@ impl KnownModel for Llama {
             n_rot,
             file_type: _,
         } = self.hyperparameters;
+        let n_embd_gqa = n_embd / (n_head / n_head_kv);
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
             let mut ctx0 = builder.ctx0.borrow_mut();
@@ -220,21 +221,21 @@ impl KnownModel for Llama {
                 // compute the transposed [N, n_embd] V matrix
                 let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
                     &ctx0.op_mul_mat(&self.layers[il].wv, &current),
-                    n_embd,
+                    n_embd_gqa,
                     input_len,
                 ));
 
                 let k = ctx0.op_view_1d(
                     builder.memory_k,
-                    input_len * n_embd,
-                    (builder.memory_k.element_size() * n_embd) * (il * ctx_size + session_len),
+                    input_len * n_embd_gqa,
+                    (builder.memory_k.element_size() * n_embd_gqa) * (il * ctx_size + session_len),
                 );
 
                 let v = ctx0.op_view_2d(
                     builder.memory_v,
-                    (input_len, n_embd),
+                    (input_len, n_embd_gqa),
                     ctx_size * builder.memory_v.element_size(),
-                    (il * ctx_size) * builder.memory_v.element_size() * n_embd
+                    (il * ctx_size) * builder.memory_v.element_size() * n_embd_gqa
                         + session_len * builder.memory_v.element_size(),
                 );
 
@@ -249,8 +250,8 @@ impl KnownModel for Llama {
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
                                 builder.memory_k,
-                                (session_len + input_len) * n_embd,
-                                il * ctx_size * builder.memory_k.element_size() * n_embd,
+                                (session_len + input_len) * n_embd_gqa,
+                                il * ctx_size * builder.memory_k.element_size() * n_embd_gqa,
                             ),
                             n_embd / n_head,
                             n_head_kv,
@@ -288,7 +289,7 @@ impl KnownModel for Llama {
                             ctx_size * builder.memory_v.element_size(),
                             ctx_size * builder.memory_v.element_size() * n_embd / n_head,
                         ),
-                        il * ctx_size * builder.memory_v.element_size() * n_embd,
+                        il * ctx_size * builder.memory_v.element_size() * n_embd_gqa,
                     )
                     .set_name("V");
 
