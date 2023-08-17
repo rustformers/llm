@@ -22,7 +22,7 @@ impl HuggingFaceTokenizer {
     /// Converts a token index to the token it represents in this tokenizer.
     pub(crate) fn token(&self, idx: usize) -> Vec<u8> {
         self.tokenizer
-            .decode(vec![idx as u32], true)
+            .decode(&[idx as u32], true)
             .expect("Cannot decode token from tokenizer tokenizer.")
             .as_bytes()
             .to_vec()
@@ -67,7 +67,7 @@ impl HuggingFaceTokenizer {
     /// Decode a list `tokens` with this tokenizer.
     pub(crate) fn decode(&self, tokens: Vec<TokenId>, skip_special_tokens: bool) -> Vec<u8> {
         self.tokenizer
-            .decode(tokens, skip_special_tokens)
+            .decode(&tokens, skip_special_tokens)
             .expect("Cannot decode token from tokenizer.")
             .as_bytes()
             .to_vec()
