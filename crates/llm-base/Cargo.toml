@@ -22,7 +22,7 @@ partial_sort = "0.2.0"
 serde_bytes = "0.11"
 memmap2 = { workspace = true }
 half = "2"
-tokenizers = {version="0.13.3", default-features=false, features=["onig"]}
+tokenizers = {version="0.13.4", default-features=false, features=["onig"]}
 regex = "1.8"
 tracing = { workspace = true }
 
