@@ -220,6 +220,11 @@ impl Tensor {
             sys::opencl::ggml_cl_free_data(self.ptr.as_ptr());
         }
     }
+
+    /// Returns true if this tensor is stored contiguously in memory
+    pub fn is_contiguous(&self) -> bool {
+        unsafe { sys::ggml_is_contiguous(self.ptr.as_ptr()) }
+    }
 }
 impl Tensor {
     fn with_alive_ctx<U>(&self, mut f: impl FnMut() -> U) -> U {
