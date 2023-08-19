@@ -209,6 +209,8 @@ pub struct ModelParameters {
     pub gpu_layers: Option<usize>,
     /// The arguments/overrides to pass to the [custom RoPE](https://arxiv.org/pdf/2306.15595.pdf) function, if it is used by the model.
     pub rope_overrides: Option<ggml::RoPEOverrides>,
+    /// Enables gouped-query attention for Llama-2 70B model
+    pub n_gqa: Option<usize>,
 }
 
 impl Default for ModelParameters {
@@ -220,6 +222,7 @@ impl Default for ModelParameters {
             use_gpu: false,
             gpu_layers: None,
             rope_overrides: None,
+            n_gqa: None,
         }
     }
 }
