@@ -12,13 +12,13 @@ mod tests;
 use crate::{format::LoadError, util};
 
 /// Magic constant for `ggml` files (unversioned).
-pub const FILE_MAGIC_GGML: u32 = 0x67676d6c;
+pub const FILE_MAGIC_GGML: [u8; 4] = *b"lmgg";
 /// Magic constant for `ggml` files (versioned, ggmf).
-pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
+pub const FILE_MAGIC_GGMF: [u8; 4] = *b"fmgg";
 /// Magic constant for `ggml` files (versioned, ggjt).
-pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
+pub const FILE_MAGIC_GGJT: [u8; 4] = *b"tjgg";
 /// Magic constant for `ggla` files (LoRA adapter).
-pub const FILE_MAGIC_GGLA: u32 = 0x67676C61;
+pub const FILE_MAGIC_GGLA: [u8; 4] = *b"algg";
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 /// The format of the file containing the model.
@@ -48,7 +48,7 @@ impl ContainerType {
         reader: &mut dyn std::io::BufRead,
     ) -> Result<Self, LoadError<E>> {
         // Verify magic
-        let magic = util::read_u32(reader)?;
+        let magic = util::read_bytes::<4>(reader)?;
         let container_type: ContainerType = match magic {
             FILE_MAGIC_GGML => ContainerType::Ggml,
             FILE_MAGIC_GGMF => {
@@ -73,18 +73,20 @@ impl ContainerType {
     pub fn write(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
         match self {
             ContainerType::Ggml => {
-                util::write_u32(writer, FILE_MAGIC_GGML)?;
+                writer.write_all(&FILE_MAGIC_GGML)?;
             }
             ContainerType::Ggmf(version) => {
-                util::write_u32(writer, FILE_MAGIC_GGMF)?;
+                writer.write_all(&FILE_MAGIC_GGMF)?;
                 util::write_u32(writer, *version)?;
             }
             ContainerType::Ggjt(version) => {
-                util::write_u32(writer, FILE_MAGIC_GGJT)?;
+                writer.write_all(&FILE_MAGIC_GGJT)?;
                 util::write_u32(writer, *version)?;
             }
             ContainerType::Ggla(version) => {
-                util::write_u32(writer, FILE_MAGIC_GGLA)?;
+                writer.write_all(&FILE_MAGIC_GGLA)?;
+                util::write_u32(writer, *version)?;
+            }
                 util::write_u32(writer, *version)?;
             }
         }

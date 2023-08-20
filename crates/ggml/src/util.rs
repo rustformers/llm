@@ -7,15 +7,10 @@ use std::{
 
 /// Helper struct that wraps the magic number of a file format,
 /// so that it can be printed in a human-readable format.
-pub struct FormatMagic(pub u32);
+pub struct FormatMagic(pub [u8; 4]);
 impl fmt::Display for FormatMagic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:x} ({})",
-            self.0,
-            String::from_utf8_lossy(&self.0.to_le_bytes())
-        )
+        write!(f, "{:x?} ({})", self.0, String::from_utf8_lossy(&self.0))
     }
 }
 impl fmt::Debug for FormatMagic {
