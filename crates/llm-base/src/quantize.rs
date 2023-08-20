@@ -4,7 +4,9 @@ use crate::{
     loader::FileTypeFormat, model::HyperparametersWriteError, Hyperparameters, KnownModel,
     LoadError, LoadProgress, Loader, Tokenizer,
 };
-use ggml::format::{SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo};
+use ggml::format::ggml::{
+    SaveContainerType, SaveError, SaveHandler, TensorLoadInfo, TensorSaveInfo,
+};
 use half::f16;
 use regex::Regex;
 use std::{
@@ -140,7 +142,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
     reader: &mut R,
     writer: &mut W,
     tokenizer: Tokenizer,
-    save_container_type: ggml::format::SaveContainerType,
+    save_container_type: SaveContainerType,
     quantization_type: ggml::Type,
     progress_callback: impl Fn(QuantizeProgress),
 ) -> Result<(), QuantizeError> {
@@ -162,7 +164,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
             }
         }
     });
-    ggml::format::load(reader, &mut loader)
+    ggml::format::ggml::load(reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, PathBuf::default()))?;
 
     // Save the quantized model, quantizing as we go
@@ -196,7 +198,7 @@ pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
         reader,
         |p| progress_callback(p),
     );
-    ggml::format::save(
+    ggml::format::ggml::save(
         writer,
         &mut saver,
         save_container_type,

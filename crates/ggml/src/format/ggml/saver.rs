@@ -9,7 +9,9 @@ use std::{
     io::{Seek, Write},
 };
 
-use crate::{util, ContainerType, ElementType};
+use crate::{util, ElementType};
+
+use super::ContainerType;
 
 #[derive(Debug, thiserror::Error)]
 /// Errors that can occur while writing a model.

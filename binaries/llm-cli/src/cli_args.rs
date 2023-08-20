@@ -672,11 +672,11 @@ impl fmt::Display for SaveContainerType {
         }
     }
 }
-impl From<SaveContainerType> for ggml_format::SaveContainerType {
+impl From<SaveContainerType> for ggml_format::ggml::SaveContainerType {
     fn from(value: SaveContainerType) -> Self {
         match value {
-            SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
-            SaveContainerType::GgjtV3 => ggml_format::SaveContainerType::GgjtV3,
+            SaveContainerType::Ggml => ggml_format::ggml::SaveContainerType::Ggml,
+            SaveContainerType::GgjtV3 => ggml_format::ggml::SaveContainerType::GgjtV3,
         }
     }
 }

@@ -143,7 +143,7 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
                     // We purposely do not print progress here, as we are only interested in the metadata
                 });
 
-            llm::ggml_format::load(&mut reader, &mut loader)?;
+            llm::ggml_format::ggml::load(&mut reader, &mut loader)?;
 
             log::info!("Container type: {:?}", loader.container_type);
             log::info!("Hyperparameters: {:?}", loader.hyperparameters);

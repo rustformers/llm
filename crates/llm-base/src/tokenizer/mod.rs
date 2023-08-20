@@ -76,7 +76,7 @@ impl TokenizerSource {
     /// Retrieve the tokenizer from the source.
     ///
     /// Note that this may make a blocking HTTP request to Hugging Face to retrieve the tokenizer.
-    /// if `self` is [`Self::HuggingFaceRemote`].
+    /// if `self` is `Self::HuggingFaceRemote`.
     pub fn retrieve(self, model_path: &Path) -> Result<Tokenizer, TokenizerLoadError> {
         let _ = model_path;
 

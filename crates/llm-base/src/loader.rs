@@ -11,9 +11,12 @@ use crate::{
     util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
     Tokenizer, TokenizerLoadError, TokenizerSource,
 };
-pub use ggml::{format::FormatMagic, ContainerType};
+pub use ggml::{format::ggml::ContainerType, util::FormatMagic};
 use ggml::{
-    format::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
+    format::{
+        ggml::{PartialHyperparameters, TensorLoadInfo},
+        LoadError as FormatLoadError,
+    },
     Context, MAX_NAME_LENGTH,
 };
 use memmap2::Mmap;
@@ -442,7 +445,7 @@ pub fn load<M: KnownModel>(
     let tokenizer = tokenizer_source.retrieve(path)?;
     let mut loader = Loader::new(tokenizer, load_progress_callback);
 
-    ggml::format::load(&mut reader, &mut loader)
+    ggml::format::ggml::load(&mut reader, &mut loader)
         .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
     log::trace!("Loaded GGML model from reader");
 
@@ -462,9 +465,9 @@ pub fn load<M: KnownModel>(
     let quantization_version = if quantization_version == 0 {
         // HACK: I think llama.cpp does not actually write the quantization version correctly,
         // so we need to guess it from the container type.
-        if container_type == ggml::ContainerType::Ggjt(2) {
+        if container_type == ContainerType::Ggjt(2) {
             1
-        } else if container_type == ggml::ContainerType::Ggjt(3) {
+        } else if container_type == ContainerType::Ggjt(3) {
             2
         } else {
             quantization_version
@@ -506,7 +509,7 @@ pub fn load<M: KnownModel>(
                 // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
                 let mut lora_loader: Loader<LoraParameters, _> =
                     Loader::new(Tokenizer::empty_embedded(), |_| {});
-                ggml::format::load(&mut lora_reader, &mut lora_loader)
+                ggml::format::ggml::load(&mut lora_reader, &mut lora_loader)
                     .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
 
                 // Collect the names of the tensors that should be patched
@@ -595,7 +598,7 @@ impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
         }
     }
 }
-impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::LoadHandler<LoadError>
+impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::ggml::LoadHandler<LoadError>
     for Loader<Hp, F>
 {
     fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {

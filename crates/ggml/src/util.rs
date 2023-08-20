@@ -1,6 +1,28 @@
 //! Utilities for reading and writing.
 
-use std::io::{BufRead, Write};
+use std::{
+    fmt,
+    io::{BufRead, Write},
+};
+
+/// Helper struct that wraps the magic number of a file format,
+/// so that it can be printed in a human-readable format.
+pub struct FormatMagic(pub u32);
+impl fmt::Display for FormatMagic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:x} ({})",
+            self.0,
+            String::from_utf8_lossy(&self.0.to_le_bytes())
+        )
+    }
+}
+impl fmt::Debug for FormatMagic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
 
 /// Read a fixed-size array of bytes from a reader.
 pub fn read_bytes<const N: usize>(reader: &mut dyn BufRead) -> Result<[u8; N], std::io::Error> {

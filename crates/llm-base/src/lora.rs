@@ -3,7 +3,7 @@ use crate::{
     LoadError,
 };
 
-use ggml::{format::TensorLoadInfo, GraphExecutionPlan};
+use ggml::{format::ggml::TensorLoadInfo, GraphExecutionPlan};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,

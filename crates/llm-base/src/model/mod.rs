@@ -194,7 +194,7 @@ pub enum HyperparametersWriteError {
 /// Parameters for model-wide behaviour.
 #[derive(Debug, Clone)]
 pub struct ModelParameters {
-    /// For [GGML formats](ggml::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
+    /// For [GGML formats](ggml::format::ggml::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
     /// is the default. Although mmap typically improves performance, setting this value to `false` may
     /// be preferred in resource-constrained environments.
     pub prefer_mmap: bool,
