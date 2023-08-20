@@ -19,6 +19,8 @@ pub const FILE_MAGIC_GGMF: [u8; 4] = *b"fmgg";
 pub const FILE_MAGIC_GGJT: [u8; 4] = *b"tjgg";
 /// Magic constant for `ggla` files (LoRA adapter).
 pub const FILE_MAGIC_GGLA: [u8; 4] = *b"algg";
+/// Magic constant for `gguf` files.
+pub const FILE_MAGIC_GGUF: [u8; 4] = *b"GGUF";
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 /// The format of the file containing the model.
@@ -27,10 +29,12 @@ pub enum ContainerType {
     Ggml,
     /// Legacy format. Introduces versioning. Newer than GGML, older than GGJT.
     Ggmf(u32),
-    /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format. Current version of the format.
+    /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format.
     Ggjt(u32),
     /// LoRA adapter format.
     Ggla(u32),
+    /// GGUF format. Current version of the format.
+    Gguf(u32),
 }
 impl ContainerType {
     /// Does this container type support mmap?
@@ -40,6 +44,7 @@ impl ContainerType {
             ContainerType::Ggmf(_) => false,
             ContainerType::Ggla(_) => false,
             ContainerType::Ggjt(_) => true,
+            ContainerType::Gguf(_) => true,
         }
     }
 
@@ -62,6 +67,10 @@ impl ContainerType {
             FILE_MAGIC_GGLA => {
                 let version = util::read_u32(reader)?;
                 ContainerType::Ggla(version)
+            }
+            FILE_MAGIC_GGUF => {
+                let version = util::read_u32(reader)?;
+                ContainerType::Gguf(version)
             }
             magic => return Err(LoadError::InvalidMagic(util::FormatMagic(magic))),
         };
@@ -87,6 +96,8 @@ impl ContainerType {
                 writer.write_all(&FILE_MAGIC_GGLA)?;
                 util::write_u32(writer, *version)?;
             }
+            ContainerType::Gguf(version) => {
+                writer.write_all(&FILE_MAGIC_GGUF)?;
                 util::write_u32(writer, *version)?;
             }
         }

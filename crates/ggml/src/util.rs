@@ -36,6 +36,11 @@ pub fn read_u32(reader: &mut dyn BufRead) -> Result<u32, std::io::Error> {
     Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
 }
 
+/// Read a `u64` from a reader.
+pub fn read_u64(reader: &mut dyn BufRead) -> Result<u64, std::io::Error> {
+    Ok(u64::from_le_bytes(read_bytes::<8>(reader)?))
+}
+
 /// Read a `f32` from a reader.
 pub fn read_f32(reader: &mut dyn BufRead) -> Result<f32, std::io::Error> {
     Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
@@ -62,6 +67,14 @@ pub fn read_bytes_with_len(
     let mut bytes = vec![0u8; len];
     reader.read_exact(&mut bytes)?;
     Ok(bytes)
+}
+
+/// Read a string from a reader.
+pub fn read_string(reader: &mut dyn BufRead) -> Result<String, std::io::Error> {
+    let len = read_u32(reader)? as usize;
+    let bytes = read_bytes_with_len(reader, len)?;
+    Ok(String::from_utf8(bytes)
+        .expect("string was not valid utf-8 (TODO: make this a library error)"))
 }
 
 /// Write a `i32` from a writer.

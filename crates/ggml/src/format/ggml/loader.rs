@@ -126,6 +126,9 @@ pub fn load<E: Error, R: BufRead + Seek>(
                 // Legacy model, set empty score
                 0.
             }
+            ContainerType::Gguf(_) => {
+                unreachable!("This loader should not be used with GGUF")
+            }
         };
         handler
             .vocabulary_token(i, token, token_score)
@@ -137,6 +140,9 @@ pub fn load<E: Error, R: BufRead + Seek>(
         ContainerType::Ggmf(_) | ContainerType::Ggml => load_weights(reader, handler, false),
         ContainerType::Ggjt(_version) | ContainerType::Ggla(_version) => {
             load_weights(reader, handler, true)
+        }
+        ContainerType::Gguf(_) => {
+            unreachable!("This loader should not be used with GGUF")
         }
     }
 }

@@ -5,6 +5,7 @@ use std::error::Error;
 use crate::{util::FormatMagic, ElementType};
 
 pub mod ggml;
+pub mod gguf;
 
 #[derive(Debug, thiserror::Error)]
 /// Errors that can occur while loading a model.
