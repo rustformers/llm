@@ -381,9 +381,10 @@ impl InferenceSession {
         output_request: &mut OutputRequest,
         rng: &mut impl rand::Rng,
     ) -> Result<Vec<u8>, InferenceError> {
-        if self.n_past + 1 >= model.context_size() {
-            return Err(InferenceError::ContextFull);
-        }
+        // disable error throw on context size overflow to use llama.cpp "context window slide" (if it exists).
+        // if self.n_past + 1 >= model.context_size() {
+        //     return Err(InferenceError::ContextFull);
+        // }
 
         let next_token = crate::samplers::sample_token(
             params.sampler.clone(),
