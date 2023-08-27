@@ -30,7 +30,7 @@ pub use inference_session::{
 };
 pub use llm_samplers::prelude::{Sampler, SamplerChain};
 pub use loader::{
-    load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, FormatMagic,
+    load, load_progress_callback_stdout, ContainerType, FileMagic, FileType, FileTypeFormat,
     LoadError, LoadProgress, Loader, TensorLoader,
 };
 pub use lora::{LoraAdapter, LoraParameters};

@@ -10,12 +10,12 @@ use std::{
 };
 
 use crate::{
-    format::{data_size, header_size, LoadError},
+    format::{data_size, header_size, ContainerType, ContainerTypeReadError},
     util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
     ElementType,
 };
 
-use super::ContainerType;
+use super::LoadError;
 
 #[derive(Debug, Clone)]
 /// Information about a [tensor](https://en.wikipedia.org/wiki/Tensor_(machine_learning)) that is being read.
@@ -96,7 +96,10 @@ pub fn load<E: Error, R: BufRead + Seek>(
     handler: &mut impl LoadHandler<E>,
 ) -> Result<(), LoadError<E>> {
     // Verify magic
-    let container_type = ContainerType::read(reader)?;
+    let container_type = ContainerType::read(reader).map_err(|e| match e {
+        ContainerTypeReadError::InvalidMagic(magic) => LoadError::InvalidMagic(magic),
+        ContainerTypeReadError::Io(io) => LoadError::Io(io),
+    })?;
 
     match container_type {
         ContainerType::Ggml

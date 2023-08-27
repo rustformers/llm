@@ -12,14 +12,11 @@ use crate::{
     util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelContext, ModelParameters,
     TokenId, Tokenizer, TokenizerLoadError, TokenizerSource,
 };
-pub use ggml::{format::ggml::ContainerType, util::FormatMagic};
 use ggml::{
-    format::{
-        ggml::{PartialHyperparameters, TensorLoadInfo},
-        LoadError as FormatLoadError,
-    },
+    format::ggml::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
     Context, MAX_NAME_LENGTH,
 };
+pub use ggml::{format::ContainerType, util::FileMagic};
 use memmap2::Mmap;
 use thiserror::Error;
 use tracing::log;
@@ -262,7 +259,7 @@ pub enum LoadError {
         /// The path that failed.
         path: PathBuf,
         /// The magic number that was encountered.
-        magic: FormatMagic,
+        magic: FileMagic,
     },
     #[error("invalid file format {container_type:?}")]
     /// The version of the format is not supported by this version of `llm`.

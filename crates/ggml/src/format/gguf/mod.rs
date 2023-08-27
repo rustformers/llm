@@ -2,15 +2,45 @@
 
 use std::{
     collections::HashMap,
-    convert::Infallible,
     io::{BufRead, Seek},
 };
 
 use crate::{util, ElementType};
 
-use super::{ggml::ContainerType, LoadError};
+use super::{ContainerType, ContainerTypeReadError};
 
 pub const DEFAULT_ALIGNMENT: u32 = 32;
+
+#[derive(Debug, thiserror::Error)]
+/// Errors that can occur while loading a model.
+pub enum GgufLoadError {
+    #[error("invalid GGUF file magic value: {0}")]
+    /// The file magic number is invalid.
+    InvalidMagic(util::FileMagic),
+    #[error("invalid ggml format: format={0:?}")]
+    /// An unsupported format version was found.
+    InvalidFormatVersion(ContainerType),
+    #[error("non-specific I/O error")]
+    /// A non-specific IO error.
+    Io(#[from] std::io::Error),
+    #[error("could not convert bytes to a UTF-8 string")]
+    /// One of the strings encountered was not valid UTF-8.
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("invalid integer conversion")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+    #[error("unsupported tensor type {ftype} for tensor {tensor_name}")]
+    /// One of the tensors encountered had an unsupported data type.
+    UnsupportedElementType {
+        /// The name of the tensor.
+        tensor_name: String,
+        /// The format type that was encountered.
+        ftype: u32,
+    },
+    #[error("invariant broken: {0}")]
+    /// An invariant was broken.
+    InvariantBroken(String),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gguf {
@@ -19,10 +49,13 @@ pub struct Gguf {
     pub tensor_data_position: u64,
 }
 impl Gguf {
-    pub fn load<R: BufRead + Seek>(reader: &mut R) -> Result<Self, LoadError<Infallible>> {
-        let container = ContainerType::read(reader)?;
+    pub fn load<R: BufRead + Seek>(reader: &mut R) -> Result<Self, GgufLoadError> {
+        let container = ContainerType::read(reader).map_err(|e| match e {
+            ContainerTypeReadError::InvalidMagic(magic) => GgufLoadError::InvalidMagic(magic),
+            ContainerTypeReadError::Io(io) => GgufLoadError::Io(io),
+        })?;
         if ![ContainerType::Gguf(1), ContainerType::Gguf(2)].contains(&container) {
-            return Err(LoadError::InvalidFormatVersion(container));
+            return Err(GgufLoadError::InvalidFormatVersion(container));
         }
 
         let ctx = GgufContext {
@@ -151,7 +184,7 @@ impl MetadataValue {
     fn read_key_value(
         ctx: &GgufContext,
         reader: &mut dyn BufRead,
-    ) -> Result<(String, Self), LoadError<Infallible>> {
+    ) -> Result<(String, Self), GgufLoadError> {
         let key = util::read_string(reader, ctx.use_64_bit_length)?;
         let value_type = MetadataValueType::try_from(util::read_u32(reader)?)
             .expect("TODO: handle invalid value types");
@@ -164,7 +197,7 @@ impl MetadataValue {
         ctx: &GgufContext,
         reader: &mut dyn BufRead,
         value_type: MetadataValueType,
-    ) -> Result<MetadataValue, LoadError<Infallible>> {
+    ) -> Result<MetadataValue, GgufLoadError> {
         match value_type {
             MetadataValueType::UInt8 => Self::read_u8(ctx, reader).map(MetadataValue::UInt8),
             MetadataValueType::Int8 => Self::read_i8(ctx, reader).map(MetadataValue::Int8),
@@ -182,88 +215,58 @@ impl MetadataValue {
         }
     }
 
-    fn read_u8(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u8, LoadError<Infallible>> {
+    fn read_u8(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u8, GgufLoadError> {
         Ok(util::read_bytes::<1>(reader)?[0])
     }
 
-    fn read_i8(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i8, LoadError<Infallible>> {
+    fn read_i8(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i8, GgufLoadError> {
         Ok(util::read_bytes::<1>(reader)?[0] as i8)
     }
 
-    fn read_u16(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<u16, LoadError<Infallible>> {
+    fn read_u16(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u16, GgufLoadError> {
         Ok(u16::from_le_bytes(util::read_bytes::<2>(reader)?))
     }
 
-    fn read_i16(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<i16, LoadError<Infallible>> {
+    fn read_i16(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i16, GgufLoadError> {
         Ok(i16::from_le_bytes(util::read_bytes::<2>(reader)?))
     }
 
-    fn read_u32(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<u32, LoadError<Infallible>> {
+    fn read_u32(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u32, GgufLoadError> {
         Ok(util::read_u32(reader)?)
     }
 
-    fn read_i32(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<i32, LoadError<Infallible>> {
+    fn read_i32(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i32, GgufLoadError> {
         Ok(util::read_i32(reader)?)
     }
 
-    fn read_f32(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<f32, LoadError<Infallible>> {
+    fn read_f32(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<f32, GgufLoadError> {
         Ok(util::read_f32(reader)?)
     }
 
-    fn read_bool(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<bool, LoadError<Infallible>> {
+    fn read_bool(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<bool, GgufLoadError> {
         Ok(util::read_bool(reader)?)
     }
 
-    fn read_string(
-        ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<String, LoadError<Infallible>> {
+    fn read_string(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<String, GgufLoadError> {
         Ok(util::read_string(reader, ctx.use_64_bit_length)?)
     }
 
     fn read_array(
         ctx: &GgufContext,
         reader: &mut dyn BufRead,
-    ) -> Result<MetadataArrayValue, LoadError<Infallible>> {
+    ) -> Result<MetadataArrayValue, GgufLoadError> {
         MetadataArrayValue::read_value(ctx, reader)
     }
 
-    fn read_u64(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<u64, LoadError<Infallible>> {
+    fn read_u64(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u64, GgufLoadError> {
         Ok(util::read_u64(reader)?)
     }
 
-    fn read_i64(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<i64, LoadError<Infallible>> {
+    fn read_i64(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i64, GgufLoadError> {
         Ok(util::read_i64(reader)?)
     }
 
-    fn read_f64(
-        _ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<f64, LoadError<Infallible>> {
+    fn read_f64(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<f64, GgufLoadError> {
         Ok(util::read_f64(reader)?)
     }
 
@@ -292,10 +295,7 @@ pub enum MetadataArrayValue {
     Float64(Vec<f64>),
 }
 impl MetadataArrayValue {
-    fn read_value(
-        ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<Self, LoadError<Infallible>> {
+    fn read_value(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError> {
         let value_type = MetadataValueType::try_from(util::read_u32(reader)?)
             .expect("TODO: handle invalid value types");
         let length = util::read_length(reader, ctx.use_64_bit_length)?;
@@ -308,12 +308,9 @@ impl MetadataArrayValue {
         impl ArrayReader<'_> {
             fn read<T>(
                 &mut self,
-                value_reader: impl Fn(
-                    &GgufContext,
-                    &mut dyn BufRead,
-                ) -> Result<T, LoadError<Infallible>>,
+                value_reader: impl Fn(&GgufContext, &mut dyn BufRead) -> Result<T, GgufLoadError>,
                 value_constructor: impl Fn(Vec<T>) -> MetadataArrayValue,
-            ) -> Result<MetadataArrayValue, LoadError<Infallible>> {
+            ) -> Result<MetadataArrayValue, GgufLoadError> {
                 (0..self.length)
                     .map(|_| value_reader(self.ctx, self.reader))
                     .collect::<Result<Vec<T>, _>>()
@@ -356,7 +353,7 @@ impl TensorInfo {
     fn read_name_value(
         ctx: &GgufContext,
         reader: &mut dyn BufRead,
-    ) -> Result<(String, Self), LoadError<Infallible>> {
+    ) -> Result<(String, Self), GgufLoadError> {
         let name = util::read_string(reader, ctx.use_64_bit_length)?;
 
         let dimension_count = util::read_u32(reader)? as usize;
@@ -365,11 +362,12 @@ impl TensorInfo {
             .collect::<Result<Vec<_>, _>>()?;
 
         let element_type = util::read_u32(reader)?;
-        let element_type =
-            ElementType::try_from(element_type).map_err(|_| LoadError::UnsupportedElementType {
+        let element_type = ElementType::try_from(element_type).map_err(|_| {
+            GgufLoadError::UnsupportedElementType {
                 tensor_name: name.clone(),
                 ftype: element_type,
-            })?;
+            }
+        })?;
 
         let offset = util::read_u64(reader)?;
 

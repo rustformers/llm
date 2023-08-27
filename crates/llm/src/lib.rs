@@ -81,7 +81,7 @@ pub use llm_base::{
     ggml::accelerator::get_accelerator as ggml_get_accelerator,
     ggml::accelerator::Accelerator as GgmlAccelerator, ggml::format as ggml_format,
     ggml::RoPEOverrides, load, load_progress_callback_stdout, quantize, samplers, ElementType,
-    FileType, FileTypeFormat, FormatMagic, Hyperparameters, InferenceError, InferenceFeedback,
+    FileMagic, FileType, FileTypeFormat, Hyperparameters, InferenceError, InferenceFeedback,
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
     InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,

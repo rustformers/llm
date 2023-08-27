@@ -17,6 +17,8 @@ rand = { workspace = true }
 anyhow = { workspace = true }
 
 [features]
+# Whether or not the pre-GGUF loading/saving code is exposed.
+pre-gguf-formats = []
 cublas = ["ggml-sys/cublas"]
 clblast = ["ggml-sys/clblast"]
 metal = ["ggml-sys/metal"]
