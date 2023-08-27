@@ -5,11 +5,12 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
-    Tokenizer, TokenizerLoadError, TokenizerSource,
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelContext, ModelParameters,
+    TokenId, Tokenizer, TokenizerLoadError, TokenizerSource,
 };
 pub use ggml::{format::FormatMagic, ContainerType};
 use ggml::{
@@ -398,7 +399,7 @@ pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, returning the context.
-    fn finish(self) -> Context;
+    fn finish(self) -> ModelContext;
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -676,8 +677,11 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> Context {
-        self.context
+    fn finish(self) -> ModelContext {
+        // We can ignore this warning as it's OK to share this particular
+        // context around, being that it is immutable.
+        #[allow(clippy::arc_with_non_send_sync)]
+        ModelContext(Arc::new(self.context))
     }
 }
 

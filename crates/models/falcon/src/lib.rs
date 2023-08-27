@@ -7,14 +7,12 @@
 //! supported. It is currently only available as a preview.
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The Falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae)
@@ -39,7 +37,7 @@ pub struct Falcon {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Falcon {}
@@ -138,7 +136,7 @@ impl KnownModel for Falcon {
             output_norm_b,
             lm_head,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 
