@@ -328,7 +328,7 @@ impl MetadataArrayValue {
         };
         use MetadataValue as MV;
         use MetadataValueType as MVT;
-        Ok(match value_type {
+        match value_type {
             MVT::UInt8 => reader.read(MV::read_u8, Self::UInt8),
             MVT::Int8 => reader.read(MV::read_i8, Self::Int8),
             MVT::UInt16 => reader.read(MV::read_u16, Self::UInt16),
@@ -342,7 +342,7 @@ impl MetadataArrayValue {
             MVT::UInt64 => reader.read(MV::read_u64, Self::UInt64),
             MVT::Int64 => reader.read(MV::read_i64, Self::Int64),
             MVT::Float64 => reader.read(MV::read_f64, Self::Float64),
-        }?)
+        }
     }
 }
 
