@@ -361,6 +361,7 @@ impl Generate {
             memory_v_type: mem_typ,
             n_batch: self.batch_size,
             n_threads: self.num_threads(),
+            gpu_split: 10,
         }
     }
 

@@ -144,7 +144,7 @@ impl InferenceSession {
         };
 
         if use_gpu {
-            ggml::accelerator::initialize(0);
+            ggml::accelerator::initialize(0, config.gpu_split);
             ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
         }
 
@@ -823,6 +823,8 @@ pub struct InferenceSessionConfig {
     /// A reasonable default value is 8, as most modern high-performance computers have
     /// 8 physical cores. Adjust to your needs.
     pub n_threads: usize,
+    /// The relative float split of the model between GPUs, expressed in tenths .
+    pub gpu_split: usize,
 }
 
 impl Default for InferenceSessionConfig {
@@ -832,6 +834,7 @@ impl Default for InferenceSessionConfig {
             memory_v_type: ModelKVMemoryType::Float16,
             n_batch: 8,
             n_threads: 8,
+            gpu_split: 10,
         }
     }
 }

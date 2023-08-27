@@ -65,13 +65,13 @@ impl TryFrom<sys::ggml_backend> for Backend {
 
 /// Initialize the accelerator. If ggml-sys is compiled with CUDA or CLBlast support, this function will initialize the accelerator. If not this is a no-op.
 #[allow(unused_variables)]
-pub fn initialize(device: i32) {
+pub fn initialize(device: i32, split: usize) {
     #[cfg(feature = "cublas")]
     unsafe {
         //TODO: Make this configurable
         sys::cuda::ggml_init_cublas();
         sys::cuda::ggml_cuda_set_main_device(device);
-        let split = 0.5f32;
+        let splitf = split as f32 / 10 as f32;
         sys::cuda::ggml_cuda_set_tensor_split(&split as *const f32);
     }
 }
