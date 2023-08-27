@@ -63,7 +63,7 @@ impl Default for RoPEOverrides {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 /// The type of a value in `ggml`.
 pub enum Type {
     /// Quantized 4-bit (type 0).
