@@ -653,12 +653,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             path: Default::default(),
         })?;
 
-        let mut main_context = FileContext::new(
-            &self.context,
-            &mut self.file,
-            &self.path,
-            self.context.storage().as_mmap(),
-        );
+        let mut main_context = FileContext::new(&self.context, &mut self.file, &self.path);
 
         let mut tensor = main_context.get_tensor(info)?;
 
@@ -690,20 +685,13 @@ pub(crate) struct FileContext<'a> {
     context: &'a Context,
     file: &'a mut File,
     path: &'a Path,
-    mmap: Option<&'a Mmap>,
 }
 impl<'a> FileContext<'a> {
-    pub(crate) fn new(
-        context: &'a Context,
-        file: &'a mut File,
-        path: &'a Path,
-        mmap: Option<&'a Mmap>,
-    ) -> Self {
+    pub(crate) fn new(context: &'a Context, file: &'a mut File, path: &'a Path) -> Self {
         Self {
             context,
             file,
             path,
-            mmap,
         }
     }
 
@@ -738,7 +726,7 @@ impl<'a> FileContext<'a> {
             }
         };
 
-        match self.mmap {
+        match self.context.storage().as_mmap() {
             Some(mmap) => unsafe {
                 let ptr = mmap.as_ptr().offset(info.start_offset as isize);
                 tensor.set_data(ptr as *mut std::ffi::c_void);
