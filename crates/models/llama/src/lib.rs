@@ -1,13 +1,13 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
@@ -31,7 +31,7 @@ pub struct Llama {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Llama {}
@@ -125,7 +125,7 @@ impl KnownModel for Llama {
             norm,
             output,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 

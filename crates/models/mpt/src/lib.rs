@@ -1,14 +1,12 @@
 //! An implementation of [MPT](https://huggingface.co/mosaicml) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-
 use ggml::Tensor;
 use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -31,7 +29,7 @@ pub struct Mpt {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Mpt {}
@@ -78,7 +76,7 @@ impl KnownModel for Mpt {
             wte,
             norm,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 

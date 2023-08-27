@@ -7,8 +7,9 @@ description = "Semi-idiomatic Rust bindings for the ggml library (from `ggml-sys
 license = "MIT"
 
 [dependencies]
-thiserror = { workspace = true }
 ggml-sys = { path = "sys", version = "0.2.0-dev" }
+
+thiserror = { workspace = true }
 memmap2 = { workspace = true }
 
 [dev-dependencies]
