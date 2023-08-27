@@ -242,7 +242,7 @@ impl ModelParameters {
     /// Returns the backend to use for the given layer.
     pub fn backend(&self, layer: usize) -> Backend {
         if self.should_offload(layer) {
-            Backend::Gpu
+            Backend::GpuSplit
         } else {
             Backend::Cpu
         }
