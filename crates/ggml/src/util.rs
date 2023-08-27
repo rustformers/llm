@@ -99,7 +99,14 @@ pub fn read_string(
     use_64_bit_length: bool,
 ) -> Result<String, std::io::Error> {
     let len = read_length(reader, use_64_bit_length)?;
-    let bytes = read_bytes_with_len(reader, len)?;
+    let mut bytes = read_bytes_with_len(reader, len)?;
+    // The GGUF C writer prior to `llama.cpp@103cfafc774f6feb3172b5d4d39681c965b17eba`
+    // wrote a null terminator at the end of strings. As a work-around, we remove
+    // them here.
+    if bytes.last() == Some(&0) {
+        // Remove the null terminator.
+        bytes.pop();
+    }
     Ok(String::from_utf8(bytes)
         .expect("string was not valid utf-8 (TODO: make this a library error)"))
 }
