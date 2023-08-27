@@ -2,14 +2,14 @@
 //! This crate also supports the [RedPajama](https://www.together.xyz/blog/redpajama) GPT-NeoX model.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -35,7 +35,7 @@ pub struct GptNeoX {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for GptNeoX {}
@@ -137,7 +137,7 @@ impl KnownModel for GptNeoX {
             wte,
             lmh_g,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 

@@ -5,6 +5,7 @@ use std::{
     fmt::Debug,
     io::{BufRead, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use ggml::accelerator::Backend;
@@ -263,3 +264,13 @@ pub struct OutputRequest {
     /// `n_batch * n_embd`.
     pub embeddings: Option<Vec<f32>>,
 }
+
+/// Contains the GGML context for a [`Model`]. Implements `Send` and `Sync`
+/// to allow for the free transfer of models; this is made possible by this
+/// context being effectively inert after creation, so that it cannot be
+/// modified across threads.
+#[derive(Clone)]
+#[allow(clippy::arc_with_non_send_sync)]
+pub struct ModelContext(pub(crate) Arc<ggml::Context>);
+unsafe impl Send for ModelContext {}
+unsafe impl Sync for ModelContext {}
