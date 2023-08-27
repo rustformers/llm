@@ -72,7 +72,7 @@ pub fn initialize(device: i32, split: usize) {
         sys::cuda::ggml_init_cublas();
         sys::cuda::ggml_cuda_set_main_device(device);
         let splitf = split as f32 / 10 as f32;
-        sys::cuda::ggml_cuda_set_tensor_split(&split as *const f32);
+        sys::cuda::ggml_cuda_set_tensor_split(&splitf as *const f32);
     }
 }
 
