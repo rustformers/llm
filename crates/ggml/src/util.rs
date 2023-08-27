@@ -36,6 +36,11 @@ pub fn read_u32(reader: &mut dyn BufRead) -> Result<u32, std::io::Error> {
     Ok(u32::from_le_bytes(read_bytes::<4>(reader)?))
 }
 
+/// Read a `i64` from a reader.
+pub fn read_i64(reader: &mut dyn BufRead) -> Result<i64, std::io::Error> {
+    Ok(i64::from_le_bytes(read_bytes::<8>(reader)?))
+}
+
 /// Read a `u64` from a reader.
 pub fn read_u64(reader: &mut dyn BufRead) -> Result<u64, std::io::Error> {
     Ok(u64::from_le_bytes(read_bytes::<8>(reader)?))
@@ -44,6 +49,25 @@ pub fn read_u64(reader: &mut dyn BufRead) -> Result<u64, std::io::Error> {
 /// Read a `f32` from a reader.
 pub fn read_f32(reader: &mut dyn BufRead) -> Result<f32, std::io::Error> {
     Ok(f32::from_le_bytes(read_bytes::<4>(reader)?))
+}
+
+/// Read a `f64` from a reader.
+pub fn read_f64(reader: &mut dyn BufRead) -> Result<f64, std::io::Error> {
+    Ok(f64::from_le_bytes(read_bytes::<8>(reader)?))
+}
+
+/// Read an integer (32-bit or 64-bit) from a reader, and convert it to a usize.
+pub fn read_length(
+    reader: &mut dyn BufRead,
+    use_64_bit_length: bool,
+) -> Result<usize, std::io::Error> {
+    let len: usize = if use_64_bit_length {
+        read_u64(reader)?.try_into()
+    } else {
+        read_u32(reader)?.try_into()
+    }
+    .expect("TODO: invalid usize conversion");
+    Ok(len)
 }
 
 /// Read a `bool` represented as an `i32` from a reader.
@@ -70,8 +94,11 @@ pub fn read_bytes_with_len(
 }
 
 /// Read a string from a reader.
-pub fn read_string(reader: &mut dyn BufRead) -> Result<String, std::io::Error> {
-    let len = read_u32(reader)? as usize;
+pub fn read_string(
+    reader: &mut dyn BufRead,
+    use_64_bit_length: bool,
+) -> Result<String, std::io::Error> {
+    let len = read_length(reader, use_64_bit_length)?;
     let bytes = read_bytes_with_len(reader, len)?;
     Ok(String::from_utf8(bytes)
         .expect("string was not valid utf-8 (TODO: make this a library error)"))
