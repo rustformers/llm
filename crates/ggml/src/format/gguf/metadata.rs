@@ -307,6 +307,99 @@ pub enum MetadataArrayValue {
     Int64(Vec<i64>),
     Float64(Vec<f64>),
 }
+// Public
+impl MetadataArrayValue {
+    pub fn as_uint8_array(&self) -> Option<&[u8]> {
+        match self {
+            Self::UInt8(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_int8_array(&self) -> Option<&[i8]> {
+        match self {
+            Self::Int8(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_uint16_array(&self) -> Option<&[u16]> {
+        match self {
+            Self::UInt16(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_int16_array(&self) -> Option<&[i16]> {
+        match self {
+            Self::Int16(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_uint32_array(&self) -> Option<&[u32]> {
+        match self {
+            Self::UInt32(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_int32_array(&self) -> Option<&[i32]> {
+        match self {
+            Self::Int32(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_float32_array(&self) -> Option<&[f32]> {
+        match self {
+            Self::Float32(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool_array(&self) -> Option<&[bool]> {
+        match self {
+            Self::Bool(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_string_array(&self) -> Option<&[String]> {
+        match self {
+            Self::String(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_array_array(&self) -> Option<&[MetadataArrayValue]> {
+        match self {
+            Self::Array(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_uint64_array(&self) -> Option<&[u64]> {
+        match self {
+            Self::UInt64(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_int64_array(&self) -> Option<&[i64]> {
+        match self {
+            Self::Int64(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_float64_array(&self) -> Option<&[f64]> {
+        match self {
+            Self::Float64(v) => Some(v),
+            _ => None,
+        }
+    }
+}
 impl MetadataArrayValue {
     fn read_value(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError> {
         let value_type = MetadataValueType::try_from(util::read_u32(reader)?)

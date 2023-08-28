@@ -8,6 +8,7 @@ use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre::{self, Context, ContextCompat};
 use is_terminal::IsTerminal;
+use llm::ggml_format::gguf;
 
 mod cli_args;
 mod interactive;
@@ -132,56 +133,45 @@ fn perplexity(args: &cli_args::Perplexity) -> eyre::Result<()> {
 }
 
 fn info(args: &cli_args::Info) -> eyre::Result<()> {
-    struct InfoVisitor<'a>(&'a cli_args::Info);
-    impl llm::ModelArchitectureVisitor<eyre::Result<()>> for InfoVisitor<'_> {
-        fn visit<M: llm::KnownModel + 'static>(&mut self) -> eyre::Result<()> {
-            let args = self.0;
+    let model_path = &args.model_and_tokenizer.model_path;
 
-            let model_path = &args.model_and_tokenizer.model_path;
-            let tokenizer = args.model_and_tokenizer.to_source()?.retrieve(model_path)?;
+    let file = File::open(model_path)?;
+    let mut reader = BufReader::new(&file);
+    let gguf = gguf::Gguf::load(&mut reader)?;
 
-            let file = File::open(model_path)?;
-            let mut reader = BufReader::new(&file);
-            let mut loader: llm::Loader<M::Hyperparameters, _> =
-                llm::Loader::new(tokenizer, |_| {
-                    // We purposely do not print progress here, as we are only interested in the metadata
-                });
+    log::info!("Non-array parameters:");
+    for (metadata_key, metadata_value) in &gguf.metadata {
+        if metadata_value.as_array().is_some() {
+            continue;
+        }
 
-            llm::ggml_format::ggml::load(&mut reader, &mut loader)?;
+        log::info!("- {}: {:?}", metadata_key, metadata_value);
+    }
 
-            log::info!("Container type: {:?}", loader.container_type);
-            log::info!("Hyperparameters: {:?}", loader.hyperparameters);
-            log::info!("Tokenizer vocabulary size: {}", loader.tokenizer.len());
+    if let Some((tokens, _scores)) = gguf.tokenizer_embedded() {
+        log::info!("Embedded tokenizer vocabulary size: {}", tokens.len());
 
-            if args.tokenizer {
-                log::info!("Tokens:");
-                for i in 0..loader.tokenizer.len() {
-                    log::info!("- {}: {}", i, utf8_or_array(&loader.tokenizer.token(i)));
-                }
+        if args.tokenizer {
+            log::info!("Embedded tokenizer vocabulary:");
+            for (i, token) in tokens.iter().enumerate() {
+                log::info!("- {}: {}", i, token);
             }
-
-            if args.tensors {
-                log::info!("Tensors:");
-                for (name, tensor) in &loader.tensors {
-                    log::info!("- {} ({:?} {:?})", name, tensor.element_type, tensor.dims());
-                }
-            }
-
-            fn utf8_or_array(token: &[u8]) -> String {
-                std::str::from_utf8(token)
-                    .map(|s| s.to_owned())
-                    .unwrap_or(format!("{:?}", token))
-            }
-
-            Ok(())
         }
     }
 
-    args.model_and_tokenizer
-        .architecture
-        .model_architecture
-        .wrap_err("a model architecture is required at present")?
-        .visit(&mut InfoVisitor(args))
+    if args.tensors {
+        log::info!("Tensors:");
+        for (name, tensor) in &gguf.tensor_infos {
+            log::info!(
+                "- {} ({:?} {:?})",
+                name,
+                tensor.element_type,
+                tensor.dimensions
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn prompt_tokens(args: &cli_args::PromptTokens) -> eyre::Result<()> {

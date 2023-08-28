@@ -102,6 +102,23 @@ impl Gguf {
             tensor_data_position,
         })
     }
+
+    // TODO: consider moving this to a `ModelGguf` abstraction that wraps this
+    // and provides a model-specific interface
+    pub fn tokenizer_embedded(&self) -> Option<(&[String], &[f32])> {
+        let tokens = self
+            .metadata
+            .get("tokenizer.ggml.tokens")?
+            .as_array()?
+            .as_string_array()?;
+        let scores = self
+            .metadata
+            .get("tokenizer.ggml.scores")?
+            .as_array()?
+            .as_float32_array()?;
+
+        Some((tokens, scores))
+    }
 }
 
 struct GgufContext {

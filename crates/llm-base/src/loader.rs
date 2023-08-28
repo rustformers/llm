@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    Hyperparameters, KnownModel, LoraAdapter, ModelContext, ModelParameters, TokenizerLoadError,
-    TokenizerSource,
+    Hyperparameters, KnownModel, LoraAdapter, ModelContext, ModelParameters, Tokenizer,
+    TokenizerLoadError, TokenizerSource,
 };
 use ggml::{
     format::gguf::{
@@ -38,7 +38,7 @@ impl From<FileType> for i32 {
     }
 }
 impl TryFrom<i32> for FileType {
-    type Error = ();
+    type Error = LoadError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         let format = FileTypeFormat::try_from(
@@ -99,7 +99,7 @@ pub enum FileTypeFormat {
     MostlyQ6_K,
 }
 impl TryFrom<ggml::sys::llama::llama_ftype> for FileTypeFormat {
-    type Error = ();
+    type Error = LoadError;
 
     fn try_from(value: ggml::sys::llama::llama_ftype) -> Result<Self, Self::Error> {
         use ggml::sys::llama::*;
@@ -121,7 +121,10 @@ impl TryFrom<ggml::sys::llama::llama_ftype> for FileTypeFormat {
             LLAMA_FTYPE_MOSTLY_Q5_K_S => Ok(FileTypeFormat::MostlyQ5_K_S),
             LLAMA_FTYPE_MOSTLY_Q5_K_M => Ok(FileTypeFormat::MostlyQ5_K_M),
             LLAMA_FTYPE_MOSTLY_Q6_K => Ok(FileTypeFormat::MostlyQ6_K),
-            _ => Err(()),
+            #[allow(clippy::unnecessary_cast)]
+            _ => Err(LoadError::UnsupportedFileType {
+                file_type_format: value as u32,
+            }),
         }
     }
 }
@@ -269,14 +272,8 @@ pub enum LoadError {
         path: PathBuf,
     },
     /// The tokenizer could not be loaded.
-    #[error("could not load tokenizer {path:?}: {error}")]
-    TokenizerLoadFail {
-        /// The path of the tokenizer.
-        path: PathBuf,
-
-        /// The error that occurred.
-        error: Box<dyn Error + Send + Sync>,
-    },
+    #[error("could not load tokenizer: {0}")]
+    TokenizerLoadFail(#[from] TokenizerLoadError),
     /// The quantization version was missing, despite this model containing quantized tensors.
     #[error("quantization version was missing, despite model containing quantized tensors")]
     MissingQuantizationVersion,
@@ -312,14 +309,12 @@ pub enum LoadError {
         /// The actual type.
         actual_type: MetadataValueType,
     },
-}
-impl From<TokenizerLoadError> for LoadError {
-    fn from(value: TokenizerLoadError) -> Self {
-        LoadError::TokenizerLoadFail {
-            path: value.path,
-            error: value.error,
-        }
-    }
+    /// The file type within the model was not supported by this version of `llm`.
+    #[error("file type {file_type_format} is not supported")]
+    UnsupportedFileType {
+        /// The file type format (ignoring the quantization version) that was encountered.
+        file_type_format: u32,
+    },
 }
 impl LoadError {
     #[doc(hidden)]
@@ -422,7 +417,7 @@ pub fn load<M: KnownModel>(
     let mut reader = BufReader::new(&file);
     log::trace!("Read model file from {:?}", path);
 
-    let tokenizer = tokenizer_source.retrieve(path)?;
+    let mut tokenizer = tokenizer_source.retrieve(path)?;
 
     let gguf =
         gguf::Gguf::load(&mut reader).map_err(|e| LoadError::from_gguf(e, path.to_owned()))?;
@@ -450,6 +445,17 @@ pub fn load<M: KnownModel>(
                 })
             }
             None => return Err(LoadError::MissingQuantizationVersion),
+        }
+    }
+
+    // Populate the embedded tokenizer if required
+    if let Tokenizer::Embedded(tokenizer) = &mut tokenizer {
+        if let Some((tokens, scores)) = gguf.tokenizer_embedded() {
+            for (i, (token, score)) in tokens.iter().zip(scores.iter()).enumerate() {
+                tokenizer.push_token(i as u32, token.as_bytes().to_vec(), *score);
+            }
+        } else {
+            return Err(TokenizerLoadError::NoTokenizerFound.into());
         }
     }
 
@@ -513,6 +519,7 @@ pub fn load<M: KnownModel>(
     let hyperparameters = <M::Hyperparameters>::read_gguf(&gguf.metadata)?;
     let tl = ModelTensorLoader {
         tensor_loader: TensorLoader {
+            path,
             file: &mut file,
             gguf: &gguf,
             context,
@@ -575,6 +582,7 @@ impl ModelTensorLoader<'_> {
 }
 
 pub(crate) struct TensorLoader<'a> {
+    pub path: &'a Path,
     pub file: &'a mut File,
     pub context: Context,
     pub gguf: &'a gguf::Gguf,
@@ -587,7 +595,7 @@ impl TensorLoader<'_> {
             .get(name)
             .ok_or(LoadError::UnknownTensor {
                 tensor_name: String::from(name),
-                path: Default::default(),
+                path: self.path.to_path_buf(),
             })?;
 
         let ty = info.element_type;

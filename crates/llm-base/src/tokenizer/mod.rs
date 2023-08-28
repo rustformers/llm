@@ -20,7 +20,7 @@ pub(crate) type TokenScore = f32;
 #[derive(Error, Debug)]
 /// Errors related to tokenization.
 pub enum TokenizationError {
-    #[error("an invalid token was encountered during tokenization")]
+    #[error("an invalid token was encountered during tokenization: {error}")]
     /// During tokenization, one of the produced tokens was invalid / zero.
     TokenizationFailed {
         #[source]
@@ -35,16 +35,26 @@ pub enum TokenizationError {
 #[derive(Error, Debug)]
 /// Errors related to loading the tokenizer.
 #[error("error loading tokenizer from {path}: {error}")]
-pub struct TokenizerLoadError {
-    /// The path to the tokenizer.
-    pub path: PathBuf,
-    /// The error that occurred during loading.
-    pub error: Box<dyn Error + Send + Sync>,
+pub enum TokenizerLoadError {
+    #[error("error loading Hugging Face tokenizer from {path}: {error}")]
+    /// An error occurred while loading a Hugging Face tokenizer.
+    HuggingFaceTokenizerError {
+        /// The path to the tokenizer.
+        path: PathBuf,
+        /// The error that occurred during loading.
+        error: Box<dyn Error + Send + Sync>,
+    },
+    #[error("no tokenizer was found, including in the model file")]
+    /// No tokenizer was found, including in the model file.
+    NoTokenizerFound,
 }
 
 impl TokenizerLoadError {
-    fn new(path: impl Into<PathBuf>, error: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
-        Self {
+    fn huggingface_error(
+        path: impl Into<PathBuf>,
+        error: impl Into<Box<dyn Error + Send + Sync>>,
+    ) -> Self {
+        Self::HuggingFaceTokenizerError {
             path: path.into(),
             error: error.into(),
         }
@@ -84,19 +94,19 @@ impl TokenizerSource {
             #[cfg(feature = "tokenizers-remote")]
             Self::HuggingFaceRemote(identifier) => HuggingFaceTokenizer::new(
                 tokenizers::Tokenizer::from_pretrained(&identifier, None)
-                    .map_err(|error| TokenizerLoadError::new(model_path, error))?,
+                    .map_err(|error| TokenizerLoadError::huggingface_error(model_path, error))?,
             )
             .into(),
 
             Self::HuggingFaceTokenizerFile(path) => HuggingFaceTokenizer::new(
                 tokenizers::Tokenizer::from_file(&path)
-                    .map_err(|error| TokenizerLoadError::new(path, error))?,
+                    .map_err(|error| TokenizerLoadError::huggingface_error(path, error))?,
             )
             .into(),
 
             Self::HuggingFaceTokenizerString(s) => HuggingFaceTokenizer::new(
                 tokenizers::Tokenizer::from_str(&s)
-                    .map_err(|error| TokenizerLoadError::new(model_path, error))?,
+                    .map_err(|error| TokenizerLoadError::huggingface_error(model_path, error))?,
             )
             .into(),
 

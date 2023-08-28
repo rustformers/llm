@@ -84,7 +84,7 @@ pub use llm_base::{
     FileMagic, FileType, FileTypeFormat, Hyperparameters, InferenceError, InferenceFeedback,
     InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
     InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
-    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
+    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Model, ModelKVMemoryType,
     ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, RewindError,
     SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
     TokenizerSource,
@@ -232,9 +232,7 @@ pub fn load_dynamic(
         )?))
     }
 
-    let architecture = architecture.ok_or_else(|| LoadError::MissingModelArchitecture {
-        path: path.to_owned(),
-    })?;
+    let architecture = architecture.expect("TODO: This option will be removed soon");
 
     struct LoadVisitor<'a, F: FnMut(LoadProgress)> {
         path: &'a Path,

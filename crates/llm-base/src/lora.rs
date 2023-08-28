@@ -105,6 +105,7 @@ impl LoraAdapter {
         // TODO: test if GPU can be enabled (make it configurable)
         let patch_context = ggml::Context::new_with_allocate(patch_context_size);
         let mut loader = TensorLoader {
+            path: &self.path,
             file: &mut self.file,
             context: patch_context,
             gguf: &self.gguf,
