@@ -17,7 +17,11 @@ mod util;
 fn main() -> eyre::Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .with_ansi(std::io::stderr().is_terminal())
         .init();
 
