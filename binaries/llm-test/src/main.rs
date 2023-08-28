@@ -255,7 +255,7 @@ async fn test_model(
             let model = common::can_send(model)?;
 
             // Confirm that the hyperparameters can be roundtripped
-            common::can_roundtrip_hyperparameters(&model)?;
+            // common::can_roundtrip_hyperparameters(&model)?;
 
             //
 

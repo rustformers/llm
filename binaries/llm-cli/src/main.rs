@@ -36,7 +36,7 @@ fn main() -> eyre::Result<()> {
         Args::PromptTokens(args) => prompt_tokens(&args),
         Args::Repl(args) => interactive::repl(&args),
         Args::Chat(args) => interactive::chat(&args),
-        Args::Quantize(args) => quantize(&args),
+        // Args::Quantize(args) => quantize(&args),
     }
 }
 
@@ -203,65 +203,65 @@ fn prompt_tokens(args: &cli_args::PromptTokens) -> eyre::Result<()> {
     Ok(())
 }
 
-fn quantize(args: &cli_args::Quantize) -> eyre::Result<()> {
-    use llm::QuantizeProgress;
+// fn quantize(args: &cli_args::Quantize) -> eyre::Result<()> {
+//     use llm::QuantizeProgress;
 
-    struct QuantizeVisitor<'a>(&'a cli_args::Quantize);
-    impl llm::ModelArchitectureVisitor<eyre::Result<()>> for QuantizeVisitor<'_> {
-        fn visit<M: llm::KnownModel>(&mut self) -> eyre::Result<()> {
-            let args = self.0;
+//     struct QuantizeVisitor<'a>(&'a cli_args::Quantize);
+//     impl llm::ModelArchitectureVisitor<eyre::Result<()>> for QuantizeVisitor<'_> {
+//         fn visit<M: llm::KnownModel>(&mut self) -> eyre::Result<()> {
+//             let args = self.0;
 
-            let mut source: BufReader<File> = BufReader::new(std::fs::File::open(&args.source)?);
-            let mut destination: BufWriter<File> =
-                BufWriter::new(std::fs::File::create(&args.destination)?);
-            let tokenizer: llm::Tokenizer = args.tokenizer.to_source()?.retrieve(&args.source)?;
+//             let mut source: BufReader<File> = BufReader::new(std::fs::File::open(&args.source)?);
+//             let mut destination: BufWriter<File> =
+//                 BufWriter::new(std::fs::File::create(&args.destination)?);
+//             let tokenizer: llm::Tokenizer = args.tokenizer.to_source()?.retrieve(&args.source)?;
 
-            llm::quantize::<M, _, _>(
-                &mut source,
-                &mut destination,
-                tokenizer,
-                args.container_type.into(),
-                args.target.into(),
-                |progress| match progress {
-                    QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
-                    QuantizeProgress::TensorLoading {
-                        name,
-                        dims,
-                        element_type,
-                        n_elements,
-                    } => log::info!(
-                        "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
-                    ),
-                    QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
-                    QuantizeProgress::TensorQuantized {
-                        name,
-                        original_size,
-                        reduced_size,
-                        history,
-                    } => log::info!(
-                    "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
-                ),
-                    QuantizeProgress::TensorSkipped { name, size } => {
-                        log::info!("Skipped tensor `{name}` ({size} bytes)")
-                    }
-                    QuantizeProgress::Finished {
-                        original_size,
-                        reduced_size,
-                        history,
-                    } => log::info!(
-                        "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
-                    ),
-                },
-            )
-            .wrap_err("failed to quantize model")
-        }
-    }
+//             llm::quantize::<M, _, _>(
+//                 &mut source,
+//                 &mut destination,
+//                 tokenizer,
+//                 args.container_type.into(),
+//                 args.target.into(),
+//                 |progress| match progress {
+//                     QuantizeProgress::HyperparametersLoaded => log::info!("Loaded hyperparameters"),
+//                     QuantizeProgress::TensorLoading {
+//                         name,
+//                         dims,
+//                         element_type,
+//                         n_elements,
+//                     } => log::info!(
+//                         "Loading tensor `{name}` ({n_elements} ({dims:?}) {element_type} elements)"
+//                     ),
+//                     QuantizeProgress::TensorQuantizing { name } => log::info!("Quantizing tensor `{name}`"),
+//                     QuantizeProgress::TensorQuantized {
+//                         name,
+//                         original_size,
+//                         reduced_size,
+//                         history,
+//                     } => log::info!(
+//                     "Quantized tensor `{name}` from {original_size} to {reduced_size} bytes ({history:?})"
+//                 ),
+//                     QuantizeProgress::TensorSkipped { name, size } => {
+//                         log::info!("Skipped tensor `{name}` ({size} bytes)")
+//                     }
+//                     QuantizeProgress::Finished {
+//                         original_size,
+//                         reduced_size,
+//                         history,
+//                     } => log::info!(
+//                         "Finished quantization from {original_size} to {reduced_size} bytes ({history:?})"
+//                     ),
+//                 },
+//             )
+//             .wrap_err("failed to quantize model")
+//         }
+//     }
 
-    args.architecture
-        .model_architecture
-        .wrap_err("the architecture must be known for quantization")?
-        .visit(&mut QuantizeVisitor(args))
-}
+//     args.architecture
+//         .model_architecture
+//         .wrap_err("the architecture must be known for quantization")?
+//         .visit(&mut QuantizeVisitor(args))
+// }
 
 fn load_prompt_file_with_prompt(
     prompt_file: &cli_args::PromptFile,

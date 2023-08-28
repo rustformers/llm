@@ -45,9 +45,9 @@ pub enum Args {
     /// and do not support a long enough context window to be able to
     /// have an extended conversation.
     Chat(Box<Chat>),
-
-    /// Quantize a GGML model to 4-bit.
-    Quantize(Box<Quantize>),
+    //
+    // /// Quantize a GGML model to 4-bit.
+    // Quantize(Box<Quantize>),
 }
 
 #[derive(Parser, Debug)]
@@ -629,56 +629,56 @@ pub fn read_prompt_file(path: &Path) -> eyre::Result<String> {
         .wrap_err_with(|| format!("Could not read prompt file at {path:?}"))
 }
 
-#[derive(Parser, Debug)]
-pub struct Quantize {
-    #[command(flatten)]
-    pub architecture: ModelArchitecture,
+// #[derive(Parser, Debug)]
+// pub struct Quantize {
+//     #[command(flatten)]
+//     pub architecture: ModelArchitecture,
 
-    /// The path to the model to quantize
-    #[arg()]
-    pub source: PathBuf,
+//     /// The path to the model to quantize
+//     #[arg()]
+//     pub source: PathBuf,
 
-    /// The path to save the quantized model to
-    #[arg()]
-    pub destination: PathBuf,
+//     /// The path to save the quantized model to
+//     #[arg()]
+//     pub destination: PathBuf,
 
-    #[command(flatten)]
-    pub tokenizer: ModelTokenizer,
+//     #[command(flatten)]
+//     pub tokenizer: ModelTokenizer,
 
-    /// The GGML container type to target.
-    ///
-    /// Note that using GGML requires the original model to have
-    /// an unscored vocabulary, which is not the case for newer models.
-    #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
-    pub container_type: SaveContainerType,
+//     /// The GGML container type to target.
+//     ///
+//     /// Note that using GGML requires the original model to have
+//     /// an unscored vocabulary, which is not the case for newer models.
+//     #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
+//     pub container_type: SaveContainerType,
 
-    /// The format to convert to
-    pub target: QuantizationTarget,
-}
+//     /// The format to convert to
+//     pub target: QuantizationTarget,
+// }
 
-#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
-pub enum SaveContainerType {
-    /// GGML container.
-    Ggml,
-    /// GGJT v3 container.
-    GgjtV3,
-}
-impl fmt::Display for SaveContainerType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SaveContainerType::Ggml => write!(f, "ggml"),
-            SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
-        }
-    }
-}
-impl From<SaveContainerType> for ggml_format::ggml::SaveContainerType {
-    fn from(value: SaveContainerType) -> Self {
-        match value {
-            SaveContainerType::Ggml => ggml_format::ggml::SaveContainerType::Ggml,
-            SaveContainerType::GgjtV3 => ggml_format::ggml::SaveContainerType::GgjtV3,
-        }
-    }
-}
+// #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+// pub enum SaveContainerType {
+//     /// GGML container.
+//     Ggml,
+//     /// GGJT v3 container.
+//     GgjtV3,
+// }
+// impl fmt::Display for SaveContainerType {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             SaveContainerType::Ggml => write!(f, "ggml"),
+//             SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
+//         }
+//     }
+// }
+// impl From<SaveContainerType> for ggml_format::ggml::SaveContainerType {
+//     fn from(value: SaveContainerType) -> Self {
+//         match value {
+//             SaveContainerType::Ggml => ggml_format::ggml::SaveContainerType::Ggml,
+//             SaveContainerType::GgjtV3 => ggml_format::ggml::SaveContainerType::GgjtV3,
+//         }
+//     }
+// }
 
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
 #[clap(rename_all = "snake_case")]
