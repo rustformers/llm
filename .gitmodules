@@ -1,3 +1,6 @@
 [submodule "crates/ggml/sys/llama-cpp"]
 	path = crates/ggml/sys/llama-cpp
 	url = https://github.com/ggerganov/llama.cpp
+[submodule "crates/ggml/sys/llama.cpp"]
+	path = crates/ggml/sys/llama.cpp
+	url = git@github.com:jacohend/llama.cpp.git
