@@ -5,15 +5,17 @@ use std::{
     io::{BufRead, Seek},
 };
 
+use super::{data_size, header_size, ContainerType, ContainerTypeReadError};
 use crate::{util, ElementType};
 
+use thiserror::Error;
 
 mod metadata;
 pub use metadata::*;
 
 pub const DEFAULT_ALIGNMENT: u32 = 32;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 /// Errors that can occur while loading a model.
 pub enum GgufLoadError {
     #[error("invalid GGUF file magic value: {0}")]
@@ -39,15 +41,20 @@ pub enum GgufLoadError {
         /// The format type that was encountered.
         ftype: u32,
     },
-    #[error("invariant broken: {0}")]
-    /// An invariant was broken.
-    InvariantBroken(String),
 }
+
+#[derive(Debug, Error)]
+/// Errors that can occur while saving a model.
+pub enum GgufSaveError {
+    // TODO!
+}
+
+pub type TensorInfos = HashMap<String, TensorInfo>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gguf {
-    pub metadata: HashMap<String, MetadataValue>,
-    pub tensor_infos: HashMap<String, TensorInfo>,
+    pub metadata: Metadata,
+    pub tensor_infos: TensorInfos,
     pub tensor_data_position: u64,
 }
 impl Gguf {
@@ -105,6 +112,8 @@ struct GgufContext {
 pub struct TensorInfo {
     pub dimensions: Vec<usize>,
     pub element_type: ElementType,
+    /// This offset is relative to `tensor_data`, not to the start
+    /// of the file, to make it easier for writers to write the file.
     pub offset: u64,
 }
 impl TensorInfo {
@@ -137,5 +146,19 @@ impl TensorInfo {
                 offset,
             },
         ))
+    }
+
+    /// Calculate the size of the tensor's values in bytes.
+    pub fn calc_size(&self) -> usize {
+        data_size(self.element_type, self.dimensions.iter().product())
+    }
+
+    /// Calculates the absolute size in bytes of the tensor's data, given the mmap flag.
+    pub fn calc_absolute_size(&self, mmap: bool) -> usize {
+        if mmap {
+            header_size()
+        } else {
+            header_size() + self.calc_size()
+        }
     }
 }

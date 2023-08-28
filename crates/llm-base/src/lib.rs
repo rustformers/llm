@@ -31,7 +31,7 @@ pub use inference_session::{
 pub use llm_samplers::prelude::{Sampler, SamplerChain};
 pub use loader::{
     load, load_progress_callback_stdout, ContainerType, FileMagic, FileType, FileTypeFormat,
-    LoadError, LoadProgress, Loader, TensorLoader,
+    LoadError, LoadProgress, MetadataExt, ModelTensorLoader,
 };
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;

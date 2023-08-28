@@ -8,13 +8,13 @@ use std::{
     sync::Arc,
 };
 
-use ggml::accelerator::Backend;
+use ggml::{accelerator::Backend, format::gguf::Metadata};
 use regex::Regex;
 use thiserror::Error;
 
 use crate::{
     loader::TensorLoader, tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig,
-    LoadError, LoadProgress, Tokenizer, TokenizerSource,
+    LoadError, LoadProgress, ModelTensorLoader, Tokenizer, TokenizerSource,
 };
 
 /// Common functions for model evaluation
@@ -43,12 +43,12 @@ pub trait KnownModel: Send + Sync {
 
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
     /// This function is called by the [load](crate::loader::load) function.
-    fn new<E: Error>(
+    fn new(
         hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
-        tensor_loader: impl TensorLoader<E>,
-    ) -> Result<Self, E>
+        tensor_loader: ModelTensorLoader,
+    ) -> Result<Self, LoadError>
     where
         Self: Sized;
 
@@ -166,14 +166,11 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 /// Implemented by model hyperparameters for interacting with hyperparameters
 /// without knowing what they are, as well as writing/reading them as required.
 pub trait Hyperparameters: Sized + Default + Debug + PartialEq + Eq {
-    /// Read the parameters in GGML format from a reader.
-    fn read_ggml(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
+    /// Read the parameters from GGUF metadata.
+    fn read_gguf(metadata: &Metadata) -> Result<Self, LoadError>;
 
-    /// Write the parameters in GGML format to a writer.
-    fn write_ggml(&self, writer: &mut dyn Write) -> Result<(), HyperparametersWriteError>;
-
-    /// Get the number of tokens in the embedded vocabulary, if any.
-    fn n_vocabulary(&self) -> usize;
+    /// Write the parameters to GGUF metadata.
+    fn write_gguf(&self, metadata: &mut Metadata) -> Result<(), HyperparametersWriteError>;
 
     /// Get the filetype of the model.
     fn file_type(&self) -> Option<FileType>;

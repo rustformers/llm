@@ -1,19 +1,21 @@
 use std::{
-    collections::HashMap,
     error::Error,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Display, Formatter},
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelContext, ModelParameters,
-    TokenId, Tokenizer, TokenizerLoadError, TokenizerSource,
+    Hyperparameters, KnownModel, LoraAdapter, ModelContext, ModelParameters, TokenizerLoadError,
+    TokenizerSource,
 };
 use ggml::{
-    format::ggml::{LoadError as FormatLoadError, PartialHyperparameters, TensorLoadInfo},
+    format::gguf::{
+        self, GgufLoadError, Metadata, MetadataValue, MetadataValueType,
+        MetadataValueTypeFromRustType, TensorInfo,
+    },
     Context, MAX_NAME_LENGTH,
 };
 pub use ggml::{format::ContainerType, util::FileMagic};
@@ -178,7 +180,7 @@ impl Display for FileTypeFormat {
 /// Each variant represents a step within the process of loading the model.
 /// These can be used to report progress to the user.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum LoadProgress {
+pub enum LoadProgress<'a> {
     /// The hyperparameters have been loaded from the model.
     HyperparametersLoaded,
     /// The context has been created.
@@ -189,9 +191,9 @@ pub enum LoadProgress {
     /// A tensor was patched with a LoRA.
     LoraApplied {
         /// The name of the patched tensor.
-        name: String,
+        name: &'a str,
         /// LoRA file the patch was applied from.
-        source: PathBuf,
+        source: &'a Path,
     },
     /// A tensor from the current part has been loaded.
     TensorLoaded {
@@ -226,20 +228,6 @@ pub enum LoadError {
         /// The path that failed.
         path: PathBuf,
     },
-    #[error("no parent path for {path:?}")]
-    /// There is no parent path for a given path.
-    NoParentPath {
-        /// The path without a parent.
-        path: PathBuf,
-    },
-    #[error("unable to read exactly {bytes} bytes")]
-    /// Reading exactly `bytes` from a file failed.
-    ReadExactFailed {
-        /// The original error.
-        source: std::io::Error,
-        /// The number of bytes that were attempted to be read.
-        bytes: usize,
-    },
     #[error("non-specific I/O error")]
     /// A non-specific IO error.
     Io(#[from] std::io::Error),
@@ -249,16 +237,10 @@ pub enum LoadError {
     #[error("invalid integer conversion")]
     /// One of the integers encountered could not be converted to a more appropriate type.
     InvalidIntegerConversion(#[from] std::num::TryFromIntError),
-    #[error("unsupported ftype: {0}")]
-    /// The `ftype` hyperparameter had an invalid value. This usually means that the format used
-    /// by this file is unrecognized by this version of `llm`.
-    UnsupportedFileType(i32),
-    #[error("invalid magic number {magic} for {path:?}")]
-    /// An invalid magic number was encountered during the loading process.
+    #[error("invalid magic value {magic}")]
+    /// An invalid magic value was encountered during the loading process.
     InvalidMagic {
-        /// The path that failed.
-        path: PathBuf,
-        /// The magic number that was encountered.
+        /// The magic value that was encountered.
         magic: FileMagic,
     },
     #[error("invalid file format {container_type:?}")]
@@ -267,94 +249,69 @@ pub enum LoadError {
         /// The format that was encountered.
         container_type: ContainerType,
     },
-    #[error("invalid value {ftype} for `f16` in hyperparameters")]
-    /// The `f16` hyperparameter had an invalid value.
-    HyperparametersF16Invalid {
-        /// The format type that was encountered.
-        ftype: i32,
-    },
     #[error("unknown tensor `{tensor_name}` in {path:?}")]
-    /// The tensor `tensor_name` was encountered during the loading of `path`, but was not seen during
-    /// the model prelude.
+    /// The tensor `tensor_name` is required for this model architecture,
+    /// but was not found in the model.
     UnknownTensor {
         /// The name of the tensor.
         tensor_name: String,
         /// The path that failed.
         path: PathBuf,
     },
-    #[error("the tensor `{tensor_name}` has the wrong size in {path:?}")]
-    /// The tensor `tensor_name` did not match its expected size.
-    TensorWrongSize {
-        /// The name of the tensor.
-        tensor_name: String,
-        /// The path that failed.
-        path: PathBuf,
-    },
-    /// The tensor `tensor_name` did not have the expected format type.
-    #[error("invalid ftype {ftype} for tensor `{tensor_name}` in {path:?}")]
+    /// The tensor `tensor_name` had an unsupported element type.
+    #[error("invalid element type {element_type} for tensor `{tensor_name}` in {path:?}")]
     UnsupportedElementType {
         /// The name of the tensor.
         tensor_name: String,
-        /// The format type that was encountered.
-        ftype: u32,
+        /// The element type that was encountered.
+        element_type: u32,
         /// The path that failed.
         path: PathBuf,
-    },
-    /// An invariant was broken.
-    ///
-    /// This error is not relevant unless `loader2` is being used.
-    #[error("invariant broken: {invariant} in {path:?}")]
-    InvariantBroken {
-        /// The path that failed.
-        path: Option<PathBuf>,
-        /// The invariant that was broken.
-        invariant: String,
-    },
-    /// The model could not be created.
-    ///
-    /// This implies that there were no tensors in the model to be loaded.
-    ///
-    /// This error is not relevant unless `loader2` is being used.
-    #[error("could not create model from {path:?}")]
-    ModelNotCreated {
-        /// The path that failed.
-        path: PathBuf,
-    },
-    /// Multiple parts of the model were found.
-    ///
-    /// Multi-part models are not supported. Please convert the model to a single part.
-    #[error("multipart models are not supported")]
-    MultipartNotSupported {
-        /// The paths that were found.
-        paths: Vec<PathBuf>,
     },
     /// The tokenizer could not be loaded.
     #[error("could not load tokenizer {path:?}: {error}")]
     TokenizerLoadFail {
-        /// The invalid tokenizer path
+        /// The path of the tokenizer.
         path: PathBuf,
 
         /// The error that occurred.
         error: Box<dyn Error + Send + Sync>,
     },
-    /// There is insufficient information to guess the model architecture from the provided file.
-    ///
-    /// A model architecture must be provided to load the model.
-    #[error(
-        "could not guess model architecture from {path:?}. Please provide a model architecture."
-    )]
-    MissingModelArchitecture {
-        /// The path that failed.
-        path: PathBuf,
+    /// The quantization version was missing, despite this model containing quantized tensors.
+    #[error("quantization version was missing, despite model containing quantized tensors")]
+    MissingQuantizationVersion,
+    /// The quantization version is not supported by this version of `llm`.
+    #[error("quantization version {quantization_version:?} is not supported")]
+    UnsupportedQuantizationVersion {
+        /// The quantization version that was encountered.
+        quantization_version: MetadataValue,
     },
-}
-impl From<util::FindAllModelFilesError> for LoadError {
-    fn from(value: util::FindAllModelFilesError) -> Self {
-        match value {
-            util::FindAllModelFilesError::NoParentPath { path } => LoadError::NoParentPath { path },
-            util::FindAllModelFilesError::IO(err) => LoadError::Io(err),
-        }
-    }
+    /// A tensor with an unsupported number of dimensions was encountered.
+    #[error(
+        "tensor {tensor_name} has {dimensions} dimensions, but only 1-3 dimensions are supported"
+    )]
+    UnsupportedTensorDimensionCount {
+        /// The name of the tensor.
+        tensor_name: String,
+        /// The number of dimensions that were encountered.
+        dimensions: usize,
+    },
+    /// The model expected a metadata key-value pair, but the key was missing.
+    #[error("missing metadata key {key:?}")]
+    MissingMetadataKey {
+        /// The key that was missing.
+        key: String,
+    },
+    /// The metadata key-value pair was not of the expected type.
+    #[error("metadata key {key:?} was not of the expected type")]
+    InvalidMetadataType {
+        /// The key with the invalid type.
+        key: String,
+        /// The expected type.
+        expected_type: MetadataValueType,
+        /// The actual type.
+        actual_type: MetadataValueType,
+    },
 }
 impl From<TokenizerLoadError> for LoadError {
     fn from(value: TokenizerLoadError) -> Self {
@@ -364,42 +321,72 @@ impl From<TokenizerLoadError> for LoadError {
         }
     }
 }
-
 impl LoadError {
     #[doc(hidden)]
-    pub fn from_format_error(value: FormatLoadError<LoadError>, path: PathBuf) -> Self {
+    pub fn from_gguf(value: GgufLoadError, path: PathBuf) -> Self {
         match value {
-            FormatLoadError::InvalidMagic(magic) => LoadError::InvalidMagic { path, magic },
-            FormatLoadError::InvalidFormatVersion(container_type) => {
+            GgufLoadError::InvalidMagic(magic) => LoadError::InvalidMagic { magic },
+            GgufLoadError::InvalidFormatVersion(container_type) => {
                 LoadError::InvalidFormatVersion { container_type }
             }
-            FormatLoadError::Io(err) => LoadError::Io(err),
-            FormatLoadError::InvalidUtf8(err) => LoadError::InvalidUtf8(err),
-            FormatLoadError::InvalidIntegerConversion(err) => {
+            GgufLoadError::Io(err) => LoadError::Io(err),
+            GgufLoadError::InvalidUtf8(err) => LoadError::InvalidUtf8(err),
+            GgufLoadError::InvalidIntegerConversion(err) => {
                 LoadError::InvalidIntegerConversion(err)
             }
-            FormatLoadError::ImplementationError(err) => err,
-            FormatLoadError::UnsupportedElementType { tensor_name, ftype } => {
+            GgufLoadError::UnsupportedElementType { tensor_name, ftype } => {
                 LoadError::UnsupportedElementType {
                     path,
                     tensor_name,
-                    ftype,
+                    element_type: ftype,
                 }
             }
-            FormatLoadError::InvariantBroken(invariant) => LoadError::InvariantBroken {
-                path: Some(path),
-                invariant,
-            },
         }
     }
 }
 
-/// Used by models to fetch tensors from a loader.
-pub trait TensorLoader<E: std::error::Error> {
-    /// Gets a tensor from the loader.
-    fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
-    /// Finish loading the model, returning the context.
-    fn finish(self) -> ModelContext;
+#[doc(hidden)]
+pub trait MetadataExt {
+    fn fallible_get(&self, key: &str) -> Result<&MetadataValue, LoadError>;
+    fn fallible_typed_get<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<&T>,
+    ) -> Result<&'a T, LoadError>;
+    fn fallible_get_countable(&self, key: &str) -> Result<usize, LoadError>;
+}
+impl MetadataExt for Metadata {
+    fn fallible_get(&self, key: &str) -> Result<&MetadataValue, LoadError> {
+        self.get(key).ok_or_else(|| LoadError::MissingMetadataKey {
+            key: key.to_owned(),
+        })
+    }
+
+    fn fallible_typed_get<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<&T>,
+    ) -> Result<&'a T, LoadError> {
+        let metadata_value = self.fallible_get(key)?;
+        getter(metadata_value).ok_or_else(|| LoadError::InvalidMetadataType {
+            key: key.to_string(),
+            expected_type: T::value_type(),
+            actual_type: metadata_value.value_type(),
+        })
+    }
+
+    fn fallible_get_countable(&self, key: &str) -> Result<usize, LoadError> {
+        let metadata_value = self.fallible_get(key)?;
+        match metadata_value {
+            MetadataValue::UInt32(v) => Ok(usize::try_from(*v)?),
+            MetadataValue::UInt64(v) => Ok(usize::try_from(*v)?),
+            _ => Err(LoadError::InvalidMetadataType {
+                key: key.to_string(),
+                expected_type: MetadataValueType::UInt64,
+                actual_type: metadata_value.value_type(),
+            }),
+        }
+    }
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -420,7 +407,7 @@ pub fn load<M: KnownModel>(
     path: &Path,
     tokenizer_source: TokenizerSource,
     params: ModelParameters,
-    load_progress_callback: impl FnMut(LoadProgress),
+    mut load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<M, LoadError> {
     if !path.exists() {
         return Err(LoadError::FileDoesNotExist {
@@ -428,12 +415,7 @@ pub fn load<M: KnownModel>(
         });
     }
 
-    let paths = util::find_all_model_files(path)?;
-    if paths.len() != 1 {
-        return Err(LoadError::MultipartNotSupported { paths });
-    }
-
-    let file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
+    let mut file = File::open(path).map_err(|e| LoadError::OpenFileFailed {
         source: e,
         path: path.to_owned(),
     })?;
@@ -441,52 +423,40 @@ pub fn load<M: KnownModel>(
     log::trace!("Read model file from {:?}", path);
 
     let tokenizer = tokenizer_source.retrieve(path)?;
-    let mut loader = Loader::new(tokenizer, load_progress_callback);
 
-    ggml::format::ggml::load(&mut reader, &mut loader)
-        .map_err(|err| LoadError::from_format_error(err, path.to_owned()))?;
+    let gguf =
+        gguf::Gguf::load(&mut reader).map_err(|e| LoadError::from_gguf(e, path.to_owned()))?;
     log::trace!("Loaded GGML model from reader");
 
-    let Loader {
-        hyperparameters,
-        tokenizer,
-        tensors,
-        mut load_progress_callback,
-        container_type,
-        ..
-    } = loader;
-
-    let quantization_version = (&hyperparameters as &M::Hyperparameters)
-        .file_type()
-        .map(|ft| ft.quantization_version)
-        .unwrap_or_default();
-    let quantization_version = if quantization_version == 0 {
-        // HACK: I think llama.cpp does not actually write the quantization version correctly,
-        // so we need to guess it from the container type.
-        if container_type == ContainerType::Ggjt(2) {
-            1
-        } else if container_type == ContainerType::Ggjt(3) {
-            2
-        } else {
-            quantization_version
-        }
-    } else {
-        quantization_version
-    };
+    let quantization_version = gguf.metadata.get("general.quantization_version");
     log::trace!(
         "Determined quantization version of model as {:?}",
         quantization_version
     );
 
     // TODO: this is temporary while we figure out how to handle this
-    if tensors.values().any(|t| t.element_type.is_quantized()) {
-        assert_eq!(quantization_version, 2, "quantization version must be 2");
+    let any_quantized = gguf
+        .tensor_infos
+        .values()
+        .any(|t| t.element_type.is_quantized());
+    if any_quantized {
+        match quantization_version {
+            Some(MetadataValue::UInt32(2)) => {
+                // Currently supported version
+            }
+            Some(quantization_version) => {
+                return Err(LoadError::UnsupportedQuantizationVersion {
+                    quantization_version: quantization_version.clone(),
+                })
+            }
+            None => return Err(LoadError::MissingQuantizationVersion),
+        }
     }
 
-    let use_mmap =
-        params.prefer_mmap && container_type.support_mmap() && params.lora_adapters.is_none();
+    let use_mmap = params.prefer_mmap && params.lora_adapters.is_none();
 
-    let ctx_size = tensors
+    let ctx_size = gguf
+        .tensor_infos
         .values()
         .map(|ti| ti.calc_absolute_size(use_mmap))
         .sum::<usize>();
@@ -503,28 +473,25 @@ pub fn load<M: KnownModel>(
                     path: lora_path.to_owned(),
                 })?;
                 let mut lora_reader = BufReader::new(&lora_file);
-                // TODO: Consider updating the progress callback to report the progress of the LoRA file.
-                // Most LoRAs are small enough that this is not necessary, but it would be nice to have.
-                let mut lora_loader: Loader<LoraParameters, _> =
-                    Loader::new(Tokenizer::empty_embedded(), |_| {});
-                ggml::format::ggml::load(&mut lora_reader, &mut lora_loader)
-                    .map_err(|err| LoadError::from_format_error(err, lora_path.to_owned()))?;
+                let gguf = gguf::Gguf::load(&mut lora_reader).map_err(|e| LoadError::from_gguf(e, lora_path.to_owned()))?;
 
                 // Collect the names of the tensors that should be patched
-                let tensors_to_patch = lora_loader
-                    .tensors
+                let tensors_to_patch = gguf
+                    .tensor_infos
                     .keys()
                     .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
                     .collect();
 
                 log::trace!("Loaded LoRA weights");
                 // Return the LoRA patches
+                #[allow(unreachable_code)]
                 Ok::<_, LoadError>(LoraAdapter {
-                    scaling: lora_loader.hyperparameters.calculate_scaling(),
-                    tensors: lora_loader.tensors,
+                    tensors: gguf.tensor_infos.clone(),
                     tensors_to_patch,
                     file: lora_file,
                     path: lora_path.to_owned(),
+                    gguf,
+                    scaling: todo!("Calculate scaling from LoRA file metadata (GGUF does not have standardised metadata yet)"),
                 })
             })
             .collect();
@@ -543,19 +510,20 @@ pub fn load<M: KnownModel>(
         (Context::new_with_allocate(ctx_size), file.metadata()?.len())
     };
 
-    let tensors_len = tensors.len();
-    let tl = MmapCompatibleLoader {
-        path: path.to_owned(),
-        file,
-        tensors,
-        context,
+    let hyperparameters = <M::Hyperparameters>::read_gguf(&gguf.metadata)?;
+    let tl = ModelTensorLoader {
+        tensor_loader: TensorLoader {
+            file: &mut file,
+            gguf: &gguf,
+            context,
+        },
         lora_adapters,
         load_progress_callback: &mut load_progress_callback,
-        loaded_tensors: Default::default(),
+        loaded_tensor_count: 0,
     };
-
     let model = KnownModel::new(hyperparameters, params, tokenizer, tl)?;
 
+    let tensors_len = gguf.tensor_infos.len();
     (load_progress_callback)(LoadProgress::Loaded {
         file_size,
         tensor_count: tensors_len,
@@ -566,180 +534,88 @@ pub fn load<M: KnownModel>(
     Ok(model)
 }
 
-/// A GGML format loader for LLMs.
-pub struct Loader<Hp: Hyperparameters, F: FnMut(LoadProgress)> {
-    // Input
-    load_progress_callback: F,
-
-    // Input/Output
-    /// The tokenizer of the model.
-    pub tokenizer: Tokenizer,
-
-    // Output
-    /// The container type of the model.
-    pub container_type: ContainerType,
-    /// The hyperparameters of the model.
-    pub hyperparameters: Hp,
-    /// The tensors of the model.
-    pub tensors: HashMap<String, TensorLoadInfo>,
+/// A helper struct for loading tensors from a model.
+pub struct ModelTensorLoader<'a> {
+    pub(crate) tensor_loader: TensorLoader<'a>,
+    pub(crate) lora_adapters: Option<Vec<LoraAdapter>>,
+    pub(crate) load_progress_callback: &'a mut dyn FnMut(LoadProgress),
+    pub(crate) loaded_tensor_count: usize,
 }
-impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> Loader<Hp, F> {
-    /// Creates a new loader.
-    pub fn new(tokenizer: Tokenizer, load_progress_callback: F) -> Self {
-        Self {
-            load_progress_callback,
-
-            container_type: ContainerType::Ggml,
-            hyperparameters: Hp::default(),
-            tokenizer,
-            tensors: HashMap::default(),
-        }
-    }
-}
-impl<Hp: Hyperparameters, F: FnMut(LoadProgress)> ggml::format::ggml::LoadHandler<LoadError>
-    for Loader<Hp, F>
-{
-    fn container_type(&mut self, container_type: ContainerType) -> Result<(), LoadError> {
-        self.container_type = container_type;
-        Ok(())
-    }
-
-    fn vocabulary_token(&mut self, i: usize, token: Vec<u8>, score: f32) -> Result<(), LoadError> {
-        if let Tokenizer::Embedded(mv) = &mut self.tokenizer {
-            let id = match TokenId::try_from(i) {
-                Ok(id) => id,
-                Err(err) => return Err(LoadError::InvalidIntegerConversion(err)),
-            };
-
-            mv.push_token(id, token, score);
-        }
-
-        Ok(())
-    }
-
-    fn read_hyperparameters(
-        &mut self,
-        reader: &mut dyn BufRead,
-    ) -> Result<PartialHyperparameters, LoadError> {
-        // NOTE: Field order matters! Data is laid out in the file exactly in this order.
-        let hyperparameters = Hp::read_ggml(reader)?;
-        let partial = PartialHyperparameters {
-            n_vocab: hyperparameters.n_vocabulary(),
-        };
-        self.hyperparameters = hyperparameters;
-        (self.load_progress_callback)(LoadProgress::HyperparametersLoaded);
-
-        Ok(partial)
-    }
-
-    fn tensor_buffer(&mut self, info: TensorLoadInfo) -> Result<(), LoadError> {
-        self.tensors.insert(info.name.clone(), info);
-        Ok(())
-    }
-}
-
-struct MmapCompatibleLoader<'a> {
-    path: PathBuf,
-    file: File,
-    tensors: HashMap<String, TensorLoadInfo>,
-    context: Context,
-    lora_adapters: Option<Vec<LoraAdapter>>,
-    load_progress_callback: &'a mut dyn FnMut(LoadProgress),
-    loaded_tensors: HashMap<String, ggml::Tensor>,
-}
-impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
-    fn load(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
-        let info = self.tensors.get(name).ok_or(LoadError::UnknownTensor {
-            tensor_name: String::from(name),
-            path: Default::default(),
-        })?;
-
-        let mut main_context = FileContext::new(&self.context, &mut self.file, &self.path);
-
-        let mut tensor = main_context.get_tensor(info)?;
+impl ModelTensorLoader<'_> {
+    /// Load a tensor from the model.
+    pub fn load(&mut self, name: &str) -> Result<ggml::Tensor, LoadError> {
+        let (mut tensor, info) = self.tensor_loader.load(name)?;
 
         if let Some(lora_adapters) = &mut self.lora_adapters {
             for lora_adapter in lora_adapters {
-                lora_adapter.patch(info, &mut tensor)?;
+                lora_adapter.patch(name, info, &mut tensor)?;
                 (self.load_progress_callback)(LoadProgress::LoraApplied {
-                    name: name.to_owned(),
-                    source: lora_adapter.path.to_owned(),
+                    name,
+                    source: &lora_adapter.path,
                 });
             }
         }
 
+        self.loaded_tensor_count += 1;
         (self.load_progress_callback)(LoadProgress::TensorLoaded {
-            current_tensor: self.loaded_tensors.len(),
-            tensor_count: self.tensors.len(),
+            current_tensor: self.loaded_tensor_count,
+            tensor_count: self.tensor_loader.gguf.tensor_infos.len(),
         });
-        self.loaded_tensors.insert(name.to_owned(), tensor.share());
 
         Ok(tensor)
     }
 
-    fn finish(self) -> ModelContext {
+    /// Finish loading tensors from the model, and get the model context.
+    pub fn finish(self) -> ModelContext {
         // We can ignore this warning as it's OK to share this particular
         // context around, being that it is immutable.
         #[allow(clippy::arc_with_non_send_sync)]
-        ModelContext(Arc::new(self.context))
+        ModelContext(Arc::new(self.tensor_loader.finish()))
     }
 }
 
-pub(crate) struct FileContext<'a> {
-    context: &'a Context,
-    file: &'a mut File,
-    path: &'a Path,
+pub(crate) struct TensorLoader<'a> {
+    pub file: &'a mut File,
+    pub context: Context,
+    pub gguf: &'a gguf::Gguf,
 }
-impl<'a> FileContext<'a> {
-    pub(crate) fn new(context: &'a Context, file: &'a mut File, path: &'a Path) -> Self {
-        Self {
-            context,
-            file,
-            path,
-        }
-    }
+impl TensorLoader<'_> {
+    pub fn load(&mut self, name: &str) -> Result<(ggml::Tensor, &TensorInfo), LoadError> {
+        let info = self
+            .gguf
+            .tensor_infos
+            .get(name)
+            .ok_or(LoadError::UnknownTensor {
+                tensor_name: String::from(name),
+                path: Default::default(),
+            })?;
 
-    pub(crate) fn get_tensor(&mut self, info: &TensorLoadInfo) -> Result<ggml::Tensor, LoadError> {
-        let name = &info.name;
-        let ne = info.dims();
-        let dims = ne.len();
+        let ty = info.element_type;
+        let dims = &info.dimensions;
 
-        if dims != info.n_dims {
-            return Err(LoadError::InvariantBroken {
-                path: Some(self.path.to_owned()),
-                invariant: format!(
-                    "the tensor {name} should have {} dimensions, not {}",
-                    info.n_dims, dims
-                ),
-            });
-        }
-
-        let mut tensor = match dims {
-            1 => self.context.new_tensor_1d(info.element_type, ne[0]),
-            2 => self.context.new_tensor_2d(info.element_type, ne[0], ne[1]),
-            3 => self
-                .context
-                .new_tensor_3d(info.element_type, ne[0], ne[1], ne[2]),
-            _ => {
-                return Err(LoadError::InvariantBroken {
-                    path: Some(self.path.to_owned()),
-                    invariant: format!(
-                        "the tensor {name} should have between 1 and 3 dimensions, not {dims}"
-                    ),
-                })
+        let mut tensor = match dims.len() {
+            1 => self.context.new_tensor_1d(ty, dims[0]),
+            2 => self.context.new_tensor_2d(ty, dims[0], dims[1]),
+            3 => self.context.new_tensor_3d(ty, dims[0], dims[1], dims[2]),
+            other => {
+                return Err(LoadError::UnsupportedTensorDimensionCount {
+                    tensor_name: name.to_string(),
+                    dimensions: other,
+                });
             }
         };
 
+        let offset = self.gguf.tensor_data_position + info.offset;
         match self.context.storage().as_mmap() {
             Some(mmap) => unsafe {
-                let ptr = mmap.as_ptr().offset(info.start_offset as isize);
+                let ptr = mmap.as_ptr().offset(offset as isize);
                 tensor.set_data(ptr as *mut std::ffi::c_void);
             },
             None => {
                 let buf: &mut [u8] = unsafe {
                     std::slice::from_raw_parts_mut(tensor.data() as *mut u8, tensor.nbytes())
                 };
-                self.file.seek(SeekFrom::Start(info.start_offset))?;
+                self.file.seek(SeekFrom::Start(offset))?;
                 self.file.read_exact(buf)?;
             }
         }
@@ -751,7 +627,11 @@ impl<'a> FileContext<'a> {
             name
         };
 
-        Ok(tensor.set_name(tensor_name))
+        Ok((tensor.set_name(tensor_name), info))
+    }
+
+    pub fn finish(self) -> Context {
+        self.context
     }
 }
 
