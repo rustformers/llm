@@ -106,7 +106,7 @@ impl LoraAdapter {
         // Create a temporary context for the patching operations
         // TODO: test if GPU can be enabled (make it configurable)
         let patch_context = ggml::Context::new_with_allocate(patch_context_size);
-        let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path, None);
+        let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path);
 
         // Load the A and B tensors
         let a = patch_file.get_tensor(&a_info)?;

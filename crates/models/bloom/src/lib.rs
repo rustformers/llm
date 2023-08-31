@@ -2,13 +2,11 @@
 //! for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The BLOOM model. Ref: [Introducing BLOOM](https://bigscience.huggingface.co/blog/bloom)
@@ -37,7 +35,7 @@ pub struct Bloom {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Bloom {}
@@ -101,7 +99,7 @@ impl KnownModel for Bloom {
             output_norm_bias,
             output,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 

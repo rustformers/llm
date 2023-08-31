@@ -56,6 +56,13 @@ impl PartialEq for ContextInner {
 impl Eq for ContextInner {}
 impl ContextInner {
     pub(crate) fn new(ptr: *mut ggml_sys::ggml_context) -> Arc<Self> {
+        // This context can only be used from one thread at a time - hence why
+        // it doesn't implement `Send/Sync` - but higher-level abstractions may
+        // choose to layer their own abstractions that implement higher-level
+        // synchronization that can offer thread-safety guarantees. To ensure
+        // that we don't break those, we still use an `Arc` here.
+        // TODO: check if this is correct?
+        #[allow(clippy::arc_with_non_send_sync)]
         Arc::new(Self {
             ptr: NonNull::new(ptr).expect("Should not be null"),
             offloaded_tensors: Default::default(),
@@ -118,7 +125,9 @@ impl PartialEq for ContextStorage {
 impl Eq for ContextStorage {}
 
 impl Context {
-    /// Creates a new [Context] with the given storage..
+    // See explanation in [`ContextInner::new`].
+    #[allow(clippy::arc_with_non_send_sync)]
+    /// Creates a new [Context] with the given storage.
     pub fn new(storage: ContextStorage) -> Self {
         let init_params = match &storage {
             ContextStorage::Buffer(buffer) => sys::ggml_init_params {
@@ -296,7 +305,7 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
-    /// Repeats the `a` tensor along the first dimension of the `b` tensor.  
+    /// Repeats the `a` tensor along the first dimension of the `b` tensor.
     pub fn op_repeat(&self, a: &Tensor, b: &Tensor) -> Tensor {
         let tensor = unsafe { sys::ggml_repeat(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)

@@ -8,8 +8,8 @@ use tracing::{instrument, log};
 use ggml::accelerator::metal::MetalContext;
 
 use crate::{
-    mulf, util, InferenceParameters, Model, ModelParameters, OutputRequest, Prompt, TokenId,
-    TokenUtf8Buffer, TokenizationError,
+    mulf, util, InferenceParameters, Model, ModelContext, ModelParameters, OutputRequest, Prompt,
+    TokenId, TokenUtf8Buffer, TokenizationError,
 };
 
 // The size of a scratch buffer used for inference. This is used for temporary
@@ -148,6 +148,10 @@ impl InferenceSession {
             ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
         }
 
+        // TODO: revisit this with `Rc`, maybe? We should be able to prove that the session
+        // context is only accessed from one thread at a time, but I've already spent enough
+        // time on this as-is.
+        #[allow(clippy::arc_with_non_send_sync)]
         let session_ctx = Arc::new(ggml::Context::new_with_allocate(context_byte_size));
 
         // Initialize key + value memory tensors
@@ -215,7 +219,7 @@ impl InferenceSession {
     /// Compute a model (possibly building a graph in the provided closure when called for the first time and/or when parameters have)
     pub fn compute<F>(
         &mut self,
-        #[allow(unused_variables)] model_context: Arc<Context>,
+        #[allow(unused_variables)] model_context: ModelContext,
         input_tokens: &[TokenId],
         builder: F,
     ) -> GraphOutputs
@@ -242,7 +246,7 @@ impl InferenceSession {
         #[cfg(feature = "metal")]
         {
             if let Some(ref mut metal_context) = self.metal_context {
-                metal_context.add_context(model_context);
+                metal_context.add_context(model_context.0);
             }
         }
 

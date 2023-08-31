@@ -1,14 +1,14 @@
 //! An implementation of [GPT-J](https://huggingface.co/docs/transformers/model_doc/gptj) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-J model. Ref: [GitHub](https://github.com/kingoflolz/mesh-transformer-jax/#gpt-j-6b)
@@ -35,7 +35,7 @@ pub struct GptJ {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for GptJ {}
@@ -117,7 +117,7 @@ impl KnownModel for GptJ {
             lmh_g,
             lmh_b,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 
