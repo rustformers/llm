@@ -6,6 +6,7 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
+use ggml::accelerator::Backend;
 use llm::{
     ggml_format, samplers::build_sampler, ElementType, InferenceParameters, InferenceSessionConfig,
     InvalidTokenBias, LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides,
@@ -518,6 +519,7 @@ impl ModelLoad {
             context_size: self.num_ctx_tokens,
             lora_adapters: self.lora_paths.clone(),
             use_gpu,
+            gpu_backend: if use_gpu { Backend::Gpu } else { Backend::Cpu },
             gpu_layers: self.gpu_layers,
             rope_overrides: self.rope_scaling.to_rope_arguments(),
             n_gqa: None,

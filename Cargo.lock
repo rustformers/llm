@@ -1313,6 +1313,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "env_logger",
+ "ggml",
  "is-terminal",
  "llm",
  "llm-samplers",

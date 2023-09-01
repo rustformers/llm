@@ -206,6 +206,8 @@ pub struct ModelParameters {
     pub lora_adapters: Option<Vec<PathBuf>>,
     /// Whether to use GPU acceleration when available
     pub use_gpu: bool,
+    /// What GPU Backend to use
+    pub gpu_backend: Backend,
     /// If `use_gpu` is active this defines the number of layers to offload to the gpu. If `None`, all layers will be offloaded.
     pub gpu_layers: Option<usize>,
     /// The arguments/overrides to pass to the [custom RoPE](https://arxiv.org/pdf/2306.15595.pdf) function, if it is used by the model.
@@ -221,6 +223,7 @@ impl Default for ModelParameters {
             context_size: 2048,
             lora_adapters: None,
             use_gpu: false,
+            gpu_backend: Backend::Gpu,
             gpu_layers: None,
             rope_overrides: None,
             n_gqa: None,
@@ -243,7 +246,7 @@ impl ModelParameters {
     /// Returns the backend to use for the given layer.
     pub fn backend(&self, layer: usize) -> Backend {
         if self.should_offload(layer) {
-            Backend::GpuSplit
+            self.gpu_backend
         } else {
             Backend::Cpu
         }
