@@ -363,6 +363,7 @@ impl Generate {
             n_batch: self.batch_size,
             n_threads: self.num_threads(),
             gpu_split: 10,
+            cuda_device: 0,
         }
     }
 
