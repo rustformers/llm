@@ -348,6 +348,7 @@ pub trait MetadataExt {
         key: &'a str,
         getter: impl Fn(&MetadataValue) -> Option<&T>,
     ) -> Result<&'a T, LoadError>;
+    fn fallible_get_string(&self, key: &str) -> Result<String, LoadError>;
     fn fallible_get_countable(&self, key: &str) -> Result<usize, LoadError>;
 }
 impl MetadataExt for Metadata {
@@ -368,6 +369,19 @@ impl MetadataExt for Metadata {
             expected_type: T::value_type(),
             actual_type: metadata_value.value_type(),
         })
+    }
+
+    // TODO: see if we can generalize this with `ToOwned` or something?
+    fn fallible_get_string(&self, key: &str) -> Result<String, LoadError> {
+        let metadata_value = self.fallible_get(key)?;
+        Ok(metadata_value
+            .as_string()
+            .ok_or_else(|| LoadError::InvalidMetadataType {
+                key: key.to_string(),
+                expected_type: MetadataValueType::String,
+                actual_type: metadata_value.value_type(),
+            })?
+            .to_string())
     }
 
     fn fallible_get_countable(&self, key: &str) -> Result<usize, LoadError> {

@@ -2,15 +2,14 @@
 #![deny(missing_docs)]
 
 use llm_base::{
-    ggml::{
-        self,
-        format::gguf::{Metadata, MetadataValue, MetadataValueTypeFromRustType},
-    },
+    ggml::{self, format::gguf::Metadata},
     model::{common, HyperparametersWriteError},
     FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
     MetadataExt, ModelContext, ModelParameters, ModelTensorLoader, OutputRequest, Regex, TokenId,
     Tokenizer,
 };
+
+const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
 ///
@@ -47,6 +46,8 @@ impl KnownModel for Llama {
         tokenizer: Tokenizer,
         tensor_loader: ModelTensorLoader,
     ) -> Result<Self, LoadError> {
+        assert_eq!(hyperparameters.tensor_data_layout, META_TENSOR_DATA_LAYOUT);
+
         let mut tl = tensor_loader;
 
         // model-global weights
@@ -136,6 +137,7 @@ impl KnownModel for Llama {
             head_count_kv,
             block_count,
             file_type: _,
+            tensor_data_layout: _,
         } = self.hyperparameters;
         let embedding_length_gqa =
             embedding_length / self.hyperparameters.grouped_query_attention();
@@ -392,7 +394,7 @@ impl KnownModel for Llama {
 }
 
 /// LLaMA [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct Hyperparameters {
     /// Size of the model's vocabulary
     pub vocabulary_count: usize,
@@ -406,6 +408,8 @@ pub struct Hyperparameters {
     pub block_count: usize,
     /// file_type
     pub file_type: Option<FileType>,
+    /// The tensor data layout that this model was encoded with
+    pub tensor_data_layout: String,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
     fn read_gguf(metadata: &Metadata) -> Result<Self, LoadError> {
@@ -423,6 +427,9 @@ impl llm_base::Hyperparameters for Hyperparameters {
                 .and_then(|v| v.as_uint32())
                 .map(|v| FileType::try_from(v as i32))
                 .transpose()?,
+            tensor_data_layout: metadata
+                .fallible_get_string("llama.tensor_data_layout")
+                .unwrap_or(META_TENSOR_DATA_LAYOUT.to_string()),
         })
     }
 
