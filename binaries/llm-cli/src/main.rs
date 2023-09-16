@@ -164,9 +164,7 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
             }
 
             fn utf8_or_array(token: &[u8]) -> String {
-                std::str::from_utf8(token)
-                    .map(|s| s.to_owned())
-                    .unwrap_or(format!("{:?}", token))
+                std::str::from_utf8(token).map_or(format!("{:?}", token), |s| s.to_owned())
             }
 
             Ok(())
