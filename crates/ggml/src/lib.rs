@@ -129,7 +129,7 @@ pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
 pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 
 /// Default epsilon to use for RMS computation.
-pub const DEFAULT_EPS: f32 = sys::llama::LLAMA_DEFAULT_RMS_EPS as f32;
+pub const DEFAULT_EPS: f32 = 0.000005;
 
 /// Value overrides to use for RoPE.
 ///

@@ -27,6 +27,8 @@ fn generate_main(ggml_path: &Path, src_path: &Path) {
         .allowlist_file(r".*ggml.h")
         .header(ggml_path.join("k_quants.h").to_string_lossy())
         .allowlist_file(r".*k_quants.h")
+        .header(ggml_path.join("ggml-alloc.h").to_string_lossy())
+        .allowlist_file(r".*ggml-alloc.h")
         // Suppress some warnings
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_camel_case_types)]")
