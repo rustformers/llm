@@ -117,19 +117,17 @@ fn collect_related_paths(
             p.file_name()
                 .and_then(|p| p.to_str())
                 .zip(main_filename)
-                .map(|(part_filename, main_filename)| {
-                    match part_filename.strip_prefix(main_filename) {
-                        Some(suffix) => {
-                            suffix.is_empty()
-                                || (suffix
-                                    .strip_prefix('.')
-                                    .map(|s| s.parse::<usize>().is_ok())
-                                    .unwrap_or(false))
-                        }
-                        None => false,
+                .map_or(false, |(part_filename, main_filename)| match part_filename
+                    .strip_prefix(main_filename)
+                {
+                    Some(suffix) => {
+                        suffix.is_empty()
+                            || (suffix
+                                .strip_prefix('.')
+                                .map_or(false, |s| s.parse::<usize>().is_ok()))
                     }
+                    None => false,
                 })
-                .unwrap_or(false)
         })
         .collect();
     paths.sort();
