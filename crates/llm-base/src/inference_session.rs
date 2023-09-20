@@ -360,7 +360,7 @@ impl InferenceSession {
         }
 
         // Remove the tokens from self.tokens.
-        let token_start = self.n_past - num;
+        let token_start = self.tokens.len() - num;
         let deleted_tokens: Vec<_> = self.tokens.drain(token_start..).collect();
 
         // Remove the corresponding chars from decoded
