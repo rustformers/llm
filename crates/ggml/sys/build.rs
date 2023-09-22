@@ -92,6 +92,10 @@ fn main() {
         _ => {}
     }
 
+    if compiler.is_like_gnu() && target_os == "linux" {
+        build.define("_GNU_SOURCE", None);
+    }
+
     if is_release {
         build.define("NDEBUG", None);
     }
