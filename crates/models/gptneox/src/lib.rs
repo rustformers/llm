@@ -186,8 +186,6 @@ impl KnownModel for GptNeoX {
 
             for il in 0..n_layer {
                 ctx0.set_offloading(self.params.should_offload(il));
-                // attention uses first scratch buffer
-                ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
@@ -301,9 +299,6 @@ impl KnownModel for GptNeoX {
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
                 current = ctx0.op_add(&current, &self.layers[il].c_attn_proj_b);
 
-                // use the second scratch for the feed forward
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 let feedforward_input: Tensor;
                 if !use_parallel_residual {
                     feedforward_input = ctx0.op_add(&current, &input_layer);
@@ -326,9 +321,6 @@ impl KnownModel for GptNeoX {
                 }
             }
 
-            // use the first scratch for the norm
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // normalize the output
             input_layer = ctx0.op_norm(&input_layer);
             // inpL = ln_f_g*inpL + ln_f_b
@@ -336,8 +328,6 @@ impl KnownModel for GptNeoX {
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            // Disable the scratchbuffer
-            ctx0.use_scratch(None);
             ctx0.set_offloading(false);
             // apply language model head
             input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);

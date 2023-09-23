@@ -206,28 +206,6 @@ impl Context {
         unsafe { sys::ggml_used_mem(self.as_ptr()) }
     }
 
-    /// Sets the scratch buffer to be used by this [Context].
-    ///
-    /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
-    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a Buffer>) {
-        let (size, data) = if let Some(buffer) = scratch_buffer {
-            (buffer.size(), buffer.data)
-        } else {
-            (0, std::ptr::null_mut())
-        };
-        // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
-        unsafe {
-            sys::ggml_set_scratch(
-                self.as_ptr(),
-                sys::ggml_scratch {
-                    offs: 0,
-                    size,
-                    data,
-                },
-            );
-        }
-    }
-
     /// Creates a new 1D tensor.
     pub fn new_tensor_1d(&self, typ: Type, ne0: usize) -> Tensor {
         let raw = unsafe { sys::ggml_new_tensor_1d(self.as_ptr(), typ.into(), usize_to_i64(ne0)) };

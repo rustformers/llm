@@ -12,21 +12,6 @@ use crate::{
     TokenId, TokenUtf8Buffer, TokenizationError,
 };
 
-// The size of a scratch buffer used for inference. This is used for temporary
-// storage of intermediate results during inference.
-//
-// The specific value was copied from `llama.cpp`.
-const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
-
-type ScratchBuffers = [ggml::Buffer; 2];
-
-fn scratch_buffers() -> ScratchBuffers {
-    [
-        ggml::Buffer::new(SCRATCH_SIZE),
-        ggml::Buffer::new(SCRATCH_SIZE),
-    ]
-}
-
 /// Result of graph building
 pub struct GraphOutputs {
     /// The output containing the model's result
@@ -89,8 +74,6 @@ pub struct InferenceSession {
     ctx0: Context,
 
     n_embd: usize,
-
-    scratch: ScratchBuffers,
 }
 
 pub struct BuildContext<'session> {
@@ -99,13 +82,6 @@ pub struct BuildContext<'session> {
     pub embd: &'session Tensor,
     pub memory_k: &'session Tensor,
     pub memory_v: &'session Tensor,
-    pub scratch: &'session ScratchBuffers,
-}
-
-impl<'session> BuildContext<'session> {
-    pub fn get_scratch(&self, idx: usize) -> Option<&Buffer> {
-        Some(&self.scratch[idx])
-    }
 }
 
 unsafe impl Send for InferenceSession {}
@@ -159,8 +135,6 @@ impl InferenceSession {
         let n_elements = n_embd * n_mem;
         let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
-        let scratch = scratch_buffers();
-
         // Allocate buffer for storing intermediate values during evaluation (ctx0 backing)
         // For the first run, we need to guess a maximum buffer size so we can measure
         // the actual memory consumption of the temporary ggml context.
@@ -212,7 +186,6 @@ impl InferenceSession {
             metal_context,
             ctx0,
             n_embd,
-            scratch,
         }
     }
 
@@ -238,7 +211,6 @@ impl InferenceSession {
             embd: &embd,
             memory_k: &self.memory_k,
             memory_v: &self.memory_v,
-            scratch: &mut self.scratch,
         };
         let (mut built_gf, built_result) = builder(bc);
 

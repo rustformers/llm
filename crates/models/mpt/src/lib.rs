@@ -123,9 +123,6 @@ impl KnownModel for Mpt {
 
             let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
-                // attention uses first scratch buffer
-                ctx0.use_scratch(builder.get_scratch(0));
-
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_mul(&current, &self.layers[il].norm_1_weight);
 
@@ -213,9 +210,6 @@ impl KnownModel for Mpt {
 
                 input_layer = ctx0.op_add(&input_layer, &current);
 
-                // feed forward uses second scratch buffer
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_mul(&current, &self.layers[il].norm_2_weight);
 
@@ -229,17 +223,12 @@ impl KnownModel for Mpt {
                 input_layer = ctx0.op_add(&input_layer, &current);
             }
 
-            //use scratch buffer 0 for the rest
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // norm
             input_layer = ctx0.op_norm(&input_layer);
             input_layer = ctx0.op_mul(&input_layer, &self.norm);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            // disable scratch buffer for last layer
-            ctx0.use_scratch(None);
             // output embedding weight tied to input embedding
             input_layer = ctx0.op_mul_mat(&self.wte, &input_layer);
 

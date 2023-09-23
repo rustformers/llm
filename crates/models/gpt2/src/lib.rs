@@ -174,7 +174,7 @@ impl KnownModel for Gpt2 {
             let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 ctx0.set_offloading(self.params.should_offload(il));
-                ctx0.use_scratch(builder.get_scratch(0));
+
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
@@ -281,8 +281,6 @@ impl KnownModel for Gpt2 {
                 // feed-forward
                 let ff_in = current.share();
 
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 // feed-forward normalization
                 current = ctx0.op_norm(&ff_in);
                 current = ctx0.op_add(
@@ -305,13 +303,10 @@ impl KnownModel for Gpt2 {
                 input_layer = ctx0.op_add(&current, &ff_in);
             }
 
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // normalization
             input_layer = ctx0.op_norm(&input_layer);
             input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
 
-            ctx0.use_scratch(None);
             ctx0.set_offloading(false);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
