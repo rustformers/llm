@@ -280,8 +280,8 @@ impl Type {
     }
 }
 
-/// A buffer of memory that can be used as a buffer for a [Context].
-#[derive(PartialEq, Eq)]
+/// A buffer of memory that can be used as a buffer for a [Context] or [GraphAllocator].
+#[derive(PartialEq, Eq, Debug)]
 pub struct Buffer {
     data: *mut c_void,
     layout: Layout,
@@ -372,6 +372,68 @@ impl GraphExecutionPlan {
         unsafe {
             sys::ggml_graph_compute(self.inner_graph, &mut self.inner);
         }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug)]
+/// Acts as a RAII-guard over a `sys::ggml_allocr`, allocating via
+/// `ggml_allocr_new` and dropping via `ggml_allocr_free`.
+/// Used to allocate the memory used by a computational graph.
+pub struct GraphAllocator {
+    /// The underlying `sys::ggml_allocr` pointer.
+    pub ptr: *mut sys::ggml_allocr,
+    /// The buffer used by this allocator.
+    pub buffer: Buffer,
+}
+
+impl GraphAllocator {
+    /// Create a new allocator with the specified buffer.
+    pub fn new(buffer: Buffer, tensor_alignment: usize) -> Self {
+        let ptr = unsafe { sys::ggml_allocr_new(buffer.data, buffer.size(), tensor_alignment) };
+        Self { ptr, buffer }
+    }
+
+    /// Create a new allocator to measure a computational graph.
+    pub fn new_measurement(tensor_alignment: usize) -> Self {
+        let ptr = unsafe { sys::ggml_allocr_new_measure(tensor_alignment) };
+        let buffer = Buffer::new(tensor_alignment);
+        Self { ptr, buffer }
+    }
+
+    /// Allocates a computational graph in the allocator and returns the size in bytes.
+    pub fn allocate_graph(&self, graph: &ComputationGraph) -> usize {
+        unsafe { sys::ggml_allocr_alloc_graph(self.ptr, graph.inner) }
+    }
+
+    /// Resets the allocator for a new forward pass.
+    pub fn reset(&self) {
+        unsafe { sys::ggml_allocr_reset(self.ptr) }
+    }
+
+    /// Returns true if the allocator is in measuring mode.
+    pub fn in_measuring_mode(&self) -> bool {
+        unsafe { sys::ggml_allocr_is_measure(self.ptr) }
+    }
+
+    /// Allocates memory for a given tensor in the allocator.
+    pub fn allocate(&self, tensor: &Tensor) {
+        unsafe { sys::ggml_allocr_alloc(self.ptr, tensor.ptr.as_ptr()) }
+    }
+
+    /// Switches the buffer used by the allocator.
+    pub fn switch_buffer(&mut self, buffer: Buffer, tensor_alignment: usize) {
+        // Free the old allocator
+        unsafe { sys::ggml_allocr_free(self.ptr) }
+        // Create a new allocator with the new buffer
+        let ptr = unsafe { sys::ggml_allocr_new(buffer.data, buffer.size(), tensor_alignment) };
+        self.ptr = ptr;
+        self.buffer = buffer;
+    }
+}
+
+impl Drop for GraphAllocator {
+    fn drop(&mut self) {
+        unsafe { sys::ggml_allocr_free(self.ptr) }
     }
 }
 

@@ -337,6 +337,7 @@ impl KnownModel for GptNeoX {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: n,
                 },
             )
         });

@@ -331,6 +331,7 @@ impl KnownModel for Bloom {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: input_len,
                 },
             )
         });

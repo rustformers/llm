@@ -1,4 +1,4 @@
-use ggml::{Buffer, ComputationGraph, Context, GraphExecutionPlan, Tensor};
+use ggml::{Buffer, ComputationGraph, Context, GraphAllocator, GraphExecutionPlan, Tensor};
 use serde::Serialize;
 use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
@@ -19,6 +19,9 @@ pub struct GraphOutputs {
 
     /// The output containing embeddings
     pub embedding_result: Tensor,
+
+    /// The length of the output
+    pub output_length: usize,
 }
 
 /// An inference session represents the state of the text generation. This holds
@@ -74,14 +77,22 @@ pub struct InferenceSession {
     ctx0: Context,
 
     n_embd: usize,
+
+    /// Allocator used by this session
+    allocator: GraphAllocator,
+
+    ///Context size of this session
+    context_size: usize,
 }
 
 pub struct BuildContext<'session> {
     //FIXME: Borrowing issue, dont know how to fix it
     pub ctx0: RefCell<&'session mut Context>,
+    pub allocator: RefCell<&'session GraphAllocator>,
     pub embd: &'session Tensor,
     pub memory_k: &'session Tensor,
     pub memory_v: &'session Tensor,
+    pub n_past: usize,
 }
 
 unsafe impl Send for InferenceSession {}
@@ -154,6 +165,7 @@ impl InferenceSession {
         let eval = Buffer::new(buf_size);
         let ctx0 = ggml::Context::new_with_buffer(eval);
 
+        let allocator = GraphAllocator::new_measurement(32);
         // Set up Metal support
         #[cfg(feature = "metal")]
         let metal_context = {
@@ -186,6 +198,8 @@ impl InferenceSession {
             metal_context,
             ctx0,
             n_embd,
+            allocator,
+            context_size,
         }
     }
 
@@ -197,22 +211,63 @@ impl InferenceSession {
         builder: F,
     ) -> GraphOutputs
     where
-        F: FnOnce(BuildContext) -> (ComputationGraph, GraphOutputs),
+        F: Fn(BuildContext) -> (ComputationGraph, GraphOutputs),
     {
         // Build a graph
         self.ctx0.recreate();
         let ctx0 = &mut self.ctx0;
+
+        // Check if we need to allocate the graph
+        if self.allocator.in_measuring_mode() {
+            // If we are in measuring mode, we need to build a "worst case" graph, meaning the input has either `batch_size` or `context_size` tokens.
+            let tensor_alignment = 32;
+
+            let max_n_tokens = self.config.n_batch.min(self.context_size);
+            // We assume the history is full
+            let max_n_past = self.context_size - max_n_tokens;
+            let embd = ctx0
+                .new_tensor_1d(ggml::Type::I32, max_n_tokens)
+                .set_name("embd");
+
+            self.allocator.allocate(&embd);
+
+            let bc = BuildContext {
+                ctx0: RefCell::new(ctx0),
+                allocator: RefCell::new(&self.allocator),
+                embd: &embd,
+                memory_k: &self.memory_k,
+                memory_v: &self.memory_v,
+                n_past: max_n_past,
+            };
+
+            let (worst_case_graph, _) = builder(bc);
+            let graph_size = self.allocator.allocate_graph(&worst_case_graph) + tensor_alignment;
+            let buffer = Buffer::new(graph_size);
+
+            self.allocator.switch_buffer(buffer, tensor_alignment);
+        }
+
         let mut embd = ctx0
             .new_tensor_1d(ggml::Type::I32, input_tokens.len())
             .set_name("embd");
 
         let bc = BuildContext {
             ctx0: RefCell::new(ctx0),
+            allocator: RefCell::new(&self.allocator),
             embd: &embd,
             memory_k: &self.memory_k,
             memory_v: &self.memory_v,
+            n_past: self.n_past,
         };
+
+        // Reset the allocator
+        self.allocator.reset();
+        self.allocator.allocate(&embd);
+
         let (mut built_gf, built_result) = builder(bc);
+
+        // Allocate the graph
+        self.allocator.allocate_graph(&built_gf);
 
         // Do Metal'y stuff
         #[cfg(feature = "metal")]
@@ -263,6 +318,7 @@ impl InferenceSession {
         GraphOutputs {
             result: built_result.result.share(),
             embedding_result: built_result.embedding_result.share(),
+            output_length: input_tokens.len(),
         }
     }
 
