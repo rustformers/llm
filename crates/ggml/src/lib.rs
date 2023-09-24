@@ -131,6 +131,9 @@ pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 /// Default epsilon to use for RMS computation.
 pub const DEFAULT_EPS: f32 = 0.000005;
 
+/// Maximum number of nodes in a `ggml` graph.
+pub const MAX_NODES: usize = sys::GGML_MAX_NODES as usize;
+
 /// Value overrides to use for RoPE.
 ///
 /// Formula: `theta_i = scale * base^(−2(i−1)/d), for i in [1, 2, ..., d/2]`
@@ -348,26 +351,12 @@ impl GraphExecutionPlan {
         }
     }
 
-    /// Creates a [Type::I8] work buffer with size `plan.work_size` for this [GraphExecutionPlan] in the given [Context].
-    fn create_work_buffer(&mut self, context: &Context) -> Tensor {
-        context.new_tensor_1d(Type::I8, self.inner.work_size)
-    }
-
-    /// Assign a work buffer to this [GraphExecutionPlan].
-    fn assign_work_buffer(&mut self, buffer: &mut Tensor) {
-        assert!(
-            buffer.get_type() == Type::I8,
-            "Work buffer must be of type i8"
-        );
-        unsafe {
-            self.inner.work_data = buffer.data().cast();
-        }
-    }
-
     /// Execute this [GraphExecutionPlan] in the given [Context].
-    pub fn execute(&mut self, context: &Context) {
-        let mut work_buffer = self.create_work_buffer(context);
-        self.assign_work_buffer(&mut work_buffer);
+    pub fn execute(&mut self, buffer: &mut Vec<u8>) {
+        if self.inner.work_size > 0 {
+            buffer.resize(self.inner.work_size, 0);
+            self.inner.work_data = buffer.as_mut_ptr().cast();
+        }
 
         unsafe {
             sys::ggml_graph_compute(self.inner_graph, &mut self.inner);
@@ -555,4 +544,9 @@ pub fn cpu_has_gpublas() -> bool {
 /// Returns the graph overhead in bytes.
 pub fn graph_overhead() -> usize {
     unsafe { sys::ggml_graph_overhead() }
+}
+
+/// Returns the tensor overhead in bytes.
+pub fn tensor_overhead() -> usize {
+    unsafe { sys::ggml_tensor_overhead() }
 }

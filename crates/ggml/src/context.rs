@@ -73,7 +73,12 @@ impl ContextInner {
 /// Controls how the context uses memory.
 pub enum ContextStorage {
     /// Use the provided buffer as memory.
-    Buffer(Buffer),
+    Buffer {
+        /// The buffer to use as memory.
+        buffer: Buffer,
+        /// Whether to allocate tensors into this buffer.
+        allocate: bool,
+    },
     /// Use the provided memory mapped file as memory.
     Mmap(Mmap),
     /// Allocate `mem_size` bytes of memory.
@@ -94,7 +99,10 @@ impl ContextStorage {
     /// Returns the `Buffer` if this is a `Buffer` variant.
     pub fn as_buffer(&self) -> Option<&Buffer> {
         match self {
-            Self::Buffer(v) => Some(v),
+            Self::Buffer {
+                buffer: v,
+                allocate: _,
+            } => Some(v),
             _ => None,
         }
     }
@@ -115,7 +123,16 @@ impl PartialEq for ContextStorage {
     fn eq(&self, other: &Self) -> bool {
         use ContextStorage::*;
         match (self, other) {
-            (Buffer(l0), Buffer(r0)) => l0 == r0,
+            (
+                Buffer {
+                    buffer: l0,
+                    allocate: l1,
+                },
+                Buffer {
+                    buffer: r0,
+                    allocate: r1,
+                },
+            ) => l0 == r0 && l1 == r1,
             (Mmap(l0), Mmap(r0)) => l0.as_ptr() == r0.as_ptr(),
             (Allocate { mem_size: l }, Allocate { mem_size: r }) => l == r,
             _ => false,
@@ -130,10 +147,10 @@ impl Context {
     /// Creates a new [Context] with the given storage.
     pub fn new(storage: ContextStorage) -> Self {
         let init_params = match &storage {
-            ContextStorage::Buffer(buffer) => sys::ggml_init_params {
+            ContextStorage::Buffer { buffer, allocate } => sys::ggml_init_params {
                 mem_size: buffer.size(),
                 mem_buffer: buffer.data,
-                no_alloc: false,
+                no_alloc: !allocate,
             },
             ContextStorage::Mmap(mmap) => sys::ggml_init_params {
                 mem_size: mmap.len(),
@@ -160,8 +177,8 @@ impl Context {
 
     /// Creates a new [Context] with the specified buffer.
     /// The buffer will be used by GGML.
-    pub fn new_with_buffer(buffer: Buffer) -> Self {
-        Self::new(ContextStorage::Buffer(buffer))
+    pub fn new_with_buffer(buffer: Buffer, allocate: bool) -> Self {
+        Self::new(ContextStorage::Buffer { buffer, allocate })
     }
 
     /// Creates a new [Context] with the specified memory mapped file.

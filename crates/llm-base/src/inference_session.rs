@@ -83,6 +83,9 @@ pub struct InferenceSession {
 
     ///Context size of this session
     context_size: usize,
+
+    /// Work buffer for graph planing
+    work_buffer: Vec<u8>,
 }
 
 pub struct BuildContext<'session> {
@@ -146,24 +149,11 @@ impl InferenceSession {
         let n_elements = n_embd * n_mem;
         let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
-        // Allocate buffer for storing intermediate values during evaluation (ctx0 backing)
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        //
-        // These numbers are from `llama.cpp`, and could potentially be more efficient.
-        let buf_size = {
-            let buf_size_mb = if n_layer >= 80 {
-                1536
-            } else if n_layer >= 60 {
-                1280
-            } else {
-                1024
-            };
-            buf_size_mb * 1024 * 1024 + ggml::graph_overhead()
-        };
-
+        // Allocate buffer for storing tensor and graph structs
+        // Should be 1540816
+        let buf_size = ggml::graph_overhead() + (ggml::tensor_overhead() * ggml::MAX_NODES);
         let eval = Buffer::new(buf_size);
-        let ctx0 = ggml::Context::new_with_buffer(eval);
+        let ctx0 = ggml::Context::new_with_buffer(eval, false);
 
         let allocator = GraphAllocator::new_measurement(32);
         // Set up Metal support
@@ -200,6 +190,7 @@ impl InferenceSession {
             n_embd,
             allocator,
             context_size,
+            work_buffer: vec![0],
         }
     }
 
@@ -213,12 +204,12 @@ impl InferenceSession {
     where
         F: Fn(BuildContext) -> (ComputationGraph, GraphOutputs),
     {
-        // Build a graph
-        self.ctx0.recreate();
-        let ctx0 = &mut self.ctx0;
-
         // Check if we need to allocate the graph
         if self.allocator.in_measuring_mode() {
+            // Build a graph
+            self.ctx0.recreate();
+            let ctx0 = &mut self.ctx0;
+
             // If we are in measuring mode, we need to build a "worst case" graph, meaning the input has either `batch_size` or `context_size` tokens.
             let tensor_alignment = 32;
 
@@ -240,12 +231,17 @@ impl InferenceSession {
                 n_past: max_n_past,
             };
 
-            let (worst_case_graph, _) = builder(bc);
+            let (mut worst_case_graph, built_result) = builder(bc);
+            worst_case_graph.build_forward_expand(&built_result.result);
+            // Should be 73924640
             let graph_size = self.allocator.allocate_graph(&worst_case_graph) + tensor_alignment;
             let buffer = Buffer::new(graph_size);
 
             self.allocator.switch_buffer(buffer, tensor_alignment);
         }
+
+        self.ctx0.recreate();
+        let ctx0 = &mut self.ctx0;
 
         let mut embd = ctx0
             .new_tensor_1d(ggml::Type::I32, input_tokens.len())
@@ -266,6 +262,9 @@ impl InferenceSession {
 
         let (mut built_gf, built_result) = builder(bc);
 
+        // Build the graph
+        built_gf.build_forward_expand(&built_result.result);
+
         // Allocate the graph
         self.allocator.allocate_graph(&built_gf);
 
@@ -279,9 +278,6 @@ impl InferenceSession {
 
         // Write input tokens
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
-
-        // Compute the graph
-        built_gf.build_forward_expand(&built_result.result);
 
         #[cfg(feature = "metal")]
         {
@@ -303,7 +299,7 @@ impl InferenceSession {
         #[cfg(not(feature = "metal"))]
         {
             let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
-            plan.execute(ctx0);
+            plan.execute(&mut self.work_buffer);
         }
 
         // Adjust the required memory per token if we didn't know that already

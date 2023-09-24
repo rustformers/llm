@@ -166,12 +166,10 @@ impl KnownModel for Llama {
             let input_len = builder.embd.nelements();
 
             let mut ctx0 = builder.ctx0.borrow_mut();
-            let allocator = builder.allocator.borrow();
 
             let embd = builder.embd;
 
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
-            allocator.allocate(&input_layer);
 
             let mut gf = ctx0.create_compute_graph();
 
