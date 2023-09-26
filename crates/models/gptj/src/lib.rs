@@ -137,8 +137,6 @@ impl KnownModel for GptJ {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let input_len = input_tokens.len();
-        let session_len = session.n_past;
         let ctx_size = self.params.context_size;
 
         let Hyperparameters {
@@ -151,6 +149,9 @@ impl KnownModel for GptJ {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let input_len = builder.input_length();
+            let session_len = builder.n_past;
+
             let mut ctx0 = builder.ctx0.borrow_mut();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
@@ -306,9 +307,19 @@ impl KnownModel for GptJ {
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, input_len);
-        common::extract_logits(output_request, &outputs.result, n_vocab, input_len);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

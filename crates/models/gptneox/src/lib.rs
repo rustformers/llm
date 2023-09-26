@@ -159,8 +159,6 @@ impl KnownModel for GptNeoX {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let n_past = session.n_past;
         let n_ctx = self.params.context_size;
 
         let Hyperparameters {
@@ -174,6 +172,9 @@ impl KnownModel for GptNeoX {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let n = builder.input_length();
+            let n_past = builder.n_past;
+
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
@@ -343,9 +344,19 @@ impl KnownModel for GptNeoX {
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, n);
-        common::extract_logits(output_request, &outputs.result, n_vocab, n);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

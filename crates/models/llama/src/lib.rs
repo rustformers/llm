@@ -163,7 +163,7 @@ impl KnownModel for Llama {
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
             let session_len = builder.n_past;
-            let input_len = builder.embd.nelements();
+            let input_len = builder.input_length();
 
             let mut ctx0 = builder.ctx0.borrow_mut();
 

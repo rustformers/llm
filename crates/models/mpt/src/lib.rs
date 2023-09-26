@@ -96,8 +96,6 @@ impl KnownModel for Mpt {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let session_len = session.n_past;
         let ctx_size = self.params.context_size;
 
         let Hyperparameters {
@@ -110,6 +108,8 @@ impl KnownModel for Mpt {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let n = builder.input_length();
+            let session_len = builder.n_past;
             let ctx0 = builder.ctx0.borrow();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
@@ -243,9 +243,19 @@ impl KnownModel for Mpt {
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, n);
-        common::extract_logits(output_request, &outputs.result, n_vocab, n);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

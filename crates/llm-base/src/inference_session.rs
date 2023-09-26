@@ -54,7 +54,7 @@ pub struct InferenceSession {
 
     /// How many tokens have been fed into the model's working memory so far.
     #[doc(hidden)]
-    pub n_past: usize,
+    n_past: usize,
 
     /// How much memory is required per token for the temporary context used
     /// during inference.
@@ -96,6 +96,12 @@ pub struct BuildContext<'session> {
     pub memory_k: &'session Tensor,
     pub memory_v: &'session Tensor,
     pub n_past: usize,
+}
+
+impl<'session> BuildContext<'session> {
+    pub fn input_length(&self) -> usize {
+        self.embd.nelements()
+    }
 }
 
 unsafe impl Send for InferenceSession {}
