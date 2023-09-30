@@ -139,9 +139,14 @@ impl InferenceSession {
             size
         };
 
+        log::info!(
+            "Allocating {:.2} MB for KV-memory",
+            context_byte_size / (1024 * 1024)
+        );
+
         if use_gpu {
             ggml::accelerator::initialize(0);
-            ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
+            ggml::accelerator::set_scratch_size(0);
         }
 
         // TODO: revisit this with `Rc`, maybe? We should be able to prove that the session
@@ -156,12 +161,16 @@ impl InferenceSession {
         let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
         // Allocate buffer for storing tensor and graph structs
-        // Should be 1540816
         let buf_size = ggml::graph_overhead() + (ggml::tensor_overhead() * ggml::MAX_NODES);
         let eval = Buffer::new(buf_size);
+        log::info!(
+            "Allocating {:.2} MB for eval-context",
+            buf_size / (1024 * 1024)
+        );
+
         let ctx0 = ggml::Context::new_with_buffer(eval, false);
 
-        let allocator = GraphAllocator::new_measurement(32);
+        let allocator = GraphAllocator::new_measurement(ggml::TENSOR_ALIGNMENT);
         // Set up Metal support
         #[cfg(feature = "metal")]
         let metal_context = {
@@ -217,8 +226,6 @@ impl InferenceSession {
             let ctx0 = &mut self.ctx0;
 
             // If we are in measuring mode, we need to build a "worst case" graph, meaning the input has either `batch_size` or `context_size` tokens.
-            let tensor_alignment = 32;
-
             let max_n_tokens = self.config.n_batch.min(self.context_size);
             // We assume the history is full
             let max_n_past = self.context_size - max_n_tokens;
@@ -238,12 +245,16 @@ impl InferenceSession {
             };
 
             let (mut worst_case_graph, built_result) = builder(bc);
+            // Expand the graph
             worst_case_graph.build_forward_expand(&built_result.result);
-            // Should be 73924640
-            let graph_size = self.allocator.allocate_graph(&worst_case_graph) + tensor_alignment;
-            let buffer = Buffer::new(graph_size);
 
-            self.allocator.switch_buffer(buffer, tensor_alignment);
+            // Allocate the graph
+            let graph_size =
+                self.allocator.allocate_graph(&worst_case_graph) + ggml::TENSOR_ALIGNMENT;
+            log::info!("Allocating {:.2} MB for graph", graph_size / (1024 * 1024));
+            // Pre-allocate the buffer foor future use
+            let buffer = Buffer::new(graph_size);
+            self.allocator.switch_buffer(buffer, ggml::TENSOR_ALIGNMENT);
         }
 
         self.ctx0.recreate();

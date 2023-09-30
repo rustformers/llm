@@ -134,6 +134,9 @@ pub const DEFAULT_EPS: f32 = 0.000005;
 /// Maximum number of nodes in a `ggml` graph.
 pub const MAX_NODES: usize = sys::GGML_MAX_NODES as usize;
 
+/// Alignment used for the Tensors in a `ggml` graph.
+pub const TENSOR_ALIGNMENT: usize = 32;
+
 /// Value overrides to use for RoPE.
 ///
 /// Formula: `theta_i = scale * base^(−2(i−1)/d), for i in [1, 2, ..., d/2]`

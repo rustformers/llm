@@ -88,7 +88,7 @@ impl Tensor {
         self.with_alive_ctx(|| {
             #[cfg(feature = "cublas")]
             unsafe {
-                sys::cuda::ggml_cuda_assign_buffers(self.ptr.as_ptr());
+                sys::cuda::ggml_cuda_assign_buffers_no_alloc(self.ptr.as_ptr());
             }
         })
     }
