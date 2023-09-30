@@ -86,6 +86,9 @@ pub struct InferenceSession {
 
     /// Work buffer for graph planing
     work_buffer: Vec<u8>,
+
+    /// If the session can use the gpu
+    use_gpu: bool,
 }
 
 pub struct BuildContext<'session> {
@@ -120,7 +123,7 @@ impl InferenceSession {
             ..
         } = *params;
 
-        let context_byte_size = {
+        let cache_byte_size = {
             let mut size = 0;
             size += mulf!(
                 context_size,
@@ -134,14 +137,14 @@ impl InferenceSession {
                 n_embd,
                 ggml::type_sizef(config.memory_v_type.into())
             ); // memory_v
-            size += (5 + 10 * n_layer) * 256; // object overhead
+            size += 2 * 1024 * 1024; // overhead
 
             size
         };
 
         log::info!(
             "Allocating {:.2} MB for KV-memory",
-            context_byte_size / (1024 * 1024)
+            cache_byte_size / (1024 * 1024)
         );
 
         if use_gpu {
@@ -153,7 +156,7 @@ impl InferenceSession {
         // context is only accessed from one thread at a time, but I've already spent enough
         // time on this as-is.
         #[allow(clippy::arc_with_non_send_sync)]
-        let session_ctx = Arc::new(ggml::Context::new_with_allocate(context_byte_size));
+        let session_ctx = Arc::new(ggml::Context::new_with_allocate(cache_byte_size));
 
         // Initialize key + value memory tensors
         let n_mem = n_layer * context_size;
@@ -190,7 +193,7 @@ impl InferenceSession {
 
         InferenceSession {
             _session_ctx: session_ctx,
-            _memory_size: context_byte_size,
+            _memory_size: cache_byte_size,
             config,
             memory_k,
             memory_v,
@@ -206,6 +209,7 @@ impl InferenceSession {
             allocator,
             context_size,
             work_buffer: vec![0],
+            use_gpu,
         }
     }
 
@@ -252,17 +256,25 @@ impl InferenceSession {
             let graph_size =
                 self.allocator.allocate_graph(&worst_case_graph) + ggml::TENSOR_ALIGNMENT;
             log::info!("Allocating {:.2} MB for graph", graph_size / (1024 * 1024));
-            // Pre-allocate the buffer foor future use
-            let buffer = Buffer::new(graph_size);
-            self.allocator.switch_buffer(buffer, ggml::TENSOR_ALIGNMENT);
+            // Pre-allocate the buffer for future use
+            self.allocator
+                .resize_buffer(graph_size, ggml::TENSOR_ALIGNMENT);
+
+            if self.use_gpu {
+                ggml::accelerator::set_scratch_size(graph_size);
+            }
         }
 
+        // Reset the context and allocator
         self.ctx0.recreate();
+        self.allocator.reset();
         let ctx0 = &mut self.ctx0;
 
         let mut embd = ctx0
             .new_tensor_1d(ggml::Type::I32, input_tokens.len())
             .set_name("embd");
+
+        self.allocator.allocate(&embd);
 
         let bc = BuildContext {
             ctx0: RefCell::new(ctx0),
@@ -273,10 +285,6 @@ impl InferenceSession {
             n_past: self.n_past,
         };
 
-        // Reset the allocator
-        self.allocator.reset();
-        self.allocator.allocate(&embd);
-
         let (mut built_gf, built_result) = builder(bc);
 
         // Build the graph
@@ -285,6 +293,26 @@ impl InferenceSession {
         // Allocate the graph
         self.allocator.allocate_graph(&built_gf);
 
+        #[cfg(feature = "cublas")]
+        {
+            for mut leaf in built_gf.leafs(&ctx0) {
+                if leaf.backend() == ggml::accelerator::Backend::Gpu && !leaf.has_extras() {
+                    unsafe {
+                        let offset = leaf.data().offset_from(self.allocator.buffer.data()) as usize;
+                        leaf.assign_scratch_offset(offset);
+                    }
+                }
+            }
+
+            for mut node in built_gf.nodes(&ctx0) {
+                if node.backend() == ggml::accelerator::Backend::Gpu && !node.has_extras() {
+                    unsafe {
+                        let offset = node.data().offset_from(self.allocator.buffer.data()) as usize;
+                        node.assign_scratch_offset(offset);
+                    }
+                }
+            }
+        }
         // Do Metal'y stuff
         #[cfg(feature = "metal")]
         {

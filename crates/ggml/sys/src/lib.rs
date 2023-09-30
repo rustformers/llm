@@ -176,6 +176,10 @@ pub const ggml_object_type_GGML_OBJECT_TENSOR: ggml_object_type = 0;
 pub const ggml_object_type_GGML_OBJECT_GRAPH: ggml_object_type = 1;
 pub const ggml_object_type_GGML_OBJECT_WORK_BUFFER: ggml_object_type = 2;
 pub type ggml_object_type = ::std::os::raw::c_int;
+pub const ggml_log_level_GGML_LOG_LEVEL_ERROR: ggml_log_level = 2;
+pub const ggml_log_level_GGML_LOG_LEVEL_WARN: ggml_log_level = 3;
+pub const ggml_log_level_GGML_LOG_LEVEL_INFO: ggml_log_level = 4;
+pub type ggml_log_level = ::std::os::raw::c_int;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_object {
@@ -2187,6 +2191,13 @@ pub const ggml_opt_result_GGML_LINESEARCH_INVALID_PARAMETERS: ggml_opt_result = 
 pub type ggml_opt_result = ::std::os::raw::c_int;
 pub type ggml_opt_callback =
     ::std::option::Option<unsafe extern "C" fn(data: *mut ::std::os::raw::c_void, sched: *mut f32)>;
+pub type ggml_log_callback = ::std::option::Option<
+    unsafe extern "C" fn(
+        level: ggml_log_level,
+        text: *const ::std::os::raw::c_char,
+        user_data: *mut ::std::os::raw::c_void,
+    ),
+>;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_opt_params {

@@ -2,15 +2,11 @@
 
 pub const GGML_METAL_MAX_BUFFERS: u32 = 16;
 pub const GGML_METAL_MAX_COMMAND_BUFFERS: u32 = 32;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ggml_tensor {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ggml_cgraph {
-    _unused: [u8; 0],
+extern "C" {
+    pub fn ggml_metal_log_set_callback(
+        log_callback: ggml_log_callback,
+        user_data: *mut ::std::os::raw::c_void,
+    );
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

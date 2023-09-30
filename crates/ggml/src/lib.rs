@@ -10,6 +10,8 @@
 use std::{
     alloc::Layout,
     os::raw::{c_int, c_void},
+    ptr::NonNull,
+    sync::Arc,
 };
 
 mod context;
@@ -308,9 +310,26 @@ impl Buffer {
         }
     }
 
+    /// Creates a new buffer of the specified size, without aligning it.
+    pub fn new_unaligned(size: usize) -> Self {
+        let layout = Layout::from_size_align(size, 1).unwrap();
+
+        unsafe {
+            Buffer {
+                data: std::alloc::alloc(layout).cast(),
+                layout,
+            }
+        }
+    }
+
     /// Returns the size of the buffer in bytes
     pub fn size(&self) -> usize {
         self.layout.size()
+    }
+
+    /// Returns a pointer to the data in this buffer.
+    pub fn data(&mut self) -> *mut c_void {
+        self.data
     }
 }
 
@@ -336,6 +355,37 @@ impl ComputationGraph {
     /// Build this computational graph in the forward direction in preparation for computation.
     pub fn build_forward_expand(&mut self, tensor: &Tensor) {
         unsafe { sys::ggml_build_forward_expand(self.inner, tensor.ptr.as_ptr()) }
+    }
+
+    /// Returns the leafs in this graph.
+    pub fn leafs(&self, context: &Context) -> Vec<Tensor> {
+        let mut wrapped_leafs: Vec<Tensor> = vec![];
+        unsafe {
+            for leaf in self.inner.as_ref().unwrap().leafs {
+                if !leaf.is_null() {
+                    wrapped_leafs.push(Tensor {
+                        ptr: NonNull::new(leaf).expect("Should not be null"),
+                        inner: Arc::downgrade(&context.inner),
+                    })
+                }
+            }
+            wrapped_leafs
+        }
+    }
+    /// Returns the nodes in this graph.
+    pub fn nodes(&self, context: &Context) -> Vec<Tensor> {
+        let mut wrapped_nodes: Vec<Tensor> = vec![];
+        unsafe {
+            for leaf in self.inner.as_ref().unwrap().leafs {
+                if !leaf.is_null() {
+                    wrapped_nodes.push(Tensor {
+                        ptr: NonNull::new(leaf).expect("Should not be null"),
+                        inner: Arc::downgrade(&context.inner),
+                    })
+                }
+            }
+            wrapped_nodes
+        }
     }
 }
 
@@ -413,13 +463,14 @@ impl GraphAllocator {
     }
 
     /// Switches the buffer used by the allocator.
-    pub fn switch_buffer(&mut self, buffer: Buffer, tensor_alignment: usize) {
+    pub fn resize_buffer(&mut self, graph_size: usize, tensor_alignment: usize) {
         // Free the old allocator
         unsafe { sys::ggml_allocr_free(self.ptr) }
+        //Resize the buffer
+        self.buffer = Buffer::new_unaligned(graph_size);
         // Create a new allocator with the new buffer
-        let ptr = unsafe { sys::ggml_allocr_new(buffer.data, buffer.size(), tensor_alignment) };
-        self.ptr = ptr;
-        self.buffer = buffer;
+        self.ptr =
+            unsafe { sys::ggml_allocr_new(self.buffer.data, self.buffer.size(), tensor_alignment) };
     }
 }
 

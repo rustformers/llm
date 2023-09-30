@@ -21,7 +21,7 @@ pub struct Context {
     /// allocated tensors. Tensors are owned by the object, so a [`Tensor`]
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
-    inner: Arc<ContextInner>,
+    pub inner: Arc<ContextInner>,
 
     /// The storage for this context. This is stored so that the buffer can be dropped when the context is dropped.
     storage: Option<ContextStorage>,
@@ -31,7 +31,7 @@ pub struct Context {
 }
 
 /// Contains state shared between a context and its tensors
-pub(crate) struct ContextInner {
+pub struct ContextInner {
     pub ptr: NonNull<sys::ggml_context>,
 
     /// Offloaded tensors. Used to free them when the context is dropped.
