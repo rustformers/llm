@@ -2146,6 +2146,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spinoff",
+ "thiserror",
  "tracing",
 ]
 

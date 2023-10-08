@@ -1,10 +1,6 @@
-use std::{
-    error::Error,
-    fmt::Display,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{error::Error, fmt::Display, path::PathBuf, str::FromStr};
 
+use ggml::format::gguf::Gguf;
 use thiserror::Error;
 
 mod embedded;
@@ -36,11 +32,11 @@ pub enum TokenizationError {
 /// Errors related to loading the tokenizer.
 #[error("error loading tokenizer from {path}: {error}")]
 pub enum TokenizerLoadError {
-    #[error("error loading Hugging Face tokenizer from {path}: {error}")]
+    #[error("error loading Hugging Face tokenizer from {tokenizer_source}: {error}")]
     /// An error occurred while loading a Hugging Face tokenizer.
     HuggingFaceTokenizerError {
-        /// The path to the tokenizer.
-        path: PathBuf,
+        /// The source of the tokenizer that failed.
+        tokenizer_source: HuggingFaceTokenizerErrorSource,
         /// The error that occurred during loading.
         error: Box<dyn Error + Send + Sync>,
     },
@@ -49,14 +45,27 @@ pub enum TokenizerLoadError {
     NoTokenizerFound,
 }
 
-impl TokenizerLoadError {
-    fn huggingface_error(
-        path: impl Into<PathBuf>,
-        error: impl Into<Box<dyn Error + Send + Sync>>,
-    ) -> Self {
-        Self::HuggingFaceTokenizerError {
-            path: path.into(),
-            error: error.into(),
+/// Used to identify where the tokenizer that errored came from.
+// NOTE: We could potentially reuse `TokenizerSource` for this, but I want to avoid
+// cloning and/or displaying the entire `String` case. Revisit in future and see if
+// I still feel the same.
+#[derive(Debug)]
+pub enum HuggingFaceTokenizerErrorSource {
+    /// The tokenizer was loaded from this file.
+    File(PathBuf),
+    /// The tokenizer was loaded from thep rovided string.
+    String,
+    #[cfg(feature = "tokenizers-remote")]
+    /// The tokenizer was loaded from the given HF ID.
+    Remote(String),
+}
+impl Display for HuggingFaceTokenizerErrorSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File(file) => write!(f, "file {file:?}"),
+            Self::String => write!(f, "string"),
+            #[cfg(feature = "tokenizers-remote")]
+            Self::Remote(remote) => write!(f, "HF ID {remote:?}"),
         }
     }
 }
@@ -81,36 +90,61 @@ pub enum TokenizerSource {
     /// and may store files locally, so it is not recommended for production use.
     #[cfg(feature = "tokenizers-remote")]
     HuggingFaceRemote(String),
+    //
+    // TODO: Support embedded huggingface tokenizer from GGUF
+    //
 }
 impl TokenizerSource {
     /// Retrieve the tokenizer from the source.
     ///
     /// Note that this may make a blocking HTTP request to Hugging Face to retrieve the tokenizer.
     /// if `self` is `Self::HuggingFaceRemote`.
-    pub fn retrieve(self, model_path: &Path) -> Result<Tokenizer, TokenizerLoadError> {
-        let _ = model_path;
-
+    pub fn retrieve(self, gguf: &Gguf) -> Result<Tokenizer, TokenizerLoadError> {
         Ok(match self {
             #[cfg(feature = "tokenizers-remote")]
             Self::HuggingFaceRemote(identifier) => HuggingFaceTokenizer::new(
-                tokenizers::Tokenizer::from_pretrained(&identifier, None)
-                    .map_err(|error| TokenizerLoadError::huggingface_error(model_path, error))?,
+                tokenizers::Tokenizer::from_pretrained(&identifier, None).map_err(|error| {
+                    TokenizerLoadError::HuggingFaceTokenizerError {
+                        tokenizer_source: HuggingFaceTokenizerErrorSource::Remote(
+                            identifier.clone(),
+                        ),
+                        error: error.into(),
+                    }
+                })?,
             )
             .into(),
 
-            Self::HuggingFaceTokenizerFile(path) => HuggingFaceTokenizer::new(
-                tokenizers::Tokenizer::from_file(&path)
-                    .map_err(|error| TokenizerLoadError::huggingface_error(path, error))?,
-            )
-            .into(),
+            Self::HuggingFaceTokenizerFile(path) => {
+                HuggingFaceTokenizer::new(tokenizers::Tokenizer::from_file(&path).map_err(
+                    |error| TokenizerLoadError::HuggingFaceTokenizerError {
+                        tokenizer_source: HuggingFaceTokenizerErrorSource::File(path.clone()),
+                        error: error.into(),
+                    },
+                )?)
+                .into()
+            }
 
-            Self::HuggingFaceTokenizerString(s) => HuggingFaceTokenizer::new(
-                tokenizers::Tokenizer::from_str(&s)
-                    .map_err(|error| TokenizerLoadError::huggingface_error(model_path, error))?,
-            )
-            .into(),
+            Self::HuggingFaceTokenizerString(s) => {
+                HuggingFaceTokenizer::new(tokenizers::Tokenizer::from_str(&s).map_err(|error| {
+                    TokenizerLoadError::HuggingFaceTokenizerError {
+                        tokenizer_source: HuggingFaceTokenizerErrorSource::String,
+                        error: error.into(),
+                    }
+                })?)
+                .into()
+            }
 
-            Self::Embedded => EmbeddedTokenizer::default().into(),
+            Self::Embedded => {
+                let mut tokenizer = EmbeddedTokenizer::default();
+                if let Some((tokens, scores)) = gguf.tokenizer_embedded() {
+                    for (i, (token, score)) in tokens.iter().zip(scores.iter()).enumerate() {
+                        tokenizer.push_token(i as u32, token.as_bytes().to_vec(), *score);
+                    }
+                } else {
+                    return Err(TokenizerLoadError::NoTokenizerFound);
+                }
+                tokenizer.into()
+            }
         })
     }
 }
@@ -131,13 +165,6 @@ impl From<EmbeddedTokenizer> for Tokenizer {
 impl From<HuggingFaceTokenizer> for Tokenizer {
     fn from(v: HuggingFaceTokenizer) -> Self {
         Self::HuggingFace(v)
-    }
-}
-impl Tokenizer {
-    /// Creates an empty embedded tokenizer, for contexts where you need a tokenizer but don't
-    /// need to tokenize anything.
-    pub(crate) fn empty_embedded() -> Self {
-        Self::Embedded(EmbeddedTokenizer::default())
     }
 }
 impl Tokenizer {

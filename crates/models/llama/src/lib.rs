@@ -3,10 +3,10 @@
 
 use llm_base::{
     ggml::{self, format::gguf::Metadata},
-    model::{common, HyperparametersWriteError},
-    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    MetadataExt, ModelContext, ModelParameters, ModelTensorLoader, OutputRequest, Regex, TokenId,
-    Tokenizer,
+    model::{common, HyperparametersReadError, HyperparametersWriteError},
+    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, MetadataExt,
+    ModelContext, ModelParameters, ModelTensorLoader, OutputRequest, Regex, TensorLoadError,
+    TokenId, Tokenizer,
 };
 
 const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
@@ -41,11 +41,11 @@ impl KnownModel for Llama {
     type Hyperparameters = Hyperparameters;
 
     fn new(
-        mut hyperparameters: Self::Hyperparameters,
+        hyperparameters: Self::Hyperparameters,
         params: ModelParameters,
         tokenizer: Tokenizer,
         tensor_loader: ModelTensorLoader,
-    ) -> Result<Self, LoadError> {
+    ) -> Result<Self, TensorLoadError> {
         assert_eq!(hyperparameters.tensor_data_layout, META_TENSOR_DATA_LAYOUT);
 
         let mut tl = tensor_loader;
@@ -412,7 +412,7 @@ pub struct Hyperparameters {
     pub tensor_data_layout: String,
 }
 impl llm_base::Hyperparameters for Hyperparameters {
-    fn read_gguf(metadata: &Metadata) -> Result<Self, LoadError> {
+    fn read_gguf(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
         Ok(Self {
             // TODO: handle models without an embedded vocabulary
             vocabulary_count: metadata
@@ -422,11 +422,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
             head_count: metadata.fallible_get_countable("llama.attention.head_count")?,
             head_count_kv: metadata.fallible_get_countable("llama.attention.head_count_kv")?,
             block_count: metadata.fallible_get_countable("llama.block_count")?,
-            file_type: metadata
-                .get("general.file_type")
-                .and_then(|v| v.as_uint32())
-                .map(|v| FileType::try_from(v as i32))
-                .transpose()?,
+            file_type: FileType::read_for_hyperparameters(metadata)?,
             tensor_data_layout: metadata
                 .fallible_get_string("llama.tensor_data_layout")
                 .unwrap_or(META_TENSOR_DATA_LAYOUT.to_string()),

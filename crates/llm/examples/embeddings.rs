@@ -4,7 +4,6 @@ use clap::Parser;
 
 #[derive(Parser)]
 struct Args {
-    model_architecture: llm::ModelArchitecture,
     model_path: PathBuf,
     #[arg(long, short = 'v')]
     pub tokenizer_path: Option<PathBuf>,
@@ -32,7 +31,6 @@ fn main() {
     let args = Args::parse();
 
     let tokenizer_source = args.to_tokenizer_source();
-    let model_architecture = args.model_architecture;
     let model_path = args.model_path;
     let query = args
         .query
@@ -50,16 +48,13 @@ fn main() {
 
     // Load model
     let model_params = llm::ModelParameters::default();
-    let model = llm::load_dynamic(
-        Some(model_architecture),
+    let model = llm::load(
         &model_path,
         tokenizer_source,
         model_params,
         llm::load_progress_callback_stdout,
     )
-    .unwrap_or_else(|err| {
-        panic!("Failed to load {model_architecture} model from {model_path:?}: {err}")
-    });
+    .unwrap_or_else(|err| panic!("Failed to load model from {model_path:?}: {err}"));
     let inference_parameters = llm::InferenceParameters::default();
 
     // Generate embeddings for query and comparands

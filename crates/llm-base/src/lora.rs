@@ -1,11 +1,15 @@
 use crate::{
-    loader::TensorLoader, model::HyperparametersWriteError, FileType, Hyperparameters, LoadError,
+    loader::{Source, TensorLoadError, TensorLoader},
+    model::{HyperparametersReadError, HyperparametersWriteError},
+    FileType, Hyperparameters,
 };
 
-use ggml::{format::gguf::TensorInfo, GraphExecutionPlan};
+use ggml::{
+    format::gguf::{Gguf, Metadata, TensorInfo},
+    GraphExecutionPlan,
+};
 use std::{
     collections::{HashMap, HashSet},
-    fs::File,
     path::PathBuf,
 };
 
@@ -24,14 +28,11 @@ impl LoraParameters {
     }
 }
 impl Hyperparameters for LoraParameters {
-    fn read_gguf(metadata: &ggml::format::gguf::Metadata) -> Result<Self, LoadError> {
+    fn read_gguf(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
         todo!()
     }
 
-    fn write_gguf(
-        &self,
-        metadata: &mut ggml::format::gguf::Metadata,
-    ) -> Result<(), HyperparametersWriteError> {
+    fn write_gguf(&self, metadata: &mut Metadata) -> Result<(), HyperparametersWriteError> {
         todo!()
     }
 
@@ -52,12 +53,12 @@ pub struct LoraAdapter {
     pub tensors: HashMap<String, TensorInfo>,
     /// Names of the tensors that should be patched.
     pub tensors_to_patch: HashSet<String>,
-    /// File containing the LoRA weights.
-    pub file: File,
+    /// Source containing the LoRA weights.
+    pub source: Box<dyn Source>,
     /// Path to the LoRA file.
     pub path: PathBuf,
     /// The loaded GGUF for the LoRA.
-    pub gguf: ggml::format::gguf::Gguf,
+    pub gguf: Gguf,
 }
 
 impl LoraAdapter {
@@ -67,7 +68,7 @@ impl LoraAdapter {
         name: &str,
         info: &TensorInfo,
         tensor: &mut ggml::Tensor,
-    ) -> Result<(), LoadError> {
+    ) -> Result<(), TensorLoadError> {
         // Check if we need to patch this tensor
         if !self.tensors_to_patch.contains(name) {
             return Ok(());
@@ -105,8 +106,7 @@ impl LoraAdapter {
         // TODO: test if GPU can be enabled (make it configurable)
         let patch_context = ggml::Context::new_with_allocate(patch_context_size);
         let mut loader = TensorLoader {
-            path: &self.path,
-            file: &mut self.file,
+            source: self.source.as_mut(),
             context: patch_context,
             gguf: &self.gguf,
         };
@@ -144,12 +144,11 @@ impl LoraAdapter {
         Ok(())
     }
 
-    fn get_info(&self, name: &str) -> Result<TensorInfo, LoadError> {
+    fn get_info(&self, name: &str) -> Result<TensorInfo, TensorLoadError> {
         self.tensors
             .get(name)
             .cloned()
-            .ok_or(LoadError::UnknownTensor {
-                path: self.path.to_owned(),
+            .ok_or(TensorLoadError::UnknownTensor {
                 tensor_name: name.to_owned(),
             })
     }

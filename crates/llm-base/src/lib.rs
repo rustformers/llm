@@ -8,11 +8,11 @@
 #![deny(missing_docs)]
 
 mod inference_session;
-mod loader;
 mod lora;
 mod quantize;
 mod tokenizer;
 
+pub mod loader;
 pub mod model;
 pub mod samplers;
 pub mod util;
@@ -30,8 +30,8 @@ pub use inference_session::{
 };
 pub use llm_samplers::prelude::{Sampler, SamplerChain};
 pub use loader::{
-    load, load_progress_callback_stdout, ContainerType, FileMagic, FileType, FileTypeFormat,
-    LoadError, LoadProgress, MetadataExt, ModelTensorLoader,
+    load_known_internal, ContainerType, FileMagic, FileType, FileTypeFormat, LoadKnownError,
+    MetadataError, MetadataExt, ModelTensorLoader, TensorLoadError,
 };
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;

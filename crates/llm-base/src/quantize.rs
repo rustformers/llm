@@ -5,7 +5,7 @@
 
 use crate::{
     loader::FileTypeFormat, model::HyperparametersWriteError, Hyperparameters, KnownModel,
-    LoadError, LoadProgress, Tokenizer,
+    Tokenizer,
 };
 use ggml::format::gguf::GgufSaveError;
 use half::f16;
@@ -72,9 +72,9 @@ pub enum QuantizeProgress<'a> {
 #[derive(Error, Debug)]
 /// Errors encountered during the quantization process.
 pub enum QuantizeError {
-    #[error("could not load model")]
-    /// There was an error while attempting to load the model.
-    Load(#[from] LoadError),
+    // #[error("could not load model")]
+    // /// There was an error while attempting to load the model.
+    // Load(#[from] LoadError),
     #[error("non-specific I/O error")]
     /// A non-specific IO error.
     Io(#[from] std::io::Error),

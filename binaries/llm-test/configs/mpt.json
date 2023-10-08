@@ -1,7 +1,6 @@
 {
     "url": "https://huggingface.co/rustformers/mpt-7b-ggml/resolve/main/mpt-7b-q4_0-ggjt.bin",
     "filename": "mpt.bin",
-    "architecture": "mpt",
     "test_cases": [
         {
             "Inference": {

@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::{TestCaseReport, TestCaseReportMeta};
 
 /// Tests that the model performs as expected when feeding tokens
-pub(crate) fn can_feed(model: &impl Model, input: &str, expected_output: usize) -> TestCaseReport {
+pub(crate) fn can_feed(model: &dyn Model, input: &str, expected_output: usize) -> TestCaseReport {
     let mut report = TokensReport::default();
     let mut session = model.start_session(Default::default());
     let mut output = OutputRequest {
@@ -62,7 +62,7 @@ pub(crate) fn can_feed(model: &impl Model, input: &str, expected_output: usize) 
 fn feed_prompt(
     prompt: &str,
     session: &mut InferenceSession,
-    model: &impl Model,
+    model: &dyn Model,
     output: &mut OutputRequest,
 ) -> Result<(), llm::InferenceError> {
     session.feed_prompt(model, prompt, output, always_continue)

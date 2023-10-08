@@ -1,20 +1,18 @@
 //! Large language model traits and types
 
-use std::{
-    error::Error,
-    fmt::Debug,
-    io::{BufRead, Write},
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
-use ggml::{accelerator::Backend, format::gguf::Metadata};
+use ggml::{
+    accelerator::Backend,
+    format::gguf::{Metadata, MetadataError},
+    sys::llama::llama_ftype,
+};
 use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig,
-    LoadError, LoadProgress, ModelTensorLoader, Tokenizer, TokenizerSource,
+    tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig, ModelTensorLoader,
+    TensorLoadError, Tokenizer,
 };
 
 /// Common functions for model evaluation
@@ -26,21 +24,6 @@ pub trait KnownModel: Send + Sync {
     /// Hyperparameters for the model.
     type Hyperparameters: Hyperparameters;
 
-    /// Load this model from the `path` and configure it per the `params`. The status
-    /// of the loading process will be reported through `load_progress_callback`. This
-    /// is a helper function on top of [llm_base::load](crate::load).
-    fn load(
-        path: &Path,
-        tokenizer_source: TokenizerSource,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Self, LoadError>
-    where
-        Self: Sized,
-    {
-        crate::load(path, tokenizer_source, params, load_progress_callback)
-    }
-
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
     /// This function is called by the [load](crate::loader::load) function.
     fn new(
@@ -48,7 +31,7 @@ pub trait KnownModel: Send + Sync {
         params: ModelParameters,
         tokenizer: Tokenizer,
         tensor_loader: ModelTensorLoader,
-    ) -> Result<Self, LoadError>
+    ) -> Result<Self, TensorLoadError>
     where
         Self: Sized;
 
@@ -167,7 +150,7 @@ impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
 /// without knowing what they are, as well as writing/reading them as required.
 pub trait Hyperparameters: Sized + Default + Debug + PartialEq + Eq {
     /// Read the parameters from GGUF metadata.
-    fn read_gguf(metadata: &Metadata) -> Result<Self, LoadError>;
+    fn read_gguf(metadata: &Metadata) -> Result<Self, HyperparametersReadError>;
 
     /// Write the parameters to GGUF metadata.
     fn write_gguf(&self, metadata: &mut Metadata) -> Result<(), HyperparametersWriteError>;
@@ -177,6 +160,19 @@ pub trait Hyperparameters: Sized + Default + Debug + PartialEq + Eq {
 
     /// Get mutable access to filetype of the model.
     fn file_type_mut(&mut self) -> Option<&mut FileType>;
+}
+#[derive(Error, Debug)]
+/// Reported from functions that write
+pub enum HyperparametersReadError {
+    #[error("{0}")]
+    /// A metadata error.
+    MetadataError(#[from] MetadataError),
+    /// The file type within the model was not supported by this version of `llm`.
+    #[error("file type {file_type} is not supported")]
+    UnsupportedFileType {
+        /// The file type (ignoring the quantization version) that was encountered.
+        file_type: llama_ftype,
+    },
 }
 #[derive(Error, Debug)]
 /// Reported from functions that write

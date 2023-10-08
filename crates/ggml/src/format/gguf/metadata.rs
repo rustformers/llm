@@ -1,9 +1,12 @@
 use std::{collections::HashMap, io::BufRead};
 
+use thiserror::Error;
+
 use crate::util;
 
 use super::{GgufContext, GgufLoadError};
 
+// TODO: make this a newtype instead
 pub type Metadata = HashMap<String, MetadataValue>;
 
 #[repr(u32)]
@@ -466,4 +469,86 @@ impl MetadataArrayValue {
             Self::Float64(v) => v.len(),
         }
     }
+}
+
+#[doc(hidden)]
+pub trait MetadataExt {
+    fn fallible_get(&self, key: &str) -> Result<&MetadataValue, MetadataError>;
+    fn fallible_typed_get<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<&T>,
+    ) -> Result<&'a T, MetadataError>;
+    fn fallible_get_string(&self, key: &str) -> Result<String, MetadataError>;
+    fn fallible_get_countable(&self, key: &str) -> Result<usize, MetadataError>;
+}
+impl MetadataExt for Metadata {
+    fn fallible_get(&self, key: &str) -> Result<&MetadataValue, MetadataError> {
+        self.get(key).ok_or_else(|| MetadataError::MissingKey {
+            key: key.to_owned(),
+        })
+    }
+
+    fn fallible_typed_get<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<&T>,
+    ) -> Result<&'a T, MetadataError> {
+        let metadata_value = self.fallible_get(key)?;
+        getter(metadata_value).ok_or_else(|| MetadataError::InvalidType {
+            key: key.to_string(),
+            expected_type: T::value_type(),
+            actual_type: metadata_value.value_type(),
+        })
+    }
+
+    // TODO: see if we can generalize this with `ToOwned` or something?
+    fn fallible_get_string(&self, key: &str) -> Result<String, MetadataError> {
+        let metadata_value = self.fallible_get(key)?;
+        Ok(metadata_value
+            .as_string()
+            .ok_or_else(|| MetadataError::InvalidType {
+                key: key.to_string(),
+                expected_type: MetadataValueType::String,
+                actual_type: metadata_value.value_type(),
+            })?
+            .to_string())
+    }
+
+    fn fallible_get_countable(&self, key: &str) -> Result<usize, MetadataError> {
+        let metadata_value = self.fallible_get(key)?;
+        match metadata_value {
+            MetadataValue::UInt32(v) => Ok(usize::try_from(*v)?),
+            MetadataValue::UInt64(v) => Ok(usize::try_from(*v)?),
+            _ => Err(MetadataError::InvalidType {
+                key: key.to_string(),
+                expected_type: MetadataValueType::UInt64,
+                actual_type: metadata_value.value_type(),
+            }),
+        }
+    }
+}
+
+#[derive(Error, Debug)]
+/// Errors encountered during the loading process.
+pub enum MetadataError {
+    /// The model expected a metadata key-value pair, but the key was missing.
+    #[error("missing metadata key {key:?}")]
+    MissingKey {
+        /// The key that was missing.
+        key: String,
+    },
+    /// The metadata key-value pair was not of the expected type.
+    #[error("metadata key {key:?} was not of the expected type")]
+    InvalidType {
+        /// The key with the invalid type.
+        key: String,
+        /// The expected type.
+        expected_type: MetadataValueType,
+        /// The actual type.
+        actual_type: MetadataValueType,
+    },
+    #[error("invalid integer conversion")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
 }

@@ -1,5 +1,4 @@
 use std::{
-    fmt,
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -7,7 +6,7 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
-    ggml_format, samplers::build_sampler, ElementType, InferenceParameters, InferenceSessionConfig,
+    samplers::build_sampler, ElementType, InferenceParameters, InferenceSessionConfig,
     InvalidTokenBias, LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides,
     TokenBias, TokenId, TokenizerSource,
 };
@@ -428,20 +427,10 @@ impl ModelTokenizer {
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelArchitecture {
-    /// The model architecture to use. Will attempt to guess if not specified.
-    #[arg(long, short = 'a')]
-    pub model_architecture: Option<llm::ModelArchitecture>,
-}
-
-#[derive(Parser, Debug)]
 pub struct ModelAndTokenizer {
     /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
-
-    #[command(flatten)]
-    pub architecture: ModelArchitecture,
 
     #[command(flatten)]
     pub tokenizer: ModelTokenizer,
@@ -539,8 +528,7 @@ impl ModelLoad {
             }
         };
 
-        let model = llm::load_dynamic(
-            self.model_and_tokenizer.architecture.model_architecture,
+        let model = llm::load(
             &self.model_and_tokenizer.model_path,
             tokenizer_source,
             params,

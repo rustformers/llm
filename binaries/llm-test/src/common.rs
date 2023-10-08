@@ -1,6 +1,8 @@
 //! Tests that are run on every model, regardless of config.
 
-pub(super) fn can_send<M: llm::KnownModel + 'static>(model: M) -> anyhow::Result<M> {
+use llm::Model;
+
+pub(super) fn can_send(model: Box<dyn Model>) -> anyhow::Result<Box<dyn Model>> {
     let model = std::thread::spawn(move || model)
         .join()
         .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"));
