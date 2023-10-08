@@ -10,11 +10,11 @@
 mod inference_session;
 mod lora;
 mod quantize;
-mod tokenizer;
 
 pub mod loader;
 pub mod model;
 pub mod samplers;
+pub mod tokenizer;
 pub mod util;
 
 use std::sync::{Arc, Mutex};
@@ -31,7 +31,6 @@ pub use inference_session::{
 pub use llm_samplers::prelude::{Sampler, SamplerChain};
 pub use loader::{
     load_known_internal, ContainerType, FileMagic, FileType, FileTypeFormat, LoadKnownError,
-    MetadataError, MetadataExt, ModelTensorLoader, TensorLoadError,
 };
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;

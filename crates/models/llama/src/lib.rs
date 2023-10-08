@@ -3,10 +3,10 @@
 
 use llm_base::{
     ggml::{self, format::gguf::Metadata},
+    loader::{ModelTensorLoader, TensorLoadError},
     model::{common, HyperparametersReadError, HyperparametersWriteError},
-    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, MetadataExt,
-    ModelContext, ModelParameters, ModelTensorLoader, OutputRequest, Regex, TensorLoadError,
-    TokenId, Tokenizer,
+    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, ModelContext,
+    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
@@ -416,15 +416,15 @@ impl llm_base::Hyperparameters for Hyperparameters {
         Ok(Self {
             // TODO: handle models without an embedded vocabulary
             vocabulary_count: metadata
-                .fallible_typed_get("tokenizer.ggml.tokens", |v| v.as_array())?
+                .get_with_type("tokenizer.ggml.tokens", |v| v.as_array())?
                 .len(),
-            embedding_length: metadata.fallible_get_countable("llama.embedding_length")?,
-            head_count: metadata.fallible_get_countable("llama.attention.head_count")?,
-            head_count_kv: metadata.fallible_get_countable("llama.attention.head_count_kv")?,
-            block_count: metadata.fallible_get_countable("llama.block_count")?,
+            embedding_length: metadata.get_countable("llama.embedding_length")?,
+            head_count: metadata.get_countable("llama.attention.head_count")?,
+            head_count_kv: metadata.get_countable("llama.attention.head_count_kv")?,
+            block_count: metadata.get_countable("llama.block_count")?,
             file_type: FileType::read_for_hyperparameters(metadata)?,
             tensor_data_layout: metadata
-                .fallible_get_string("llama.tensor_data_layout")
+                .get_string("llama.tensor_data_layout")
                 .unwrap_or(META_TENSOR_DATA_LAYOUT.to_string()),
         })
     }

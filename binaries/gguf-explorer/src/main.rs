@@ -128,7 +128,7 @@ impl Explorer {
             })
             .body(|mut body| {
                 for key in metadata_keys {
-                    let value = &metadata[key];
+                    let value = metadata.get_optional(key).unwrap();
 
                     body.row(30.0, |mut row| {
                         row.col(|ui| {

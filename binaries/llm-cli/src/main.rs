@@ -140,7 +140,7 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
     let gguf = gguf::Gguf::load(&mut reader)?;
 
     log::info!("Non-array parameters:");
-    for (metadata_key, metadata_value) in &gguf.metadata {
+    for (metadata_key, metadata_value) in gguf.metadata.iter() {
         if metadata_value.as_array().is_some() {
             continue;
         }
@@ -148,12 +148,15 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
         log::info!("- {}: {:?}", metadata_key, metadata_value);
     }
 
-    if let Some((tokens, _scores)) = gguf.tokenizer_embedded() {
-        log::info!("Embedded tokenizer vocabulary size: {}", tokens.len());
+    if let Ok(tokenizer) = llm::tokenizer::GgufEmbeddedTokenizer::from_metadata(&gguf.metadata) {
+        log::info!(
+            "Embedded tokenizer vocabulary size: {}",
+            tokenizer.tokens.len()
+        );
 
         if args.tokenizer {
             log::info!("Embedded tokenizer vocabulary:");
-            for (i, token) in tokens.iter().enumerate() {
+            for (i, token) in tokenizer.tokens.iter().enumerate() {
                 log::info!("- {}: {}", i, token);
             }
         }

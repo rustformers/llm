@@ -7,9 +7,10 @@ use llm_base::{
         Context,
     },
     loader::{LoadKnownProgress, Source},
+    loader::{MetadataError, TensorLoadError},
     model::HyperparametersReadError,
-    ContainerType, FileMagic, KnownModel, LoadKnownError, LoraAdapter, MetadataError, MetadataExt,
-    Mmap, Model, ModelParameters, TensorLoadError, Tokenizer, TokenizerLoadError, TokenizerSource,
+    ContainerType, FileMagic, KnownModel, LoadKnownError, LoraAdapter, Mmap, Model,
+    ModelParameters, Tokenizer, TokenizerLoadError, TokenizerSource,
 };
 use thiserror::Error;
 
@@ -196,12 +197,12 @@ pub fn load(
 
     let architecture = gguf
         .metadata
-        .fallible_get_string("general.architecture")?
+        .get_string("general.architecture")?
         .parse::<ModelArchitecture>()?;
 
     let tokenizer = tokenizer_source.retrieve(&gguf)?;
 
-    let quantization_version = gguf.metadata.get("general.quantization_version");
+    let quantization_version = gguf.metadata.get_optional("general.quantization_version");
     log::trace!(
         "Determined quantization version of model as {:?}",
         quantization_version

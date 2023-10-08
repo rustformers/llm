@@ -11,15 +11,11 @@ use crate::{
     model::{Hyperparameters, HyperparametersReadError},
     KnownModel, LoraAdapter, ModelContext, ModelParameters, Tokenizer,
 };
+pub use ggml::{format::gguf::MetadataError, format::ContainerType, util::FileMagic};
 use ggml::{
     format::gguf::{Gguf, Metadata, TensorInfo},
     sys::llama::llama_ftype,
     Context, MAX_NAME_LENGTH,
-};
-pub use ggml::{
-    format::gguf::{MetadataError, MetadataExt},
-    format::ContainerType,
-    util::FileMagic,
 };
 use thiserror::Error;
 
@@ -62,7 +58,7 @@ impl FileType {
         metadata: &Metadata,
     ) -> Result<Option<Self>, HyperparametersReadError> {
         metadata
-            .get("general.file_type")
+            .get_optional("general.file_type")
             .and_then(|v| v.as_uint32())
             .map(|v| {
                 FileType::try_from(v as i32).map_err(|ftype| {

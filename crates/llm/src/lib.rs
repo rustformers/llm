@@ -79,12 +79,12 @@ pub use llm_base::{
     conversation_inference_callback, feed_prompt_callback,
     ggml::accelerator::get_accelerator as ggml_get_accelerator,
     ggml::accelerator::Accelerator as GgmlAccelerator, ggml::format as ggml_format,
-    ggml::RoPEOverrides, quantize, samplers, ElementType, FileMagic, FileType, FileTypeFormat,
-    Hyperparameters, InferenceError, InferenceFeedback, InferenceParameters, InferenceRequest,
-    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot,
-    InferenceSnapshotRef, InferenceStats, InvalidTokenBias, KnownModel, Model, ModelKVMemoryType,
-    ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, RewindError,
-    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
+    ggml::RoPEOverrides, quantize, samplers, tokenizer, ElementType, FileMagic, FileType,
+    FileTypeFormat, Hyperparameters, InferenceError, InferenceFeedback, InferenceParameters,
+    InferenceRequest, InferenceResponse, InferenceSession, InferenceSessionConfig,
+    InferenceSnapshot, InferenceSnapshotRef, InferenceStats, InvalidTokenBias, KnownModel, Model,
+    ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
+    RewindError, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
     TokenizerSource,
 };
 

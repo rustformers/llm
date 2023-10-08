@@ -11,8 +11,9 @@ use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig, ModelTensorLoader,
-    TensorLoadError, Tokenizer,
+    loader::{ModelTensorLoader, TensorLoadError},
+    tokenizer::TokenId,
+    FileType, InferenceSession, InferenceSessionConfig, Tokenizer,
 };
 
 /// Common functions for model evaluation

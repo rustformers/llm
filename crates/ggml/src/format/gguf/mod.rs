@@ -79,9 +79,10 @@ impl Gguf {
             let (key, value) = MetadataValue::read_key_value(&ctx, reader)?;
             metadata.insert(key, value);
         }
+        let metadata = Metadata(metadata);
 
         let alignment = metadata
-            .get("general.alignment")
+            .get_optional("general.alignment")
             .and_then(|v| v.as_uint32())
             .unwrap_or(DEFAULT_ALIGNMENT) as u64;
 
@@ -101,23 +102,6 @@ impl Gguf {
             tensor_infos,
             tensor_data_position,
         })
-    }
-
-    // TODO: consider moving this to a `ModelGguf` abstraction that wraps this
-    // and provides a model-specific interface
-    pub fn tokenizer_embedded(&self) -> Option<(&[String], &[f32])> {
-        let tokens = self
-            .metadata
-            .get("tokenizer.ggml.tokens")?
-            .as_array()?
-            .as_string_array()?;
-        let scores = self
-            .metadata
-            .get("tokenizer.ggml.scores")?
-            .as_array()?
-            .as_float32_array()?;
-
-        Some((tokens, scores))
     }
 }
 

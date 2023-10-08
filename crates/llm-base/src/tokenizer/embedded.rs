@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
+use ggml::format::gguf::{Metadata, MetadataError};
 use thiserror::Error;
 
 use super::{Token, TokenId, TokenScore, TokenizationError};
@@ -153,5 +154,89 @@ impl EmbeddedTokenizer {
             .iter()
             .zip(self.id_to_token_score.iter())
             .map(|(token, score)| (token.clone(), *score))
+    }
+}
+
+/// An embedded tokenizer definition in a GGUF.
+pub struct GgufEmbeddedTokenizer<'a> {
+    /// The model type.
+    pub model: Option<&'a str>,
+    /// The tokens.
+    pub tokens: &'a [String],
+    /// The token scores.
+    pub scores: &'a [f32],
+    /// The token types.
+    pub types: Option<&'a [u32]>,
+}
+impl GgufEmbeddedTokenizer<'_> {
+    /// Attempt to retrieve the embedded tokenizer from the metadata.
+    pub fn from_metadata(metadata: &Metadata) -> Result<GgufEmbeddedTokenizer, MetadataError> {
+        Ok(GgufEmbeddedTokenizer {
+            model: metadata
+                .get_optional("tokenizer.ggml.model")
+                .and_then(|v| v.as_string()),
+            tokens: metadata.get_array_with_type("tokenizer.ggml.tokens", |v| {
+                v.as_array()?.as_string_array()
+            })?,
+            scores: metadata.get_array_with_type("tokenizer.ggml.scores", |v| {
+                v.as_array()?.as_float32_array()
+            })?,
+            types: metadata
+                .get_array_with_type("tokenizer.ggml.token_type", |v| {
+                    v.as_array()?.as_uint32_array()
+                })
+                .ok(),
+        })
+    }
+}
+
+/// Typesafe tokenizer models.
+pub enum GgufEmbeddedTokenizerModel {
+    /// Llama style SentencePiece (tokens and scores extracted from HF `tokenizer.model`)
+    Llama,
+    /// Replit style SentencePiece (tokens and scores extracted from HF `spiece.model`)
+    Replit,
+    /// GPT-2 / GPT-NeoX style BPE (tokens extracted from HF `tokenizer.json`)
+    Gpt2,
+    /// RWKV tokenizer
+    Rwkv,
+}
+impl FromStr for GgufEmbeddedTokenizerModel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "llama" => Ok(Self::Llama),
+            "replit" => Ok(Self::Replit),
+            "gpt2" => Ok(Self::Gpt2),
+            "rwkv" => Ok(Self::Rwkv),
+            other => Err(other.to_string()),
+        }
+    }
+}
+
+/// The type of a token.
+#[allow(missing_docs)]
+pub enum GgufEmbeddedTokenizerTokenType {
+    Normal,
+    Unknown,
+    Control,
+    UserDefined,
+    Unused,
+    Byte,
+}
+impl TryFrom<u32> for GgufEmbeddedTokenizerTokenType {
+    type Error = u32;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::Normal),
+            2 => Ok(Self::Unknown),
+            3 => Ok(Self::Control),
+            4 => Ok(Self::UserDefined),
+            5 => Ok(Self::Unused),
+            6 => Ok(Self::Byte),
+            other => Err(other),
+        }
     }
 }

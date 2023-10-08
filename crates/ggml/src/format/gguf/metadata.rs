@@ -6,8 +6,84 @@ use crate::util;
 
 use super::{GgufContext, GgufLoadError};
 
-// TODO: make this a newtype instead
-pub type Metadata = HashMap<String, MetadataValue>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct Metadata(pub HashMap<String, MetadataValue>);
+impl Metadata {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &MetadataValue)> {
+        self.0.iter()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &MetadataValue> {
+        self.0.values()
+    }
+
+    pub fn get_optional(&self, key: &str) -> Option<&MetadataValue> {
+        self.0.get(key)
+    }
+
+    pub fn get(&self, key: &str) -> Result<&MetadataValue, MetadataError> {
+        self.get_optional(key)
+            .ok_or_else(|| MetadataError::MissingKey {
+                key: key.to_owned(),
+            })
+    }
+
+    pub fn get_with_type<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<&T>,
+    ) -> Result<&'a T, MetadataError> {
+        let metadata_value = self.get(key)?;
+        getter(metadata_value).ok_or_else(|| MetadataError::InvalidType {
+            key: key.to_string(),
+            expected_type: T::value_type(),
+            actual_type: metadata_value.value_type(),
+        })
+    }
+
+    pub fn get_array_with_type<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<&[T]>,
+    ) -> Result<&'a [T], MetadataError> {
+        let metadata_value = self.get(key)?;
+        getter(metadata_value).ok_or_else(|| MetadataError::InvalidType {
+            key: key.to_string(),
+            expected_type: T::value_type(),
+            actual_type: metadata_value.value_type(),
+        })
+    }
+
+    // TODO: see if we can generalize this with `ToOwned` or something?
+    pub fn get_string(&self, key: &str) -> Result<String, MetadataError> {
+        let metadata_value = self.get(key)?;
+        Ok(metadata_value
+            .as_string()
+            .ok_or_else(|| MetadataError::InvalidType {
+                key: key.to_string(),
+                expected_type: MetadataValueType::String,
+                actual_type: metadata_value.value_type(),
+            })?
+            .to_string())
+    }
+
+    pub fn get_countable(&self, key: &str) -> Result<usize, MetadataError> {
+        let metadata_value = self.get(key)?;
+        match metadata_value {
+            MetadataValue::UInt32(v) => Ok(usize::try_from(*v)?),
+            MetadataValue::UInt64(v) => Ok(usize::try_from(*v)?),
+            _ => Err(MetadataError::InvalidType {
+                key: key.to_string(),
+                expected_type: MetadataValueType::UInt64,
+                actual_type: metadata_value.value_type(),
+            }),
+        }
+    }
+}
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -467,64 +543,6 @@ impl MetadataArrayValue {
             Self::UInt64(v) => v.len(),
             Self::Int64(v) => v.len(),
             Self::Float64(v) => v.len(),
-        }
-    }
-}
-
-#[doc(hidden)]
-pub trait MetadataExt {
-    fn fallible_get(&self, key: &str) -> Result<&MetadataValue, MetadataError>;
-    fn fallible_typed_get<'a, T: MetadataValueTypeFromRustType>(
-        &'a self,
-        key: &'a str,
-        getter: impl Fn(&MetadataValue) -> Option<&T>,
-    ) -> Result<&'a T, MetadataError>;
-    fn fallible_get_string(&self, key: &str) -> Result<String, MetadataError>;
-    fn fallible_get_countable(&self, key: &str) -> Result<usize, MetadataError>;
-}
-impl MetadataExt for Metadata {
-    fn fallible_get(&self, key: &str) -> Result<&MetadataValue, MetadataError> {
-        self.get(key).ok_or_else(|| MetadataError::MissingKey {
-            key: key.to_owned(),
-        })
-    }
-
-    fn fallible_typed_get<'a, T: MetadataValueTypeFromRustType>(
-        &'a self,
-        key: &'a str,
-        getter: impl Fn(&MetadataValue) -> Option<&T>,
-    ) -> Result<&'a T, MetadataError> {
-        let metadata_value = self.fallible_get(key)?;
-        getter(metadata_value).ok_or_else(|| MetadataError::InvalidType {
-            key: key.to_string(),
-            expected_type: T::value_type(),
-            actual_type: metadata_value.value_type(),
-        })
-    }
-
-    // TODO: see if we can generalize this with `ToOwned` or something?
-    fn fallible_get_string(&self, key: &str) -> Result<String, MetadataError> {
-        let metadata_value = self.fallible_get(key)?;
-        Ok(metadata_value
-            .as_string()
-            .ok_or_else(|| MetadataError::InvalidType {
-                key: key.to_string(),
-                expected_type: MetadataValueType::String,
-                actual_type: metadata_value.value_type(),
-            })?
-            .to_string())
-    }
-
-    fn fallible_get_countable(&self, key: &str) -> Result<usize, MetadataError> {
-        let metadata_value = self.fallible_get(key)?;
-        match metadata_value {
-            MetadataValue::UInt32(v) => Ok(usize::try_from(*v)?),
-            MetadataValue::UInt64(v) => Ok(usize::try_from(*v)?),
-            _ => Err(MetadataError::InvalidType {
-                key: key.to_string(),
-                expected_type: MetadataValueType::UInt64,
-                actual_type: metadata_value.value_type(),
-            }),
         }
     }
 }

@@ -1,3 +1,5 @@
+//! Tokenizer-related functionality.
+
 use std::{error::Error, fmt::Display, path::PathBuf, str::FromStr};
 
 use ggml::format::gguf::Gguf;
@@ -136,13 +138,14 @@ impl TokenizerSource {
 
             Self::Embedded => {
                 let mut tokenizer = EmbeddedTokenizer::default();
-                if let Some((tokens, scores)) = gguf.tokenizer_embedded() {
-                    for (i, (token, score)) in tokens.iter().zip(scores.iter()).enumerate() {
-                        tokenizer.push_token(i as u32, token.as_bytes().to_vec(), *score);
-                    }
-                } else {
-                    return Err(TokenizerLoadError::NoTokenizerFound);
+                let tok = GgufEmbeddedTokenizer::from_metadata(&gguf.metadata).map_err(|_| {
+                    // TODO: consider passing the error along
+                    TokenizerLoadError::NoTokenizerFound
+                })?;
+                for (i, (token, score)) in tok.tokens.iter().zip(tok.scores.iter()).enumerate() {
+                    tokenizer.push_token(i as u32, token.as_bytes().to_vec(), *score);
                 }
+
                 tokenizer.into()
             }
         })
