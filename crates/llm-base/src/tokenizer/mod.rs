@@ -2,7 +2,7 @@
 
 use std::{error::Error, fmt::Display, path::PathBuf, str::FromStr};
 
-use ggml::format::gguf::Gguf;
+use ggml::format::gguf::{Gguf, MetadataError};
 use thiserror::Error;
 
 mod embedded;
@@ -45,6 +45,9 @@ pub enum TokenizerLoadError {
     #[error("no tokenizer was found, including in the model file")]
     /// No tokenizer was found, including in the model file.
     NoTokenizerFound,
+    #[error("{0}")]
+    /// An error occured with retrieving data from the metadata.
+    MetadataError(#[from] MetadataError),
 }
 
 /// Used to identify where the tokenizer that errored came from.
@@ -136,18 +139,7 @@ impl TokenizerSource {
                 .into()
             }
 
-            Self::Embedded => {
-                let mut tokenizer = EmbeddedTokenizer::default();
-                let tok = GgufEmbeddedTokenizer::from_metadata(&gguf.metadata).map_err(|_| {
-                    // TODO: consider passing the error along
-                    TokenizerLoadError::NoTokenizerFound
-                })?;
-                for (i, (token, score)) in tok.tokens.iter().zip(tok.scores.iter()).enumerate() {
-                    tokenizer.push_token(i as u32, token.as_bytes().to_vec(), *score);
-                }
-
-                tokenizer.into()
-            }
+            Self::Embedded => EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into(),
         })
     }
 }

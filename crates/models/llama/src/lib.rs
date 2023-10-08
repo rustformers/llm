@@ -416,7 +416,7 @@ impl llm_base::Hyperparameters for Hyperparameters {
         Ok(Self {
             // TODO: handle models without an embedded vocabulary
             vocabulary_count: metadata
-                .get_with_type("tokenizer.ggml.tokens", |v| v.as_array())?
+                .get_with_ref_type("tokenizer.ggml.tokens", |v| v.as_array())?
                 .len(),
             embedding_length: metadata.get_countable("llama.embedding_length")?,
             head_count: metadata.get_countable("llama.attention.head_count")?,

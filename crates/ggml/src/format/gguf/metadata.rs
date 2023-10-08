@@ -35,6 +35,19 @@ impl Metadata {
     pub fn get_with_type<'a, T: MetadataValueTypeFromRustType>(
         &'a self,
         key: &'a str,
+        getter: impl Fn(&MetadataValue) -> Option<T>,
+    ) -> Result<T, MetadataError> {
+        let metadata_value = self.get(key)?;
+        getter(metadata_value).ok_or_else(|| MetadataError::InvalidType {
+            key: key.to_string(),
+            expected_type: T::value_type(),
+            actual_type: metadata_value.value_type(),
+        })
+    }
+
+    pub fn get_with_ref_type<'a, T: MetadataValueTypeFromRustType>(
+        &'a self,
+        key: &'a str,
         getter: impl Fn(&MetadataValue) -> Option<&T>,
     ) -> Result<&'a T, MetadataError> {
         let metadata_value = self.get(key)?;
