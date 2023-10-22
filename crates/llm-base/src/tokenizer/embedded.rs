@@ -82,8 +82,8 @@ impl EmbeddedTokenizer {
                     })
                     .unwrap_or_default();
                 let types = metadata
-                    .get_array_with_type("tokenizer.ggml.token_types", |v| {
-                        v.as_array()?.as_uint32_array()
+                    .get_array_with_type("tokenizer.ggml.token_type", |v| {
+                        v.as_array()?.as_int32_array()
                     })
                     .unwrap_or_default();
 
@@ -301,10 +301,10 @@ pub enum TokenType {
     Unused,
     Byte,
 }
-impl TryFrom<u32> for TokenType {
-    type Error = u32;
+impl TryFrom<i32> for TokenType {
+    type Error = i32;
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(Self::Normal),
             2 => Ok(Self::Unknown),
