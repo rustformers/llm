@@ -11,6 +11,7 @@ ggml-sys = { path = "sys", version = "0.2.0-dev" }
 
 thiserror = { workspace = true }
 memmap2 = { workspace = true }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

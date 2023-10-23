@@ -1,13 +1,11 @@
 #![allow(missing_docs)]
 
-use std::{
-    collections::HashMap,
-    io::{BufRead, Seek},
-};
+use std::io::{BufRead, Seek};
 
 use super::{data_size, header_size, ContainerType, ContainerTypeReadError};
 use crate::{util, ElementType};
 
+use indexmap::IndexMap;
 use thiserror::Error;
 
 mod metadata;
@@ -49,7 +47,7 @@ pub enum GgufSaveError {
     // TODO!
 }
 
-pub type TensorInfos = HashMap<String, TensorInfo>;
+pub type TensorInfos = IndexMap<String, TensorInfo>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gguf {
@@ -74,7 +72,7 @@ impl Gguf {
         let tensor_count = util::read_length(reader, ctx.use_64_bit_length)?;
         let metadata_kv_count = util::read_length(reader, ctx.use_64_bit_length)?;
 
-        let mut metadata = HashMap::with_capacity(metadata_kv_count);
+        let mut metadata = IndexMap::with_capacity(metadata_kv_count);
         for _ in 0..metadata_kv_count {
             let (key, value) = MetadataValue::read_key_value(&ctx, reader)?;
             metadata.insert(key, value);
@@ -86,7 +84,7 @@ impl Gguf {
             .and_then(|v| v.as_uint32())
             .unwrap_or(DEFAULT_ALIGNMENT) as u64;
 
-        let mut tensor_infos = HashMap::with_capacity(tensor_count);
+        let mut tensor_infos = IndexMap::with_capacity(tensor_count);
         for _ in 0..tensor_count {
             let (key, value) = TensorInfo::read_name_value(&ctx, reader)?;
             tensor_infos.insert(key, value);

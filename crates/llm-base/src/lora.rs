@@ -8,10 +8,8 @@ use ggml::{
     format::gguf::{Gguf, Metadata, TensorInfo},
     GraphExecutionPlan,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use indexmap::IndexMap;
+use std::{collections::HashSet, path::PathBuf};
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 /// Parameters for a [LoRA](https://arxiv.org/abs/2106.09685) adapter.
@@ -50,7 +48,7 @@ pub struct LoraAdapter {
     /// Scaling to apply to the LoRA weights.
     pub scaling: f32,
     /// The tensors of the LoRA.
-    pub tensors: HashMap<String, TensorInfo>,
+    pub tensors: IndexMap<String, TensorInfo>,
     /// Names of the tensors that should be patched.
     pub tensors_to_patch: HashSet<String>,
     /// Source containing the LoRA weights.

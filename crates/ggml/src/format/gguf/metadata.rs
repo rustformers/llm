@@ -1,5 +1,6 @@
-use std::{collections::HashMap, io::BufRead};
+use std::io::BufRead;
 
+use indexmap::IndexMap;
 use thiserror::Error;
 
 use crate::util;
@@ -7,7 +8,7 @@ use crate::util;
 use super::{GgufContext, GgufLoadError};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Metadata(pub HashMap<String, MetadataValue>);
+pub struct Metadata(pub IndexMap<String, MetadataValue>);
 impl Metadata {
     pub fn iter(&self) -> impl Iterator<Item = (&String, &MetadataValue)> {
         self.0.iter()
