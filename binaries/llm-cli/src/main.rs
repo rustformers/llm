@@ -159,6 +159,18 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
             for (i, token) in tokenizer.tokens.iter().enumerate() {
                 log::info!("- {}: {}", i, token);
             }
+
+            if args.tensors {
+                log::info!("Tensors:");
+                for (name, tensor) in &gguf.tensor_infos {
+                    log::info!(
+                        "- {} ({:?} {:?})",
+                        name,
+                        tensor.element_type,
+                        tensor.dimensions
+                    );
+                }
+            }
         }
     }
 

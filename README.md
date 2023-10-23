@@ -287,6 +287,7 @@ Absolutely! Please see the [contributing guide](./doc/CONTRIBUTING.md).
   inference API on your local machine using `llm`.
 - [secondbrain](https://github.com/juliooa/secondbrain): Desktop app to download and run LLMs locally in your computer using `llm`.
 - [floneum](https://floneum.com/): A graph editor for local AI workflows.
+- [poly](https://github.com/pixelspark/poly): A versatile LLM serving back-end with tasks, streaming completion, memory retrieval, and more.
 
 #### Libraries
 
