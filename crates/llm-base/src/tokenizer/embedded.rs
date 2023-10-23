@@ -319,60 +319,50 @@ impl TryFrom<i32> for TokenType {
 
 #[derive(Clone)]
 struct Symbol {
-    prev: Option<usize>,
-    next: Option<usize>,
-    text: Token,
+    prev: isize,
+    next: isize,
+    text: Vec<u8>,
     n: usize,
 }
 
 struct LlmBigramSpm {
-    left: usize,
-    right: usize,
+    left: isize,
+    right: isize,
     score: f32,
     size: usize,
 }
 impl PartialOrd for LlmBigramSpm {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.score.partial_cmp(&other.score) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.left.partial_cmp(&other.left)
+        Some(self.cmp(other))
     }
 }
 impl Ord for LlmBigramSpm {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        self.score
+            .partial_cmp(&other.score)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.left.cmp(&self.left))
     }
 }
+
 impl PartialEq for LlmBigramSpm {
     fn eq(&self, other: &Self) -> bool {
-        (self.score < other.score) || (self.score == other.score && self.left > other.left)
+        self.score == other.score && self.left == other.left
     }
 }
-impl Eq for LlmBigramSpm {}
 
-impl LlmBigramSpm {
-    fn new(left: usize, right: usize, score: f32, size: usize) -> Self {
-        LlmBigramSpm {
-            left,
-            right,
-            score,
-            size,
-        }
-    }
-}
+impl Eq for LlmBigramSpm {}
 
 struct TokenizerSpm<'a> {
     vocab: &'a EmbeddedTokenizer,
     symbols: Vec<Symbol>,
     work_queue: BinaryHeap<LlmBigramSpm>,
-    rev_merge: HashMap<Token, (usize, usize)>,
+    rev_merge: HashMap<Token, (isize, isize)>,
 }
 
 impl<'a> TokenizerSpm<'a> {
     fn new(vocab: &'a EmbeddedTokenizer) -> Self {
-        TokenizerSpm {
+        Self {
             vocab,
             symbols: Vec::new(),
             work_queue: BinaryHeap::new(),
@@ -382,19 +372,19 @@ impl<'a> TokenizerSpm<'a> {
 
     fn tokenize(&mut self, text: &[u8]) -> Vec<TokenId> {
         let mut output = vec![];
-
         let mut index = 0;
         let mut offs = 0;
         while offs < text.len() {
+            let len = text[offs..].len();
             let sym = Symbol {
-                prev: if index == 0 { None } else { Some(index - 1) },
-                next: if offs == text.len() - 1 {
-                    None
+                text: text[offs..offs + len].to_vec(),
+                n: len.min(text.len() - offs),
+                prev: index - 1,
+                next: if offs + len == text.len() {
+                    -1
                 } else {
-                    Some(index + 1)
+                    index + 1
                 },
-                text: text[offs..].to_vec(),
-                n: std::cmp::min(text.len() - offs, utf8_len(text[offs])),
             };
             offs += sym.n;
             index += 1;
@@ -402,7 +392,7 @@ impl<'a> TokenizerSpm<'a> {
         }
 
         for i in 1..self.symbols.len() {
-            self.try_add_bigram(Some(i - 1), Some(i));
+            self.try_add_bigram((i - 1) as isize, i as isize);
         }
 
         while let Some(bigram) = self.work_queue.pop() {
@@ -417,76 +407,71 @@ impl<'a> TokenizerSpm<'a> {
             right_sym.n = 0;
 
             left_sym.next = right_sym.next;
-            if let Some(next) = right_sym.next {
-                self.symbols[next].prev = Some(bigram.left);
+            if right_sym.next >= 0 {
+                self.symbols[right_sym.next as usize].prev = bigram.left;
             }
 
             let left_sym_prev = left_sym.prev;
             let left_sym_next = left_sym.next;
+
             self.symbols[bigram.left as usize] = left_sym;
             self.symbols[bigram.right as usize] = right_sym;
 
-            self.try_add_bigram(left_sym_prev, Some(bigram.left));
-            self.try_add_bigram(Some(bigram.left), left_sym_next);
+            self.try_add_bigram(left_sym_prev, bigram.left);
+            self.try_add_bigram(bigram.left, left_sym_next);
         }
 
-        let mut i = Some(0);
-        while let Some(idx) = i {
-            if idx >= self.symbols.len() {
-                break;
-            }
-
-            let symbol = &self.symbols[idx as usize];
+        let mut i = 0;
+        while i != -1 {
+            let symbol = &self.symbols[i as usize];
             self.resegment(symbol, &mut output);
             i = symbol.next;
         }
-
         output
     }
 
     fn resegment(&self, symbol: &Symbol, output: &mut Vec<TokenId>) {
-        let text = &symbol.text;
-        let token = self.vocab.token_to_id.get(text);
-
-        if let Some(&token_id) = token {
+        let text = symbol.text.clone();
+        if let Some(&token_id) = self.vocab.token_to_id.get(&text) {
             output.push(token_id);
             return;
         }
 
-        if let Some(p) = self.rev_merge.get(text) {
-            self.resegment(&self.symbols[p.0 as usize], output);
-            self.resegment(&self.symbols[p.1 as usize], output);
+        if let Some(&(left, right)) = self.rev_merge.get(&text) {
+            self.resegment(&self.symbols[left as usize], output);
+            self.resegment(&self.symbols[right as usize], output);
         } else {
-            for ch in text {
-                let token_id = self.vocab.byte_to_token(*ch);
+            for &ch in &text {
+                let token_id = self.vocab.byte_to_token(ch);
                 output.push(token_id);
             }
         }
     }
 
-    fn try_add_bigram(&mut self, left: Option<usize>, right: Option<usize>) {
-        let Some((left, right)) = left.zip(right) else {
+    fn try_add_bigram(&mut self, left: isize, right: isize) {
+        if left == -1 || right == -1 {
             return;
-        };
+        }
 
-        let mut text = self.symbols[left].text.clone();
-        text.extend_from_slice(&self.symbols[right].text);
-
+        let text = [
+            self.symbols[left as usize].text.clone(),
+            self.symbols[right as usize].text.clone(),
+        ]
+        .concat();
         if let Some(&token_id) = self.vocab.token_to_id.get(&text) {
             if (token_id as usize) < self.vocab.id_to_token.len() {
                 let tok_data = &self.vocab.id_to_token[token_id as usize];
-                let bigram = LlmBigramSpm::new(left, right, tok_data.score, text.len());
+                let bigram = LlmBigramSpm {
+                    left,
+                    right,
+                    score: tok_data.score,
+                    size: text.len(),
+                };
                 self.work_queue.push(bigram);
-                self.rev_merge.insert(text.clone(), (left, right));
+                self.rev_merge.insert(text, (left, right));
             }
         }
     }
-}
-
-fn utf8_len(src: u8) -> usize {
-    const LOOKUP: &[u8] = &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 4];
-    let highbits: u8 = src >> 4;
-    LOOKUP[highbits as usize] as usize
 }
 
 fn escape_whitespace(text: &[u8]) -> Vec<u8> {
