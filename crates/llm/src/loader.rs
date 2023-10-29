@@ -197,7 +197,7 @@ pub fn load(
 
     let architecture = gguf
         .metadata
-        .get_string("general.architecture")?
+        .get_str("general.architecture")?
         .parse::<ModelArchitecture>()?;
 
     let tokenizer = tokenizer_source.retrieve(&gguf)?;

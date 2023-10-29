@@ -31,11 +31,11 @@ pub struct EmbeddedTokenizer {
 
     model: GgufEmbeddedTokenizerModel,
     bos_id: TokenId,
-    eos_id: TokenId,
-    unknown_id: TokenId,
+    _eos_id: TokenId,
+    _unknown_id: TokenId,
     linefeed_id: TokenId,
-    separator_id: Option<TokenId>,
-    padding_id: Option<TokenId>,
+    _separator_id: Option<TokenId>,
+    _padding_id: Option<TokenId>,
 }
 #[derive(Debug, Clone, Default)]
 struct TokenData {
@@ -44,6 +44,10 @@ struct TokenData {
     ty: TokenType,
 }
 impl EmbeddedTokenizer {
+    pub(crate) fn is_present_in_metadata(metadata: &Metadata) -> bool {
+        metadata.contains_key("tokenizer.ggml.scores")
+    }
+
     pub(crate) fn from_metadata(metadata: &Metadata) -> Result<Self, TokenizerLoadError> {
         let tok = GgufEmbeddedTokenizer::from_metadata(metadata)?;
 
@@ -110,11 +114,11 @@ impl EmbeddedTokenizer {
                     id_to_token,
                     model: GgufEmbeddedTokenizerModel::Llama,
                     bos_id,
-                    eos_id,
-                    unknown_id,
+                    _eos_id: eos_id,
+                    _unknown_id: unknown_id,
                     linefeed_id: 0,
-                    separator_id,
-                    padding_id,
+                    _separator_id: separator_id,
+                    _padding_id: padding_id,
                 };
 
                 tokenizer.linefeed_id = tokenizer.byte_to_token(b'\n');

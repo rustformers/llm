@@ -42,9 +42,12 @@ pub enum TokenizerLoadError {
         /// The error that occurred during loading.
         error: Box<dyn Error + Send + Sync>,
     },
-    #[error("no tokenizer was found, including in the model file")]
-    /// No tokenizer was found, including in the model file.
-    NoTokenizerFound,
+    #[error("no supported tokenizers were found, including in the model file: {unsupported_tokenizers:?}")]
+    /// No supported tokenizers were found, including in the model file.
+    NoSupportedTokenizersFound {
+        /// The list of tokenizers that were found, but not supported.
+        unsupported_tokenizers: Vec<String>,
+    },
     #[error("{0}")]
     /// An error occured with retrieving data from the metadata.
     MetadataError(#[from] MetadataError),
@@ -75,6 +78,10 @@ impl Display for HuggingFaceTokenizerErrorSource {
     }
 }
 
+/// At the time of writing, the embedded tokenizer is not enabled as it has
+/// some bugs. We're just not enabling the option while it's broken.
+const EMBEDDED_TOKENIZER_ENABLED: bool = false;
+
 #[derive(Clone, Debug, PartialEq)]
 /// The source of a tokenizer.
 pub enum TokenizerSource {
@@ -95,9 +102,6 @@ pub enum TokenizerSource {
     /// and may store files locally, so it is not recommended for production use.
     #[cfg(feature = "tokenizers-remote")]
     HuggingFaceRemote(String),
-    //
-    // TODO: Support embedded huggingface tokenizer from GGUF
-    //
 }
 impl TokenizerSource {
     /// Retrieve the tokenizer from the source.
@@ -105,9 +109,9 @@ impl TokenizerSource {
     /// Note that this may make a blocking HTTP request to Hugging Face to retrieve the tokenizer.
     /// if `self` is `Self::HuggingFaceRemote`.
     pub fn retrieve(self, gguf: &Gguf) -> Result<Tokenizer, TokenizerLoadError> {
-        Ok(match self {
+        match self {
             #[cfg(feature = "tokenizers-remote")]
-            Self::HuggingFaceRemote(identifier) => HuggingFaceTokenizer::new(
+            Self::HuggingFaceRemote(identifier) => Ok(HuggingFaceTokenizer::new(
                 tokenizers::Tokenizer::from_pretrained(&identifier, None).map_err(|error| {
                     TokenizerLoadError::HuggingFaceTokenizerError {
                         tokenizer_source: HuggingFaceTokenizerErrorSource::Remote(
@@ -117,33 +121,54 @@ impl TokenizerSource {
                     }
                 })?,
             )
-            .into(),
+            .into()),
 
-            Self::HuggingFaceTokenizerFile(path) => {
-                HuggingFaceTokenizer::new(tokenizers::Tokenizer::from_file(&path).map_err(
-                    |error| TokenizerLoadError::HuggingFaceTokenizerError {
+            Self::HuggingFaceTokenizerFile(path) => Ok(HuggingFaceTokenizer::new(
+                tokenizers::Tokenizer::from_file(&path).map_err(|error| {
+                    TokenizerLoadError::HuggingFaceTokenizerError {
                         tokenizer_source: HuggingFaceTokenizerErrorSource::File(path.clone()),
                         error: error.into(),
-                    },
-                )?)
-                .into()
-            }
-
-            Self::HuggingFaceTokenizerString(s) => {
-                HuggingFaceTokenizer::new(tokenizers::Tokenizer::from_str(&s).map_err(|error| {
-                    TokenizerLoadError::HuggingFaceTokenizerError {
-                        tokenizer_source: HuggingFaceTokenizerErrorSource::String,
-                        error: error.into(),
                     }
-                })?)
-                .into()
-            }
+                })?,
+            )
+            .into()),
 
-            Self::Embedded => EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into(),
-        })
+            Self::HuggingFaceTokenizerString(s) => Ok(Self::load_huggingface_json(&s)?),
+
+            Self::Embedded => {
+                if let Ok(hf) = gguf.metadata.get_str("tokenizer.huggingface.json") {
+                    Ok(Self::load_huggingface_json(hf)?)
+                } else {
+                    if EmbeddedTokenizer::is_present_in_metadata(&gguf.metadata) {
+                        if EMBEDDED_TOKENIZER_ENABLED {
+                            Ok(EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into())
+                        } else {
+                            Err(TokenizerLoadError::NoSupportedTokenizersFound {
+                                unsupported_tokenizers: vec!["embedded".to_owned()],
+                            })
+                        }
+                    } else {
+                        Err(TokenizerLoadError::NoSupportedTokenizersFound {
+                            unsupported_tokenizers: vec![],
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    fn load_huggingface_json(tokenizer_json: &str) -> Result<Tokenizer, TokenizerLoadError> {
+        Ok(
+            HuggingFaceTokenizer::new(tokenizers::Tokenizer::from_str(tokenizer_json).map_err(
+                |error| TokenizerLoadError::HuggingFaceTokenizerError {
+                    tokenizer_source: HuggingFaceTokenizerErrorSource::String,
+                    error: error.into(),
+                },
+            )?)
+            .into(),
+        )
     }
 }
-
 /// Encapsulates the tokenizer for a model, and provides methods to tokenize text.
 pub enum Tokenizer {
     /// The vocabulary built-in to the model.

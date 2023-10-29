@@ -26,6 +26,10 @@ impl Metadata {
         self.0.get(key)
     }
 
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.0.contains_key(key)
+    }
+
     pub fn get(&self, key: &str) -> Result<&MetadataValue, MetadataError> {
         self.get_optional(key)
             .ok_or_else(|| MetadataError::MissingKey {
@@ -72,8 +76,8 @@ impl Metadata {
         })
     }
 
-    // TODO: see if we can generalize this with `ToOwned` or something?
-    pub fn get_string(&self, key: &str) -> Result<String, MetadataError> {
+    // TODO: consider
+    pub fn get_str(&self, key: &str) -> Result<&str, MetadataError> {
         let metadata_value = self.get(key)?;
         Ok(metadata_value
             .as_string()
@@ -81,8 +85,7 @@ impl Metadata {
                 key: key.to_string(),
                 expected_type: MetadataValueType::String,
                 actual_type: metadata_value.value_type(),
-            })?
-            .to_string())
+            })?)
     }
 
     pub fn get_countable(&self, key: &str) -> Result<usize, MetadataError> {

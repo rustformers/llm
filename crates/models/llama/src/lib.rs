@@ -424,8 +424,9 @@ impl llm_base::Hyperparameters for Hyperparameters {
             block_count: metadata.get_countable("llama.block_count")?,
             file_type: FileType::read_for_hyperparameters(metadata)?,
             tensor_data_layout: metadata
-                .get_string("llama.tensor_data_layout")
-                .unwrap_or(META_TENSOR_DATA_LAYOUT.to_string()),
+                .get_str("llama.tensor_data_layout")
+                .unwrap_or(META_TENSOR_DATA_LAYOUT)
+                .to_string(),
         })
     }
 
