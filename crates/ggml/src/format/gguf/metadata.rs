@@ -76,7 +76,7 @@ impl Metadata {
         })
     }
 
-    // TODO: consider
+    // TODO: consider finding a way to automate getting with traits
     pub fn get_str(&self, key: &str) -> Result<&str, MetadataError> {
         let metadata_value = self.get(key)?;
         Ok(metadata_value
@@ -99,6 +99,10 @@ impl Metadata {
                 actual_type: metadata_value.value_type(),
             }),
         }
+    }
+
+    pub fn insert<T: ToMetadataValue>(&mut self, key: &str, value: T) {
+        self.0.insert(key.to_owned(), value.to_value());
     }
 }
 

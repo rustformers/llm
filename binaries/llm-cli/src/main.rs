@@ -2,6 +2,7 @@ use std::{
     convert::Infallible,
     fs::File,
     io::{BufReader, BufWriter, Read, Seek},
+    path::Path,
 };
 
 use clap::Parser;
@@ -136,6 +137,7 @@ fn gguf(args: &cli_args::Gguf) -> eyre::Result<()> {
     match args {
         cli_args::Gguf::Info(args) => info(args),
         cli_args::Gguf::Rebuild(args) => rebuild(args),
+        cli_args::Gguf::AddHfTokenizer(args) => add_hf_tokenizer(args),
     }
 }
 
@@ -198,12 +200,38 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
 }
 
 fn rebuild(args: &cli_args::Rebuild) -> eyre::Result<()> {
-    let input = File::open(&args.input)?;
-    let mut reader = BufReader::new(&input);
-    let gguf = gguf::Gguf::load(&mut reader)?;
+    rebuild_with_mutation(&args.input, &args.output, |_| Ok(()))
+}
 
-    let mut output = File::create(&args.output)?;
+fn add_hf_tokenizer(args: &cli_args::AddHfTokenizer) -> eyre::Result<()> {
+    let tokenizer =
+        llm::tokenizer::huggingface_tokenizers::Tokenizer::from_pretrained(&args.tokenizer, None)
+            .unwrap();
+
+    rebuild_with_mutation(&args.input, &args.output, move |gguf| {
+        let tokenizer = tokenizer.to_string(false).unwrap();
+        gguf.metadata
+            .insert("tokenizer.huggingface.json", tokenizer);
+
+        Ok(())
+    })
+}
+
+fn rebuild_with_mutation(
+    input: &Path,
+    output: &Path,
+    mut mutator: impl FnMut(&mut gguf::Gguf) -> eyre::Result<()>,
+) -> eyre::Result<()> {
+    eyre::ensure!(input != output, "input and output must be different files");
+
+    let input = File::open(input)?;
+    let mut reader = BufReader::new(&input);
+    let mut gguf = gguf::Gguf::load(&mut reader)?;
+
+    let mut output = File::create(output)?;
     let mut writer = BufWriter::new(&mut output);
+
+    mutator(&mut gguf)?;
     gguf.save(&mut writer, |writer, name, _info| {
         let reader = &mut reader;
         let original_info = gguf.tensor_infos.get(name).unwrap();

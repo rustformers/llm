@@ -118,6 +118,7 @@ pub struct Perplexity {
 pub enum Gguf {
     Info(Info),
     Rebuild(Rebuild),
+    AddHfTokenizer(AddHfTokenizer),
 }
 
 #[derive(Parser, Debug)]
@@ -138,6 +139,13 @@ pub struct Info {
 pub struct Rebuild {
     pub input: PathBuf,
     pub output: PathBuf,
+}
+
+#[derive(Parser, Debug)]
+pub struct AddHfTokenizer {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    pub tokenizer: String,
 }
 
 #[derive(Parser, Debug)]

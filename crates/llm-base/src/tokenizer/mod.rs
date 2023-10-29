@@ -9,6 +9,7 @@ mod embedded;
 pub use embedded::*;
 mod huggingface;
 pub use huggingface::*;
+pub use tokenizers as huggingface_tokenizers;
 
 /// The identifier of a token in a tokenizer.
 pub type TokenId = u32;
