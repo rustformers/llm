@@ -5,7 +5,7 @@
 // use llm_base::{
 //     ggml,
 //     model::{common, HyperparametersWriteError},
-//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel,
+//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model,
 //     ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 // };
 
@@ -41,7 +41,7 @@
 // unsafe impl Send for Bloom {}
 // unsafe impl Sync for Bloom {}
 
-// impl KnownModel for Bloom {
+// impl Model for Bloom {
 //     type Hyperparameters = Hyperparameters;
 
 //     fn new<E: std::error::Error>(

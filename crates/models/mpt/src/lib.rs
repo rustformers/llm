@@ -5,7 +5,7 @@
 // use llm_base::{
 //     ggml::{self},
 //     model::{common, HyperparametersWriteError},
-//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, LoadError,
 //     ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 // };
 
@@ -35,7 +35,7 @@
 // unsafe impl Send for Mpt {}
 // unsafe impl Sync for Mpt {}
 
-// impl KnownModel for Mpt {
+// impl Model for Mpt {
 //     type Hyperparameters = Hyperparameters;
 
 //     fn new<E: std::error::Error>(

@@ -11,7 +11,7 @@
 // use llm_base::{
 //     ggml,
 //     model::{common, HyperparametersWriteError},
-//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, LoadError,
 //     ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 // };
 
@@ -43,7 +43,7 @@
 // unsafe impl Send for Falcon {}
 // unsafe impl Sync for Falcon {}
 
-// impl KnownModel for Falcon {
+// impl Model for Falcon {
 //     type Hyperparameters = Hyperparameters;
 
 //     fn new<E: std::error::Error>(

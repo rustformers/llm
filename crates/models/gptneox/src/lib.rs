@@ -8,7 +8,7 @@
 // use llm_base::{
 //     ggml,
 //     model::{common, HyperparametersWriteError},
-//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, LoadError,
 //     ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 // };
 
@@ -41,7 +41,7 @@
 // unsafe impl Send for GptNeoX {}
 // unsafe impl Sync for GptNeoX {}
 
-// impl KnownModel for GptNeoX {
+// impl Model for GptNeoX {
 //     type Hyperparameters = Hyperparameters;
 
 //     fn new<E: Error>(

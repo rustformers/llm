@@ -1,12 +1,8 @@
-use std::{
-    convert::Infallible,
-    fs::File,
-    io::{BufReader, BufWriter},
-};
+use std::{convert::Infallible, fs::File, io::BufReader};
 
 use clap::Parser;
 use cli_args::Args;
-use color_eyre::eyre::{self, Context, ContextCompat};
+use color_eyre::eyre;
 use is_terminal::IsTerminal;
 use llm::ggml_format::gguf;
 
@@ -223,7 +219,7 @@ fn prompt_tokens(args: &cli_args::PromptTokens) -> eyre::Result<()> {
 
 //     struct QuantizeVisitor<'a>(&'a cli_args::Quantize);
 //     impl llm::ModelArchitectureVisitor<eyre::Result<()>> for QuantizeVisitor<'_> {
-//         fn visit<M: llm::KnownModel>(&mut self) -> eyre::Result<()> {
+//         fn visit<M: llm::Model>(&mut self) -> eyre::Result<()> {
 //             let args = self.0;
 
 //             let mut source: BufReader<File> = BufReader::new(std::fs::File::open(&args.source)?);

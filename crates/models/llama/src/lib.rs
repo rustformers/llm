@@ -3,10 +3,9 @@
 
 use llm_base::{
     ggml::{self, format::gguf::Metadata},
-    loader::{ModelTensorLoader, TensorLoadError},
-    model::{common, HyperparametersReadError, HyperparametersWriteError},
-    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, ModelContext,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    model::{common, HyperparametersReadError, ModelData, ModelLoadArgs, ModelLoadError},
+    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, ModelContext,
+    OutputRequest, Regex, TokenId,
 };
 
 const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
@@ -16,9 +15,8 @@ const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Llama {
-    params: ModelParameters,
+    data: ModelData,
     hyperparameters: Hyperparameters,
-    tokenizer: Tokenizer,
     // model-global weights
     // weighted token embeddings
     wte: ggml::Tensor,
@@ -37,23 +35,19 @@ pub struct Llama {
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
 
-impl KnownModel for Llama {
-    type Hyperparameters = Hyperparameters;
-
-    fn new(
-        hyperparameters: Self::Hyperparameters,
-        params: ModelParameters,
-        tokenizer: Tokenizer,
-        tensor_loader: ModelTensorLoader,
-    ) -> Result<Self, TensorLoadError> {
+impl Model for Llama {
+    fn new(args: ModelLoadArgs) -> Result<Self, ModelLoadError> {
+        let hyperparameters = Hyperparameters::read(&args.gguf.metadata)?;
         assert_eq!(hyperparameters.tensor_data_layout, META_TENSOR_DATA_LAYOUT);
 
-        let mut tl = tensor_loader;
+        let mut tl = args.tensor_loader;
 
         // model-global weights
         let wte = tl.load("token_embd.weight")?;
 
-        let backend = params.backend(0);
+        let data = args.data;
+
+        let backend = data.params.backend(0);
 
         let norm = tl.load("output_norm.weight")?.transfer_to(backend);
         let output = tl.load("output.weight")?.transfer_to(backend);
@@ -61,7 +55,7 @@ impl KnownModel for Llama {
         let mut blocks = Vec::new();
 
         for i in 0..hyperparameters.block_count {
-            let backend = params.backend(i);
+            let backend = data.params.backend(i);
 
             let block = Block {
                 attn_n: tl
@@ -97,9 +91,8 @@ impl KnownModel for Llama {
         let context = tl.finish();
 
         Ok(Self {
+            data,
             hyperparameters,
-            params,
-            tokenizer,
             wte,
             norm,
             output,
@@ -112,7 +105,7 @@ impl KnownModel for Llama {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            &self.params,
+            &self.data.params,
             self.hyperparameters.block_count,
             self.hyperparameters.embedding_length,
             self.hyperparameters.vocabulary_count,
@@ -128,7 +121,8 @@ impl KnownModel for Llama {
     ) {
         let input_len = input_tokens.len();
         let session_len = session.n_past;
-        let ctx_size = self.params.context_size;
+        let params = &self.data.params;
+        let ctx_size = params.context_size;
 
         let Hyperparameters {
             vocabulary_count,
@@ -151,7 +145,7 @@ impl KnownModel for Llama {
             let mut gf = ctx0.create_compute_graph();
 
             for il in 0..block_count {
-                ctx0.set_offloading(self.params.should_offload(il));
+                ctx0.set_offloading(params.should_offload(il));
 
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
@@ -166,7 +160,7 @@ impl KnownModel for Llama {
 
                 // self-attention
                 // compute Q and K and RoPE them
-                let overrides = self.params.rope_overrides.as_ref();
+                let overrides = params.rope_overrides.as_ref();
                 let n_embd_head = embedding_length / head_count;
                 let q_current = ctx0
                     .op_rope_inplace(
@@ -360,16 +354,8 @@ impl KnownModel for Llama {
         );
     }
 
-    fn hyperparameters(&self) -> &Self::Hyperparameters {
-        &self.hyperparameters
-    }
-
-    fn tokenizer(&self) -> &Tokenizer {
-        &self.tokenizer
-    }
-
-    fn context_size(&self) -> usize {
-        self.params.context_size
+    fn data(&self) -> &ModelData {
+        &self.data
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
@@ -377,14 +363,14 @@ impl KnownModel for Llama {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.tokenizer.id("</s>".as_bytes()).unwrap_or(2)
+        self.tokenizer().id("</s>".as_bytes()).unwrap_or(2)
     }
 
-    fn quantize_tensors() -> Vec<Regex> {
+    fn quantize_tensors(&self) -> Vec<Regex> {
         vec![Regex::new(".*weight").unwrap()]
     }
 
-    fn skip_quantize_tensors() -> Vec<Regex> {
+    fn skip_quantize_tensors(&self) -> Vec<Regex> {
         vec![]
     }
 
@@ -393,26 +379,25 @@ impl KnownModel for Llama {
     }
 }
 
-/// LLaMA [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub struct Hyperparameters {
+struct Hyperparameters {
     /// Size of the model's vocabulary
-    pub vocabulary_count: usize,
+    vocabulary_count: usize,
     /// Size of the model's embedding layer
-    pub embedding_length: usize,
+    embedding_length: usize,
     /// The number of attention heads
-    pub head_count: usize,
+    head_count: usize,
     /// The number of grouped-query attention heads
-    pub head_count_kv: usize,
+    head_count_kv: usize,
     /// Number of layers in the model
-    pub block_count: usize,
+    block_count: usize,
     /// file_type
-    pub file_type: Option<FileType>,
+    file_type: Option<FileType>,
     /// The tensor data layout that this model was encoded with
-    pub tensor_data_layout: String,
+    tensor_data_layout: String,
 }
-impl llm_base::Hyperparameters for Hyperparameters {
-    fn read_gguf(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
+impl Hyperparameters {
+    pub fn read(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
         Ok(Self {
             // TODO: handle models without an embedded vocabulary
             vocabulary_count: metadata
@@ -430,21 +415,8 @@ impl llm_base::Hyperparameters for Hyperparameters {
         })
     }
 
-    fn write_gguf(&self, metadata: &mut Metadata) -> Result<(), HyperparametersWriteError> {
-        todo!()
-    }
-
-    fn file_type(&self) -> Option<FileType> {
-        self.file_type
-    }
-
-    fn file_type_mut(&mut self) -> Option<&mut FileType> {
-        self.file_type.as_mut()
-    }
-}
-impl Hyperparameters {
     /// Returns the number of grouped-query attention heads.
-    pub fn grouped_query_attention(&self) -> usize {
+    fn grouped_query_attention(&self) -> usize {
         self.head_count / self.head_count_kv
     }
 }

@@ -2,21 +2,23 @@
 
 use std::{
     fmt::{Display, Formatter},
-    io::{BufRead, Seek, SeekFrom},
+    fs::File,
+    io::{BufRead, BufReader, Seek, SeekFrom},
     path::Path,
     sync::Arc,
 };
 
 use crate::{
-    model::{Hyperparameters, HyperparametersReadError},
-    KnownModel, LoraAdapter, ModelContext, ModelParameters, Tokenizer,
+    model::{HyperparametersReadError, ModelData, ModelLoadArgs, ModelLoadError},
+    LoraAdapter, Model, ModelContext, ModelParameters, TokenizerLoadError, TokenizerSource,
 };
 pub use ggml::{format::gguf::MetadataError, format::ContainerType, util::FileMagic};
 use ggml::{
-    format::gguf::{Gguf, Metadata, TensorInfo},
+    format::gguf::{Gguf, GgufLoadError, Metadata, MetadataValue, MetadataValueType, TensorInfo},
     sys::llama::llama_ftype,
     Context, MAX_NAME_LENGTH,
 };
+use memmap2::Mmap;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Default)]
@@ -194,63 +196,347 @@ impl Display for FileTypeFormat {
 pub trait Source: BufRead + Seek {}
 impl<S: BufRead + Seek> Source for S {}
 
-/// Errors that can occur when loading a known model.
+/// Each variant represents a step within the process of loading the model.
+/// These can be used to report progress to the user.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum LoadProgress<'a> {
+    /// The hyperparameters have been loaded from the model.
+    HyperparametersLoaded,
+    /// The context has been created.
+    ContextSize {
+        /// The size of the context.
+        bytes: usize,
+    },
+    /// A tensor was patched with a LoRA.
+    LoraApplied {
+        /// The name of the patched tensor.
+        name: &'a str,
+        /// LoRA file the patch was applied from.
+        source: &'a Path,
+    },
+    /// A tensor from the current part has been loaded.
+    TensorLoaded {
+        /// The current tensor (0-indexed).
+        current_tensor: usize,
+        /// The number of total tensors.
+        tensor_count: usize,
+    },
+    /// A model part has finished fully loading.
+    Loaded {
+        /// The number of bytes in the part.
+        file_size: u64,
+        /// The number of tensors in the part.
+        tensor_count: usize,
+    },
+}
+
 #[derive(Error, Debug)]
-pub enum LoadKnownError {
-    /// Failed to read the hyperparameters
+/// Errors encountered during the loading process.
+pub enum LoadError {
+    #[error("the file does not exist")]
+    /// The file does not exist.
+    FileDoesNotExist,
+    #[error("could not open file")]
+    /// A file failed to open.
+    OpenFileFailed {
+        /// The original error.
+        source: std::io::Error,
+    },
+    #[error("non-specific I/O error")]
+    /// A non-specific IO error.
+    Io(#[from] std::io::Error),
+    #[error("could not convert bytes to a UTF-8 string")]
+    /// One of the strings encountered was not valid UTF-8.
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("invalid integer conversion")]
+    /// One of the integers encountered could not be converted to a more appropriate type.
+    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+    #[error("invalid magic value {magic}")]
+    /// An invalid magic value was encountered during the loading process.
+    InvalidMagic {
+        /// The magic value that was encountered.
+        magic: FileMagic,
+    },
+    #[error("invalid file format {container_type:?}")]
+    /// The version of the format is not supported by this version of `llm`.
+    InvalidFormatVersion {
+        /// The format that was encountered.
+        container_type: ContainerType,
+    },
+    /// The tensor `tensor_name` had an unsupported element type.
+    #[error("invalid element type {element_type} for tensor `{tensor_name}`")]
+    UnsupportedElementType {
+        /// The name of the tensor.
+        tensor_name: String,
+        /// The element type that was encountered.
+        element_type: u32,
+    },
+    /// The tokenizer could not be loaded.
+    #[error("could not load tokenizer: {0}")]
+    TokenizerLoadFail(#[from] TokenizerLoadError),
+    /// The quantization version was missing, despite this model containing quantized tensors.
+    #[error("quantization version was missing, despite model containing quantized tensors")]
+    MissingQuantizationVersion,
+    /// The quantization version is not supported by this version of `llm`.
+    #[error("quantization version {quantization_version:?} is not supported")]
+    UnsupportedQuantizationVersion {
+        /// The quantization version that was encountered.
+        quantization_version: MetadataValue,
+    },
+    /// The model expected a metadata key-value pair, but the key was missing.
+    #[error("missing metadata key {key:?}")]
+    MissingMetadataKey {
+        /// The key that was missing.
+        key: String,
+    },
+    /// The metadata key-value pair was not of the expected type.
+    #[error("metadata key {key:?} was not of the expected type")]
+    InvalidMetadataType {
+        /// The key with the invalid type.
+        key: String,
+        /// The expected type.
+        expected_type: MetadataValueType,
+        /// The actual type.
+        actual_type: MetadataValueType,
+    },
+    /// The file type within the model was not supported by this version of `llm`.
+    #[error("file type {file_type} is not supported")]
+    UnsupportedFileType {
+        /// The file type (ignoring the quantization version) that was encountered.
+        file_type: llama_ftype,
+    },
+    /// The architecture in the file is not known to the loader.
+    #[error("unknown architecture {architecture}")]
+    UnknownArchitecture {
+        /// The architecture that was encountered.
+        architecture: String,
+    },
+    /// An error occurred while reading the hyperparameters.
     #[error("{0}")]
     HyperparametersReadError(#[from] HyperparametersReadError),
-    /// Failed to load the tensors
+    /// An error occurred while loading the concrete model.
     #[error("{0}")]
-    TensorLoadError(#[from] TensorLoadError),
+    ModelLoadError(#[from] ModelLoadError),
+}
+impl From<GgufLoadError> for LoadError {
+    fn from(value: GgufLoadError) -> Self {
+        match value {
+            GgufLoadError::InvalidMagic(magic) => LoadError::InvalidMagic { magic },
+            GgufLoadError::InvalidFormatVersion(container_type) => {
+                LoadError::InvalidFormatVersion { container_type }
+            }
+            GgufLoadError::Io(err) => LoadError::Io(err),
+            GgufLoadError::InvalidUtf8(err) => LoadError::InvalidUtf8(err),
+            GgufLoadError::InvalidIntegerConversion(err) => {
+                LoadError::InvalidIntegerConversion(err)
+            }
+            GgufLoadError::UnsupportedElementType { tensor_name, ftype } => {
+                LoadError::UnsupportedElementType {
+                    tensor_name,
+                    element_type: ftype,
+                }
+            }
+        }
+    }
+}
+impl From<MetadataError> for LoadError {
+    fn from(value: MetadataError) -> Self {
+        Self::HyperparametersReadError(HyperparametersReadError::MetadataError(value))
+    }
 }
 
-/// Each variant represents a step within loading a known model.
-#[derive(Debug, Copy, Clone)]
-#[doc(hidden)]
-pub enum LoadKnownProgress<'a> {
-    /// A LoRA has been applied.
-    LoraApplied { name: &'a str, source: &'a Path },
-    /// A tensor has been loaded.
-    TensorLoaded { current_tensor: usize },
+/// When given args, attempt to instantiate a model.
+pub type ModelLoadCallback = fn(ModelLoadArgs) -> Result<Box<dyn Model>, ModelLoadError>;
+
+/// A factory that can retrieve the constructor for a given model architecture.
+pub trait ModelFactory {
+    /// For a given architecture name, return a function that will load the model,
+    /// or `None` if the architecture is not supported.
+    fn load(&self, architecture: &str) -> Option<ModelLoadCallback>;
 }
 
-/// Internal function that takes all of the state that can be derived without
-/// knowing a concrete type and loads a concrete model. A *lot* of precondition
-/// logic is done in `llm`.
-// TODO: think about this design. Do we want to let people to be able to load
-// known models directly?
-#[doc(hidden)]
-#[allow(clippy::too_many_arguments)]
-pub fn load_known_internal<M: KnownModel>(
-    source: &mut dyn Source,
-    gguf: &Gguf,
-    tokenizer: Tokenizer,
-    context: Context,
-    lora_adapters: Option<Vec<LoraAdapter>>,
-    progress_callback: &mut dyn FnMut(LoadKnownProgress),
+/// Loads the specified GGUF model from disk, determining its architecture from the metadata.
+///
+/// This method returns a [`Box`], which means that the model will have single ownership.
+/// If you'd like to share ownership (i.e. to use the model in multiple threads), we
+/// suggest using [`Arc::from(Box<T>)`](https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-From%3CBox%3CT,+Global%3E%3E-for-Arc%3CT%3E)
+/// to convert the [`Box`] into an [`Arc`](std::sync::Arc) after loading.
+pub fn load(
+    path: &Path,
+    tokenizer_source: TokenizerSource,
     params: ModelParameters,
-) -> Result<M, LoadKnownError> {
-    let hyperparameters = <M::Hyperparameters>::read_gguf(&gguf.metadata)?;
-    let tl = ModelTensorLoader {
-        tensor_loader: TensorLoader {
-            source,
-            gguf: &gguf,
-            context,
-        },
-        lora_adapters,
-        progress_callback,
-        loaded_tensor_count: 0,
+    model_factory: impl ModelFactory,
+    mut load_progress_callback: impl FnMut(LoadProgress),
+) -> Result<Box<dyn Model>, LoadError> {
+    if !path.exists() {
+        return Err(LoadError::FileDoesNotExist);
+    }
+
+    let file = File::open(path).map_err(|e| LoadError::OpenFileFailed { source: e })?;
+    let mut reader = BufReader::new(&file);
+    tracing::trace!("Read model file from {:?}", path);
+
+    let gguf = Gguf::load(&mut reader)?;
+    tracing::trace!("Loaded GGML model from reader");
+
+    let architecture = gguf.metadata.get_str("general.architecture")?;
+    let tokenizer = tokenizer_source.retrieve(&gguf)?;
+
+    let quantization_version = gguf.metadata.get_optional("general.quantization_version");
+    tracing::trace!(
+        "Determined quantization version of model as {:?}",
+        quantization_version
+    );
+
+    // TODO: this is temporary while we figure out how to handle this
+    let any_quantized = gguf
+        .tensor_infos
+        .values()
+        .any(|t| t.element_type.is_quantized());
+    if any_quantized {
+        match quantization_version {
+            Some(MetadataValue::UInt32(2)) => {
+                // Currently supported version
+            }
+            Some(quantization_version) => {
+                return Err(LoadError::UnsupportedQuantizationVersion {
+                    quantization_version: quantization_version.clone(),
+                })
+            }
+            None => return Err(LoadError::MissingQuantizationVersion),
+        }
+    }
+
+    let use_mmap = params.prefer_mmap && params.lora_adapters.is_none();
+
+    let ctx_size = gguf
+        .tensor_infos
+        .values()
+        .map(|ti| ti.calc_absolute_size(use_mmap))
+        .sum::<usize>();
+    tracing::trace!("Context size: {:?}", ctx_size);
+
+    let mut lora_adapters: Option<Vec<LoraAdapter>> = None;
+    if let Some(lora_paths) = &params.lora_adapters {
+        let adapters: Result<Vec<_>, _> = lora_paths
+        .iter()
+        .map(|lora_path| {
+            // Read the LoRA file
+            let lora_file = File::open(lora_path).map_err(|e| LoadError::OpenFileFailed {
+                source: e,
+            })?;
+            let mut lora_reader = BufReader::new(&lora_file);
+            let gguf = Gguf::load(&mut lora_reader)?;
+
+            // Collect the names of the tensors that should be patched
+            let tensors_to_patch = gguf
+                .tensor_infos
+                .keys()
+                .filter_map(|k| Some(k.rsplit_once('.')?.0.to_owned()))
+                .collect();
+
+            tracing::trace!("Loaded LoRA weights");
+            // Return the LoRA patches
+            #[allow(unreachable_code)]
+            Ok::<_, LoadError>(LoraAdapter {
+                tensors: gguf.tensor_infos.clone(),
+                tensors_to_patch,
+                source: Box::new(lora_reader),
+                path: lora_path.to_owned(),
+                gguf,
+                scaling: todo!("Calculate scaling from LoRA file metadata (GGUF does not have standardised metadata yet)"),
+            })
+        })
+        .collect();
+        lora_adapters = Some(adapters?);
+    }
+
+    (load_progress_callback)(LoadProgress::ContextSize { bytes: ctx_size });
+    let (context, file_size) = if use_mmap {
+        unsafe {
+            let mmap = Mmap::map(&file)?;
+            let file_size = mmap.len() as u64;
+            (Context::new_with_mmap(mmap), file_size)
+        }
+    } else {
+        (Context::new_with_allocate(ctx_size), file.metadata()?.len())
     };
 
-    Ok(KnownModel::new(hyperparameters, params, tokenizer, tl)?)
+    let model_constructor =
+        model_factory
+            .load(architecture)
+            .ok_or_else(|| LoadError::UnknownArchitecture {
+                architecture: architecture.to_string(),
+            })?;
+    let model = (model_constructor)(ModelLoadArgs {
+        gguf: &gguf,
+        data: ModelData { params, tokenizer },
+        tensor_loader: ModelTensorLoader {
+            tensor_loader: TensorLoader {
+                source: &mut reader,
+                gguf: &gguf,
+                context,
+            },
+            lora_adapters,
+            progress_callback: &mut load_progress_callback,
+            loaded_tensor_count: 0,
+        },
+    })?;
+
+    (load_progress_callback)(LoadProgress::Loaded {
+        file_size,
+        tensor_count: gguf.tensor_infos.len(),
+    });
+
+    tracing::trace!("Loaded model");
+
+    Ok(model)
+}
+
+/// A implementation for `load_progress_callback` that outputs to `stdout`.
+pub fn load_progress_callback_stdout(progress: LoadProgress) {
+    match progress {
+        LoadProgress::HyperparametersLoaded => println!("Loaded hyperparameters"),
+        LoadProgress::ContextSize { bytes } => println!(
+            "ggml ctx size = {:.2} MB\n",
+            bytes as f64 / (1024.0 * 1024.0)
+        ),
+        LoadProgress::TensorLoaded {
+            current_tensor,
+            tensor_count,
+            ..
+        } => {
+            let current_tensor = current_tensor + 1;
+            if current_tensor % 8 == 0 {
+                println!("Loaded tensor {current_tensor}/{tensor_count}");
+            }
+        }
+        LoadProgress::Loaded {
+            file_size: byte_size,
+            tensor_count,
+        } => {
+            println!("Loading of model complete");
+            println!(
+                "Model size = {:.2} MB / num tensors = {}",
+                byte_size as f64 / 1024.0 / 1024.0,
+                tensor_count
+            );
+        }
+        LoadProgress::LoraApplied { name, source } => {
+            println!(
+                "Patched tensor {} via LoRA from '{}'",
+                name,
+                source.file_name().unwrap().to_str().unwrap()
+            );
+        }
+    };
 }
 
 /// A helper struct for loading tensors from a model.
 pub struct ModelTensorLoader<'a> {
     pub(crate) tensor_loader: TensorLoader<'a>,
     pub(crate) lora_adapters: Option<Vec<LoraAdapter>>,
-    pub(crate) progress_callback: &'a mut dyn FnMut(LoadKnownProgress),
+    pub(crate) progress_callback: &'a mut dyn FnMut(LoadProgress),
     pub(crate) loaded_tensor_count: usize,
 }
 impl ModelTensorLoader<'_> {
@@ -261,7 +547,7 @@ impl ModelTensorLoader<'_> {
         if let Some(lora_adapters) = &mut self.lora_adapters {
             for lora_adapter in lora_adapters {
                 lora_adapter.patch(name, info, &mut tensor)?;
-                (self.progress_callback)(LoadKnownProgress::LoraApplied {
+                (self.progress_callback)(LoadProgress::LoraApplied {
                     name,
                     source: &lora_adapter.path,
                 });
@@ -269,8 +555,9 @@ impl ModelTensorLoader<'_> {
         }
 
         self.loaded_tensor_count += 1;
-        (self.progress_callback)(LoadKnownProgress::TensorLoaded {
+        (self.progress_callback)(LoadProgress::TensorLoaded {
             current_tensor: self.loaded_tensor_count,
+            tensor_count: self.tensor_loader.gguf.tensor_infos.len(),
         });
 
         Ok(tensor)

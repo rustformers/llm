@@ -12,7 +12,7 @@ pub(super) fn can_send(model: Box<dyn Model>) -> anyhow::Result<Box<dyn Model>> 
     model
 }
 
-// pub(super) fn can_roundtrip_hyperparameters<M: llm::KnownModel + 'static>(
+// pub(super) fn can_roundtrip_hyperparameters<M: llm::Model + 'static>(
 //     model: &M,
 // ) -> anyhow::Result<()> {
 //     fn test_hyperparameters<M: llm::Hyperparameters>(hyperparameters: &M) -> anyhow::Result<()> {

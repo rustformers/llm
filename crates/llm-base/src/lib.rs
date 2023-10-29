@@ -29,12 +29,10 @@ pub use inference_session::{
     ModelKVMemoryType, RewindError, SnapshotError,
 };
 pub use llm_samplers::prelude::{Sampler, SamplerChain};
-pub use loader::{
-    load_known_internal, ContainerType, FileMagic, FileType, FileTypeFormat, LoadKnownError,
-};
+pub use loader::{ContainerType, FileMagic, FileType, FileTypeFormat};
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model, ModelContext, ModelParameters, OutputRequest};
+pub use model::{Model, ModelContext, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use tokenizer::{

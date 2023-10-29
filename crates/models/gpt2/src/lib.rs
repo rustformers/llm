@@ -5,7 +5,7 @@
 // use llm_base::{
 //     ggml,
 //     model::{common, HyperparametersWriteError},
-//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
+//     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, LoadError,
 //     ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 // };
 
@@ -42,7 +42,7 @@
 // unsafe impl Send for Gpt2 {}
 // unsafe impl Sync for Gpt2 {}
 
-// impl KnownModel for Gpt2 {
+// impl Model for Gpt2 {
 //     type Hyperparameters = Hyperparameters;
 
 //     fn new<E: std::error::Error>(

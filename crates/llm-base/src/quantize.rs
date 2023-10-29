@@ -3,10 +3,7 @@
 
 //! Implements quantization of weights.
 
-use crate::{
-    loader::FileTypeFormat, model::HyperparametersWriteError, Hyperparameters, KnownModel,
-    Tokenizer,
-};
+use crate::{loader::FileTypeFormat, Model, Tokenizer};
 use ggml::format::gguf::GgufSaveError;
 use half::f16;
 use regex::Regex;
@@ -114,9 +111,6 @@ pub enum QuantizeError {
         /// The element type.
         element_type: ggml::Type,
     },
-    /// An error was encountered while writing the hyperparameters.
-    #[error("an error was encountered while writing the hyperparameters")]
-    HyperparametersWriteError(#[source] HyperparametersWriteError),
     /// An attempt was made to save a model with a container type that does not
     /// support vocabulary scoring, despite the model having a scored vocabulary.
     #[error("container type does not support vocabulary scoring")]
@@ -140,7 +134,7 @@ impl QuantizeError {
 }
 
 /// Quantizes a model.
-pub fn quantize<M: KnownModel, R: BufRead + Seek, W: Write + Seek>(
+pub fn quantize<M: Model, R: BufRead + Seek, W: Write + Seek>(
     reader: &mut R,
     writer: &mut W,
     tokenizer: Tokenizer,

@@ -1,11 +1,7 @@
-use crate::{
-    loader::{Source, TensorLoadError, TensorLoader},
-    model::{HyperparametersReadError, HyperparametersWriteError},
-    FileType, Hyperparameters,
-};
+use crate::loader::{Source, TensorLoadError, TensorLoader};
 
 use ggml::{
-    format::gguf::{Gguf, Metadata, TensorInfo},
+    format::gguf::{Gguf, TensorInfo},
     GraphExecutionPlan,
 };
 use indexmap::IndexMap;
@@ -23,23 +19,6 @@ impl LoraParameters {
     /// Returns the scaling factor for the LoRA adapter.
     pub fn calculate_scaling(&self) -> f32 {
         (self.alpha as f32) / (self.r as f32)
-    }
-}
-impl Hyperparameters for LoraParameters {
-    fn read_gguf(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
-        todo!()
-    }
-
-    fn write_gguf(&self, metadata: &mut Metadata) -> Result<(), HyperparametersWriteError> {
-        todo!()
-    }
-
-    fn file_type(&self) -> Option<FileType> {
-        None
-    }
-
-    fn file_type_mut(&mut self) -> Option<&mut FileType> {
-        None
     }
 }
 

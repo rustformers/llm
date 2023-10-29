@@ -80,11 +80,11 @@ pub use llm_base::{
     ggml::accelerator::get_accelerator as ggml_get_accelerator,
     ggml::accelerator::Accelerator as GgmlAccelerator, ggml::format as ggml_format,
     ggml::RoPEOverrides, quantize, samplers, tokenizer, ElementType, FileMagic, FileType,
-    FileTypeFormat, Hyperparameters, InferenceError, InferenceFeedback, InferenceParameters,
-    InferenceRequest, InferenceResponse, InferenceSession, InferenceSessionConfig,
-    InferenceSnapshot, InferenceSnapshotRef, InferenceStats, InvalidTokenBias, KnownModel, Model,
-    ModelKVMemoryType, ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress,
-    RewindError, SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
+    FileTypeFormat, InferenceError, InferenceFeedback, InferenceParameters, InferenceRequest,
+    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot,
+    InferenceSnapshotRef, InferenceStats, InvalidTokenBias, Model, ModelKVMemoryType,
+    ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, RewindError,
+    SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
     TokenizerSource,
 };
 
@@ -185,7 +185,7 @@ define_models!(
 /// Used to dispatch some code based on the model architecture.
 pub trait ModelArchitectureVisitor<R> {
     /// Visit a model architecture.
-    fn visit<M: KnownModel + 'static>(self) -> R;
+    fn visit<M: Model + 'static>(self) -> R;
 }
 
 /// An unsupported model architecture was specified.
