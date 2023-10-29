@@ -1,4 +1,8 @@
-use std::{convert::Infallible, fs::File, io::BufReader};
+use std::{
+    convert::Infallible,
+    fs::File,
+    io::{BufReader, BufWriter, Read, Seek},
+};
 
 use clap::Parser;
 use cli_args::Args;
@@ -28,7 +32,7 @@ fn main() -> eyre::Result<()> {
     match args {
         Args::Infer(args) => infer(&args),
         Args::Perplexity(args) => perplexity(&args),
-        Args::Info(args) => info(&args),
+        Args::Gguf { gguf: args } => gguf(&args),
         Args::PromptTokens(args) => prompt_tokens(&args),
         Args::Repl(args) => interactive::repl(&args),
         Args::Chat(args) => interactive::chat(&args),
@@ -128,6 +132,13 @@ fn perplexity(args: &cli_args::Perplexity) -> eyre::Result<()> {
     Ok(())
 }
 
+fn gguf(args: &cli_args::Gguf) -> eyre::Result<()> {
+    match args {
+        cli_args::Gguf::Info(args) => info(args),
+        cli_args::Gguf::Rebuild(args) => rebuild(args),
+    }
+}
+
 fn info(args: &cli_args::Info) -> eyre::Result<()> {
     let model_path = &args.model_and_tokenizer.model_path;
 
@@ -174,13 +185,37 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
         log::info!("Tensors:");
         for (name, tensor) in &gguf.tensor_infos {
             log::info!(
-                "- {} ({:?} {:?})",
+                "- {} ({:?} {:?}) @ 0x{:X}",
                 name,
                 tensor.element_type,
-                tensor.dimensions
+                tensor.dimensions,
+                tensor.offset
             );
         }
     }
+
+    Ok(())
+}
+
+fn rebuild(args: &cli_args::Rebuild) -> eyre::Result<()> {
+    let input = File::open(&args.input)?;
+    let mut reader = BufReader::new(&input);
+    let gguf = gguf::Gguf::load(&mut reader)?;
+
+    let mut output = File::create(&args.output)?;
+    let mut writer = BufWriter::new(&mut output);
+    gguf.save(&mut writer, |writer, name, _info| {
+        let reader = &mut reader;
+        let original_info = gguf.tensor_infos.get(name).unwrap();
+
+        reader.seek(std::io::SeekFrom::Start(
+            gguf.tensor_data_position + original_info.offset,
+        ))?;
+
+        std::io::copy(&mut reader.take(original_info.calc_size() as u64), writer)?;
+
+        Ok(())
+    })?;
 
     Ok(())
 }

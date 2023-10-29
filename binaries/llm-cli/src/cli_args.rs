@@ -24,8 +24,11 @@ pub enum Args {
     Perplexity(Box<Perplexity>),
 
     #[command()]
-    /// Get information about a GGML model.
-    Info(Box<Info>),
+    /// Interact with a GGUF model.
+    Gguf {
+        #[command(subcommand)]
+        gguf: Gguf,
+    },
 
     #[command()]
     /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
@@ -112,6 +115,12 @@ pub struct Perplexity {
 }
 
 #[derive(Parser, Debug)]
+pub enum Gguf {
+    Info(Info),
+    Rebuild(Rebuild),
+}
+
+#[derive(Parser, Debug)]
 pub struct Info {
     #[command(flatten)]
     pub model_and_tokenizer: ModelAndTokenizer,
@@ -123,6 +132,12 @@ pub struct Info {
     /// Show all of the tokens in the tokenizer.
     #[arg(long, short = 'k')]
     pub tokenizer: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct Rebuild {
+    pub input: PathBuf,
+    pub output: PathBuf,
 }
 
 #[derive(Parser, Debug)]

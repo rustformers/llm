@@ -1,4 +1,4 @@
-use std::io::BufRead;
+use std::io::{self, BufRead, Write};
 
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -37,7 +37,7 @@ impl Metadata {
             })
     }
 
-    pub fn get_with_type<'a, T: MetadataValueTypeFromRustType>(
+    pub fn get_with_type<'a, T: ToMetadataValue>(
         &'a self,
         key: &'a str,
         getter: impl Fn(&MetadataValue) -> Option<T>,
@@ -50,7 +50,7 @@ impl Metadata {
         })
     }
 
-    pub fn get_with_ref_type<'a, T: MetadataValueTypeFromRustType>(
+    pub fn get_with_ref_type<'a, T: ToMetadataValue>(
         &'a self,
         key: &'a str,
         getter: impl Fn(&MetadataValue) -> Option<&T>,
@@ -63,7 +63,7 @@ impl Metadata {
         })
     }
 
-    pub fn get_array_with_type<'a, T: MetadataValueTypeFromRustType>(
+    pub fn get_array_with_type<'a, T: ToMetadataValue>(
         &'a self,
         key: &'a str,
         getter: impl Fn(&MetadataValue) -> Option<&[T]>,
@@ -139,19 +139,32 @@ pub enum MetadataValueType {
     /// Implemented in GGUFv2.
     Float64 = 12,
 }
-pub trait MetadataValueTypeFromRustType {
+pub trait ToMetadataValue {
     fn value_type() -> MetadataValueType;
+    fn to_value(self) -> MetadataValue;
+}
+pub trait ToMetadataArrayValue {
+    fn to_array_value(self) -> MetadataArrayValue;
 }
 macro_rules! impl_value_boilerplate {
     ($($value_type:ident($rust_type:ty)),*) => {
         $(
-            impl MetadataValueTypeFromRustType for $rust_type {
+            impl ToMetadataValue for $rust_type {
                 fn value_type() -> MetadataValueType {
                     MetadataValueType::$value_type
                 }
+
+                fn to_value(self) -> MetadataValue {
+                    MetadataValue::$value_type(self)
+                }
+            }
+
+            impl ToMetadataArrayValue for Vec<$rust_type> {
+                fn to_array_value(self) -> MetadataArrayValue {
+                    MetadataArrayValue::$value_type(self)
+                }
             }
         )*
-
 
         impl TryFrom<u32> for MetadataValueType {
             type Error = ();
@@ -167,7 +180,19 @@ macro_rules! impl_value_boilerplate {
                 Err(())
             }
         }
+        impl MetadataValueType {
+            fn read_value(
+                self,
+                ctx: &GgufContext,
+                reader: &mut dyn BufRead,
+            ) -> Result<MetadataValue, GgufLoadError> {
+                use MetadataValueType as MVT;
 
+                Ok(match self {
+                    $(MVT::$value_type => <$rust_type>::read(ctx, reader)?.to_value(),)*
+                })
+            }
+        }
 
         #[derive(Debug, Clone, PartialEq)]
         pub enum MetadataValue {
@@ -175,12 +200,29 @@ macro_rules! impl_value_boilerplate {
                 $value_type($rust_type),
             )*
         }
-
-        // Public
         impl MetadataValue {
             pub fn value_type(&self) -> MetadataValueType {
                 match self {
                     $(MetadataValue::$value_type(_) => MetadataValueType::$value_type),*
+                }
+            }
+
+            fn write(&self, ctx: &GgufContext, writer: &mut dyn Write) -> io::Result<()> {
+                match self {
+                    $(MetadataValue::$value_type(v) => v.write(ctx, writer)),*
+                }
+            }
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        pub enum MetadataArrayValue {
+            $($value_type(Vec<$rust_type>),)*
+        }
+        impl MetadataArrayValue {
+            /// Returns the length of the array.
+            pub fn len(&self) -> usize {
+                match self {
+                    $(Self::$value_type(v) => v.len(),)*
                 }
             }
         }
@@ -295,7 +337,6 @@ impl MetadataValue {
         }
     }
 }
-// Private
 impl MetadataValue {
     pub(super) fn read_key_value(
         ctx: &GgufContext,
@@ -304,105 +345,25 @@ impl MetadataValue {
         let key = util::read_string(reader, ctx.use_64_bit_length)?;
         let value_type = MetadataValueType::try_from(util::read_u32(reader)?)
             .expect("TODO: handle invalid value types");
-        let value = Self::read_value(ctx, reader, value_type)?;
+        let value = value_type.read_value(ctx, reader)?;
 
         Ok((key, value))
     }
 
-    fn read_value(
+    pub(super) fn write_key_value(
+        &self,
         ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-        value_type: MetadataValueType,
-    ) -> Result<MetadataValue, GgufLoadError> {
-        match value_type {
-            MetadataValueType::UInt8 => Self::read_u8(ctx, reader).map(MetadataValue::UInt8),
-            MetadataValueType::Int8 => Self::read_i8(ctx, reader).map(MetadataValue::Int8),
-            MetadataValueType::UInt16 => Self::read_u16(ctx, reader).map(MetadataValue::UInt16),
-            MetadataValueType::Int16 => Self::read_i16(ctx, reader).map(MetadataValue::Int16),
-            MetadataValueType::UInt32 => Self::read_u32(ctx, reader).map(MetadataValue::UInt32),
-            MetadataValueType::Int32 => Self::read_i32(ctx, reader).map(MetadataValue::Int32),
-            MetadataValueType::Float32 => Self::read_f32(ctx, reader).map(MetadataValue::Float32),
-            MetadataValueType::Bool => Self::read_bool(ctx, reader).map(MetadataValue::Bool),
-            MetadataValueType::String => Self::read_string(ctx, reader).map(MetadataValue::String),
-            MetadataValueType::Array => Self::read_array(ctx, reader).map(MetadataValue::Array),
-            MetadataValueType::UInt64 => Self::read_u64(ctx, reader).map(MetadataValue::UInt64),
-            MetadataValueType::Int64 => Self::read_i64(ctx, reader).map(MetadataValue::Int64),
-            MetadataValueType::Float64 => Self::read_f64(ctx, reader).map(MetadataValue::Float64),
-        }
-    }
+        writer: &mut dyn Write,
+        key: &str,
+    ) -> io::Result<()> {
+        util::write_string(writer, ctx.use_64_bit_length, key)?;
+        util::write_u32(writer, self.value_type() as u32)?;
+        self.write(ctx, writer)?;
 
-    fn read_u8(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u8, GgufLoadError> {
-        Ok(util::read_bytes::<1>(reader)?[0])
-    }
-
-    fn read_i8(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i8, GgufLoadError> {
-        Ok(util::read_bytes::<1>(reader)?[0] as i8)
-    }
-
-    fn read_u16(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u16, GgufLoadError> {
-        Ok(u16::from_le_bytes(util::read_bytes::<2>(reader)?))
-    }
-
-    fn read_i16(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i16, GgufLoadError> {
-        Ok(i16::from_le_bytes(util::read_bytes::<2>(reader)?))
-    }
-
-    fn read_u32(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u32, GgufLoadError> {
-        Ok(util::read_u32(reader)?)
-    }
-
-    fn read_i32(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i32, GgufLoadError> {
-        Ok(util::read_i32(reader)?)
-    }
-
-    fn read_f32(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<f32, GgufLoadError> {
-        Ok(util::read_f32(reader)?)
-    }
-
-    fn read_bool(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<bool, GgufLoadError> {
-        Ok(util::read_bool(reader)?)
-    }
-
-    fn read_string(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<String, GgufLoadError> {
-        Ok(util::read_string(reader, ctx.use_64_bit_length)?)
-    }
-
-    fn read_array(
-        ctx: &GgufContext,
-        reader: &mut dyn BufRead,
-    ) -> Result<MetadataArrayValue, GgufLoadError> {
-        MetadataArrayValue::read_value(ctx, reader)
-    }
-
-    fn read_u64(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<u64, GgufLoadError> {
-        Ok(util::read_u64(reader)?)
-    }
-
-    fn read_i64(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<i64, GgufLoadError> {
-        Ok(util::read_i64(reader)?)
-    }
-
-    fn read_f64(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<f64, GgufLoadError> {
-        Ok(util::read_f64(reader)?)
+        Ok(())
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum MetadataArrayValue {
-    UInt8(Vec<u8>),
-    Int8(Vec<i8>),
-    UInt16(Vec<u16>),
-    Int16(Vec<i16>),
-    UInt32(Vec<u32>),
-    Int32(Vec<i32>),
-    Float32(Vec<f32>),
-    Bool(Vec<bool>),
-    String(Vec<String>),
-    Array(Vec<MetadataArrayValue>),
-    UInt64(Vec<u64>),
-    Int64(Vec<i64>),
-    Float64(Vec<f64>),
-}
 // Public
 impl MetadataArrayValue {
     pub fn as_uint8_array(&self) -> Option<&[u8]> {
@@ -496,70 +457,126 @@ impl MetadataArrayValue {
         }
     }
 }
-impl MetadataArrayValue {
-    fn read_value(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError> {
+
+// Shared
+trait ValueIO {
+    fn read(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError>
+    where
+        Self: Sized;
+    fn write(&self, ctx: &GgufContext, writer: &mut dyn Write) -> io::Result<()>;
+}
+macro_rules! impl_value_io_boilerplate {
+    ($($value_type:ident($rust_type:ty, $read_method:ident, $write_method:ident)),*) => {
+        $(
+            impl ValueIO for $rust_type {
+                fn read(_ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError>
+                where
+                    Self: Sized,
+                {
+                    Ok(util::$read_method(reader)?)
+                }
+
+                fn write(&self, _ctx: &GgufContext, writer: &mut dyn Write) -> io::Result<()> {
+                    util::$write_method(writer, *self)
+                }
+            }
+        )*
+    };
+}
+impl_value_io_boilerplate! {
+    UInt8(u8, read_u8, write_u8),
+    Int8(i8, read_i8, write_i8),
+    UInt16(u16, read_u16, write_u16),
+    Int16(i16, read_i16, write_i16),
+    UInt32(u32, read_u32, write_u32),
+    Int32(i32, read_i32, write_i32),
+    Float32(f32, read_f32, write_f32),
+    Bool(bool, read_bool, write_bool),
+    UInt64(u64, read_u64, write_u64),
+    Int64(i64, read_i64, write_i64),
+    Float64(f64, read_f64, write_f64)
+}
+impl ValueIO for String {
+    fn read(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError>
+    where
+        Self: Sized,
+    {
+        Ok(util::read_string(reader, ctx.use_64_bit_length)?)
+    }
+
+    fn write(&self, ctx: &GgufContext, writer: &mut dyn Write) -> io::Result<()> {
+        util::write_string(writer, ctx.use_64_bit_length, self)
+    }
+}
+impl ValueIO for MetadataArrayValue {
+    fn read(ctx: &GgufContext, reader: &mut dyn BufRead) -> Result<Self, GgufLoadError>
+    where
+        Self: Sized,
+    {
         let value_type = MetadataValueType::try_from(util::read_u32(reader)?)
             .expect("TODO: handle invalid value types");
         let length = util::read_length(reader, ctx.use_64_bit_length)?;
 
-        struct ArrayReader<'a> {
-            ctx: &'a GgufContext,
-            reader: &'a mut dyn BufRead,
-            length: usize,
-        }
-        impl ArrayReader<'_> {
-            fn read<T>(
-                &mut self,
-                value_reader: impl Fn(&GgufContext, &mut dyn BufRead) -> Result<T, GgufLoadError>,
-                value_constructor: impl Fn(Vec<T>) -> MetadataArrayValue,
-            ) -> Result<MetadataArrayValue, GgufLoadError> {
-                (0..self.length)
-                    .map(|_| value_reader(self.ctx, self.reader))
-                    .collect::<Result<Vec<T>, _>>()
-                    .map(value_constructor)
-            }
-        }
-
-        let mut reader = ArrayReader {
-            ctx,
-            reader,
-            length,
-        };
-        use MetadataValue as MV;
         use MetadataValueType as MVT;
-        match value_type {
-            MVT::UInt8 => reader.read(MV::read_u8, Self::UInt8),
-            MVT::Int8 => reader.read(MV::read_i8, Self::Int8),
-            MVT::UInt16 => reader.read(MV::read_u16, Self::UInt16),
-            MVT::Int16 => reader.read(MV::read_i16, Self::Int16),
-            MVT::UInt32 => reader.read(MV::read_u32, Self::UInt32),
-            MVT::Int32 => reader.read(MV::read_i32, Self::Int32),
-            MVT::Float32 => reader.read(MV::read_f32, Self::Float32),
-            MVT::Bool => reader.read(MV::read_bool, Self::Bool),
-            MVT::String => reader.read(MV::read_string, Self::String),
-            MVT::Array => reader.read(MV::read_array, Self::Array),
-            MVT::UInt64 => reader.read(MV::read_u64, Self::UInt64),
-            MVT::Int64 => reader.read(MV::read_i64, Self::Int64),
-            MVT::Float64 => reader.read(MV::read_f64, Self::Float64),
+        return match value_type {
+            MVT::UInt8 => read_array::<u8>(ctx, reader, length),
+            MVT::Int8 => read_array::<i8>(ctx, reader, length),
+            MVT::UInt16 => read_array::<u16>(ctx, reader, length),
+            MVT::Int16 => read_array::<i16>(ctx, reader, length),
+            MVT::UInt32 => read_array::<u32>(ctx, reader, length),
+            MVT::Int32 => read_array::<i32>(ctx, reader, length),
+            MVT::Float32 => read_array::<f32>(ctx, reader, length),
+            MVT::Bool => read_array::<bool>(ctx, reader, length),
+            MVT::String => read_array::<String>(ctx, reader, length),
+            MVT::Array => read_array::<MetadataArrayValue>(ctx, reader, length),
+            MVT::UInt64 => read_array::<u64>(ctx, reader, length),
+            MVT::Int64 => read_array::<i64>(ctx, reader, length),
+            MVT::Float64 => read_array::<f64>(ctx, reader, length),
+        };
+
+        fn read_array<T: ValueIO>(
+            ctx: &GgufContext,
+            reader: &mut dyn BufRead,
+            length: usize,
+        ) -> Result<MetadataArrayValue, GgufLoadError>
+        where
+            Vec<T>: ToMetadataArrayValue,
+        {
+            (0..length)
+                .map(|_| T::read(ctx, reader))
+                .collect::<Result<Vec<T>, _>>()
+                .map(|v| v.to_array_value())
         }
     }
 
-    /// Returns the length of the array.
-    pub fn len(&self) -> usize {
-        match self {
-            Self::UInt8(v) => v.len(),
-            Self::Int8(v) => v.len(),
-            Self::UInt16(v) => v.len(),
-            Self::Int16(v) => v.len(),
-            Self::UInt32(v) => v.len(),
-            Self::Int32(v) => v.len(),
-            Self::Float32(v) => v.len(),
-            Self::Bool(v) => v.len(),
-            Self::String(v) => v.len(),
-            Self::Array(v) => v.len(),
-            Self::UInt64(v) => v.len(),
-            Self::Int64(v) => v.len(),
-            Self::Float64(v) => v.len(),
+    fn write(&self, ctx: &GgufContext, writer: &mut dyn Write) -> io::Result<()> {
+        return match self {
+            MetadataArrayValue::UInt8(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Int8(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::UInt16(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Int16(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::UInt32(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Int32(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Float32(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Bool(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::String(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Array(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::UInt64(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Int64(v) => write_array(ctx, writer, v),
+            MetadataArrayValue::Float64(v) => write_array(ctx, writer, v),
+        };
+
+        fn write_array<T: ToMetadataValue + ValueIO>(
+            ctx: &GgufContext,
+            writer: &mut dyn Write,
+            array: &[T],
+        ) -> io::Result<()> {
+            util::write_u32(writer, T::value_type() as u32)?;
+            util::write_length(writer, ctx.use_64_bit_length, array.len())?;
+            for value in array {
+                value.write(ctx, writer)?;
+            }
+            Ok(())
         }
     }
 }

@@ -1,10 +1,11 @@
 #![allow(missing_docs)]
 
-use std::io::{BufRead, Seek};
+use std::io::{BufRead, BufWriter, Seek, Write};
 
 use super::{data_size, header_size, ContainerType, ContainerTypeReadError};
 use crate::{util, ElementType};
 
+use ggml_sys::ggml_type;
 use indexmap::IndexMap;
 use thiserror::Error;
 
@@ -90,10 +91,7 @@ impl Gguf {
             tensor_infos.insert(key, value);
         }
 
-        let tensor_data_position = {
-            let stream_position = reader.stream_position()?;
-            stream_position + (alignment - (stream_position % alignment)) % alignment
-        };
+        let tensor_data_position = align_offset(reader.stream_position()?, alignment);
 
         Ok(Gguf {
             metadata,
@@ -101,6 +99,93 @@ impl Gguf {
             tensor_data_position,
         })
     }
+
+    /// Saves the GGUF file to the given writer.
+    ///
+    /// `get_tensor_size` is a function that returns the size of a tensor's data in bytes.
+    /// `write_tensor_data` is a function that writes the tensor's data to the writer; the data
+    /// must be the same length as the value returned by `get_tensor_size`.
+    ///
+    /// The `offset` in `TensorInfo` will be ignored and the correct offset will be calculated
+    /// automatically.
+    pub fn save<W: Write + Seek>(
+        &self,
+        writer: &mut BufWriter<W>,
+        mut write_tensor_data: impl FnMut(&mut BufWriter<W>, &str, &TensorInfo) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        // Write header
+        let container = ContainerType::Gguf(2);
+        container.write(writer)?;
+
+        let ctx = GgufContext {
+            use_64_bit_length: true,
+        };
+
+        util::write_length(writer, ctx.use_64_bit_length, self.tensor_infos.len())?;
+        util::write_length(writer, ctx.use_64_bit_length, self.metadata.0.len())?;
+
+        // Write metadata
+        for (key, value) in &self.metadata.0 {
+            value.write_key_value(&ctx, writer, key)?;
+        }
+
+        // Write tensor infos
+        let alignment = self
+            .metadata
+            .get_optional("general.alignment")
+            .and_then(|v| v.as_uint32())
+            .unwrap_or(DEFAULT_ALIGNMENT) as u64;
+
+        // Pre-plan the write before writing the tensor data.
+        #[derive(Debug)]
+        struct TensorWrite {
+            name: String,
+            info: TensorInfo,
+            size: usize,
+        }
+        let mut tensors = vec![];
+        let mut next_offset = 0;
+        for (name, tensor_info) in &self.tensor_infos {
+            let size = tensor_info.calc_size();
+            tensors.push(TensorWrite {
+                name: name.clone(),
+                info: TensorInfo {
+                    offset: next_offset,
+                    ..tensor_info.clone()
+                },
+                size,
+            });
+
+            next_offset = align_offset(next_offset + size as u64, alignment);
+        }
+
+        for write in &tensors {
+            write.info.write_name_value(&ctx, writer, &write.name)?;
+        }
+
+        // Write tensors
+        let stream_position = writer.stream_position()?;
+        let tensor_data_position = align_offset(stream_position, alignment);
+        assert!(tensor_data_position > stream_position);
+        util::write_zero_bytes(writer, (tensor_data_position - stream_position) as usize)?;
+
+        for write in &tensors {
+            write_tensor_data(writer, &write.name, &write.info)?;
+
+            let stream_position = writer.stream_position()?;
+            assert!(
+                stream_position == tensor_data_position + write.info.offset + write.size as u64
+            );
+            let next_position = align_offset(stream_position, alignment);
+            util::write_zero_bytes(writer, (next_position - stream_position) as usize)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn align_offset(offset: u64, alignment: u64) -> u64 {
+    offset + (alignment - (offset % alignment)) % alignment
 }
 
 struct GgufContext {
@@ -145,6 +230,25 @@ impl TensorInfo {
                 offset,
             },
         ))
+    }
+
+    fn write_name_value(
+        &self,
+        ctx: &GgufContext,
+        writer: &mut dyn Write,
+        name: &str,
+    ) -> std::io::Result<()> {
+        util::write_string(writer, ctx.use_64_bit_length, name)?;
+
+        util::write_u32(writer, self.dimensions.len().try_into().unwrap())?;
+        for dimension in &self.dimensions {
+            util::write_length(writer, ctx.use_64_bit_length, *dimension)?;
+        }
+
+        util::write_u32(writer, ggml_type::from(self.element_type) as u32)?;
+        util::write_u64(writer, self.offset)?;
+
+        Ok(())
     }
 
     /// Calculate the size of the tensor's values in bytes.

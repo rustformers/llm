@@ -16,7 +16,6 @@ use std::{
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
-
 /// Progress of quantization.
 pub enum QuantizeProgress<'a> {
     /// Hyperparameters have been loaded.
