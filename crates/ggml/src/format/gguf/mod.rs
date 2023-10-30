@@ -62,12 +62,19 @@ impl Gguf {
             ContainerTypeReadError::InvalidMagic(magic) => GgufLoadError::InvalidMagic(magic),
             ContainerTypeReadError::Io(io) => GgufLoadError::Io(io),
         })?;
-        if ![ContainerType::Gguf(1), ContainerType::Gguf(2)].contains(&container) {
+        if ![
+            ContainerType::Gguf(1),
+            ContainerType::Gguf(2),
+            ContainerType::Gguf(3),
+        ]
+        .contains(&container)
+        {
             return Err(GgufLoadError::InvalidFormatVersion(container));
         }
 
         let ctx = GgufContext {
-            use_64_bit_length: container == ContainerType::Gguf(2),
+            use_64_bit_length: container == ContainerType::Gguf(2)
+                || container == ContainerType::Gguf(3),
         };
 
         let tensor_count = util::read_length(reader, ctx.use_64_bit_length)?;
