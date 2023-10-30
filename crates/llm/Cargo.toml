@@ -35,7 +35,7 @@ default = ["models", "tokenizers-remote"]
 
 tokenizers-remote = ["llm-base/tokenizers-remote"]
 
-models = ["llama"]            #, "gpt2", "gptj", "bloom", "gptneox", "mpt"]
+models = ["llama", "gptneox"] #, "gpt2", "gptj", "bloom", "mpt"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]

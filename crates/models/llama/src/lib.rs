@@ -2,13 +2,14 @@
 #![deny(missing_docs)]
 
 use llm_base::{
-    ggml::{self, format::gguf::Metadata},
+    ggml::{
+        self,
+        format::gguf::{Metadata, META_TENSOR_DATA_LAYOUT},
+    },
     model::{common, HyperparametersReadError, ModelData, ModelLoadArgs, ModelLoadError},
     FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, ModelContext,
     OutputRequest, Regex, TokenId,
 };
-
-const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
 ///
@@ -108,7 +109,7 @@ impl Model for Llama {
             &self.data.params,
             self.hyperparameters.block_count,
             self.hyperparameters.embedding_length,
-            self.hyperparameters.vocabulary_count,
+            self.tokenizer().len(),
         )
     }
 
@@ -124,8 +125,9 @@ impl Model for Llama {
         let params = &self.data.params;
         let ctx_size = params.context_size;
 
+        let vocabulary_count = self.tokenizer().len();
+
         let Hyperparameters {
-            vocabulary_count,
             embedding_length,
             head_count,
             head_count_kv,
@@ -381,15 +383,13 @@ impl Model for Llama {
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 struct Hyperparameters {
-    /// Size of the model's vocabulary
-    vocabulary_count: usize,
     /// Size of the model's embedding layer
     embedding_length: usize,
     /// The number of attention heads
     head_count: usize,
     /// The number of grouped-query attention heads
     head_count_kv: usize,
-    /// Number of layers in the model
+    /// Number of blocks in the model
     block_count: usize,
     /// file_type
     file_type: Option<FileType>,
@@ -399,10 +399,6 @@ struct Hyperparameters {
 impl Hyperparameters {
     pub fn read(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
         Ok(Self {
-            // TODO: handle models without an embedded vocabulary
-            vocabulary_count: metadata
-                .get_with_ref_type("tokenizer.ggml.tokens", |v| v.as_array())?
-                .len(),
             embedding_length: metadata.get_countable("llama.embedding_length")?,
             head_count: metadata.get_countable("llama.attention.head_count")?,
             head_count_kv: metadata.get_countable("llama.attention.head_count_kv")?,

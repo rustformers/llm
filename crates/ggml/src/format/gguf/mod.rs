@@ -13,6 +13,7 @@ mod metadata;
 pub use metadata::*;
 
 pub const DEFAULT_ALIGNMENT: u32 = 32;
+pub const META_TENSOR_DATA_LAYOUT: &str = "Meta AI original pth";
 
 #[derive(Debug, Error)]
 /// Errors that can occur while loading a model.
