@@ -31,7 +31,7 @@ pub struct GptNeoX {
     lmh_g: Tensor,
 
     // weights for the model
-    layers: Vec<Block>,
+    blocks: Vec<Block>,
 
     // must be kept alive for the model
     context: ModelContext,
@@ -56,7 +56,7 @@ impl Model for GptNeoX {
         let ln_f_b = tl.load("output_norm.bias")?.transfer_to(backend);
         let lmh_g = tl.load("output.weight")?.transfer_to(backend);
 
-        let mut layers = Vec::new();
+        let mut blocks = Vec::new();
         for i in 0..hyperparameters.block_count {
             let backend = data.params.backend(i);
             let block = Block {
@@ -103,7 +103,7 @@ impl Model for GptNeoX {
                     .transfer_to(backend),
             };
 
-            layers.push(block);
+            blocks.push(block);
         }
 
         let context = tl.finish();
@@ -115,7 +115,7 @@ impl Model for GptNeoX {
             ln_f_b,
             wte,
             lmh_g,
-            layers,
+            blocks,
             context,
         })
     }
@@ -150,6 +150,7 @@ impl Model for GptNeoX {
             head_count,
             block_count,
             use_parallel_residual,
+            rope_dimension_count,
             ..
         } = self.hyperparameters;
 
@@ -172,41 +173,44 @@ impl Model for GptNeoX {
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
-                    &ctx0.op_mul(&current, &self.layers[il].ln_1_g),
-                    &self.layers[il].ln_1_b,
+                    &ctx0.op_mul(&current, &ctx0.op_repeat(&self.blocks[il].ln_1_g, &current)),
+                    &ctx0.op_repeat(&self.blocks[il].ln_1_b, &current),
                 );
 
                 // self-attention compute QKV
-                current = ctx0.op_mul_mat(&self.layers[il].c_attn_attn_w, &current);
-                current = ctx0.op_add(&current, &self.layers[il].c_attn_attn_b);
+                current = ctx0.op_mul_mat(&self.blocks[il].c_attn_attn_w, &current);
+                current = ctx0.op_add(
+                    &current,
+                    &ctx0.op_repeat(&self.blocks[il].c_attn_attn_b, &current),
+                );
 
                 let nb = current.get_nb()[1];
                 let f32_size = std::mem::size_of::<f32>();
 
+                let n_embd_head = embedding_length / head_count;
                 let mut qcur = ctx0.op_cont(&ctx0.op_view_3d(
                     &current,
-                    (embedding_length / head_count, head_count, n),
+                    (n_embd_head, head_count, n),
                     (nb / head_count, nb),
                     0,
                 ));
                 let mut kcur = ctx0.op_cont(&ctx0.op_view_3d(
                     &current,
-                    (embedding_length / head_count, head_count, n),
+                    (n_embd_head, head_count, n),
                     (nb / head_count, nb),
-                    f32_size * embedding_length / head_count,
+                    f32_size * n_embd_head,
                 ));
                 let mut vcur = ctx0.op_cont(&ctx0.op_view_3d(
                     &current,
-                    (embedding_length / head_count, head_count, n),
+                    (n_embd_head, head_count, n),
                     (nb / head_count, nb),
-                    2 * f32_size * embedding_length / head_count,
+                    2 * f32_size * n_embd_head,
                 ));
 
                 // self-attention using mode = 2 for GPT-NeoX mode
                 let overrides = params.rope_overrides.as_ref();
-                let n_embd_head = embedding_length / head_count;
-                qcur = ctx0.op_rope_inplace(&qcur, n_past, n_embd_head, 2, overrides);
-                kcur = ctx0.op_rope_inplace(&kcur, n_past, n_embd_head, 2, overrides);
+                qcur = ctx0.op_rope_inplace(&qcur, n_past, rope_dimension_count, 2, overrides);
+                kcur = ctx0.op_rope_inplace(&kcur, n_past, rope_dimension_count, 2, overrides);
 
                 // store key and value to memory
                 vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, embedding_length, n));
@@ -282,8 +286,11 @@ impl Model for GptNeoX {
                 );
 
                 // self-attention projection
-                current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
-                current = ctx0.op_add(&current, &self.layers[il].c_attn_proj_b);
+                current = ctx0.op_mul_mat(&self.blocks[il].c_attn_proj_w, &current);
+                current = ctx0.op_add(
+                    &ctx0.op_repeat(&self.blocks[il].c_attn_proj_b, &current),
+                    &current,
+                );
 
                 // use the second scratch for the feed forward
                 ctx0.use_scratch(builder.get_scratch(1));
@@ -291,7 +298,7 @@ impl Model for GptNeoX {
                 let feedforward_input: Tensor;
                 if !use_parallel_residual {
                     feedforward_input = ctx0.op_add(&current, &input_layer);
-                    current = feed_forward_network(&ctx0, &self.layers[il], &feedforward_input);
+                    current = feed_forward_network(&ctx0, &self.blocks[il], &feedforward_input);
                     // input for next layer
                     input_layer = ctx0.op_add(&current, &feedforward_input);
                 } else {
@@ -300,7 +307,7 @@ impl Model for GptNeoX {
 
                     // this is independent of the self-attention result, so it could be done in parallel to the self-attention
                     // note here we pass inpL instead of cur
-                    current = feed_forward_network(&ctx0, &self.layers[il], &input_layer);
+                    current = feed_forward_network(&ctx0, &self.blocks[il], &input_layer);
 
                     // layer input + FF
                     current = ctx0.op_add(&current, &feedforward_input);
@@ -316,7 +323,10 @@ impl Model for GptNeoX {
             // normalize the output
             input_layer = ctx0.op_norm(&input_layer);
             // inpL = ln_f_g*inpL + ln_f_b
-            input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
+            input_layer = ctx0.op_add(
+                &ctx0.op_mul(&ctx0.op_repeat(&input_layer, &input_layer), &self.ln_f_g),
+                &ctx0.op_repeat(&self.ln_f_b, &input_layer),
+            );
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
@@ -383,6 +393,8 @@ pub struct Hyperparameters {
     /// Whether to use a "parallel" formulation in each Transformer layer.
     /// This is on for most models, but is off for some e.g. RedPajama.
     use_parallel_residual: bool,
+    // RoPE dimension count
+    rope_dimension_count: usize,
     /// file_type
     file_type: Option<FileType>,
     /// The tensor data layout that this model was encoded with
@@ -397,6 +409,7 @@ impl Hyperparameters {
             block_count: metadata.get_countable("gptneox.block_count")?,
             use_parallel_residual: metadata
                 .get_with_type("gptneox.use_parallel_residual", MetadataValue::as_bool)?,
+            rope_dimension_count: metadata.get_countable("gptneox.rope.dimension_count")?,
             file_type: FileType::read_for_hyperparameters(metadata)?,
             tensor_data_layout: metadata
                 .get_str("llama.tensor_data_layout")
@@ -430,26 +443,29 @@ struct Block {
     c_mlp_proj_b: Tensor,
 }
 
-fn feed_forward_network(context: &ggml::Context, layer: &Block, input: &Tensor) -> Tensor {
+fn feed_forward_network(context: &ggml::Context, block: &Block, input: &Tensor) -> Tensor {
     let mut current = context.op_norm(input);
 
-    //gain and bias
-    current = context.op_add(&context.op_mul(&current, &layer.ln_2_g), &layer.ln_2_b);
+    // gain and bias
+    current = context.op_add(
+        &context.op_mul(&context.op_repeat(&block.ln_2_g, &current), &current),
+        &context.op_repeat(&block.ln_2_b, &current),
+    );
 
     // apply weights
-    current = context.op_mul_mat(&layer.c_mlp_fc_w, &current);
+    current = context.op_mul_mat(&block.c_mlp_fc_w, &current);
 
     // apply bias
-    current = context.op_add(&current, &layer.c_mlp_fc_b);
+    current = context.op_add(&context.op_repeat(&block.c_mlp_fc_b, &current), &current);
 
     // GELU activation
     current = context.op_gelu(&current);
 
     // projection
     // cur = proj_w*cur + proj_b
-    current = context.op_mul_mat(&layer.c_mlp_proj_w, &current);
+    current = context.op_mul_mat(&block.c_mlp_proj_w, &current);
 
-    current = context.op_add(&current, &layer.c_mlp_proj_b);
+    current = context.op_add(&context.op_repeat(&block.c_mlp_proj_b, &current), &current);
 
     current
 }
