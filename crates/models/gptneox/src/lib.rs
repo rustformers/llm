@@ -138,8 +138,8 @@ impl Model for GptNeoX {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let n_past = session.n_past;
+        let input_len = input_tokens.len();
+        let session_len = session.n_past;
         let params = &self.data.params;
         let ctx_size = params.context_size;
 
@@ -157,7 +157,9 @@ impl Model for GptNeoX {
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
+
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
+
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
                 builder.memory_v.element_size(),
@@ -173,15 +175,15 @@ impl Model for GptNeoX {
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
-                    &ctx0.op_mul(&current, &ctx0.op_repeat(&self.blocks[il].ln_1_g, &current)),
+                    &ctx0.op_mul(&ctx0.op_repeat(&self.blocks[il].ln_1_g, &current), &current),
                     &ctx0.op_repeat(&self.blocks[il].ln_1_b, &current),
                 );
 
                 // self-attention compute QKV
                 current = ctx0.op_mul_mat(&self.blocks[il].c_attn_attn_w, &current);
                 current = ctx0.op_add(
-                    &current,
                     &ctx0.op_repeat(&self.blocks[il].c_attn_attn_b, &current),
+                    &current,
                 );
 
                 let nb = current.get_nb()[1];
@@ -190,42 +192,43 @@ impl Model for GptNeoX {
                 let n_embd_head = embedding_length / head_count;
                 let mut qcur = ctx0.op_cont(&ctx0.op_view_3d(
                     &current,
-                    (n_embd_head, head_count, n),
+                    (n_embd_head, head_count, input_len),
                     (nb / head_count, nb),
                     0,
                 ));
                 let mut kcur = ctx0.op_cont(&ctx0.op_view_3d(
                     &current,
-                    (n_embd_head, head_count, n),
+                    (n_embd_head, head_count, input_len),
                     (nb / head_count, nb),
                     f32_size * n_embd_head,
                 ));
                 let mut vcur = ctx0.op_cont(&ctx0.op_view_3d(
                     &current,
-                    (n_embd_head, head_count, n),
+                    (n_embd_head, head_count, input_len),
                     (nb / head_count, nb),
                     2 * f32_size * n_embd_head,
                 ));
 
                 // self-attention using mode = 2 for GPT-NeoX mode
                 let overrides = params.rope_overrides.as_ref();
-                qcur = ctx0.op_rope_inplace(&qcur, n_past, rope_dimension_count, 2, overrides);
-                kcur = ctx0.op_rope_inplace(&kcur, n_past, rope_dimension_count, 2, overrides);
+                qcur = ctx0.op_rope_inplace(&qcur, session_len, rope_dimension_count, 2, overrides);
+                kcur = ctx0.op_rope_inplace(&kcur, session_len, rope_dimension_count, 2, overrides);
 
                 // store key and value to memory
-                vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, embedding_length, n));
+                vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, embedding_length, input_len));
 
                 let k = ctx0.op_view_1d(
                     builder.memory_k,
-                    n * embedding_length,
-                    (memory_k_size * embedding_length) * (il * ctx_size + n_past),
+                    input_len * embedding_length,
+                    (memory_k_size * embedding_length) * (il * ctx_size + session_len),
                 );
 
                 let v = ctx0.op_view_2d(
                     builder.memory_v,
-                    (n, embedding_length),
+                    (input_len, embedding_length),
                     ctx_size * memory_v_size,
-                    (il * ctx_size) * memory_v_size * embedding_length + n_past * memory_v_size,
+                    (il * ctx_size) * memory_v_size * embedding_length
+                        + session_len * memory_v_size,
                 );
 
                 gf.build_forward_expand(&ctx0.op_cpy(&kcur, &k));
@@ -238,12 +241,12 @@ impl Model for GptNeoX {
                     &ctx0.op_reshape_3d(
                         &ctx0.op_view_1d(
                             builder.memory_k,
-                            (n_past + n) * embedding_length,
+                            (session_len + input_len) * embedding_length,
                             il * ctx_size * memory_k_size * embedding_length,
                         ),
-                        embedding_length / head_count,
+                        n_embd_head,
                         head_count,
-                        n_past + n,
+                        session_len + input_len,
                     ),
                     (0, 2, 1, 3),
                 );
@@ -258,7 +261,7 @@ impl Model for GptNeoX {
                 );
 
                 // KQ_masked = mask_past(KQ_scaled)
-                let KQ_masked = ctx0.op_diag_mask_inf_inplace(&KQ_scaled, n_past);
+                let KQ_masked = ctx0.op_diag_mask_inf_inplace(&KQ_scaled, session_len);
 
                 // KQ = soft_max(KQ_masked)
                 let KQ_softmax = ctx0.op_soft_max_inplace(&KQ_masked);
@@ -266,10 +269,10 @@ impl Model for GptNeoX {
                 // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
                 let V = ctx0.op_view_3d(
                     builder.memory_v,
-                    (n_past + n, embedding_length / head_count, head_count),
+                    (session_len + input_len, n_embd_head, head_count),
                     (
                         ctx_size * memory_v_size,
-                        ctx_size * memory_v_size * embedding_length / head_count,
+                        ctx_size * memory_v_size * n_embd_head,
                     ),
                     il * ctx_size * memory_v_size * embedding_length,
                 );
@@ -282,7 +285,7 @@ impl Model for GptNeoX {
                 // cur = KQV_merged.contiguous().view(n_embd, N)
                 current = ctx0.op_cpy(
                     &KQV_merged,
-                    &ctx0.new_tensor_2d(ggml::Type::F32, embedding_length, n),
+                    &ctx0.new_tensor_2d(ggml::Type::F32, embedding_length, input_len),
                 );
 
                 // self-attention projection
@@ -324,7 +327,7 @@ impl Model for GptNeoX {
             input_layer = ctx0.op_norm(&input_layer);
             // inpL = ln_f_g*inpL + ln_f_b
             input_layer = ctx0.op_add(
-                &ctx0.op_mul(&ctx0.op_repeat(&input_layer, &input_layer), &self.ln_f_g),
+                &ctx0.op_mul(&ctx0.op_repeat(&self.ln_f_g, &input_layer), &input_layer),
                 &ctx0.op_repeat(&self.ln_f_b, &input_layer),
             );
 
@@ -346,13 +349,13 @@ impl Model for GptNeoX {
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, vocabulary_count, n);
-        common::extract_logits(output_request, &outputs.result, vocabulary_count, n);
+        common::read_last_token(session, &outputs.result, vocabulary_count, input_len);
+        common::extract_logits(output_request, &outputs.result, vocabulary_count, input_len);
         common::extract_embeddings(
             output_request,
             &outputs.embedding_result,
             embedding_length,
-            n,
+            input_len,
         );
     }
 

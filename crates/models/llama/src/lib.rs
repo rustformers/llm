@@ -135,6 +135,7 @@ impl Model for Llama {
             file_type: _,
             tensor_data_layout: _,
         } = self.hyperparameters;
+
         let embedding_length_gqa =
             embedding_length / self.hyperparameters.grouped_query_attention();
 
