@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    fmt,
     fs::File,
     io::{BufReader, BufWriter, Read, Seek},
     path::Path,
@@ -9,7 +10,7 @@ use clap::Parser;
 use cli_args::Args;
 use color_eyre::eyre;
 use is_terminal::IsTerminal;
-use llm::ggml_format::gguf;
+use llm::ggml_format::gguf::{self, MetadataValue};
 
 mod cli_args;
 mod interactive;
@@ -150,11 +151,29 @@ fn info(args: &cli_args::Info) -> eyre::Result<()> {
 
     log::info!("Non-array parameters:");
     for (metadata_key, metadata_value) in gguf.metadata.iter() {
-        if metadata_value.as_array().is_some() {
-            continue;
+        struct ValueDisplay<'a>(Option<&'a MetadataValue>);
+        impl fmt::Debug for ValueDisplay<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                if let Some(value) = self.0 {
+                    write!(f, "{:?}", value)
+                } else {
+                    write!(f, "[elided due to size]")
+                }
+            }
         }
 
-        log::info!("- {}: {:?}", metadata_key, metadata_value);
+        let elide_due_to_size =
+            metadata_value.as_array().is_some() || metadata_key == "tokenizer.huggingface.json";
+
+        log::info!(
+            "- {}: {:?}",
+            metadata_key,
+            ValueDisplay(if elide_due_to_size {
+                None
+            } else {
+                Some(metadata_value)
+            })
+        );
     }
 
     if let Ok(tokenizer) = llm::tokenizer::GgufEmbeddedTokenizer::from_metadata(&gguf.metadata) {
