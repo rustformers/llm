@@ -91,15 +91,16 @@ pub fn read_length(reader: &mut dyn BufRead, use_64_bit_length: bool) -> io::Res
     Ok(len)
 }
 
-/// Read a `bool` represented as an `i32` from a reader.
+/// Read a `bool` represented as a single byte from a reader.
 pub fn read_bool(reader: &mut dyn BufRead) -> io::Result<bool> {
-    let val = i32::from_le_bytes(read_bytes::<4>(reader)?);
+    let val = read_bytes::<1>(reader)?[0];
+
     match val {
         0 => Ok(false),
         1 => Ok(true),
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Invalid i32 value for bool: '{}'", val),
+            format!("Invalid value for bool: '{}'", val),
         )),
     }
 }
