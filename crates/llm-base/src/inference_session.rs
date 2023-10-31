@@ -685,7 +685,7 @@ pub enum InferenceError {
     ///
     /// Note that this error *can* be ignored and inference can continue, but the results are not guaranteed to be sensical.
     EndOfText,
-    #[error("the user-specified callback returned an error")]
+    #[error("the user-specified callback returned an error: {0}")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error + Send + Sync>),
     /// Sampling returned an error.
