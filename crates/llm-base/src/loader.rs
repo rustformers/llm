@@ -29,16 +29,16 @@ pub struct FileType {
     /// The quantization version.
     pub quantization_version: u32,
 }
-impl From<FileType> for i32 {
+impl From<FileType> for u32 {
     fn from(value: FileType) -> Self {
-        (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
+        (value.quantization_version * ggml::QNT_VERSION_FACTOR) as u32
             + ggml::sys::llama::llama_ftype::from(value.format)
     }
 }
-impl TryFrom<i32> for FileType {
+impl TryFrom<u32> for FileType {
     type Error = ();
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         let format = FileTypeFormat::try_from(
             ((value as u32) % ggml::QNT_VERSION_FACTOR) as ggml::sys::llama::llama_ftype,
         )?;
@@ -252,7 +252,7 @@ pub enum LoadError {
     #[error("unsupported ftype: {0}")]
     /// The `ftype` hyperparameter had an invalid value. This usually means that the format used
     /// by this file is unrecognized by this version of `llm`.
-    UnsupportedFileType(i32),
+    UnsupportedFileType(u32),
     #[error("invalid magic number {magic} for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
     InvalidMagic {

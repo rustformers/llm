@@ -171,15 +171,15 @@ pub const ggml_unary_op_GGML_UNARY_OP_RELU: ggml_unary_op = 6;
 pub const ggml_unary_op_GGML_UNARY_OP_GELU: ggml_unary_op = 7;
 pub const ggml_unary_op_GGML_UNARY_OP_GELU_QUICK: ggml_unary_op = 8;
 pub const ggml_unary_op_GGML_UNARY_OP_SILU: ggml_unary_op = 9;
-pub type ggml_unary_op = ::std::os::raw::c_int;
+pub type ggml_unary_op = ::std::os::raw::c_uint;
 pub const ggml_object_type_GGML_OBJECT_TENSOR: ggml_object_type = 0;
 pub const ggml_object_type_GGML_OBJECT_GRAPH: ggml_object_type = 1;
 pub const ggml_object_type_GGML_OBJECT_WORK_BUFFER: ggml_object_type = 2;
-pub type ggml_object_type = ::std::os::raw::c_int;
+pub type ggml_object_type = ::std::os::raw::c_uint;
 pub const ggml_log_level_GGML_LOG_LEVEL_ERROR: ggml_log_level = 2;
 pub const ggml_log_level_GGML_LOG_LEVEL_WARN: ggml_log_level = 3;
 pub const ggml_log_level_GGML_LOG_LEVEL_INFO: ggml_log_level = 4;
-pub type ggml_log_level = ::std::os::raw::c_int;
+pub type ggml_log_level = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ggml_object {
@@ -1761,7 +1761,7 @@ extern "C" {
 pub const ggml_op_pool_GGML_OP_POOL_MAX: ggml_op_pool = 0;
 pub const ggml_op_pool_GGML_OP_POOL_AVG: ggml_op_pool = 1;
 pub const ggml_op_pool_GGML_OP_POOL_COUNT: ggml_op_pool = 2;
-pub type ggml_op_pool = ::std::os::raw::c_int;
+pub type ggml_op_pool = ::std::os::raw::c_uint;
 extern "C" {
     pub fn ggml_pool_1d(
         ctx: *mut ggml_context,
@@ -3081,7 +3081,7 @@ pub const gguf_type_GGUF_TYPE_UINT64: gguf_type = 10;
 pub const gguf_type_GGUF_TYPE_INT64: gguf_type = 11;
 pub const gguf_type_GGUF_TYPE_FLOAT64: gguf_type = 12;
 pub const gguf_type_GGUF_TYPE_COUNT: gguf_type = 13;
-pub type gguf_type = ::std::os::raw::c_int;
+pub type gguf_type = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct gguf_context {

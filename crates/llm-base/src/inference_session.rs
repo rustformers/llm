@@ -178,7 +178,7 @@ impl InferenceSession {
         #[cfg(feature = "metal")]
         let metal_context = {
             if use_gpu {
-                let mut metal_context = MetalContext::new(config.n_threads);
+                let mut metal_context = MetalContext::new();
                 metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
 
                 for buf in scratch.iter() {

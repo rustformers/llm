@@ -28,7 +28,7 @@ use crate::{FileType, LoadError};
 
 /// Read the filetype from a reader.
 pub fn read_filetype(reader: &mut dyn BufRead) -> Result<FileType, LoadError> {
-    let ftype = read_i32(reader)?;
+    let ftype = read_u32(reader)?;
     FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))
 }
 
