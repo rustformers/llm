@@ -1374,9 +1374,8 @@ dependencies = [
 
 [[package]]
 name = "llm-samplers"
-version = "0.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7553f60d113c9cdc6a5402456a31cd9a273bef79f6f16d8a4f7b4bedf5f754b2"
+version = "0.0.7"
+source = "git+https://github.com/KerfuffleV2/llm-samplers?branch=feat-v0.0.7#8c72d0c2838471bfbe26394694b41054bd789549"
 dependencies = [
  "anyhow",
  "num-traits",
