@@ -290,6 +290,15 @@ pub struct Generate {
     /// top_p - The probability for the top tokens are added until the result is greater or equal to P and at least min_keep tokens have been seen.
     ///   p(0.95): The cumulative probability after which no more tokens are kept for sampling.
     ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
+    ///
+    /// top_a (default: disabled) - This sampler prunes tokens that don't meet a threshold based on the most probable token. The formula is `a1 * pow(max_prob, a2)`. See https://github.com/BlinkDL/RWKV-LM#the-top-a-sampling-method for more information.
+    ///   a1(0.0): Threshold scale. A reasonable value is 0.2. Setting either a1 or a2 to 0 disables the sampler.
+    ///   a2(0.0): Threshold power. A reasonable value is 2.
+    ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
+    ///
+    /// min_p (default: disabled) - This sampler prunes tokens that don't meet a certain percentage of the most probable token. For example if `p` is `0.05` then after `min_keep` is satisfied, other tokens must be at least 5% of the most probable token. See https://github.com/ggerganov/llama.cpp/issues/3483 for more information.
+    ///   p(0.0): Probability threshold. 0.05 to 0.2 are good starting values to try. Setting this to 0 disables the sampler.
+    ///   min_keep(1): Minimum tokens to keep. Setting this to 0 is not recommended.
     #[arg(long = "sampler", short = 's', verbatim_doc_comment)]
     pub sampler_options: Vec<String>,
 
