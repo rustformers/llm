@@ -14,8 +14,8 @@ pub struct MetalContext {
 
 impl MetalContext {
     /// Create a new Metal context
-    pub fn new(n_threads: usize) -> Self {
-        let raw = unsafe { metal::ggml_metal_init(n_threads.try_into().unwrap()) };
+    pub fn new() -> Self {
+        let raw = unsafe { metal::ggml_metal_init(1) };
 
         MetalContext {
             contexts: vec![],
@@ -83,19 +83,14 @@ impl MetalContext {
         unsafe {
             metal::ggml_metal_graph_compute(
                 self.ptr.as_ptr(),
-                graph.inner as *mut ggml_sys::ggml_cgraph as *mut metal::ggml_cgraph,
+                graph.inner as *mut ggml_sys::ggml_cgraph,
             );
         }
     }
 
     /// Reads a tensor from Metal
     pub fn get_tensor(&self, tensor: &Tensor) {
-        unsafe {
-            metal::ggml_metal_get_tensor(
-                self.ptr.as_ptr(),
-                tensor.ptr.as_ptr() as *mut metal::ggml_tensor,
-            )
-        }
+        unsafe { metal::ggml_metal_get_tensor(self.ptr.as_ptr(), tensor.ptr.as_ptr()) }
     }
 }
 

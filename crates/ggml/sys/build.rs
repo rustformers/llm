@@ -12,8 +12,13 @@ fn main() {
     let mut builder = cc::Build::new();
 
     let build = builder
-        .files(["llama-cpp/ggml.c", "llama-cpp/k_quants.c"])
+        .files([
+            "llama-cpp/ggml.c",
+            "llama-cpp/k_quants.c",
+            "llama-cpp/ggml-alloc.c",
+        ])
         .define("GGML_USE_K_QUANTS", None)
+        .define("QK_K", Some("256"))
         .includes(["llama-cpp"]);
 
     // This is a very basic heuristic for applying compile flags.
@@ -85,6 +90,10 @@ fn main() {
             }
         }
         _ => {}
+    }
+
+    if compiler.is_like_gnu() && target_os == "linux" {
+        build.define("_GNU_SOURCE", None);
     }
 
     if is_release {

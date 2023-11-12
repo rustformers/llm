@@ -1,13 +1,13 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The BERT model.
@@ -29,7 +29,7 @@ pub struct Bert {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Bert {}
@@ -158,7 +158,7 @@ impl KnownModel for Bert {
             params,
             tokenizer,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 
@@ -181,7 +181,6 @@ impl KnownModel for Bert {
         output_request: &mut OutputRequest,
     ) {
         let input_len = input_tokens.len();
-        let _session_len = session.n_past;
         let _ctx_size = self.params.context_size;
 
         let Hyperparameters {
@@ -198,7 +197,7 @@ impl KnownModel for Bert {
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
             let mut ctx0 = builder.ctx0.borrow_mut();
-            let gf = ggml::ComputationGraph::new();
+            let gf = ctx0.create_compute_graph();
 
             let embd = builder.embd;
 
@@ -356,6 +355,7 @@ impl KnownModel for Bert {
                 GraphOutputs {
                     result: input_layer.share(),
                     embedding_result: input_layer.share(),
+                    output_length: input_len,
                 },
             )
         });

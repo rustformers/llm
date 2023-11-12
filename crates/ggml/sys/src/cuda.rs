@@ -3,15 +3,17 @@
 use super::ggml_compute_params;
 use super::ggml_tensor;
 
+pub const GGML_CUDA_NAME: &[u8; 5usize] = b"CUDA\0";
+pub const GGML_CUBLAS_NAME: &[u8; 7usize] = b"cuBLAS\0";
 pub const GGML_CUDA_MAX_DEVICES: u32 = 16;
 extern "C" {
     pub fn ggml_init_cublas();
 }
 extern "C" {
-    pub fn ggml_cuda_set_tensor_split(tensor_split: *const f32);
+    pub fn ggml_cuda_host_malloc(size: usize) -> *mut ::std::os::raw::c_void;
 }
 extern "C" {
-    pub fn ggml_cuda_mul(src0: *const ggml_tensor, src1: *const ggml_tensor, dst: *mut ggml_tensor);
+    pub fn ggml_cuda_host_free(ptr: *mut ::std::os::raw::c_void);
 }
 extern "C" {
     pub fn ggml_cuda_can_mul_mat(
@@ -21,26 +23,7 @@ extern "C" {
     ) -> bool;
 }
 extern "C" {
-    pub fn ggml_cuda_mul_mat_get_wsize(
-        src0: *const ggml_tensor,
-        src1: *const ggml_tensor,
-        dst: *mut ggml_tensor,
-    ) -> usize;
-}
-extern "C" {
-    pub fn ggml_cuda_mul_mat(
-        src0: *const ggml_tensor,
-        src1: *const ggml_tensor,
-        dst: *mut ggml_tensor,
-        wdata: *mut ::std::os::raw::c_void,
-        wsize: usize,
-    );
-}
-extern "C" {
-    pub fn ggml_cuda_host_malloc(size: usize) -> *mut ::std::os::raw::c_void;
-}
-extern "C" {
-    pub fn ggml_cuda_host_free(ptr: *mut ::std::os::raw::c_void);
+    pub fn ggml_cuda_set_tensor_split(tensor_split: *const f32);
 }
 extern "C" {
     pub fn ggml_cuda_transform_tensor(data: *mut ::std::os::raw::c_void, tensor: *mut ggml_tensor);
@@ -56,6 +39,12 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_cuda_assign_buffers_force_inplace(tensor: *mut ggml_tensor);
+}
+extern "C" {
+    pub fn ggml_cuda_assign_buffers_no_alloc(tensor: *mut ggml_tensor);
+}
+extern "C" {
+    pub fn ggml_cuda_assign_scratch_offset(tensor: *mut ggml_tensor, offset: usize);
 }
 extern "C" {
     pub fn ggml_cuda_set_main_device(main_device: ::std::os::raw::c_int);
@@ -74,4 +63,14 @@ extern "C" {
         params: *mut ggml_compute_params,
         tensor: *mut ggml_tensor,
     ) -> bool;
+}
+extern "C" {
+    pub fn ggml_cuda_get_device_count() -> ::std::os::raw::c_int;
+}
+extern "C" {
+    pub fn ggml_cuda_get_device_description(
+        device: ::std::os::raw::c_int,
+        description: *mut ::std::os::raw::c_char,
+        description_size: usize,
+    );
 }

@@ -128,8 +128,9 @@ impl LoraAdapter {
         gf.build_forward_expand(&output);
 
         //TODO: maybe pass the model's thread count to this context
+        let mut work_buffer = vec![0u8];
         let mut plan = GraphExecutionPlan::new(&mut gf, 8);
-        plan.execute(&patch_context);
+        plan.execute(&mut work_buffer);
 
         // Overwrite the original tensor.
         // The `output` and the `target_tensor` are not from the same context,
