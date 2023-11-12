@@ -141,7 +141,7 @@ fn feed_prompt_with_spinner(
         prompt.insert(0, '\n');
     }
 
-    let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
+    let mut sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
     let result = session.feed_prompt(
         model,
         &prompt,
