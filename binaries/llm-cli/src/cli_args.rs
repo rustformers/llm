@@ -542,7 +542,7 @@ impl ModelLoad {
         let tokenizer_source = match self.model_and_tokenizer.to_source() {
             Ok(vs) => vs,
             Err(err) => {
-                if let Some(sp) = sp.take() {
+                if let Some(mut sp) = sp.take() {
                     sp.fail(&format!("Failed to load tokenizer: {}", err));
                 }
                 return Err(err);
@@ -595,7 +595,7 @@ impl ModelLoad {
                     file_size,
                     tensor_count,
                 } => {
-                    if let Some(sp) = sp.take() {
+                    if let Some(mut sp) = sp.take() {
                         sp.success(&format!(
                             "Loaded {tensor_count} tensors ({}) after {}ms",
                             bytesize::to_string(file_size, false),
@@ -610,7 +610,7 @@ impl ModelLoad {
         if model.is_err() {
             // If we've failed at loading the model, we probably haven't stopped the spinner yet.
             // Cancel it now if needed.
-            if let Some(sp) = sp {
+            if let Some(mut sp) = sp {
                 sp.fail("Failed to load model")
             }
         }
