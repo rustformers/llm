@@ -16,6 +16,7 @@ llm-bloom = { path = "../models/bloom", optional = true, version = "0.2.0-dev" }
 llm-gptneox = { path = "../models/gptneox", optional = true, version = "0.2.0-dev" }
 llm-mpt = { path = "../models/mpt", optional = true, version = "0.2.0-dev" }
 llm-falcon = { path = "../models/falcon", optional = true, version = "0.2.0-dev" }
+llm-bert = { path = "../models/bert", optional = true, version = "0.2.0-dev" }
 
 serde = { workspace = true }
 tracing = { workspace = true }
@@ -34,13 +35,14 @@ default = ["models", "tokenizers-remote"]
 
 tokenizers-remote = ["llm-base/tokenizers-remote"]
 
-models = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt"]
+models = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt", "bert"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
 bloom = ["dep:llm-bloom"]
 gptneox = ["dep:llm-gptneox"]
 mpt = ["dep:llm-mpt"]
+bert = ["dep:llm-bert"]
 # Falcon is off by default. See `llm_falcon`'s module documentation for more information.
 falcon = ["dep:llm-falcon"]
 
