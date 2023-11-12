@@ -77,9 +77,9 @@ fn main() {
             if compiler.is_like_clang() || compiler.is_like_gnu() {
                 if target_os == "macos" {
                     build.flag("-mcpu=apple-m1");
-                    build.flag("-mfpu=neon");
                 } else if std::env::var("HOST") == std::env::var("TARGET") {
                     build.flag("-mcpu=native");
+                    build.flag("-mfpu=neon");
                 }
                 build.flag("-pthread");
             }
