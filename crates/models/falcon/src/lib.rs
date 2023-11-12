@@ -7,14 +7,12 @@
 //! supported. It is currently only available as a preview.
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The Falcon model. Ref: [Technology Innovation Institute](https://huggingface.co/tiiuae)
@@ -39,7 +37,7 @@ pub struct Falcon {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Falcon {}
@@ -138,7 +136,7 @@ impl KnownModel for Falcon {
             output_norm_b,
             lm_head,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 
@@ -158,8 +156,6 @@ impl KnownModel for Falcon {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let input_len = input_tokens.len();
-        let session_len = session.n_past;
         let ctx_size = self.params.context_size;
 
         let Hyperparameters {
@@ -172,9 +168,12 @@ impl KnownModel for Falcon {
         } = self.hyperparameters;
 
         let head_dim = n_embd / n_head;
-        let n = input_len;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let input_len = builder.input_length();
+            let n = input_len;
+            let session_len = builder.n_past;
+
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.tok_embeddings, embd);
@@ -194,7 +193,6 @@ impl KnownModel for Falcon {
 
             for il in 0..n_layer {
                 // attention uses first scratch buffer
-                ctx0.use_scratch(builder.get_scratch(0));
                 ctx0.set_offloading(self.params.should_offload(il));
 
                 // self-attention
@@ -321,9 +319,6 @@ impl KnownModel for Falcon {
                 // projection
                 current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
 
-                // feed forward uses second scratch buffer
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 let inp_ff = layernorm_output.share();
                 let attn_out =
                     ctx0.op_cpy(&current, &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, n));
@@ -338,8 +333,6 @@ impl KnownModel for Falcon {
                 input_layer = current.share();
             }
 
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // norm
             input_layer = ctx0.op_norm(&input_layer);
 
@@ -351,7 +344,6 @@ impl KnownModel for Falcon {
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
             ctx0.set_offloading(false);
-            ctx0.use_scratch(None);
 
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.lm_head, &input_layer);
@@ -361,14 +353,25 @@ impl KnownModel for Falcon {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: n,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, input_len);
-        common::extract_logits(output_request, &outputs.result, n_vocab, input_len);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

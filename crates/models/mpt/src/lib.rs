@@ -1,14 +1,12 @@
 //! An implementation of [MPT](https://huggingface.co/mosaicml) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-
 use ggml::Tensor;
 use llm_base::{
     ggml::{self},
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The MosaicML Pretrained Transformer (MPT) model. Ref: [Mosaic ML](https://www.mosaicml.com/blog/mpt-7b)
@@ -31,7 +29,7 @@ pub struct Mpt {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Mpt {}
@@ -78,7 +76,7 @@ impl KnownModel for Mpt {
             wte,
             norm,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 
@@ -98,8 +96,6 @@ impl KnownModel for Mpt {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let session_len = session.n_past;
         let ctx_size = self.params.context_size;
 
         let Hyperparameters {
@@ -112,6 +108,8 @@ impl KnownModel for Mpt {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let n = builder.input_length();
+            let session_len = builder.n_past;
             let ctx0 = builder.ctx0.borrow();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
@@ -125,9 +123,6 @@ impl KnownModel for Mpt {
 
             let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
-                // attention uses first scratch buffer
-                ctx0.use_scratch(builder.get_scratch(0));
-
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_mul(&current, &self.layers[il].norm_1_weight);
 
@@ -215,9 +210,6 @@ impl KnownModel for Mpt {
 
                 input_layer = ctx0.op_add(&input_layer, &current);
 
-                // feed forward uses second scratch buffer
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_mul(&current, &self.layers[il].norm_2_weight);
 
@@ -231,17 +223,12 @@ impl KnownModel for Mpt {
                 input_layer = ctx0.op_add(&input_layer, &current);
             }
 
-            //use scratch buffer 0 for the rest
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // norm
             input_layer = ctx0.op_norm(&input_layer);
             input_layer = ctx0.op_mul(&input_layer, &self.norm);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            // disable scratch buffer for last layer
-            ctx0.use_scratch(None);
             // output embedding weight tied to input embedding
             input_layer = ctx0.op_mul_mat(&self.wte, &input_layer);
 
@@ -250,14 +237,25 @@ impl KnownModel for Mpt {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: n,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, n);
-        common::extract_logits(output_request, &outputs.result, n_vocab, n);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

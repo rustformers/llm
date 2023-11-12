@@ -141,7 +141,7 @@ fn feed_prompt_with_spinner(
         prompt.insert(0, '\n');
     }
 
-    let sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
+    let mut sp = spinoff::Spinner::new(spinoff::spinners::Dots2, "".to_string(), None);
     let result = session.feed_prompt(
         model,
         &prompt,
@@ -165,8 +165,7 @@ fn session_ends_with_newline(session: &llm::InferenceSession) -> bool {
     session
         .decoded_tokens()
         .last()
-        .map(|t| *t == b'\n')
-        .unwrap_or(true)
+        .map_or(true, |t| *t == b'\n')
 }
 
 fn readline_loop(mut body: impl FnMut(String) -> eyre::Result<()>) -> eyre::Result<()> {

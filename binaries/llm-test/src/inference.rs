@@ -92,14 +92,14 @@ fn run_inference(
 // Takes the most likely element from the logits, except if they've appeared in `previous_tokens`
 // at all
 #[derive(Debug, Default)]
-struct DeterministicSampler(SampleGreedy<TokenId>);
+struct DeterministicSampler(SampleGreedy);
 
-impl Sampler<TokenId, f32> for DeterministicSampler {
+impl Sampler for DeterministicSampler {
     fn sample<'a>(
         &mut self,
-        res: &mut dyn HasSamplerResources<TokenId = TokenId>,
-        logits: &'a mut Logits<TokenId, f32>,
-    ) -> anyhow::Result<&'a mut Logits<TokenId, f32>> {
+        res: &mut dyn HasSamplerResources,
+        logits: &'a mut Logits,
+    ) -> anyhow::Result<&'a mut Logits> {
         let mut flat_bias = Default::default();
 
         // This might look a little weird, but it's necessary because the resource

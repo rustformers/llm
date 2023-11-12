@@ -5,11 +5,12 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use crate::{
-    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelParameters, TokenId,
-    Tokenizer, TokenizerLoadError, TokenizerSource,
+    util, Hyperparameters, KnownModel, LoraAdapter, LoraParameters, ModelContext, ModelParameters,
+    TokenId, Tokenizer, TokenizerLoadError, TokenizerSource,
 };
 pub use ggml::{format::FormatMagic, ContainerType};
 use ggml::{
@@ -31,13 +32,13 @@ pub struct FileType {
 impl From<FileType> for i32 {
     fn from(value: FileType) -> Self {
         (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
-            + ggml::sys::llama::llama_ftype::from(value.format)
+            + ggml::sys::llama::llama_ftype::from(value.format) as i32
     }
 }
-impl TryFrom<i32> for FileType {
+impl TryFrom<u32> for FileType {
     type Error = ();
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         let format = FileTypeFormat::try_from(
             ((value as u32) % ggml::QNT_VERSION_FACTOR) as ggml::sys::llama::llama_ftype,
         )?;
@@ -251,7 +252,7 @@ pub enum LoadError {
     #[error("unsupported ftype: {0}")]
     /// The `ftype` hyperparameter had an invalid value. This usually means that the format used
     /// by this file is unrecognized by this version of `llm`.
-    UnsupportedFileType(i32),
+    UnsupportedFileType(u32),
     #[error("invalid magic number {magic} for {path:?}")]
     /// An invalid magic number was encountered during the loading process.
     InvalidMagic {
@@ -398,7 +399,7 @@ pub trait TensorLoader<E: std::error::Error> {
     /// Gets a tensor from the loader.
     fn load(&mut self, name: &str) -> Result<ggml::Tensor, E>;
     /// Finish loading the model, returning the context.
-    fn finish(self) -> Context;
+    fn finish(self) -> ModelContext;
 }
 
 /// Load a GGML model from the `path` and configure it per the `params`. The status
@@ -653,12 +654,7 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
             path: Default::default(),
         })?;
 
-        let mut main_context = FileContext::new(
-            &self.context,
-            &mut self.file,
-            &self.path,
-            self.context.storage().as_mmap(),
-        );
+        let mut main_context = FileContext::new(&self.context, &mut self.file, &self.path);
 
         let mut tensor = main_context.get_tensor(info)?;
 
@@ -681,8 +677,11 @@ impl TensorLoader<LoadError> for MmapCompatibleLoader<'_> {
         Ok(tensor)
     }
 
-    fn finish(self) -> Context {
-        self.context
+    fn finish(self) -> ModelContext {
+        // We can ignore this warning as it's OK to share this particular
+        // context around, being that it is immutable.
+        #[allow(clippy::arc_with_non_send_sync)]
+        ModelContext(Arc::new(self.context))
     }
 }
 
@@ -690,20 +689,13 @@ pub(crate) struct FileContext<'a> {
     context: &'a Context,
     file: &'a mut File,
     path: &'a Path,
-    mmap: Option<&'a Mmap>,
 }
 impl<'a> FileContext<'a> {
-    pub(crate) fn new(
-        context: &'a Context,
-        file: &'a mut File,
-        path: &'a Path,
-        mmap: Option<&'a Mmap>,
-    ) -> Self {
+    pub(crate) fn new(context: &'a Context, file: &'a mut File, path: &'a Path) -> Self {
         Self {
             context,
             file,
             path,
-            mmap,
         }
     }
 
@@ -738,7 +730,7 @@ impl<'a> FileContext<'a> {
             }
         };
 
-        match self.mmap {
+        match self.context.storage().as_mmap() {
             Some(mmap) => unsafe {
                 let ptr = mmap.as_ptr().offset(info.start_offset as isize);
                 tensor.set_data(ptr as *mut std::ffi::c_void);

@@ -119,7 +119,7 @@ following 2 ⨯ 2 tensor named `tensor_a0`:
 </table>
 
 A simplification of the GGML representation of `tensor_a0` is
-`{"tensor_a0", [2, 2, 1, 1], [1.0, 0.0, 0.1, 1.0]}`. Note that the 4-element
+`{"tensor_a0", [2, 2, 1, 1], [1.0, 0.0, 0.1, 1.1]}`. Note that the 4-element
 list of dimensions uses `1` as a placeholder for unused dimensions - this is
 because the product of the dimensions should not equal zero.
 

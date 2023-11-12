@@ -1,14 +1,12 @@
 //! An implementation of [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::sync::Arc;
-
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TokenId, Tokenizer,
 };
 
 /// The GPT-2 model. Ref: [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
@@ -38,7 +36,7 @@ pub struct Gpt2 {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for Gpt2 {}
@@ -123,7 +121,7 @@ impl KnownModel for Gpt2 {
             wte,
             wpe,
             lm_head,
-            context: Arc::new(context),
+            context,
         })
     }
 
@@ -143,8 +141,6 @@ impl KnownModel for Gpt2 {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let input_len = input_tokens.len();
-        let session_len = session.n_past;
         let ctx_size = self.params.context_size;
 
         let Hyperparameters {
@@ -156,6 +152,8 @@ impl KnownModel for Gpt2 {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let input_len = builder.input_length();
+            let session_len = builder.n_past;
             let mut ctx0 = builder.ctx0.borrow_mut();
             let (memory_k_size, memory_v_size) = (
                 builder.memory_k.element_size(),
@@ -176,7 +174,7 @@ impl KnownModel for Gpt2 {
             let mut gf = ctx0.create_compute_graph();
             for il in 0..n_layer {
                 ctx0.set_offloading(self.params.should_offload(il));
-                ctx0.use_scratch(builder.get_scratch(0));
+
                 // norm
                 let mut current = ctx0.op_norm(&input_layer);
                 current = ctx0.op_add(
@@ -283,8 +281,6 @@ impl KnownModel for Gpt2 {
                 // feed-forward
                 let ff_in = current.share();
 
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 // feed-forward normalization
                 current = ctx0.op_norm(&ff_in);
                 current = ctx0.op_add(
@@ -307,13 +303,10 @@ impl KnownModel for Gpt2 {
                 input_layer = ctx0.op_add(&current, &ff_in);
             }
 
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // normalization
             input_layer = ctx0.op_norm(&input_layer);
             input_layer = ctx0.op_add(&ctx0.op_mul(&input_layer, &self.ln_f_g), &self.ln_f_b);
 
-            ctx0.use_scratch(None);
             ctx0.set_offloading(false);
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
@@ -326,14 +319,25 @@ impl KnownModel for Gpt2 {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: input_len,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, input_len);
-        common::extract_logits(output_request, &outputs.result, n_vocab, input_len);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

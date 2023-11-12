@@ -35,7 +35,7 @@ pub use loader::{
 };
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model, ModelParameters, OutputRequest};
+pub use model::{Hyperparameters, KnownModel, Model, ModelContext, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use tokenizer::{
@@ -60,7 +60,7 @@ pub struct InferenceParameters {
     /// This can be anything that implements [Sampler]. Refer to
     /// the `llm-samplers` documentation for possible samplers and suggested
     /// combinations: <https://docs.rs/llm-samplers>
-    pub sampler: Arc<Mutex<dyn Sampler<TokenId, f32>>>,
+    pub sampler: Arc<Mutex<dyn Sampler>>,
 }
 
 //Since Sampler implements Send and Sync, InferenceParameters should too.

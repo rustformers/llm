@@ -2,14 +2,14 @@
 //! This crate also supports the [RedPajama](https://www.together.xyz/blog/redpajama) GPT-NeoX model.
 #![deny(missing_docs)]
 
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use ggml::Tensor;
 use llm_base::{
     ggml,
     model::{common, HyperparametersWriteError},
     util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
 };
 
 /// The GPT-NeoX model. Ref: [GitHub](https://github.com/EleutherAI/gpt-neox)
@@ -35,7 +35,7 @@ pub struct GptNeoX {
     layers: Vec<Layer>,
 
     // must be kept alive for the model
-    context: Arc<ggml::Context>,
+    context: ModelContext,
 }
 
 unsafe impl Send for GptNeoX {}
@@ -137,7 +137,7 @@ impl KnownModel for GptNeoX {
             wte,
             lmh_g,
             layers,
-            context: Arc::new(context),
+            context,
         })
     }
 
@@ -159,8 +159,6 @@ impl KnownModel for GptNeoX {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let n = input_tokens.len();
-        let n_past = session.n_past;
         let n_ctx = self.params.context_size;
 
         let Hyperparameters {
@@ -174,6 +172,9 @@ impl KnownModel for GptNeoX {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let n = builder.input_length();
+            let n_past = builder.n_past;
+
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
             let mut input_layer = ctx0.op_get_rows(&self.wte, embd);
@@ -186,8 +187,6 @@ impl KnownModel for GptNeoX {
 
             for il in 0..n_layer {
                 ctx0.set_offloading(self.params.should_offload(il));
-                // attention uses first scratch buffer
-                ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
@@ -301,9 +300,6 @@ impl KnownModel for GptNeoX {
                 current = ctx0.op_mul_mat(&self.layers[il].c_attn_proj_w, &current);
                 current = ctx0.op_add(&current, &self.layers[il].c_attn_proj_b);
 
-                // use the second scratch for the feed forward
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 let feedforward_input: Tensor;
                 if !use_parallel_residual {
                     feedforward_input = ctx0.op_add(&current, &input_layer);
@@ -326,9 +322,6 @@ impl KnownModel for GptNeoX {
                 }
             }
 
-            // use the first scratch for the norm
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // normalize the output
             input_layer = ctx0.op_norm(&input_layer);
             // inpL = ln_f_g*inpL + ln_f_b
@@ -336,8 +329,6 @@ impl KnownModel for GptNeoX {
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            // Disable the scratchbuffer
-            ctx0.use_scratch(None);
             ctx0.set_offloading(false);
             // apply language model head
             input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
@@ -347,14 +338,25 @@ impl KnownModel for GptNeoX {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: n,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, n);
-        common::extract_logits(output_request, &outputs.result, n_vocab, n);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, n);
+        common::read_last_token(session, &outputs.result, n_vocab, outputs.output_length);
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            n_vocab,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            n_embd,
+            outputs.output_length,
+        );
     }
 
     fn hyperparameters(&self) -> &Self::Hyperparameters {

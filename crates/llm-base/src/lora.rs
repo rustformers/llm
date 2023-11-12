@@ -106,7 +106,7 @@ impl LoraAdapter {
         // Create a temporary context for the patching operations
         // TODO: test if GPU can be enabled (make it configurable)
         let patch_context = ggml::Context::new_with_allocate(patch_context_size);
-        let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path, None);
+        let mut patch_file = FileContext::new(&patch_context, &mut self.file, &self.path);
 
         // Load the A and B tensors
         let a = patch_file.get_tensor(&a_info)?;
@@ -128,8 +128,9 @@ impl LoraAdapter {
         gf.build_forward_expand(&output);
 
         //TODO: maybe pass the model's thread count to this context
+        let mut work_buffer = vec![0u8];
         let mut plan = GraphExecutionPlan::new(&mut gf, 8);
-        plan.execute(&patch_context);
+        plan.execute(&mut work_buffer);
 
         // Overwrite the original tensor.
         // The `output` and the `target_tensor` are not from the same context,
