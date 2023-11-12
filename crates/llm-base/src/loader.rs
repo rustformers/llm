@@ -40,12 +40,12 @@ impl TryFrom<u32> for FileType {
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let format = FileTypeFormat::try_from(
-            ((value as u32) % ggml::QNT_VERSION_FACTOR) as ggml::sys::llama::llama_ftype,
+            (value % ggml::QNT_VERSION_FACTOR) as ggml::sys::llama::llama_ftype,
         )?;
 
         Ok(Self {
             format,
-            quantization_version: (value as u32) / ggml::QNT_VERSION_FACTOR,
+            quantization_version: value / ggml::QNT_VERSION_FACTOR,
         })
     }
 }

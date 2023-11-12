@@ -90,9 +90,9 @@ fn generate_metal(ggml_path: &Path, src_path: &Path) {
     generate_extra("metal", ggml_path, src_path, |b| {
         b.header(ggml_path.join("ggml-metal.h").to_string_lossy())
             .allowlist_file(r".*ggml-metal\.h")
-            .raw_line("use super::ggml_tensor;")
-            .raw_line("use super::ggml_log_callback;")
             .raw_line("use super::ggml_cgraph;")
+            .raw_line("use super::ggml_log_callback;")
+            .raw_line("use super::ggml_tensor;")
     });
 }
 
