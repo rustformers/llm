@@ -1242,6 +1242,7 @@ dependencies = [
  "bytesize",
  "clap",
  "llm-base",
+ "llm-bert",
  "llm-bloom",
  "llm-falcon",
  "llm-gpt2",
@@ -1274,6 +1275,15 @@ dependencies = [
  "serde_bytes",
  "thiserror",
  "tokenizers",
+ "tracing",
+]
+
+[[package]]
+name = "llm-bert"
+version = "0.2.0-dev"
+dependencies = [
+ "bytemuck",
+ "llm-base",
  "tracing",
 ]
 

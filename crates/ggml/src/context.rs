@@ -271,6 +271,12 @@ impl Context {
     pub fn storage(&self) -> &ContextStorage {
         self.storage.as_ref().unwrap()
     }
+
+    /// Set all values of the tensor with the specified value.
+    pub fn set_f32(&self, a: &Tensor, x: f32) -> Tensor {
+        let raw = unsafe { sys::ggml_set_f32(a.ptr.as_ptr(), x) };
+        self.new_tensor_raw(raw)
+    }
 }
 // Operations
 impl Context {
@@ -621,6 +627,30 @@ impl Context {
                 masked,
             )
         };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with the square of `a`
+    pub fn op_sqr(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sqr(self.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with the square-root of `a`
+    pub fn op_sqrt(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sqrt(self.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Unknown
+    pub fn op_sum(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sum(self.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Unknown
+    pub fn op_div(&self, a: &Tensor, b: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_div(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 }
