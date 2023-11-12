@@ -8,13 +8,13 @@
 #![deny(missing_docs)]
 
 mod inference_session;
-mod loader;
 mod lora;
 mod quantize;
-mod tokenizer;
 
+pub mod loader;
 pub mod model;
 pub mod samplers;
+pub mod tokenizer;
 pub mod util;
 
 use std::sync::{Arc, Mutex};
@@ -29,13 +29,10 @@ pub use inference_session::{
     ModelKVMemoryType, RewindError, SnapshotError,
 };
 pub use llm_samplers::prelude::{Sampler, SamplerChain};
-pub use loader::{
-    load, load_progress_callback_stdout, ContainerType, FileType, FileTypeFormat, FormatMagic,
-    LoadError, LoadProgress, Loader, TensorLoader,
-};
+pub use loader::{ContainerType, FileMagic, FileType, FileTypeFormat};
 pub use lora::{LoraAdapter, LoraParameters};
 pub use memmap2::Mmap;
-pub use model::{Hyperparameters, KnownModel, Model, ModelContext, ModelParameters, OutputRequest};
+pub use model::{Model, ModelContext, ModelParameters, OutputRequest};
 pub use quantize::{quantize, QuantizeError, QuantizeProgress};
 pub use regex::Regex;
 pub use tokenizer::{

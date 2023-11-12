@@ -6,67 +6,16 @@
 
 use std::{
     error::Error,
-    fmt,
     io::{BufRead, Seek, SeekFrom},
 };
 
 use crate::{
+    format::{data_size, header_size, ContainerType, ContainerTypeReadError},
     util::{has_data_left, read_bytes_with_len, read_f32, read_i32, read_u32},
-    ContainerType, ElementType,
+    ElementType,
 };
 
-/// Helper struct that wraps the magic number of a file format,
-/// so that it can be printed in a human-readable format.
-pub struct FormatMagic(pub u32);
-impl fmt::Display for FormatMagic {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:x} ({})",
-            self.0,
-            String::from_utf8_lossy(&self.0.to_le_bytes())
-        )
-    }
-}
-impl fmt::Debug for FormatMagic {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-/// Errors that can occur while loading a model.
-pub enum LoadError<E: Error> {
-    #[error("invalid file magic number: {0}")]
-    /// The file magic number is invalid.
-    InvalidMagic(FormatMagic),
-    #[error("invalid ggml format: format={0:?}")]
-    /// An unsupported format version was found.
-    InvalidFormatVersion(ContainerType),
-    #[error("non-specific I/O error")]
-    /// A non-specific IO error.
-    Io(#[from] std::io::Error),
-    #[error("could not convert bytes to a UTF-8 string")]
-    /// One of the strings encountered was not valid UTF-8.
-    InvalidUtf8(#[from] std::string::FromUtf8Error),
-    #[error("invalid integer conversion")]
-    /// One of the integers encountered could not be converted to a more appropriate type.
-    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
-    #[error("implementation error")]
-    /// An error `E` was returned by the implementation of the loader.
-    ImplementationError(#[source] E),
-    #[error("unsupported tensor type {ftype} for tensor {tensor_name}")]
-    /// One of the tensors encountered had an unsupported data type.
-    UnsupportedElementType {
-        /// The name of the tensor.
-        tensor_name: String,
-        /// The format type that was encountered.
-        ftype: u32,
-    },
-    #[error("invariant broken: {0}")]
-    /// An invariant was broken.
-    InvariantBroken(String),
-}
+use super::LoadError;
 
 #[derive(Debug, Clone)]
 /// Information about a [tensor](https://en.wikipedia.org/wiki/Tensor_(machine_learning)) that is being read.
@@ -118,21 +67,6 @@ impl TensorLoadInfo {
     }
 }
 
-/// Returns the size occupied by a tensor's data in bytes given the element type and number of elements.
-pub(crate) fn data_size(element_type: ElementType, n_elements: usize) -> usize {
-    (crate::type_size(element_type) * n_elements) / crate::blck_size(element_type)
-}
-
-/// Returns the size of the ggml tensor header in bytes.
-pub(crate) fn header_size() -> usize {
-    crate::Tensor::C_TYPE_SIZE + crate::OBJECT_SIZE
-}
-
-/// Returns the size of a tensor in bytes given the element type and number of elements. This includes the tensor's header.
-pub fn tensor_size(element_type: ElementType, n_elements: usize) -> usize {
-    header_size() + data_size(element_type, n_elements)
-}
-
 #[derive(Debug, Clone)]
 /// Information present within GGML [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
 /// that is required to continue loading the model.
@@ -162,7 +96,10 @@ pub fn load<E: Error, R: BufRead + Seek>(
     handler: &mut impl LoadHandler<E>,
 ) -> Result<(), LoadError<E>> {
     // Verify magic
-    let container_type = ContainerType::read(reader)?;
+    let container_type = ContainerType::read(reader).map_err(|e| match e {
+        ContainerTypeReadError::InvalidMagic(magic) => LoadError::InvalidMagic(magic),
+        ContainerTypeReadError::Io(io) => LoadError::Io(io),
+    })?;
 
     match container_type {
         ContainerType::Ggml
@@ -192,6 +129,9 @@ pub fn load<E: Error, R: BufRead + Seek>(
                 // Legacy model, set empty score
                 0.
             }
+            ContainerType::Gguf(_) => {
+                unreachable!("This loader should not be used with GGUF")
+            }
         };
         handler
             .vocabulary_token(i, token, token_score)
@@ -203,6 +143,9 @@ pub fn load<E: Error, R: BufRead + Seek>(
         ContainerType::Ggmf(_) | ContainerType::Ggml => load_weights(reader, handler, false),
         ContainerType::Ggjt(_version) | ContainerType::Ggla(_version) => {
             load_weights(reader, handler, true)
+        }
+        ContainerType::Gguf(_) => {
+            unreachable!("This loader should not be used with GGUF")
         }
     }
 }

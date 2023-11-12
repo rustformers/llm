@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::{TestCaseReport, TestCaseReportMeta};
 
 /// Tests that models can delete tokens without changing the model's behavior.
-pub(crate) fn can_delete(model: &impl Model) -> TestCaseReport {
+pub(crate) fn can_delete(model: &dyn Model) -> TestCaseReport {
     let report = DeleteReport::default();
     let mut session = model.start_session(Default::default());
     let mut output = OutputRequest {
@@ -61,7 +61,7 @@ pub(crate) fn can_delete(model: &impl Model) -> TestCaseReport {
 fn feed_prompt(
     prompt: &str,
     session: &mut InferenceSession,
-    model: &impl Model,
+    model: &dyn Model,
     output: &mut OutputRequest,
 ) -> Result<(), llm::InferenceError> {
     session.feed_prompt(model, prompt, output, always_continue)

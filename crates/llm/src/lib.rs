@@ -7,6 +7,7 @@
 //! - [GPT-NeoX](llm_gptneox)
 //! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
+//! - [BERT](llm_bert)
 //! - Falcon (currently disabled due to incompleteness)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
@@ -19,7 +20,7 @@
 //! use llm::Model;
 //!
 //! // load a GGML model from disk
-//! let llama = llm::load::<llm::models::Llama>(
+//! let llama = llm::load(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
 //!     // llm::TokenizerSource
@@ -35,7 +36,7 @@
 //! let mut session = llama.start_session(Default::default());
 //! let res = session.infer::<std::convert::Infallible>(
 //!     // model to use for text generation
-//!     &llama,
+//!     llama.as_ref(),
 //!     // randomness provider
 //!     &mut rand::thread_rng(),
 //!     // the prompt to use for text generation, as well as other
@@ -70,7 +71,6 @@
 use std::{
     error::Error,
     fmt::{Debug, Display},
-    path::Path,
     str::FromStr,
 };
 
@@ -80,20 +80,22 @@ pub use llm_base::{
     conversation_inference_callback, feed_prompt_callback,
     ggml::accelerator::get_accelerator as ggml_get_accelerator,
     ggml::accelerator::Accelerator as GgmlAccelerator, ggml::format as ggml_format,
-    ggml::RoPEOverrides, load, load_progress_callback_stdout, quantize, samplers, ElementType,
-    FileType, FileTypeFormat, FormatMagic, Hyperparameters, InferenceError, InferenceFeedback,
-    InferenceParameters, InferenceRequest, InferenceResponse, InferenceSession,
-    InferenceSessionConfig, InferenceSnapshot, InferenceSnapshotRef, InferenceStats,
-    InvalidTokenBias, KnownModel, LoadError, LoadProgress, Loader, Model, ModelKVMemoryType,
+    ggml::RoPEOverrides, quantize, samplers, tokenizer, ElementType, FileMagic, FileType,
+    FileTypeFormat, InferenceError, InferenceFeedback, InferenceParameters, InferenceRequest,
+    InferenceResponse, InferenceSession, InferenceSessionConfig, InferenceSnapshot,
+    InferenceSnapshotRef, InferenceStats, InvalidTokenBias, Model, ModelKVMemoryType,
     ModelParameters, OutputRequest, Prompt, QuantizeError, QuantizeProgress, RewindError,
     SnapshotError, TokenBias, TokenId, TokenUtf8Buffer, TokenizationError, Tokenizer,
     TokenizerSource,
 };
 
+mod loader;
+pub use loader::{load, load_progress_callback_stdout, LoadError, LoadProgress};
+
 use serde::Serialize;
 
 macro_rules! define_models {
-    ($(($model_lowercase:ident, $model_lowercase_str:literal, $model_pascalcase:ident, $krate_ident:ident, $display_name:literal)),*) => {
+    ($(($model_lowercase:ident, $model_lowercase_str:literal, $model_pascalcase:ident, $krate_ident:ident, $display_name:literal),)*) => {
         /// All available models.
         pub mod models {
             $(
@@ -124,7 +126,7 @@ macro_rules! define_models {
 
         impl ModelArchitecture {
             /// Use a visitor to dispatch some code based on the model architecture.
-            pub fn visit<R>(&self, visitor: &mut impl ModelArchitectureVisitor<R>) -> R {
+            pub fn visit<R>(&self, visitor: impl ModelArchitectureVisitor<R>) -> R {
                 match self {
                     $(
                         #[cfg(feature = $model_lowercase_str)]
@@ -172,24 +174,24 @@ macro_rules! define_models {
 }
 
 define_models!(
-    (bert, "bert", Bert, llm_bert, "Bert"),
-    (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
-    (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
-    (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),
+    // (bert, "bert", Bert, llm_bert, "Bert"),
+    // (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
+    // (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
+    // (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),
     (gptneox, "gptneox", GptNeoX, llm_gptneox, "GPT-NeoX"),
     (llama, "llama", Llama, llm_llama, "LLaMA"),
-    (mpt, "mpt", Mpt, llm_mpt, "MPT"),
-    (falcon, "falcon", Falcon, llm_falcon, "Falcon")
+    // (mpt, "mpt", Mpt, llm_mpt, "MPT"),
+    // (falcon, "falcon", Falcon, llm_falcon, "Falcon"),
 );
 
 /// Used to dispatch some code based on the model architecture.
 pub trait ModelArchitectureVisitor<R> {
     /// Visit a model architecture.
-    fn visit<M: KnownModel + 'static>(&mut self) -> R;
+    fn visit<M: Model + 'static>(self) -> R;
 }
 
 /// An unsupported model architecture was specified.
-pub struct UnsupportedModelArchitecture(String);
+pub struct UnsupportedModelArchitecture(pub String);
 impl Display for UnsupportedModelArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -202,66 +204,6 @@ impl Debug for UnsupportedModelArchitecture {
             .field(&self.0)
             .finish()
     }
-}
-
-/// A helper function that loads the specified model from disk using an architecture
-/// specified at runtime. If no architecture is specified, it will try to infer it
-/// from the model's metadata.
-///
-/// This method returns a [`Box`], which means that the model will have single ownership.
-/// If you'd like to share ownership (i.e. to use the model in multiple threads), we
-/// suggest using [`Arc::from(Box<T>)`](https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-From%3CBox%3CT,+Global%3E%3E-for-Arc%3CT%3E)
-/// to convert the [`Box`] into an [`Arc`](std::sync::Arc) after loading.
-pub fn load_dynamic(
-    architecture: Option<ModelArchitecture>,
-    path: &Path,
-    tokenizer_source: TokenizerSource,
-    params: ModelParameters,
-    load_progress_callback: impl FnMut(LoadProgress),
-) -> Result<Box<dyn Model>, LoadError> {
-    fn load_model<M: KnownModel + 'static>(
-        path: &Path,
-        tokenizer_source: TokenizerSource,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Box<dyn Model>, LoadError> {
-        Ok(Box::new(load::<M>(
-            path,
-            tokenizer_source,
-            params,
-            load_progress_callback,
-        )?))
-    }
-
-    let architecture = architecture.ok_or_else(|| LoadError::MissingModelArchitecture {
-        path: path.to_owned(),
-    })?;
-
-    struct LoadVisitor<'a, F: FnMut(LoadProgress)> {
-        path: &'a Path,
-        tokenizer_source: TokenizerSource,
-        params: ModelParameters,
-        load_progress_callback: F,
-    }
-    impl<'a, F: FnMut(LoadProgress)> ModelArchitectureVisitor<Result<Box<dyn Model>, LoadError>>
-        for LoadVisitor<'a, F>
-    {
-        fn visit<M: KnownModel + 'static>(&mut self) -> Result<Box<dyn Model>, LoadError> {
-            load_model::<M>(
-                self.path,
-                self.tokenizer_source.clone(),
-                self.params.clone(),
-                &mut self.load_progress_callback,
-            )
-        }
-    }
-
-    architecture.visit(&mut LoadVisitor {
-        path,
-        tokenizer_source,
-        params,
-        load_progress_callback,
-    })
 }
 
 #[cfg(test)]

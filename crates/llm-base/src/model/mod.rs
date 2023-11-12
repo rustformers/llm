@@ -1,54 +1,59 @@
 //! Large language model traits and types
 
-use std::{
-    error::Error,
-    fmt::Debug,
-    io::{BufRead, Write},
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
-use ggml::accelerator::Backend;
+use ggml::{
+    accelerator::Backend,
+    format::gguf::{Gguf, MetadataError},
+    sys::llama::llama_ftype,
+};
 use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    loader::TensorLoader, tokenizer::TokenId, FileType, InferenceSession, InferenceSessionConfig,
-    LoadError, LoadProgress, Tokenizer, TokenizerSource,
+    loader::{ModelTensorLoader, TensorLoadError},
+    tokenizer::TokenId,
+    InferenceSession, InferenceSessionConfig, Tokenizer,
 };
 
 /// Common functions for model evaluation
 pub mod common;
 
+/// All of the arguments required to load a model.
+pub struct ModelLoadArgs<'a> {
+    /// The GGUF metadata for the model.
+    pub gguf: &'a Gguf,
+    /// Model metadata.
+    pub data: ModelData,
+    /// The tensor loader to use for the model.
+    pub tensor_loader: ModelTensorLoader<'a>,
+}
+
+/// Model data that is required for all models.
+pub struct ModelData {
+    /// Any parameters that control the behaviour of the model.
+    pub params: ModelParameters,
+    /// The tokenizer to use for the model.
+    pub tokenizer: Tokenizer,
+}
+
+/// An error encountered while loading a concrete model.
+#[derive(Error, Debug)]
+pub enum ModelLoadError {
+    /// An error occurred while loading the model's tensors.
+    #[error("{0}")]
+    TensorLoadError(#[from] TensorLoadError),
+    /// An error occurred while reading the model's hyperparameters.
+    #[error("{0}")]
+    HyperparametersReadError(#[from] HyperparametersReadError),
+}
+
 /// Interfaces for creating and interacting with a large language model with a known type
 /// of [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning)).
-pub trait KnownModel: Send + Sync {
-    /// Hyperparameters for the model.
-    type Hyperparameters: Hyperparameters;
-
-    /// Load this model from the `path` and configure it per the `params`. The status
-    /// of the loading process will be reported through `load_progress_callback`. This
-    /// is a helper function on top of [llm_base::load](crate::load).
-    fn load(
-        path: &Path,
-        tokenizer_source: TokenizerSource,
-        params: ModelParameters,
-        load_progress_callback: impl FnMut(LoadProgress),
-    ) -> Result<Self, LoadError>
-    where
-        Self: Sized,
-    {
-        crate::load(path, tokenizer_source, params, load_progress_callback)
-    }
-
+pub trait Model: Send + Sync {
     /// Creates a new model from the provided [ModelParameters] hyperparameters.
     /// This function is called by the [load](crate::loader::load) function.
-    fn new<E: Error>(
-        hyperparameters: Self::Hyperparameters,
-        params: ModelParameters,
-        tokenizer: Tokenizer,
-        tensor_loader: impl TensorLoader<E>,
-    ) -> Result<Self, E>
+    fn new(args: ModelLoadArgs) -> Result<Self, ModelLoadError>
     where
         Self: Sized;
 
@@ -66,15 +71,19 @@ pub trait KnownModel: Send + Sync {
         output_request: &mut OutputRequest,
     );
 
-    /// Get the hyperparameters for this model.
-    fn hyperparameters(&self) -> &Self::Hyperparameters;
+    /// Get the data for this model.
+    fn data(&self) -> &ModelData;
 
     /// Get the tokenizer for this model.
-    fn tokenizer(&self) -> &Tokenizer;
+    fn tokenizer(&self) -> &Tokenizer {
+        &self.data().tokenizer
+    }
 
     /// Get the context size (configured with [ModelParameters::context_size]) used by
     /// this model.
-    fn context_size(&self) -> usize;
+    fn context_size(&self) -> usize {
+        self.data().params.context_size
+    }
 
     /// Get the beginning of text/beginning of string token ID, if available. This value is defined by model implementers.
     fn bot_token_id(&self) -> Option<TokenId>;
@@ -83,10 +92,10 @@ pub trait KnownModel: Send + Sync {
     fn eot_token_id(&self) -> TokenId;
 
     /// Get the list of regexes to use to determine if a tensor in this model should be quantized.
-    fn quantize_tensors() -> Vec<Regex>;
+    fn quantize_tensors(&self) -> Vec<Regex>;
 
     /// Get the list of regexes to use to determine if a tensor in this model should not be quantized.
-    fn skip_quantize_tensors() -> Vec<Regex>;
+    fn skip_quantize_tensors(&self) -> Vec<Regex>;
 
     /// Returns whether the model supports deleting tokens.
     fn supports_rewind(&self) -> bool {
@@ -95,107 +104,24 @@ pub trait KnownModel: Send + Sync {
     }
 }
 
-/// A type-erased model to allow for interacting with a model without knowing
-/// its hyperparameters.
-pub trait Model: Send + Sync {
-    /// Starts a new `InferenceSession` for this model.
-    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession;
-
-    /// This function is called by the provided [InferenceSession]; it will use this model
-    /// to generate output by evaluating the `input_tokens`.
-    /// The [OutputRequest] is used to specify additional data to fetch from the
-    /// model.
-    fn evaluate(
-        &self,
-        session: &mut InferenceSession,
-        input_tokens: &[TokenId],
-        output_request: &mut OutputRequest,
-    );
-
-    /// Get the tokenizer for this model.
-    fn tokenizer(&self) -> &Tokenizer;
-
-    /// Get the context size (configured with [ModelParameters::context_size]) used by
-    /// this model.
-    fn context_size(&self) -> usize;
-
-    /// Get the beginning of text/beginning of string token ID, if available. This value is defined by model implementers.
-    fn bot_token_id(&self) -> Option<TokenId>;
-
-    /// Get the end of text/end of string token ID. This value is defined by model implementers.
-    fn eot_token_id(&self) -> TokenId;
-
-    /// Returns whether the model supports deleting tokens.
-    fn supports_rewind(&self) -> bool;
-}
-impl<H: Hyperparameters, M: KnownModel<Hyperparameters = H>> Model for M {
-    fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
-        KnownModel::start_session(self, config)
-    }
-
-    fn evaluate(
-        &self,
-        session: &mut InferenceSession,
-        input_tokens: &[TokenId],
-        output_request: &mut OutputRequest,
-    ) {
-        KnownModel::evaluate(self, session, input_tokens, output_request)
-    }
-
-    fn tokenizer(&self) -> &Tokenizer {
-        KnownModel::tokenizer(self)
-    }
-
-    fn context_size(&self) -> usize {
-        KnownModel::context_size(self)
-    }
-
-    fn bot_token_id(&self) -> Option<TokenId> {
-        KnownModel::bot_token_id(self)
-    }
-
-    fn eot_token_id(&self) -> TokenId {
-        KnownModel::eot_token_id(self)
-    }
-
-    fn supports_rewind(&self) -> bool {
-        KnownModel::supports_rewind(self)
-    }
-}
-
-/// Implemented by model hyperparameters for interacting with hyperparameters
-/// without knowing what they are, as well as writing/reading them as required.
-pub trait Hyperparameters: Sized + Default + Debug + PartialEq + Eq {
-    /// Read the parameters in GGML format from a reader.
-    fn read_ggml(reader: &mut dyn BufRead) -> Result<Self, LoadError>;
-
-    /// Write the parameters in GGML format to a writer.
-    fn write_ggml(&self, writer: &mut dyn Write) -> Result<(), HyperparametersWriteError>;
-
-    /// Get the number of tokens in the embedded vocabulary, if any.
-    fn n_vocabulary(&self) -> usize;
-
-    /// Get the filetype of the model.
-    fn file_type(&self) -> Option<FileType>;
-
-    /// Get mutable access to filetype of the model.
-    fn file_type_mut(&mut self) -> Option<&mut FileType>;
-}
 #[derive(Error, Debug)]
-/// Reported from functions that write
-pub enum HyperparametersWriteError {
-    #[error("non-specific I/O error")]
-    /// A non-specific IO error.
-    Io(#[from] std::io::Error),
-    #[error("invalid integer conversion")]
-    /// One of the integers encountered could not be converted to a more appropriate type.
-    InvalidIntegerConversion(#[from] std::num::TryFromIntError),
+/// Reported from functions that read hyperparameters
+pub enum HyperparametersReadError {
+    #[error("{0}")]
+    /// A metadata error.
+    MetadataError(#[from] MetadataError),
+    /// The file type within the model was not supported by this version of `llm`.
+    #[error("file type {file_type} is not supported")]
+    UnsupportedFileType {
+        /// The file type (ignoring the quantization version) that was encountered.
+        file_type: llama_ftype,
+    },
 }
 
 /// Parameters for model-wide behaviour.
 #[derive(Debug, Clone)]
 pub struct ModelParameters {
-    /// For [GGML formats](ggml::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
+    /// For [GGML formats](ggml::format::ContainerType) that support it, [mmap](https://en.wikipedia.org/wiki/Mmap)
     /// is the default. Although mmap typically improves performance, setting this value to `false` may
     /// be preferred in resource-constrained environments.
     pub prefer_mmap: bool,
@@ -210,8 +136,6 @@ pub struct ModelParameters {
     pub gpu_layers: Option<usize>,
     /// The arguments/overrides to pass to the [custom RoPE](https://arxiv.org/pdf/2306.15595.pdf) function, if it is used by the model.
     pub rope_overrides: Option<ggml::RoPEOverrides>,
-    /// Enables gouped-query attention for Llama-2 70B model
-    pub n_gqa: Option<usize>,
 }
 
 impl Default for ModelParameters {
@@ -223,7 +147,6 @@ impl Default for ModelParameters {
             use_gpu: false,
             gpu_layers: None,
             rope_overrides: None,
-            n_gqa: None,
         }
     }
 }

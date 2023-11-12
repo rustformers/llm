@@ -1,11 +1,6 @@
 //! Utilities for interacting with LLMs and loading them.
 pub use ggml::util::*;
 
-use std::{
-    io::BufRead,
-    path::{Path, PathBuf},
-};
-
 /// NOTE: The original code relies in promotion rules and automatic cast between
 /// int to float. What we do instead is use this macro to convert every term of
 /// the multiplication to f64, which should have enough precision bits to hold
@@ -22,15 +17,6 @@ macro_rules! mulf {
 }
 
 use memmap2::{Mmap, MmapAsRawDesc, MmapOptions};
-use thiserror::Error;
-
-use crate::{FileType, LoadError};
-
-/// Read the filetype from a reader.
-pub fn read_filetype(reader: &mut dyn BufRead) -> Result<FileType, LoadError> {
-    let ftype = read_u32(reader)?;
-    FileType::try_from(ftype).map_err(|_| LoadError::UnsupportedFileType(ftype))
-}
 
 /// Used to buffer incoming tokens until they produce a valid string of UTF-8 text.
 ///
@@ -73,67 +59,6 @@ impl TokenUtf8Buffer {
     }
 }
 
-#[derive(Error, Debug)]
-/// Errors encountered during the loading process.
-pub enum FindAllModelFilesError {
-    #[error("no parent path for {path:?}")]
-    /// There is no parent path for a given path.
-    NoParentPath {
-        /// The path without a parent.
-        path: PathBuf,
-    },
-    #[error("non-specific I/O error")]
-    /// A non-specific IO error.
-    IO(#[from] std::io::Error),
-}
-
-/// Find all the files related to a model.
-pub fn find_all_model_files(main_path: &Path) -> Result<Vec<PathBuf>, FindAllModelFilesError> {
-    let mut main_path_parent =
-        main_path
-            .parent()
-            .ok_or_else(|| FindAllModelFilesError::NoParentPath {
-                path: main_path.to_owned(),
-            })?;
-    if main_path_parent.to_str() == Some("") {
-        main_path_parent = Path::new(".");
-    }
-    Ok(collect_related_paths(
-        main_path,
-        std::fs::read_dir(main_path_parent)?
-            .filter_map(Result::ok)
-            .map(|de| de.path()),
-    ))
-}
-
-fn collect_related_paths(
-    main_path: &Path,
-    directory_paths: impl Iterator<Item = PathBuf>,
-) -> Vec<PathBuf> {
-    let main_filename = main_path.file_name().and_then(|p| p.to_str());
-
-    let mut paths: Vec<PathBuf> = directory_paths
-        .filter(|p| {
-            p.file_name()
-                .and_then(|p| p.to_str())
-                .zip(main_filename)
-                .map_or(false, |(part_filename, main_filename)| match part_filename
-                    .strip_prefix(main_filename)
-                {
-                    Some(suffix) => {
-                        suffix.is_empty()
-                            || (suffix
-                                .strip_prefix('.')
-                                .map_or(false, |s| s.parse::<usize>().is_ok()))
-                    }
-                    None => false,
-                })
-        })
-        .collect();
-    paths.sort();
-    paths
-}
-
 /// mmap with MAP_POPULATE
 pub fn mmap_populate<T: MmapAsRawDesc>(file: T) -> Result<Mmap, std::io::Error> {
     unsafe { MmapOptions::new().populate().map(file) }
@@ -153,27 +78,6 @@ pub fn softmax(logits: &[f32]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_collect_related_paths() {
-        let main_path = PathBuf::from("/models/llama.bin");
-        let directory_paths = [
-            "/models/llama.bin",
-            "/models/llama.bin.1",
-            "/models/llama.bin.2",
-            "/models/llama.bin.tmp",
-        ]
-        .map(PathBuf::from);
-        let expected_paths = [
-            "/models/llama.bin",
-            "/models/llama.bin.1",
-            "/models/llama.bin.2",
-        ]
-        .map(PathBuf::from);
-
-        let output_paths = collect_related_paths(&main_path, directory_paths.into_iter());
-        assert_eq!(expected_paths.as_slice(), output_paths);
-    }
 
     #[test]
     fn test_valid_utf8() {

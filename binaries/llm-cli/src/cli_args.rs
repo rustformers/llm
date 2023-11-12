@@ -1,5 +1,4 @@
 use std::{
-    fmt,
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -7,7 +6,7 @@ use std::{
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{self, WrapErr};
 use llm::{
-    ggml_format, samplers::build_sampler, ElementType, InferenceParameters, InferenceSessionConfig,
+    samplers::build_sampler, ElementType, InferenceParameters, InferenceSessionConfig,
     InvalidTokenBias, LoadProgress, Model, ModelKVMemoryType, ModelParameters, RoPEOverrides,
     TokenBias, TokenId, TokenizerSource,
 };
@@ -25,8 +24,11 @@ pub enum Args {
     Perplexity(Box<Perplexity>),
 
     #[command()]
-    /// Get information about a GGML model.
-    Info(Box<Info>),
+    /// Interact with a GGUF model.
+    Gguf {
+        #[command(subcommand)]
+        gguf: Gguf,
+    },
 
     #[command()]
     /// Dumps the prompt to console and exits, first as a comma-separated list of token IDs
@@ -45,9 +47,9 @@ pub enum Args {
     /// and do not support a long enough context window to be able to
     /// have an extended conversation.
     Chat(Box<Chat>),
-
-    /// Quantize a GGML model to 4-bit.
-    Quantize(Box<Quantize>),
+    //
+    // /// Quantize a GGML model to 4-bit.
+    // Quantize(Box<Quantize>),
 }
 
 #[derive(Parser, Debug)]
@@ -113,6 +115,13 @@ pub struct Perplexity {
 }
 
 #[derive(Parser, Debug)]
+pub enum Gguf {
+    Info(Info),
+    Rebuild(Rebuild),
+    AddHfTokenizer(AddHfTokenizer),
+}
+
+#[derive(Parser, Debug)]
 pub struct Info {
     #[command(flatten)]
     pub model_and_tokenizer: ModelAndTokenizer,
@@ -124,6 +133,19 @@ pub struct Info {
     /// Show all of the tokens in the tokenizer.
     #[arg(long, short = 'k')]
     pub tokenizer: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct Rebuild {
+    pub input: PathBuf,
+    pub output: PathBuf,
+}
+
+#[derive(Parser, Debug)]
+pub struct AddHfTokenizer {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    pub tokenizer: String,
 }
 
 #[derive(Parser, Debug)]
@@ -437,20 +459,10 @@ impl ModelTokenizer {
 }
 
 #[derive(Parser, Debug)]
-pub struct ModelArchitecture {
-    /// The model architecture to use. Will attempt to guess if not specified.
-    #[arg(long, short = 'a')]
-    pub model_architecture: Option<llm::ModelArchitecture>,
-}
-
-#[derive(Parser, Debug)]
 pub struct ModelAndTokenizer {
     /// Where to load the model from
     #[arg(long, short = 'm')]
     pub model_path: PathBuf,
-
-    #[command(flatten)]
-    pub architecture: ModelArchitecture,
 
     #[command(flatten)]
     pub tokenizer: ModelTokenizer,
@@ -528,7 +540,6 @@ impl ModelLoad {
             use_gpu,
             gpu_layers: self.gpu_layers,
             rope_overrides: self.rope_scaling.to_rope_arguments(),
-            n_gqa: None,
         };
 
         let mut sp = Some(spinoff::Spinner::new(
@@ -549,8 +560,7 @@ impl ModelLoad {
             }
         };
 
-        let model = llm::load_dynamic(
-            self.model_and_tokenizer.architecture.model_architecture,
+        let model = llm::load(
             &self.model_and_tokenizer.model_path,
             tokenizer_source,
             params,
@@ -639,56 +649,56 @@ pub fn read_prompt_file(path: &Path) -> eyre::Result<String> {
         .wrap_err_with(|| format!("Could not read prompt file at {path:?}"))
 }
 
-#[derive(Parser, Debug)]
-pub struct Quantize {
-    #[command(flatten)]
-    pub architecture: ModelArchitecture,
+// #[derive(Parser, Debug)]
+// pub struct Quantize {
+//     #[command(flatten)]
+//     pub architecture: ModelArchitecture,
 
-    /// The path to the model to quantize
-    #[arg()]
-    pub source: PathBuf,
+//     /// The path to the model to quantize
+//     #[arg()]
+//     pub source: PathBuf,
 
-    /// The path to save the quantized model to
-    #[arg()]
-    pub destination: PathBuf,
+//     /// The path to save the quantized model to
+//     #[arg()]
+//     pub destination: PathBuf,
 
-    #[command(flatten)]
-    pub tokenizer: ModelTokenizer,
+//     #[command(flatten)]
+//     pub tokenizer: ModelTokenizer,
 
-    /// The GGML container type to target.
-    ///
-    /// Note that using GGML requires the original model to have
-    /// an unscored vocabulary, which is not the case for newer models.
-    #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
-    pub container_type: SaveContainerType,
+//     /// The GGML container type to target.
+//     ///
+//     /// Note that using GGML requires the original model to have
+//     /// an unscored vocabulary, which is not the case for newer models.
+//     #[arg(short, long, default_value_t = SaveContainerType::GgjtV3)]
+//     pub container_type: SaveContainerType,
 
-    /// The format to convert to
-    pub target: QuantizationTarget,
-}
+//     /// The format to convert to
+//     pub target: QuantizationTarget,
+// }
 
-#[derive(Parser, Debug, ValueEnum, Clone, Copy)]
-pub enum SaveContainerType {
-    /// GGML container.
-    Ggml,
-    /// GGJT v3 container.
-    GgjtV3,
-}
-impl fmt::Display for SaveContainerType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SaveContainerType::Ggml => write!(f, "ggml"),
-            SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
-        }
-    }
-}
-impl From<SaveContainerType> for ggml_format::SaveContainerType {
-    fn from(value: SaveContainerType) -> Self {
-        match value {
-            SaveContainerType::Ggml => ggml_format::SaveContainerType::Ggml,
-            SaveContainerType::GgjtV3 => ggml_format::SaveContainerType::GgjtV3,
-        }
-    }
-}
+// #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
+// pub enum SaveContainerType {
+//     /// GGML container.
+//     Ggml,
+//     /// GGJT v3 container.
+//     GgjtV3,
+// }
+// impl fmt::Display for SaveContainerType {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             SaveContainerType::Ggml => write!(f, "ggml"),
+//             SaveContainerType::GgjtV3 => write!(f, "ggjt-v3"),
+//         }
+//     }
+// }
+// impl From<SaveContainerType> for ggml_format::ggml::SaveContainerType {
+//     fn from(value: SaveContainerType) -> Self {
+//         match value {
+//             SaveContainerType::Ggml => ggml_format::ggml::SaveContainerType::Ggml,
+//             SaveContainerType::GgjtV3 => ggml_format::ggml::SaveContainerType::GgjtV3,
+//         }
+//     }
+// }
 
 #[derive(Parser, Debug, ValueEnum, Clone, Copy)]
 #[clap(rename_all = "snake_case")]

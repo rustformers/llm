@@ -20,6 +20,7 @@ llm-bert = { path = "../models/bert", optional = true, version = "0.2.0-dev" }
 
 serde = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 bytesize = { workspace = true }
@@ -35,7 +36,7 @@ default = ["models", "tokenizers-remote"]
 
 tokenizers-remote = ["llm-base/tokenizers-remote"]
 
-models = ["llama", "gpt2", "gptj", "bloom", "gptneox", "mpt", "bert"]
+models = ["llama", "gptneox", "gpt2", "gptj", "bloom", "mpt", "bert"]
 llama = ["dep:llm-llama"]
 gpt2 = ["dep:llm-gpt2"]
 gptj = ["dep:llm-gptj"]
