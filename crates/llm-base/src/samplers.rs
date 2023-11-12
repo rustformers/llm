@@ -59,7 +59,7 @@ pub enum SamplingError {
 /// to ensure a valid configuration.
 pub struct ConfiguredSamplers {
     /// A builder from the `llm-samplers` crate.
-    pub builder: SamplerChainBuilder,
+    pub builder: SamplerChainBuilder<usize, f32>,
     /// Mirostat 1 is present.
     pub mirostat1: bool,
     /// Mirostat 2 is present.
@@ -74,15 +74,17 @@ pub struct ConfiguredSamplers {
 /// We call a configuration of samplers that run in a certain order a "chain".
 /// Here is a description of the default chain `llm` uses:
 ///
-/// 1. Repetition (present by default, multiple allowed)
-/// 2. Frequency/Presence (optional, multiple allowed)
-/// 3. Sequence Repetition (optional, multiple allowed)
-/// 4. Top-K (present by default - incompatible with Mirostat)
-/// 5. Tail Free (optional - incompatible with Mirostat)
-/// 6. Locally Typical (optional - incompatible with Mirostat)
-/// 7. Top-P (present by default - incompatible with Mirostat)
-/// 8. Temperature (present by default)
-/// 9. A Mirostat 1 or 2 sampler if configured, otherwise Random Distribution.
+/// 1.  Repetition (present by default, multiple allowed)
+/// 2.  Frequency/Presence (optional, multiple allowed)
+/// 3.  Sequence Repetition (optional, multiple allowed)
+/// 4.  Top-K (present by default - incompatible with Mirostat)
+/// 5.  Tail Free (optional - incompatible with Mirostat)
+/// 6.  Locally Typical (optional - incompatible with Mirostat)
+/// 7.  Top-P (present by default - incompatible with Mirostat)
+/// 8.  Top-A (optional - incompatible with Mirostat)
+/// 9.  Min-P (optional - incompatible with Mirostat)
+/// 10. Temperature (present by default)
+/// 11. A Mirostat 1 or 2 sampler if configured, otherwise Random Distribution.
 ///
 /// Samplers listed as "present by default" but incompatible with Mirostat will
 /// only be enabled by default if there is no Mirostat sampler enabled.
@@ -140,6 +142,20 @@ impl Default for ConfiguredSamplers {
                     SamplerSlot::new_single(
                         || Box::new(SampleTopP::default().p(0.95)),
                         Option::<SampleTopP>::None,
+                    ),
+                ),
+                (
+                    "topa",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleTopA::default().a1(0.0).a2(0.0)),
+                        Option::<SampleTopA>::None,
+                    ),
+                ),
+                (
+                    "minp",
+                    SamplerSlot::new_single(
+                        || Box::new(SampleMinP::default().p(0.0)),
+                        Option::<SampleMinP>::None,
                     ),
                 ),
                 (
@@ -203,7 +219,7 @@ impl ConfiguredSamplers {
             ))?
         } else if (self.mirostat1 || self.mirostat2) && self.incompat_mirostat {
             Err(SamplerConfigurationError::SamplerCombinationError(
-                "Cannot enable top-p, top-k, locally typical or tail free samplers with Mirostat 1 or 2".to_string(),
+                "Cannot enable top-p, top-k, top-a, min-p, locally typical or tail free samplers with Mirostat 1 or 2".to_string(),
             ))?
         }
         Ok(())
@@ -245,7 +261,9 @@ impl FromStr for ConfiguredSamplers {
             .inspect(|(name, _slot)| match name.as_str() {
                 "mirostat1" => result.mirostat1 = true,
                 "mirostat2" => result.mirostat2 = true,
-                "topp" | "topk" | "locallytypical" | "tailfree" => result.incompat_mirostat = true,
+                "topa" | "minp" | "topp" | "topk" | "locallytypical" | "tailfree" => {
+                    result.incompat_mirostat = true
+                }
                 _ => (),
             })
             .collect::<Vec<_>>();
@@ -269,7 +287,7 @@ impl FromStr for ConfiguredSamplers {
 /// Sample a token. This convenience function handles building
 /// the sampler resources and logits objects the sampler needs.
 pub fn sample_token(
-    mut sampler: impl Sampler<TokenId, f32>,
+    mut sampler: impl Sampler,
     rng: &mut impl rand::Rng,
     previous_tokens: &[TokenId],
     last_logits: impl IntoIterator<Item = f32>,
@@ -297,7 +315,7 @@ pub fn build_sampler(
     n_vocab: usize,
     bias: &[(TokenId, f32)],
     args: &[impl AsRef<str>],
-) -> Result<Arc<Mutex<dyn Sampler<TokenId, f32>>>, SamplerConfigurationError> {
+) -> Result<Arc<Mutex<dyn Sampler>>, SamplerConfigurationError> {
     let mut samplers = SamplerChain::new();
 
     if !bias.is_empty() {
@@ -326,7 +344,7 @@ pub fn build_sampler(
 }
 
 /// Get the default sampler chain.
-pub fn default_samplers() -> Arc<Mutex<dyn Sampler<TokenId, f32>>> {
+pub fn default_samplers() -> Arc<Mutex<dyn Sampler>> {
     let mut result = ConfiguredSamplers::default();
     result.ensure_default_slots();
     Arc::new(Mutex::new(result.builder.into_chain()))
@@ -349,8 +367,6 @@ impl<'pt, 'r> fmt::Debug for SamplerResources<'pt, 'r> {
 }
 
 impl<'pt, 'r> HasSamplerResources for SamplerResources<'pt, 'r> {
-    type TokenId = TokenId;
-
     fn with_rng_mut(
         &mut self,
         fun: &mut dyn FnMut(&mut dyn rand::RngCore),
@@ -359,7 +375,7 @@ impl<'pt, 'r> HasSamplerResources for SamplerResources<'pt, 'r> {
         Ok(())
     }
 
-    fn with_last_tokens(&self, fun: &mut dyn FnMut(&[Self::TokenId])) -> Result<(), SamplerError> {
+    fn with_last_tokens(&self, fun: &mut dyn FnMut(&[TokenId])) -> Result<(), SamplerError> {
         fun(self.previous_tokens);
         Ok(())
     }

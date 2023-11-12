@@ -120,8 +120,6 @@ impl Model for Llama {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let input_len = input_tokens.len();
-        let session_len = session.n_past;
         let params = &self.data.params;
         let ctx_size = params.context_size;
 
@@ -140,6 +138,8 @@ impl Model for Llama {
             embedding_length / self.hyperparameters.grouped_query_attention();
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let session_len = builder.n_past;
+            let input_len = builder.input_length();
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
 
@@ -152,8 +152,6 @@ impl Model for Llama {
 
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
-
-                ctx0.use_scratch(builder.get_scratch(0));
 
                 // norm
                 current = ctx0.op_rms_norm(&input_layer);
@@ -294,8 +292,6 @@ impl Model for Llama {
                 // projection (no bias)
                 current = ctx0.op_mul_mat(&self.blocks[il].attn_output, &current);
 
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
                 // feed-forward network
@@ -322,8 +318,6 @@ impl Model for Llama {
                 input_layer = current;
             }
 
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // norm
             input_layer = ctx0.op_rms_norm(&input_layer);
 
@@ -336,24 +330,34 @@ impl Model for Llama {
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
-            ctx0.use_scratch(None);
             (
                 gf,
                 GraphOutputs {
                     result: input_layer,
                     embedding_result,
+                    output_length: input_len,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, vocabulary_count, input_len);
-        common::extract_logits(output_request, &outputs.result, vocabulary_count, input_len);
+        common::read_last_token(
+            session,
+            &outputs.result,
+            vocabulary_count,
+            outputs.output_length,
+        );
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            vocabulary_count,
+            outputs.output_length,
+        );
         common::extract_embeddings(
             output_request,
             &outputs.embedding_result,
             embedding_length,
-            input_len,
+            outputs.output_length,
         );
     }
 

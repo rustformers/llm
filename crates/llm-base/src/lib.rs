@@ -57,7 +57,7 @@ pub struct InferenceParameters {
     /// This can be anything that implements [Sampler]. Refer to
     /// the `llm-samplers` documentation for possible samplers and suggested
     /// combinations: <https://docs.rs/llm-samplers>
-    pub sampler: Arc<Mutex<dyn Sampler<TokenId, f32>>>,
+    pub sampler: Arc<Mutex<dyn Sampler>>,
 }
 
 //Since Sampler implements Send and Sync, InferenceParameters should too.

@@ -21,7 +21,7 @@ pub struct Context {
     /// allocated tensors. Tensors are owned by the object, so a [`Tensor`]
     /// contains a `Weak` reference underneath and doesn't let you do anything
     /// with it if the underlying context has been deallocated.
-    inner: Arc<ContextInner>,
+    pub inner: Arc<ContextInner>,
 
     /// The storage for this context. This is stored so that the buffer can be dropped when the context is dropped.
     storage: Option<ContextStorage>,
@@ -31,7 +31,7 @@ pub struct Context {
 }
 
 /// Contains state shared between a context and its tensors
-pub(crate) struct ContextInner {
+pub struct ContextInner {
     pub ptr: NonNull<sys::ggml_context>,
 
     /// Offloaded tensors. Used to free them when the context is dropped.
@@ -73,7 +73,12 @@ impl ContextInner {
 /// Controls how the context uses memory.
 pub enum ContextStorage {
     /// Use the provided buffer as memory.
-    Buffer(Buffer),
+    Buffer {
+        /// The buffer to use as memory.
+        buffer: Buffer,
+        /// Whether to allocate tensors into this buffer.
+        allocate: bool,
+    },
     /// Use the provided memory mapped file as memory.
     Mmap(Mmap),
     /// Allocate `mem_size` bytes of memory.
@@ -94,7 +99,10 @@ impl ContextStorage {
     /// Returns the `Buffer` if this is a `Buffer` variant.
     pub fn as_buffer(&self) -> Option<&Buffer> {
         match self {
-            Self::Buffer(v) => Some(v),
+            Self::Buffer {
+                buffer: v,
+                allocate: _,
+            } => Some(v),
             _ => None,
         }
     }
@@ -115,7 +123,16 @@ impl PartialEq for ContextStorage {
     fn eq(&self, other: &Self) -> bool {
         use ContextStorage::*;
         match (self, other) {
-            (Buffer(l0), Buffer(r0)) => l0 == r0,
+            (
+                Buffer {
+                    buffer: l0,
+                    allocate: l1,
+                },
+                Buffer {
+                    buffer: r0,
+                    allocate: r1,
+                },
+            ) => l0 == r0 && l1 == r1,
             (Mmap(l0), Mmap(r0)) => l0.as_ptr() == r0.as_ptr(),
             (Allocate { mem_size: l }, Allocate { mem_size: r }) => l == r,
             _ => false,
@@ -130,10 +147,10 @@ impl Context {
     /// Creates a new [Context] with the given storage.
     pub fn new(storage: ContextStorage) -> Self {
         let init_params = match &storage {
-            ContextStorage::Buffer(buffer) => sys::ggml_init_params {
+            ContextStorage::Buffer { buffer, allocate } => sys::ggml_init_params {
                 mem_size: buffer.size(),
                 mem_buffer: buffer.data,
-                no_alloc: false,
+                no_alloc: !allocate,
             },
             ContextStorage::Mmap(mmap) => sys::ggml_init_params {
                 mem_size: mmap.len(),
@@ -160,8 +177,8 @@ impl Context {
 
     /// Creates a new [Context] with the specified buffer.
     /// The buffer will be used by GGML.
-    pub fn new_with_buffer(buffer: Buffer) -> Self {
-        Self::new(ContextStorage::Buffer(buffer))
+    pub fn new_with_buffer(buffer: Buffer, allocate: bool) -> Self {
+        Self::new(ContextStorage::Buffer { buffer, allocate })
     }
 
     /// Creates a new [Context] with the specified memory mapped file.
@@ -204,28 +221,6 @@ impl Context {
     /// Retrieves the memory used by this [Context].
     pub fn used_mem(&self) -> usize {
         unsafe { sys::ggml_used_mem(self.as_ptr()) }
-    }
-
-    /// Sets the scratch buffer to be used by this [Context].
-    ///
-    /// If `scratch_buffer` is `None`, the scratch buffer will be disabled.
-    pub fn use_scratch<'a>(&'a self, scratch_buffer: Option<&'a Buffer>) {
-        let (size, data) = if let Some(buffer) = scratch_buffer {
-            (buffer.size(), buffer.data)
-        } else {
-            (0, std::ptr::null_mut())
-        };
-        // SAFETY: this just passes (most likely uninitialized) memory buffer to the ggml C API
-        unsafe {
-            sys::ggml_set_scratch(
-                self.as_ptr(),
-                sys::ggml_scratch {
-                    offs: 0,
-                    size,
-                    data,
-                },
-            );
-        }
     }
 
     /// Creates a new 1D tensor.
@@ -271,6 +266,12 @@ impl Context {
     pub fn storage(&self) -> &ContextStorage {
         self.storage.as_ref().unwrap()
     }
+
+    /// Set all values of the tensor with the specified value.
+    pub fn set_f32(&self, a: &Tensor, x: f32) -> Tensor {
+        let raw = unsafe { sys::ggml_set_f32(a.ptr.as_ptr(), x) };
+        self.new_tensor_raw(raw)
+    }
 }
 // Operations
 impl Context {
@@ -288,7 +289,7 @@ impl Context {
 
     /// Creates a new tensor with the values of `a`, but normalized.
     pub fn op_norm(&self, a: &Tensor) -> Tensor {
-        let tensor = unsafe { sys::ggml_norm(self.as_ptr(), a.ptr.as_ptr()) };
+        let tensor = unsafe { sys::ggml_norm(self.as_ptr(), a.ptr.as_ptr(), crate::DEFAULT_EPS) };
         self.new_tensor_raw(tensor)
     }
 
@@ -621,6 +622,30 @@ impl Context {
                 masked,
             )
         };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with the square of `a`
+    pub fn op_sqr(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sqr(self.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Creates a new tensor with the square-root of `a`
+    pub fn op_sqrt(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sqrt(self.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Unknown
+    pub fn op_sum(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_sum(self.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
+    /// Unknown
+    pub fn op_div(&self, a: &Tensor, b: &Tensor) -> Tensor {
+        let tensor = unsafe { sys::ggml_div(self.as_ptr(), a.ptr.as_ptr(), b.ptr.as_ptr()) };
         self.new_tensor_raw(tensor)
     }
 }

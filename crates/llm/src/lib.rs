@@ -173,6 +173,7 @@ macro_rules! define_models {
 }
 
 define_models!(
+    (bert, "bert", Bert, llm_bert, "Bert"),
     (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
     (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
     (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),

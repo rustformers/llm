@@ -138,8 +138,6 @@ impl Model for GptNeoX {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let input_len = input_tokens.len();
-        let session_len = session.n_past;
         let params = &self.data.params;
         let ctx_size = params.context_size;
 
@@ -155,6 +153,9 @@ impl Model for GptNeoX {
         } = self.hyperparameters;
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let input_len = builder.input_length();
+            let session_len = builder.n_past;
+
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
 
@@ -169,8 +170,6 @@ impl Model for GptNeoX {
 
             for il in 0..block_count {
                 ctx0.set_offloading(params.should_offload(il));
-                // attention uses first scratch buffer
-                ctx0.use_scratch(builder.get_scratch(0));
 
                 // self-attention
                 let mut current = ctx0.op_norm(&input_layer);
@@ -295,9 +294,6 @@ impl Model for GptNeoX {
                     &current,
                 );
 
-                // use the second scratch for the feed forward
-                ctx0.use_scratch(builder.get_scratch(1));
-
                 let feedforward_input: Tensor;
                 if !use_parallel_residual {
                     feedforward_input = ctx0.op_add(&current, &input_layer);
@@ -320,9 +316,6 @@ impl Model for GptNeoX {
                 }
             }
 
-            // use the first scratch for the norm
-            ctx0.use_scratch(builder.get_scratch(0));
-
             // normalize the output
             input_layer = ctx0.op_norm(&input_layer);
             // inpL = ln_f_g*inpL + ln_f_b
@@ -333,8 +326,6 @@ impl Model for GptNeoX {
 
             let embeddings_tensor: ggml::Tensor = input_layer.share();
 
-            // Disable the scratchbuffer
-            ctx0.use_scratch(None);
             ctx0.set_offloading(false);
             // apply language model head
             input_layer = ctx0.op_mul_mat(&self.lmh_g, &input_layer);
@@ -344,18 +335,29 @@ impl Model for GptNeoX {
                 GraphOutputs {
                     result: input_layer,
                     embedding_result: embeddings_tensor,
+                    output_length: input_len,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, vocabulary_count, input_len);
-        common::extract_logits(output_request, &outputs.result, vocabulary_count, input_len);
+        common::read_last_token(
+            session,
+            &outputs.result,
+            vocabulary_count,
+            outputs.output_length,
+        );
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            vocabulary_count,
+            outputs.output_length,
+        );
         common::extract_embeddings(
             output_request,
             &outputs.embedding_result,
             embedding_length,
-            input_len,
+            outputs.output_length,
         );
     }
 

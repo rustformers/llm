@@ -29,22 +29,22 @@ pub struct FileType {
     /// The quantization version.
     pub quantization_version: u32,
 }
-impl From<FileType> for i32 {
+impl From<FileType> for llama_ftype {
     fn from(value: FileType) -> Self {
-        (value.quantization_version * ggml::QNT_VERSION_FACTOR) as i32
+        (value.quantization_version * ggml::QNT_VERSION_FACTOR) as llama_ftype
             + llama_ftype::from(value.format)
     }
 }
-impl TryFrom<i32> for FileType {
+impl TryFrom<llama_ftype> for FileType {
     type Error = llama_ftype;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: llama_ftype) -> Result<Self, Self::Error> {
         let format =
             FileTypeFormat::try_from(((value as u32) % ggml::QNT_VERSION_FACTOR) as llama_ftype)?;
 
         Ok(Self {
             format,
-            quantization_version: (value as u32) / ggml::QNT_VERSION_FACTOR,
+            quantization_version: value / ggml::QNT_VERSION_FACTOR,
         })
     }
 }
@@ -63,7 +63,7 @@ impl FileType {
             .get_optional("general.file_type")
             .and_then(|v| v.as_uint32())
             .map(|v| {
-                FileType::try_from(v as i32).map_err(|ftype| {
+                FileType::try_from(v as llama_ftype).map_err(|ftype| {
                     HyperparametersReadError::UnsupportedFileType { file_type: ftype }
                 })
             })
