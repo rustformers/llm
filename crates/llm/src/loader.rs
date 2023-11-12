@@ -23,13 +23,13 @@ pub fn load(
     params: ModelParameters,
     load_progress_callback: impl FnMut(LoadProgress),
 ) -> Result<Box<dyn Model>, LoadError> {
-    Ok(llm_base::loader::load(
+    llm_base::loader::load(
         path,
         tokenizer_source,
         params,
         VisitorModelFactory,
         load_progress_callback,
-    )?)
+    )
 }
 
 struct VisitorModelFactory;

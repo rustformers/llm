@@ -497,6 +497,7 @@ fn unescape_whitespace(text: &[u8]) -> Vec<u8> {
     let mut buffer: Vec<u8> = vec![];
 
     for &b in text {
+        #[allow(clippy::if_same_then_else)]
         if b == 0xE2 {
             // If the current byte is 0xE2, start buffering and check for the sequence.
             buffer.push(b);

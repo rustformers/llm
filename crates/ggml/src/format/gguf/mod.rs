@@ -253,7 +253,7 @@ impl TensorInfo {
             util::write_length(writer, ctx.use_64_bit_length, *dimension)?;
         }
 
-        util::write_u32(writer, ggml_type::from(self.element_type) as u32)?;
+        util::write_u32(writer, ggml_type::from(self.element_type))?;
         util::write_u64(writer, self.offset)?;
 
         Ok(())

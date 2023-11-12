@@ -79,13 +79,13 @@ impl Metadata {
     // TODO: consider finding a way to automate getting with traits
     pub fn get_str(&self, key: &str) -> Result<&str, MetadataError> {
         let metadata_value = self.get(key)?;
-        Ok(metadata_value
+        metadata_value
             .as_string()
             .ok_or_else(|| MetadataError::InvalidType {
                 key: key.to_string(),
                 expected_type: MetadataValueType::String,
                 actual_type: metadata_value.value_type(),
-            })?)
+            })
     }
 
     pub fn get_countable(&self, key: &str) -> Result<usize, MetadataError> {
@@ -459,6 +459,10 @@ impl MetadataArrayValue {
             Self::Float64(v) => Some(v),
             _ => None,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

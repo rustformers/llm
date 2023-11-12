@@ -104,7 +104,7 @@ fn main() {
 
 fn get_embeddings(
     model: &dyn llm::Model,
-    inference_parameters: &llm::InferenceParameters,
+    _inference_parameters: &llm::InferenceParameters,
     query: &str,
 ) -> Vec<f32> {
     let mut session = model.start_session(Default::default());

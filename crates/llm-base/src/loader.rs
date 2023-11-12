@@ -39,8 +39,7 @@ impl TryFrom<llama_ftype> for FileType {
     type Error = llama_ftype;
 
     fn try_from(value: llama_ftype) -> Result<Self, Self::Error> {
-        let format =
-            FileTypeFormat::try_from(((value as u32) % ggml::QNT_VERSION_FACTOR) as llama_ftype)?;
+        let format = FileTypeFormat::try_from((value % ggml::QNT_VERSION_FACTOR) as llama_ftype)?;
 
         Ok(Self {
             format,
@@ -360,7 +359,7 @@ pub trait ModelFactory {
 /// This method returns a [`Box`], which means that the model will have single ownership.
 /// If you'd like to share ownership (i.e. to use the model in multiple threads), we
 /// suggest using [`Arc::from(Box<T>)`](https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-From%3CBox%3CT,+Global%3E%3E-for-Arc%3CT%3E)
-/// to convert the [`Box`] into an [`Arc`](std::sync::Arc) after loading.
+/// to convert the [`Box`] into an [`Arc`] after loading.
 pub fn load(
     path: &Path,
     tokenizer_source: TokenizerSource,

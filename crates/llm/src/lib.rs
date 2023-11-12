@@ -7,6 +7,7 @@
 //! - [GPT-NeoX](llm_gptneox)
 //! - [LLaMA](llm_llama)
 //! - [MPT](llm_mpt)
+//! - [BERT](llm_bert)
 //! - Falcon (currently disabled due to incompleteness)
 //!
 //! At present, the only supported backend is [GGML](https://github.com/ggerganov/ggml), but this is expected to
@@ -19,7 +20,7 @@
 //! use llm::Model;
 //!
 //! // load a GGML model from disk
-//! let llama = llm::load::<llm::models::Llama>(
+//! let llama = llm::load(
 //!     // path to GGML file
 //!     std::path::Path::new("/path/to/model"),
 //!     // llm::TokenizerSource
@@ -35,7 +36,7 @@
 //! let mut session = llama.start_session(Default::default());
 //! let res = session.infer::<std::convert::Infallible>(
 //!     // model to use for text generation
-//!     &llama,
+//!     llama.as_ref(),
 //!     // randomness provider
 //!     &mut rand::thread_rng(),
 //!     // the prompt to use for text generation, as well as other
@@ -94,7 +95,7 @@ pub use loader::{load, load_progress_callback_stdout, LoadError, LoadProgress};
 use serde::Serialize;
 
 macro_rules! define_models {
-    ($(($model_lowercase:ident, $model_lowercase_str:literal, $model_pascalcase:ident, $krate_ident:ident, $display_name:literal)),*) => {
+    ($(($model_lowercase:ident, $model_lowercase_str:literal, $model_pascalcase:ident, $krate_ident:ident, $display_name:literal),)*) => {
         /// All available models.
         pub mod models {
             $(
@@ -173,14 +174,14 @@ macro_rules! define_models {
 }
 
 define_models!(
-    (bert, "bert", Bert, llm_bert, "Bert"),
-    (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
-    (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
-    (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),
+    // (bert, "bert", Bert, llm_bert, "Bert"),
+    // (bloom, "bloom", Bloom, llm_bloom, "BLOOM"),
+    // (gpt2, "gpt2", Gpt2, llm_gpt2, "GPT-2"),
+    // (gptj, "gptj", GptJ, llm_gptj, "GPT-J"),
     (gptneox, "gptneox", GptNeoX, llm_gptneox, "GPT-NeoX"),
     (llama, "llama", Llama, llm_llama, "LLaMA"),
-    (mpt, "mpt", Mpt, llm_mpt, "MPT"),
-    (falcon, "falcon", Falcon, llm_falcon, "Falcon")
+    // (mpt, "mpt", Mpt, llm_mpt, "MPT"),
+    // (falcon, "falcon", Falcon, llm_falcon, "Falcon"),
 );
 
 /// Used to dispatch some code based on the model architecture.

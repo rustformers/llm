@@ -118,7 +118,7 @@ impl TokenizerSource {
                         tokenizer_source: HuggingFaceTokenizerErrorSource::Remote(
                             identifier.clone(),
                         ),
-                        error: error.into(),
+                        error,
                     }
                 })?,
             )
@@ -128,7 +128,7 @@ impl TokenizerSource {
                 tokenizers::Tokenizer::from_file(&path).map_err(|error| {
                     TokenizerLoadError::HuggingFaceTokenizerError {
                         tokenizer_source: HuggingFaceTokenizerErrorSource::File(path.clone()),
-                        error: error.into(),
+                        error,
                     }
                 })?,
             )
@@ -139,20 +139,18 @@ impl TokenizerSource {
             Self::Embedded => {
                 if let Ok(hf) = gguf.metadata.get_str("tokenizer.huggingface.json") {
                     Ok(Self::load_huggingface_json(hf)?)
-                } else {
-                    if EmbeddedTokenizer::is_present_in_metadata(&gguf.metadata) {
-                        if EMBEDDED_TOKENIZER_ENABLED {
-                            Ok(EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into())
-                        } else {
-                            Err(TokenizerLoadError::NoSupportedTokenizersFound {
-                                unsupported_tokenizers: vec!["embedded".to_owned()],
-                            })
-                        }
+                } else if EmbeddedTokenizer::is_present_in_metadata(&gguf.metadata) {
+                    if EMBEDDED_TOKENIZER_ENABLED {
+                        Ok(EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into())
                     } else {
                         Err(TokenizerLoadError::NoSupportedTokenizersFound {
-                            unsupported_tokenizers: vec![],
+                            unsupported_tokenizers: vec!["embedded".to_owned()],
                         })
                     }
+                } else {
+                    Err(TokenizerLoadError::NoSupportedTokenizersFound {
+                        unsupported_tokenizers: vec![],
+                    })
                 }
             }
         }
@@ -163,7 +161,7 @@ impl TokenizerSource {
             HuggingFaceTokenizer::new(tokenizers::Tokenizer::from_str(tokenizer_json).map_err(
                 |error| TokenizerLoadError::HuggingFaceTokenizerError {
                     tokenizer_source: HuggingFaceTokenizerErrorSource::String,
-                    error: error.into(),
+                    error,
                 },
             )?)
             .into(),
