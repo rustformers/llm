@@ -4,6 +4,9 @@ use crate::sys;
 #[cfg(feature = "metal")]
 pub mod metal;
 
+#[cfg(feature = "cublas")]
+pub mod cublas;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Accelerators supported by `ggml`.
 pub enum Accelerator {

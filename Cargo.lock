@@ -2108,6 +2108,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "969488b55f8ac402214f3f5fd243ebb7206cf82de60d3172994707a4bcc2b829"
 
 [[package]]
+name = "llama-cpp-simple-clone"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ggml",
+ "memmap2",
+ "rand",
+]
+
+[[package]]
 name = "llm"
 version = "0.2.0-dev"
 dependencies = [

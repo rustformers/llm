@@ -5,6 +5,7 @@ members = [
     "crates/ggml/sys",
     "crates/llm",
     "crates/llm-base",
+    "crates/llama-cpp-simple-clone",
     "crates/models/*",
     "binaries/*",
 ]
