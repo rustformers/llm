@@ -9,6 +9,8 @@ use std::{
     ptr::{null_mut, NonNull},
 };
 
+use ggml::sys as gsys;
+
 pub type LlamaToken = i32;
 pub type LlamaPos = i32;
 pub type LlamaSeqId = i32;
@@ -593,7 +595,7 @@ pub struct LlamaContext<'a> {
     work_buffer: Vec<u8>,
     buf_compute: LlamaBuffer,
     buf_alloc: LlamaBuffer,
-    alloc: Option<NonNull<ggml::sys::ggml_allocr>>,
+    alloc: Option<NonNull<gsys::ggml_allocr>>,
     #[cfg(feature = "metal")]
     ctx_metal: Option<GgmlMetalContext>,
     #[cfg(feature = "mpi")]
@@ -729,7 +731,7 @@ impl Drop for LlamaContext<'_> {
 
         if let Some(alloc) = self.alloc {
             unsafe {
-                ggml::sys::ggml_allocr_free(alloc.as_ptr());
+                gsys::ggml_allocr_free(alloc.as_ptr());
             }
         }
 
@@ -739,7 +741,23 @@ impl Drop for LlamaContext<'_> {
 
 /// Initialize the llama + ggml backend.
 pub fn backend_init(numa: bool) {
-    todo!()
+    unsafe {
+        gsys::ggml_time_init();
+    }
+
+    // needed to initialize f16 tables
+    let _ctx = ggml::Context::new(ggml::ContextStorage::Allocate { mem_size: 0 });
+
+    if numa {
+        unsafe {
+            gsys::ggml_numa_init();
+        }
+    }
+
+    #[cfg(feature = "mpi")]
+    unsafe {
+        gsys::ggml_mpi_backend_init();
+    }
 }
 
 /// Load a model from file.
