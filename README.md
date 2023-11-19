@@ -12,6 +12,18 @@ machine learning.
 ![MIT/Apache2](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
 [![Discord](https://img.shields.io/discord/1085885067601137734)](https://discord.gg/YB9WaXYAWU)
 
+## Current State
+
+There are currently three available versions of `llm` (the crate and the CLI):
+
+- The released version `0.1.1` on `crates.io`. This version is several months out of date and does not include support for the most recent models.
+- The `main` branch of this repository. This version can reliably infer GGMLv3 models, but does not support GGUF, and is also somewhat out of date.
+- The `develop` branch of this repository. This version supports GGUF, but is updating to the latest version of GGML, and is therefore not yet stable.
+
+The plan is to finish up the work on `develop` (see [the PR](https://github.com/rustformers/llm/pull/442)), and then merge it into `main` and release a new version of `llm` to `crates.io`, so that up-to-date support for the latest models and GGUF will be available. It is not yet known when this will happen.
+
+## Overview
+
 The primary entrypoint [for developers](#using-llm-in-a-rust-project) is
 [the `llm` crate](./crates/llm), which wraps [`llm-base`](./crates/llm-base) and
 the [supported model](./crates/models) crates.
