@@ -46,7 +46,7 @@ impl Tensor {
     /// Gets the acceleration backend of the tensor
     pub fn backend(&self) -> Backend {
         self.with_alive_ctx(|| unsafe {
-            (self.ptr.as_ref().backend as sys::ggml_backend)
+            (self.ptr.as_ref().backend as sys::ggml_backend_type)
                 .try_into()
                 .unwrap()
         })

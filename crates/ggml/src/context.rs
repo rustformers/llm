@@ -541,12 +541,12 @@ impl Context {
     }
 
     /// Applies ROtary Positional Encoding.
-    pub fn op_rope(&self, a: &Tensor, npast: usize, ndims: usize, mode: i32) -> Tensor {
+    pub fn op_rope(&self, a: &Tensor, b: &Tensor, ndims: usize, mode: i32) -> Tensor {
         let tensor = unsafe {
             sys::ggml_rope(
                 self.as_ptr(),
                 a.ptr.as_ptr(),
-                usize_to_i32(npast),
+                b.ptr.as_ptr(),
                 usize_to_i32(ndims),
                 mode,
                 0,
@@ -559,31 +559,37 @@ impl Context {
     pub fn op_rope_inplace(
         &self,
         a: &Tensor,
-        npast: usize,
-        ndims: usize,
+        b: &Tensor,
+        dimension_count: usize,
+        context_length: usize,
         mode: i32,
         overrides: Option<&RoPEOverrides>,
     ) -> Tensor {
         let tensor = unsafe {
-            if let Some(custom_args) = overrides {
+            if let Some(overrides) = overrides {
                 sys::ggml_rope_custom_inplace(
                     self.as_ptr(),
                     a.ptr.as_ptr(),
-                    usize_to_i32(npast),
-                    usize_to_i32(ndims),
+                    b.ptr.as_ptr(),
+                    usize_to_i32(dimension_count),
                     mode,
-                    1,
-                    custom_args.frequency_base as f32,
-                    custom_args.frequency_scale,
+                    usize_to_i32(context_length),
+                    usize_to_i32(overrides.original_context_length),
+                    overrides.frequency_base as f32,
+                    overrides.frequency_scale,
+                    overrides.ext_factor,
+                    overrides.attn_factor,
+                    overrides.beta_fast,
+                    overrides.beta_slow,
                 )
             } else {
                 sys::ggml_rope_inplace(
                     self.as_ptr(),
                     a.ptr.as_ptr(),
-                    usize_to_i32(npast),
-                    usize_to_i32(ndims),
+                    b.ptr.as_ptr(),
+                    usize_to_i32(dimension_count),
                     mode,
-                    0,
+                    usize_to_i32(context_length),
                 )
             }
         };

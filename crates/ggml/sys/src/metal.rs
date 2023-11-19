@@ -4,18 +4,18 @@ use super::ggml_cgraph;
 use super::ggml_log_callback;
 use super::ggml_tensor;
 
-pub const GGML_METAL_MAX_BUFFERS: u32 = 16;
+pub const GGML_METAL_MAX_BUFFERS: u32 = 64;
 pub const GGML_METAL_MAX_COMMAND_BUFFERS: u32 = 32;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ggml_metal_context {
+    _unused: [u8; 0],
+}
 extern "C" {
     pub fn ggml_metal_log_set_callback(
         log_callback: ggml_log_callback,
         user_data: *mut ::std::os::raw::c_void,
     );
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ggml_metal_context {
-    _unused: [u8; 0],
 }
 extern "C" {
     pub fn ggml_metal_init(n_cb: ::std::os::raw::c_int) -> *mut ggml_metal_context;
@@ -62,4 +62,13 @@ extern "C" {
 }
 extern "C" {
     pub fn ggml_metal_graph_compute(ctx: *mut ggml_metal_context, gf: *mut ggml_cgraph);
+}
+extern "C" {
+    pub fn ggml_backend_metal_init() -> ggml_backend_t;
+}
+extern "C" {
+    pub fn ggml_backend_is_metal(backend: ggml_backend_t) -> bool;
+}
+extern "C" {
+    pub fn ggml_backend_metal_set_n_cb(backend: ggml_backend_t, n_cb: ::std::os::raw::c_int);
 }

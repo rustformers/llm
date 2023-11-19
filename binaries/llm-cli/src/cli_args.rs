@@ -492,6 +492,7 @@ impl RoPEScaling {
         Some(RoPEOverrides {
             frequency_base: self.rope_freq_base.unwrap_or(default.frequency_base),
             frequency_scale: self.rope_freq_scale.unwrap_or(default.frequency_scale),
+            ..default
         })
     }
 }

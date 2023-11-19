@@ -10,6 +10,9 @@ extern "C" {
     pub fn ggml_init_cublas();
 }
 extern "C" {
+    pub fn ggml_cublas_loaded() -> bool;
+}
+extern "C" {
     pub fn ggml_cuda_host_malloc(size: usize) -> *mut ::std::os::raw::c_void;
 }
 extern "C" {
@@ -47,6 +50,9 @@ extern "C" {
     pub fn ggml_cuda_assign_scratch_offset(tensor: *mut ggml_tensor, offset: usize);
 }
 extern "C" {
+    pub fn ggml_cuda_copy_to_device(tensor: *mut ggml_tensor);
+}
+extern "C" {
     pub fn ggml_cuda_set_main_device(main_device: ::std::os::raw::c_int);
 }
 extern "C" {
@@ -73,4 +79,7 @@ extern "C" {
         description: *mut ::std::os::raw::c_char,
         description_size: usize,
     );
+}
+extern "C" {
+    pub fn ggml_backend_cuda_init() -> ggml_backend_t;
 }

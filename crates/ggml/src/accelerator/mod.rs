@@ -41,23 +41,23 @@ pub enum Backend {
     GpuSplit,
 }
 
-impl From<Backend> for sys::ggml_backend {
+impl From<Backend> for sys::ggml_backend_type {
     fn from(b: Backend) -> Self {
         match b {
-            Backend::Cpu => sys::ggml_backend_GGML_BACKEND_CPU,
-            Backend::Gpu => sys::ggml_backend_GGML_BACKEND_GPU,
-            Backend::GpuSplit => sys::ggml_backend_GGML_BACKEND_GPU_SPLIT,
+            Backend::Cpu => sys::ggml_backend_type_GGML_BACKEND_CPU,
+            Backend::Gpu => sys::ggml_backend_type_GGML_BACKEND_GPU,
+            Backend::GpuSplit => sys::ggml_backend_type_GGML_BACKEND_GPU_SPLIT,
         }
     }
 }
 
-impl TryFrom<sys::ggml_backend> for Backend {
+impl TryFrom<sys::ggml_backend_type> for Backend {
     type Error = ();
-    fn try_from(b: sys::ggml_backend) -> Result<Self, Self::Error> {
+    fn try_from(b: sys::ggml_backend_type) -> Result<Self, Self::Error> {
         match b {
-            sys::ggml_backend_GGML_BACKEND_CPU => Ok(Backend::Cpu),
-            sys::ggml_backend_GGML_BACKEND_GPU => Ok(Backend::Gpu),
-            sys::ggml_backend_GGML_BACKEND_GPU_SPLIT => Ok(Backend::GpuSplit),
+            sys::ggml_backend_type_GGML_BACKEND_CPU => Ok(Backend::Cpu),
+            sys::ggml_backend_type_GGML_BACKEND_GPU => Ok(Backend::Gpu),
+            sys::ggml_backend_type_GGML_BACKEND_GPU_SPLIT => Ok(Backend::GpuSplit),
             _ => Err(()),
         }
     }

@@ -117,100 +117,101 @@ impl InferenceSession {
         n_embd: usize,
         n_vocab: usize,
     ) -> InferenceSession {
-        let ModelParameters {
-            use_gpu,
-            context_size,
-            ..
-        } = *params;
+        todo!()
+        // let ModelParameters {
+        //     use_gpu,
+        //     context_size,
+        //     ..
+        // } = *params;
 
-        let cache_byte_size = {
-            let mut size = 0;
-            size += mulf!(
-                context_size,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_k_type.into())
-            ); // memory_k
-            size += mulf!(
-                context_size,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_v_type.into())
-            ); // memory_v
-            size += 2 * 1024 * 1024; // overhead
+        // let cache_byte_size = {
+        //     let mut size = 0;
+        //     size += mulf!(
+        //         context_size,
+        //         n_layer,
+        //         n_embd,
+        //         ggml::type_sizef(config.memory_k_type.into())
+        //     ); // memory_k
+        //     size += mulf!(
+        //         context_size,
+        //         n_layer,
+        //         n_embd,
+        //         ggml::type_sizef(config.memory_v_type.into())
+        //     ); // memory_v
+        //     size += 2 * 1024 * 1024; // overhead
 
-            size
-        };
+        //     size
+        // };
 
-        log::info!(
-            "Allocating {:.2} MB for KV-memory",
-            cache_byte_size / (1024 * 1024)
-        );
+        // log::info!(
+        //     "Allocating {:.2} MB for KV-memory",
+        //     cache_byte_size / (1024 * 1024)
+        // );
 
-        if use_gpu {
-            ggml::accelerator::initialize(0);
-            ggml::accelerator::set_scratch_size(0);
-        }
+        // if use_gpu {
+        //     ggml::accelerator::initialize(0);
+        //     ggml::accelerator::set_scratch_size(0);
+        // }
 
-        // TODO: revisit this with `Rc`, maybe? We should be able to prove that the session
-        // context is only accessed from one thread at a time, but I've already spent enough
-        // time on this as-is.
-        #[allow(clippy::arc_with_non_send_sync)]
-        let session_ctx = Arc::new(ggml::Context::new_with_allocate(cache_byte_size));
+        // // TODO: revisit this with `Rc`, maybe? We should be able to prove that the session
+        // // context is only accessed from one thread at a time, but I've already spent enough
+        // // time on this as-is.
+        // #[allow(clippy::arc_with_non_send_sync)]
+        // let session_ctx = Arc::new(ggml::Context::new_with_allocate(cache_byte_size));
 
-        // Initialize key + value memory tensors
-        let n_mem = n_layer * context_size;
-        let n_elements = n_embd * n_mem;
-        let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
+        // // Initialize key + value memory tensors
+        // let n_mem = n_layer * context_size;
+        // let n_elements = n_embd * n_mem;
+        // let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
-        // Allocate buffer for storing tensor and graph structs
-        let buf_size = ggml::graph_overhead() + (ggml::tensor_overhead() * ggml::MAX_NODES);
-        let eval = Buffer::new(buf_size);
-        log::info!(
-            "Allocating {:.2} MB for eval-context",
-            buf_size / (1024 * 1024)
-        );
+        // // Allocate buffer for storing tensor and graph structs
+        // let buf_size = ggml::graph_overhead() + (ggml::tensor_overhead() * ggml::MAX_NODES);
+        // let eval = Buffer::new(buf_size);
+        // log::info!(
+        //     "Allocating {:.2} MB for eval-context",
+        //     buf_size / (1024 * 1024)
+        // );
 
-        let ctx0 = ggml::Context::new_with_buffer(eval, false);
+        // let ctx0 = ggml::Context::new_with_buffer(eval, false);
 
-        let allocator = GraphAllocator::new_measurement(ggml::TENSOR_ALIGNMENT);
-        // Set up Metal support
-        #[cfg(feature = "metal")]
-        let metal_context = {
-            if use_gpu {
-                let mut metal_context = MetalContext::new();
-                metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
+        // let allocator = GraphAllocator::new_measurement(ggml::TENSOR_ALIGNMENT);
+        // // Set up Metal support
+        // #[cfg(feature = "metal")]
+        // let metal_context = {
+        //     if use_gpu {
+        //         let mut metal_context = MetalContext::new();
+        //         metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
 
-                for buf in scratch.iter() {
-                    metal_context.add_scratch_buffer(buf);
-                }
-                metal_context.add_context(session_ctx.clone());
-                Some(metal_context)
-            } else {
-                None
-            }
-        };
+        //         for buf in scratch.iter() {
+        //             metal_context.add_scratch_buffer(buf);
+        //         }
+        //         metal_context.add_context(session_ctx.clone());
+        //         Some(metal_context)
+        //     } else {
+        //         None
+        //     }
+        // };
 
-        InferenceSession {
-            _session_ctx: session_ctx,
-            _memory_size: cache_byte_size,
-            config,
-            memory_k,
-            memory_v,
-            n_past: 0,
-            mem_per_token: 0,
-            tokens: vec![],
-            decoded_tokens: vec![],
-            last_logits: vec![0.0; n_vocab],
-            #[cfg(feature = "metal")]
-            metal_context,
-            ctx0,
-            n_embd,
-            allocator,
-            context_size,
-            work_buffer: vec![0],
-            use_gpu,
-        }
+        // InferenceSession {
+        //     _session_ctx: session_ctx,
+        //     _memory_size: cache_byte_size,
+        //     config,
+        //     memory_k,
+        //     memory_v,
+        //     n_past: 0,
+        //     mem_per_token: 0,
+        //     tokens: vec![],
+        //     decoded_tokens: vec![],
+        //     last_logits: vec![0.0; n_vocab],
+        //     #[cfg(feature = "metal")]
+        //     metal_context,
+        //     ctx0,
+        //     n_embd,
+        //     allocator,
+        //     context_size,
+        //     work_buffer: vec![0],
+        //     use_gpu,
+        // }
     }
 
     /// Compute a model (possibly building a graph in the provided closure when called for the first time and/or when parameters have)

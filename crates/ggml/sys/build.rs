@@ -14,11 +14,10 @@ fn main() {
     let build = builder
         .files([
             "llama-cpp/ggml.c",
-            "llama-cpp/k_quants.c",
+            "llama-cpp/ggml-quants.c",
             "llama-cpp/ggml-alloc.c",
+            "llama-cpp/ggml-backend.c",
         ])
-        .define("GGML_USE_K_QUANTS", None)
-        .define("QK_K", Some("256"))
         .includes(["llama-cpp"]);
 
     // This is a very basic heuristic for applying compile flags.

@@ -2,9 +2,10 @@
 
 pub const LLAMA_MAX_DEVICES: u32 = 1;
 pub const LLAMA_DEFAULT_SEED: u32 = 4294967295;
+pub const LLAMA_MAX_RNG_STATE: u32 = 65536;
 pub const LLAMA_FILE_MAGIC_GGSN: u32 = 1734833006;
 pub const LLAMA_SESSION_MAGIC: u32 = 1734833006;
-pub const LLAMA_SESSION_VERSION: u32 = 1;
+pub const LLAMA_SESSION_VERSION: u32 = 2;
 pub const LLAMA_FTYPE_ALL_F32: llama_ftype = 0;
 pub const LLAMA_FTYPE_MOSTLY_F16: llama_ftype = 1;
 pub const LLAMA_FTYPE_MOSTLY_Q4_0: llama_ftype = 2;

@@ -45,9 +45,6 @@ pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 /// Default epsilon to use for RMS computation.
 pub const DEFAULT_EPS: f32 = 0.000005;
 
-/// Maximum number of nodes in a `ggml` graph.
-pub const MAX_NODES: usize = sys::GGML_MAX_NODES as usize;
-
 /// Alignment used for the Tensors in a `ggml` graph.
 pub const TENSOR_ALIGNMENT: usize = 32;
 
@@ -56,17 +53,34 @@ pub const TENSOR_ALIGNMENT: usize = 32;
 /// Formula: `theta_i = scale * base^(−2(i−1)/d), for i in [1, 2, ..., d/2]`
 #[derive(Debug, Clone)]
 pub struct RoPEOverrides {
+    /// The original context length.
+    pub original_context_length: usize,
     /// The frequency scale to use.
     pub frequency_scale: f32,
     /// The frequency base value to use.
     pub frequency_base: usize,
+
+    /// TODO
+    pub ext_factor: f32,
+    /// TODO
+    pub attn_factor: f32,
+    /// TODO
+    pub beta_fast: f32,
+    /// TODO
+    pub beta_slow: f32,
 }
 
 impl Default for RoPEOverrides {
     fn default() -> Self {
         Self {
+            // Not really sure this should have a default, but if we're the only users for now, it's probably OK?
+            original_context_length: 2048,
             frequency_scale: 1.0,
             frequency_base: 10_000,
+            ext_factor: -1.0,
+            attn_factor: 1.0,
+            beta_fast: 32.0,
+            beta_slow: 1.0,
         }
     }
 }
@@ -272,31 +286,48 @@ impl ComputationGraph {
     /// Returns the leafs in this graph.
     pub fn leafs(&self, context: &Context) -> Vec<Tensor> {
         let mut wrapped_leafs: Vec<Tensor> = vec![];
-        unsafe {
-            for leaf in self.inner.as_ref().unwrap().leafs {
-                if !leaf.is_null() {
-                    wrapped_leafs.push(Tensor {
-                        ptr: NonNull::new(leaf).expect("Should not be null"),
-                        inner: Arc::downgrade(&context.inner),
-                    })
-                }
+
+        for leaf in self.leafs_slice() {
+            if !leaf.is_null() {
+                wrapped_leafs.push(Tensor {
+                    ptr: NonNull::new(*leaf).expect("Should not be null"),
+                    inner: Arc::downgrade(&context.inner),
+                })
             }
-            wrapped_leafs
         }
+        wrapped_leafs
     }
     /// Returns the nodes in this graph.
     pub fn nodes(&self, context: &Context) -> Vec<Tensor> {
         let mut wrapped_nodes: Vec<Tensor> = vec![];
-        unsafe {
-            for leaf in self.inner.as_ref().unwrap().leafs {
-                if !leaf.is_null() {
-                    wrapped_nodes.push(Tensor {
-                        ptr: NonNull::new(leaf).expect("Should not be null"),
-                        inner: Arc::downgrade(&context.inner),
-                    })
-                }
+
+        for leaf in self.nodes_slice() {
+            if !leaf.is_null() {
+                wrapped_nodes.push(Tensor {
+                    ptr: NonNull::new(*leaf).expect("Should not be null"),
+                    inner: Arc::downgrade(&context.inner),
+                })
             }
-            wrapped_nodes
+        }
+        wrapped_nodes
+    }
+}
+impl ComputationGraph {
+    fn leafs_slice(&self) -> &[*mut sys::ggml_tensor] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.inner.as_ref().unwrap().leafs,
+                self.inner.as_ref().unwrap().n_leafs as usize,
+            )
+        }
+    }
+
+    fn nodes_slice(&self) -> &[*mut sys::ggml_tensor] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.inner.as_ref().unwrap().nodes,
+                self.inner.as_ref().unwrap().n_nodes as usize,
+            )
         }
     }
 }

@@ -210,8 +210,22 @@ impl Model for GptNeoX {
 
                 // self-attention using mode = 2 for GPT-NeoX mode
                 let overrides = params.rope_overrides.as_ref();
-                qcur = ctx0.op_rope_inplace(&qcur, session_len, rope_dimension_count, 2, overrides);
-                kcur = ctx0.op_rope_inplace(&kcur, session_len, rope_dimension_count, 2, overrides);
+                qcur = ctx0.op_rope_inplace(
+                    &qcur,
+                    todo!(),
+                    session_len,
+                    rope_dimension_count,
+                    2,
+                    overrides,
+                );
+                kcur = ctx0.op_rope_inplace(
+                    &kcur,
+                    todo!(),
+                    session_len,
+                    rope_dimension_count,
+                    2,
+                    overrides,
+                );
 
                 // store key and value to memory
                 vcur = ctx0.op_transpose(&ctx0.op_reshape_2d(&vcur, embedding_length, input_len));
