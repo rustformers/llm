@@ -114,7 +114,7 @@ macro_rules! define_models {
 
         impl ModelArchitecture {
             /// All available model architectures
-            pub const ALL: &[Self] = &[
+            pub const ALL: &'static [Self] = &[
                 $(
                     #[cfg(feature = $model_lowercase_str)]
                     Self::$model_pascalcase,
