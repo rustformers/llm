@@ -1,0 +1,18 @@
+[package]
+name = "gguf-explorer"
+version = "0.1.0"
+edition = "2021"
+repository = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+ggml = { path = "../../crates/ggml" }
+
+anyhow = { workspace = true }
+
+eframe = "0.22"
+egui_extras = "0.22"

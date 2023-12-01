@@ -1,7 +1,6 @@
 {
     "url": "https://huggingface.co/rustformers/redpajama-3b-ggml/resolve/main/RedPajama-INCITE-Base-3B-v1-q4_0-ggjt.bin",
     "filename": "gptneox.bin",
-    "architecture": "gptneox",
     "test_cases": [
         {
             "Inference": {

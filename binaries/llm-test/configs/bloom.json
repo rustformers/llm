@@ -1,7 +1,6 @@
 {
     "url": "https://huggingface.co/rustformers/bloom-ggml/resolve/main/bloom-560m-q4_0.bin",
     "filename": "bloom.bin",
-    "architecture": "bloom",
     "test_cases": [
         {
             "Inference": {

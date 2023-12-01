@@ -5,6 +5,7 @@ members = [
     "crates/ggml/sys",
     "crates/llm",
     "crates/llm-base",
+    "crates/llama-cpp-simple-clone",
     "crates/models/*",
     "binaries/*",
 ]
@@ -33,6 +34,7 @@ memmap2 = "0.5.10"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = { version = "0.1", features = ["log"] }
 llm-samplers = "=0.0.7"
+indexmap = "2.0.2"
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]

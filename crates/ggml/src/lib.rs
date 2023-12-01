@@ -10,6 +10,8 @@
 use std::{
     alloc::Layout,
     os::raw::{c_int, c_void},
+    ptr::NonNull,
+    sync::Arc,
 };
 
 mod context;
@@ -26,96 +28,8 @@ pub use tensor::Tensor;
 
 pub use ggml_sys as sys;
 
-#[cfg(test)]
-mod tests;
-
 /// The type of a tensor element.
 pub type ElementType = Type;
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-/// The format of the file containing the model.
-pub enum ContainerType {
-    /// Legacy format, oldest ggml tensor file format
-    Ggml,
-    /// Legacy format. Introduces versioning. Newer than GGML, older than GGJT.
-    Ggmf(u32),
-    /// [mmap](https://en.wikipedia.org/wiki/Mmap)-able format. Current version of the format.
-    Ggjt(u32),
-    /// LoRA adapter format.
-    Ggla(u32),
-}
-impl ContainerType {
-    /// Does this container type support mmap?
-    pub fn support_mmap(&self) -> bool {
-        match self {
-            ContainerType::Ggml => false,
-            ContainerType::Ggmf(_) => false,
-            ContainerType::Ggla(_) => false,
-            ContainerType::Ggjt(_) => true,
-        }
-    }
-
-    /// Read the container type from a reader.
-    pub fn read<E: std::error::Error>(
-        reader: &mut dyn std::io::BufRead,
-    ) -> Result<Self, crate::format::LoadError<E>> {
-        // Verify magic
-        let magic = util::read_u32(reader)?;
-        let container_type: ContainerType = match magic {
-            crate::FILE_MAGIC_GGML => ContainerType::Ggml,
-            crate::FILE_MAGIC_GGMF => {
-                let version = util::read_u32(reader)?;
-                ContainerType::Ggmf(version)
-            }
-            crate::FILE_MAGIC_GGJT => {
-                let version = util::read_u32(reader)?;
-                ContainerType::Ggjt(version)
-            }
-            crate::FILE_MAGIC_GGLA => {
-                let version = util::read_u32(reader)?;
-                ContainerType::Ggla(version)
-            }
-            magic => {
-                return Err(crate::format::LoadError::InvalidMagic(format::FormatMagic(
-                    magic,
-                )))
-            }
-        };
-
-        Ok(container_type)
-    }
-
-    /// Write the container type to a writer.
-    pub fn write(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
-        match self {
-            ContainerType::Ggml => {
-                util::write_u32(writer, FILE_MAGIC_GGML)?;
-            }
-            ContainerType::Ggmf(version) => {
-                util::write_u32(writer, FILE_MAGIC_GGMF)?;
-                util::write_u32(writer, *version)?;
-            }
-            ContainerType::Ggjt(version) => {
-                util::write_u32(writer, FILE_MAGIC_GGJT)?;
-                util::write_u32(writer, *version)?;
-            }
-            ContainerType::Ggla(version) => {
-                util::write_u32(writer, FILE_MAGIC_GGLA)?;
-                util::write_u32(writer, *version)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Magic constant for `ggml` files (unversioned).
-pub const FILE_MAGIC_GGML: u32 = 0x67676d6c;
-/// Magic constant for `ggml` files (versioned, ggmf).
-pub const FILE_MAGIC_GGMF: u32 = 0x67676d66;
-/// Magic constant for `ggml` files (versioned, ggjt).
-pub const FILE_MAGIC_GGJT: u32 = 0x67676a74;
-/// Magic constant for `ggla` files (LoRA adapter).
-pub const FILE_MAGIC_GGLA: u32 = 0x67676C61;
 
 /// The current quantization version.
 pub const QNT_VERSION: u32 = sys::GGML_QNT_VERSION;
@@ -129,29 +43,49 @@ pub const OBJECT_SIZE: usize = sys::GGML_OBJECT_SIZE;
 pub const MAX_NAME_LENGTH: usize = sys::GGML_MAX_NAME as usize;
 
 /// Default epsilon to use for RMS computation.
-pub const DEFAULT_EPS: f32 = sys::llama::LLAMA_DEFAULT_RMS_EPS as f32;
+pub const DEFAULT_EPS: f32 = 0.000005;
+
+/// Alignment used for the Tensors in a `ggml` graph.
+pub const TENSOR_ALIGNMENT: usize = 32;
 
 /// Value overrides to use for RoPE.
 ///
 /// Formula: `theta_i = scale * base^(−2(i−1)/d), for i in [1, 2, ..., d/2]`
 #[derive(Debug, Clone)]
 pub struct RoPEOverrides {
+    /// The original context length.
+    pub original_context_length: usize,
     /// The frequency scale to use.
     pub frequency_scale: f32,
     /// The frequency base value to use.
     pub frequency_base: usize,
+
+    /// TODO
+    pub ext_factor: f32,
+    /// TODO
+    pub attn_factor: f32,
+    /// TODO
+    pub beta_fast: f32,
+    /// TODO
+    pub beta_slow: f32,
 }
 
 impl Default for RoPEOverrides {
     fn default() -> Self {
         Self {
+            // Not really sure this should have a default, but if we're the only users for now, it's probably OK?
+            original_context_length: 2048,
             frequency_scale: 1.0,
             frequency_base: 10_000,
+            ext_factor: -1.0,
+            attn_factor: 1.0,
+            beta_fast: 32.0,
+            beta_slow: 1.0,
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 /// The type of a value in `ggml`.
 pub enum Type {
     /// Quantized 4-bit (type 0).
@@ -280,10 +214,8 @@ impl Type {
     }
 }
 
-/// A buffer of memory that can be used as a scratch buffer for a [Context].
-///
-/// See [Context::use_scratch].
-#[derive(PartialEq, Eq)]
+/// A buffer of memory that can be used as a buffer for a [Context] or [GraphAllocator].
+#[derive(PartialEq, Eq, Debug)]
 pub struct Buffer {
     data: *mut c_void,
     layout: Layout,
@@ -304,9 +236,26 @@ impl Buffer {
         }
     }
 
+    /// Creates a new buffer of the specified size, without aligning it.
+    pub fn new_unaligned(size: usize) -> Self {
+        let layout = Layout::from_size_align(size, 1).unwrap();
+
+        unsafe {
+            Buffer {
+                data: std::alloc::alloc(layout).cast(),
+                layout,
+            }
+        }
+    }
+
     /// Returns the size of the buffer in bytes
     pub fn size(&self) -> usize {
         self.layout.size()
+    }
+
+    /// Returns a pointer to the data in this buffer.
+    pub fn data(&mut self) -> *mut c_void {
+        self.data
     }
 }
 
@@ -333,6 +282,54 @@ impl ComputationGraph {
     pub fn build_forward_expand(&mut self, tensor: &Tensor) {
         unsafe { sys::ggml_build_forward_expand(self.inner, tensor.ptr.as_ptr()) }
     }
+
+    /// Returns the leafs in this graph.
+    pub fn leafs(&self, context: &Context) -> Vec<Tensor> {
+        let mut wrapped_leafs: Vec<Tensor> = vec![];
+
+        for leaf in self.leafs_slice() {
+            if !leaf.is_null() {
+                wrapped_leafs.push(Tensor {
+                    ptr: NonNull::new(*leaf).expect("Should not be null"),
+                    inner: Arc::downgrade(&context.inner),
+                })
+            }
+        }
+        wrapped_leafs
+    }
+    /// Returns the nodes in this graph.
+    pub fn nodes(&self, context: &Context) -> Vec<Tensor> {
+        let mut wrapped_nodes: Vec<Tensor> = vec![];
+
+        for leaf in self.nodes_slice() {
+            if !leaf.is_null() {
+                wrapped_nodes.push(Tensor {
+                    ptr: NonNull::new(*leaf).expect("Should not be null"),
+                    inner: Arc::downgrade(&context.inner),
+                })
+            }
+        }
+        wrapped_nodes
+    }
+}
+impl ComputationGraph {
+    fn leafs_slice(&self) -> &[*mut sys::ggml_tensor] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.inner.as_ref().unwrap().leafs,
+                self.inner.as_ref().unwrap().n_leafs as usize,
+            )
+        }
+    }
+
+    fn nodes_slice(&self) -> &[*mut sys::ggml_tensor] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.inner.as_ref().unwrap().nodes,
+                self.inner.as_ref().unwrap().n_nodes as usize,
+            )
+        }
+    }
 }
 
 /// A `ggml` execution plan. Contains the information needed to execute a computation graph.
@@ -350,30 +347,79 @@ impl GraphExecutionPlan {
         }
     }
 
-    /// Creates a [Type::I8] work buffer with size `plan.work_size` for this [GraphExecutionPlan] in the given [Context].
-    fn create_work_buffer(&mut self, context: &Context) -> Tensor {
-        context.new_tensor_1d(Type::I8, self.inner.work_size)
-    }
-
-    /// Assign a work buffer to this [GraphExecutionPlan].
-    fn assign_work_buffer(&mut self, buffer: &mut Tensor) {
-        assert!(
-            buffer.get_type() == Type::I8,
-            "Work buffer must be of type i8"
-        );
-        unsafe {
-            self.inner.work_data = buffer.data().cast();
-        }
-    }
-
     /// Execute this [GraphExecutionPlan] in the given [Context].
-    pub fn execute(&mut self, context: &Context) {
-        let mut work_buffer = self.create_work_buffer(context);
-        self.assign_work_buffer(&mut work_buffer);
+    pub fn execute(&mut self, buffer: &mut Vec<u8>) {
+        if self.inner.work_size > 0 {
+            buffer.resize(self.inner.work_size, 0);
+            self.inner.work_data = buffer.as_mut_ptr().cast();
+        }
 
         unsafe {
             sys::ggml_graph_compute(self.inner_graph, &mut self.inner);
         }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug)]
+/// Acts as a RAII-guard over a `sys::ggml_allocr`, allocating via
+/// `ggml_allocr_new` and dropping via `ggml_allocr_free`.
+/// Used to allocate the memory used by a computational graph.
+pub struct GraphAllocator {
+    /// The underlying `sys::ggml_allocr` pointer.
+    pub ptr: *mut sys::ggml_allocr,
+    /// The buffer used by this allocator.
+    pub buffer: Buffer,
+}
+
+impl GraphAllocator {
+    /// Create a new allocator with the specified buffer.
+    pub fn new(buffer: Buffer, tensor_alignment: usize) -> Self {
+        let ptr = unsafe { sys::ggml_allocr_new(buffer.data, buffer.size(), tensor_alignment) };
+        Self { ptr, buffer }
+    }
+
+    /// Create a new allocator to measure a computational graph.
+    pub fn new_measurement(tensor_alignment: usize) -> Self {
+        let ptr = unsafe { sys::ggml_allocr_new_measure(tensor_alignment) };
+        let buffer = Buffer::new(tensor_alignment);
+        Self { ptr, buffer }
+    }
+
+    /// Allocates a computational graph in the allocator and returns the size in bytes.
+    pub fn allocate_graph(&self, graph: &ComputationGraph) -> usize {
+        unsafe { sys::ggml_allocr_alloc_graph(self.ptr, graph.inner) }
+    }
+
+    /// Resets the allocator for a new forward pass.
+    pub fn reset(&self) {
+        unsafe { sys::ggml_allocr_reset(self.ptr) }
+    }
+
+    /// Returns true if the allocator is in measuring mode.
+    pub fn in_measuring_mode(&self) -> bool {
+        unsafe { sys::ggml_allocr_is_measure(self.ptr) }
+    }
+
+    /// Allocates memory for a given tensor in the allocator.
+    pub fn allocate(&self, tensor: &Tensor) {
+        unsafe { sys::ggml_allocr_alloc(self.ptr, tensor.ptr.as_ptr()) }
+    }
+
+    /// Switches the buffer used by the allocator.
+    pub fn resize_buffer(&mut self, graph_size: usize, tensor_alignment: usize) {
+        // Free the old allocator
+        unsafe { sys::ggml_allocr_free(self.ptr) }
+        //Resize the buffer
+        self.buffer = Buffer::new_unaligned(graph_size);
+        // Create a new allocator with the new buffer
+        self.ptr =
+            unsafe { sys::ggml_allocr_new(self.buffer.data, self.buffer.size(), tensor_alignment) };
+    }
+}
+
+impl Drop for GraphAllocator {
+    fn drop(&mut self) {
+        unsafe { sys::ggml_allocr_free(self.ptr) }
     }
 }
 
@@ -495,4 +541,9 @@ pub fn cpu_has_gpublas() -> bool {
 /// Returns the graph overhead in bytes.
 pub fn graph_overhead() -> usize {
     unsafe { sys::ggml_graph_overhead() }
+}
+
+/// Returns the tensor overhead in bytes.
+pub fn tensor_overhead() -> usize {
+    unsafe { sys::ggml_tensor_overhead() }
 }

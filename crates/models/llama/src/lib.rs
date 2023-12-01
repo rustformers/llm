@@ -1,13 +1,14 @@
 //! An implementation of [LLaMA](https://huggingface.co/docs/transformers/model_doc/llama) for the `llm` ecosystem.
 #![deny(missing_docs)]
 
-use std::error::Error;
-
 use llm_base::{
-    ggml::{self},
-    model::{common, HyperparametersWriteError},
-    util, FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, KnownModel, LoadError,
-    ModelContext, ModelParameters, OutputRequest, Regex, TensorLoader, TokenId, Tokenizer,
+    ggml::{
+        self,
+        format::gguf::{Metadata, META_TENSOR_DATA_LAYOUT},
+    },
+    model::{common, HyperparametersReadError, ModelData, ModelLoadArgs, ModelLoadError},
+    FileType, GraphOutputs, InferenceSession, InferenceSessionConfig, Model, ModelContext,
+    OutputRequest, Regex, TokenId,
 };
 
 /// The LLaMA model. Ref: [Introducing LLaMA](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
@@ -15,10 +16,8 @@ use llm_base::{
 /// # Safety
 /// This implements [Send] and [Sync] as it is immutable after construction.
 pub struct Llama {
-    params: ModelParameters,
+    data: ModelData,
     hyperparameters: Hyperparameters,
-    tokenizer: Tokenizer,
-    _version: LlamaModelType,
     // model-global weights
     // weighted token embeddings
     wte: ggml::Tensor,
@@ -28,7 +27,7 @@ pub struct Llama {
     output: ggml::Tensor,
 
     // weights for the model
-    layers: Vec<Layer>,
+    blocks: Vec<Block>,
 
     // must be kept alive for the model
     context: ModelContext,
@@ -37,94 +36,68 @@ pub struct Llama {
 unsafe impl Send for Llama {}
 unsafe impl Sync for Llama {}
 
-impl KnownModel for Llama {
-    type Hyperparameters = Hyperparameters;
+impl Model for Llama {
+    fn new(args: ModelLoadArgs) -> Result<Self, ModelLoadError> {
+        let hyperparameters = Hyperparameters::read(&args.gguf.metadata)?;
+        assert_eq!(hyperparameters.tensor_data_layout, META_TENSOR_DATA_LAYOUT);
 
-    fn new<E: Error>(
-        mut hyperparameters: Self::Hyperparameters,
-        params: ModelParameters,
-        tokenizer: Tokenizer,
-        tensor_loader: impl TensorLoader<E>,
-    ) -> Result<Self, E> {
-        let mut tl = tensor_loader;
+        let mut tl = args.tensor_loader;
 
         // model-global weights
-        let wte = tl.load("tok_embeddings.weight")?;
+        let wte = tl.load("token_embd.weight")?;
 
-        let backend = params.backend(0);
+        let data = args.data;
 
-        let norm = tl.load("norm.weight")?.transfer_to(backend);
+        let backend = data.params.backend(0);
+
+        let norm = tl.load("output_norm.weight")?.transfer_to(backend);
         let output = tl.load("output.weight")?.transfer_to(backend);
 
-        let mut layers = Vec::new();
+        let mut blocks = Vec::new();
 
-        for i in 0..hyperparameters.n_layer {
-            let backend = params.backend(i);
+        for i in 0..hyperparameters.block_count {
+            let backend = data.params.backend(i);
 
-            let layer = Layer {
-                attention_norm: tl
-                    .load(&format!("layers.{i}.attention_norm.weight"))?
+            let block = Block {
+                attn_n: tl
+                    .load(&format!("blk.{i}.attn_norm.weight"))?
                     .transfer_to(backend),
-                wq: tl
-                    .load(&format!("layers.{i}.attention.wq.weight"))?
+                attn_q: tl
+                    .load(&format!("blk.{i}.attn_q.weight"))?
                     .transfer_to(backend),
-                wk: tl
-                    .load(&format!("layers.{i}.attention.wk.weight"))?
+                attn_k: tl
+                    .load(&format!("blk.{i}.attn_k.weight"))?
                     .transfer_to(backend),
-                wv: tl
-                    .load(&format!("layers.{i}.attention.wv.weight"))?
+                attn_v: tl
+                    .load(&format!("blk.{i}.attn_v.weight"))?
                     .transfer_to(backend),
-                wo: tl
-                    .load(&format!("layers.{i}.attention.wo.weight"))?
+                attn_output: tl
+                    .load(&format!("blk.{i}.attn_output.weight"))?
                     .transfer_to(backend),
                 ffn_norm: tl
-                    .load(&format!("layers.{i}.ffn_norm.weight"))?
+                    .load(&format!("blk.{i}.ffn_norm.weight"))?
                     .transfer_to(backend),
-                w1: tl
-                    .load(&format!("layers.{i}.feed_forward.w1.weight"))?
+                ffn_gate: tl
+                    .load(&format!("blk.{i}.ffn_gate.weight"))?
                     .transfer_to(backend),
-                w2: tl
-                    .load(&format!("layers.{i}.feed_forward.w2.weight"))?
+                ffn_down: tl
+                    .load(&format!("blk.{i}.ffn_down.weight"))?
                     .transfer_to(backend),
-                w3: tl
-                    .load(&format!("layers.{i}.feed_forward.w3.weight"))?
+                ffn_up: tl
+                    .load(&format!("blk.{i}.ffn_up.weight"))?
                     .transfer_to(backend),
             };
-            layers.push(layer);
+            blocks.push(block);
         }
         let context = tl.finish();
 
-        // TODO: read from file
-        let mut version = match hyperparameters.n_layer {
-            26 => LlamaModelType::Model3b,
-            32 => LlamaModelType::Model7b,
-            40 => LlamaModelType::Model13b,
-            60 => LlamaModelType::Model30b,
-            80 => LlamaModelType::Model65b,
-            _ => LlamaModelType::Model7b, // anything < 32
-        };
-        // TODO: temporary fix for 70B models
-        if let Some(n_gqa) = params.n_gqa {
-            if hyperparameters.n_layer >= 80 {
-                assert_eq!(
-                    hyperparameters.n_head % n_gqa,
-                    0,
-                    "assuming 70B Llama2 model based on GQA == 8"
-                );
-                hyperparameters.n_head_kv = hyperparameters.n_head / n_gqa;
-                version = LlamaModelType::Model70b;
-            }
-        }
-
         Ok(Self {
+            data,
             hyperparameters,
-            params,
-            _version: version,
-            tokenizer,
             wte,
             norm,
             output,
-            layers,
+            blocks,
             context,
         })
     }
@@ -133,10 +106,10 @@ impl KnownModel for Llama {
     fn start_session(&self, config: InferenceSessionConfig) -> InferenceSession {
         InferenceSession::new(
             config,
-            &self.params,
-            self.hyperparameters.n_layer,
-            self.hyperparameters.n_embd,
-            self.hyperparameters.n_vocab,
+            &self.data.params,
+            self.hyperparameters.block_count,
+            self.hyperparameters.embedding_length,
+            self.tokenizer().len(),
         )
     }
 
@@ -147,23 +120,26 @@ impl KnownModel for Llama {
         input_tokens: &[TokenId],
         output_request: &mut OutputRequest,
     ) {
-        let input_len = input_tokens.len();
-        let session_len = session.n_past;
-        let ctx_size = self.params.context_size;
+        let params = &self.data.params;
+        let ctx_size = params.context_size;
+
+        let vocabulary_count = self.tokenizer().len();
 
         let Hyperparameters {
-            n_vocab,
-            n_embd,
-            n_mult: _,
-            n_head,
-            n_head_kv,
-            n_layer,
-            n_rot,
+            embedding_length,
+            head_count,
+            head_count_kv,
+            block_count,
             file_type: _,
+            tensor_data_layout: _,
         } = self.hyperparameters;
-        let n_embd_gqa = n_embd / (n_head / n_head_kv);
+
+        let embedding_length_gqa =
+            embedding_length / self.hyperparameters.grouped_query_attention();
 
         let outputs = session.compute(self.context.clone(), input_tokens, |builder| {
+            let session_len = builder.n_past;
+            let input_len = builder.input_length();
             let mut ctx0 = builder.ctx0.borrow_mut();
             let embd = builder.embd;
 
@@ -171,33 +147,33 @@ impl KnownModel for Llama {
 
             let mut gf = ctx0.create_compute_graph();
 
-            for il in 0..n_layer {
-                ctx0.set_offloading(self.params.should_offload(il));
+            for il in 0..block_count {
+                ctx0.set_offloading(params.should_offload(il));
 
                 let input_self_attention = input_layer.share();
                 let mut current: ggml::Tensor;
-
-                ctx0.use_scratch(builder.get_scratch(0));
 
                 // norm
                 current = ctx0.op_rms_norm(&input_layer);
 
                 // cur = attention_norm * cur
-                current = ctx0.op_mul(&current, &self.layers[il].attention_norm);
+                current = ctx0.op_mul(&current, &self.blocks[il].attn_n);
 
                 // self-attention
                 // compute Q and K and RoPE them
-                let overrides = self.params.rope_overrides.as_ref();
+                let overrides = params.rope_overrides.as_ref();
+                let n_embd_head = embedding_length / head_count;
                 let q_current = ctx0
                     .op_rope_inplace(
                         &ctx0.op_reshape_3d(
-                            &ctx0.op_mul_mat(&self.layers[il].wq, &current),
-                            n_embd / n_head,
-                            n_head,
+                            &ctx0.op_mul_mat(&self.blocks[il].attn_q, &current),
+                            n_embd_head,
+                            head_count,
                             input_len,
                         ),
+                        todo!(),
                         session_len,
-                        n_rot,
+                        n_embd_head,
                         0,
                         overrides,
                     )
@@ -205,37 +181,39 @@ impl KnownModel for Llama {
                 let k_current = ctx0
                     .op_rope_inplace(
                         &ctx0.op_reshape_3d(
-                            &ctx0.op_mul_mat(&self.layers[il].wk, &current),
-                            n_embd / n_head,
-                            n_head_kv,
+                            &ctx0.op_mul_mat(&self.blocks[il].attn_k, &current),
+                            n_embd_head,
+                            head_count_kv,
                             input_len,
                         ),
+                        todo!(),
                         session_len,
-                        n_rot,
+                        n_embd_head,
                         0,
                         overrides,
                     )
                     .set_name("Kcur");
 
                 // store key and value to memory
-                // compute the transposed [N, n_embd] V matrix
+                // compute the transposed [N, embedding_length] V matrix
                 let v_current = ctx0.op_transpose(&ctx0.op_reshape_2d(
-                    &ctx0.op_mul_mat(&self.layers[il].wv, &current),
-                    n_embd_gqa,
+                    &ctx0.op_mul_mat(&self.blocks[il].attn_v, &current),
+                    embedding_length_gqa,
                     input_len,
                 ));
 
                 let k = ctx0.op_view_1d(
                     builder.memory_k,
-                    input_len * n_embd_gqa,
-                    (builder.memory_k.element_size() * n_embd_gqa) * (il * ctx_size + session_len),
+                    input_len * embedding_length_gqa,
+                    (builder.memory_k.element_size() * embedding_length_gqa)
+                        * (il * ctx_size + session_len),
                 );
 
                 let v = ctx0.op_view_2d(
                     builder.memory_v,
-                    (input_len, n_embd_gqa),
+                    (input_len, embedding_length_gqa),
                     ctx_size * builder.memory_v.element_size(),
-                    (il * ctx_size) * builder.memory_v.element_size() * n_embd_gqa
+                    (il * ctx_size) * builder.memory_v.element_size() * embedding_length_gqa
                         + session_len * builder.memory_v.element_size(),
                 );
 
@@ -250,11 +228,13 @@ impl KnownModel for Llama {
                         &ctx0.op_reshape_3d(
                             &ctx0.op_view_1d(
                                 builder.memory_k,
-                                (session_len + input_len) * n_embd_gqa,
-                                il * ctx_size * builder.memory_k.element_size() * n_embd_gqa,
+                                (session_len + input_len) * embedding_length_gqa,
+                                il * ctx_size
+                                    * builder.memory_k.element_size()
+                                    * embedding_length_gqa,
                             ),
-                            n_embd / n_head,
-                            n_head_kv,
+                            n_embd_head,
+                            head_count_kv,
                             session_len + input_len,
                         ),
                         (0, 2, 1, 3),
@@ -264,10 +244,10 @@ impl KnownModel for Llama {
                 // K * Q
                 let k_q = ctx0.op_mul_mat(&k, &q).set_name("KQ");
 
-                // KQ_scaled = KQ / sqrt(n_embd/n_head)
+                // KQ_scaled = KQ / sqrt(embedding_length/head_count)
                 let kq_scale = ctx0
-                    .new_f32(1.0 / ((n_embd as f32 / n_head as f32).sqrt()))
-                    .set_name("1/sqrt(n_embd/n_head)");
+                    .new_f32(1.0 / ((embedding_length as f32 / head_count as f32).sqrt()))
+                    .set_name("1/sqrt(embedding_length/head_count)");
                 let k_q_scaled = ctx0.op_scale_inplace(&k_q, &kq_scale).set_name("KQ_scaled");
 
                 // KQ_masked = mask_past(KQ_scaled)
@@ -280,16 +260,21 @@ impl KnownModel for Llama {
                     .op_soft_max_inplace(&k_q_masked)
                     .set_name("KQ_soft_max");
 
-                // split cached V into n_head heads
+                // split cached V into head_count heads
                 let v = ctx0
                     .op_view_3d(
                         builder.memory_v,
-                        (session_len + input_len, n_embd / n_head, n_head_kv),
+                        (
+                            session_len + input_len,
+                            embedding_length / head_count,
+                            head_count_kv,
+                        ),
                         (
                             ctx_size * builder.memory_v.element_size(),
-                            ctx_size * builder.memory_v.element_size() * n_embd / n_head,
+                            ctx_size * builder.memory_v.element_size() * embedding_length
+                                / head_count,
                         ),
-                        il * ctx_size * builder.memory_v.element_size() * n_embd_gqa,
+                        il * ctx_size * builder.memory_v.element_size() * embedding_length_gqa,
                     )
                     .set_name("V");
 
@@ -298,18 +283,16 @@ impl KnownModel for Llama {
                 // KQV_merged = KQV.permute(0, 2, 1, 3)
                 let k_q_v_merged = ctx0.op_permute(&k_q_v, (0, 2, 1, 3)).set_name("KQV_merged");
 
-                // cur = KQV_merged.contiguous().view(n_embd, N)
+                // cur = KQV_merged.contiguous().view(embedding_length, N)
                 current = ctx0
                     .op_cpy(
                         &k_q_v_merged,
-                        &ctx0.new_tensor_2d(ggml::Type::F32, n_embd, input_len),
+                        &ctx0.new_tensor_2d(ggml::Type::F32, embedding_length, input_len),
                     )
                     .set_name("KQV_merged_contiguous");
 
                 // projection (no bias)
-                current = ctx0.op_mul_mat(&self.layers[il].wo, &current);
-
-                ctx0.use_scratch(builder.get_scratch(1));
+                current = ctx0.op_mul_mat(&self.blocks[il].attn_output, &current);
 
                 let input_feed_forward = ctx0.op_add(&current, &input_self_attention);
 
@@ -318,26 +301,24 @@ impl KnownModel for Llama {
                 current = ctx0.op_rms_norm(&input_feed_forward);
 
                 // cur = cur*ffn_norm(broadcasted)
-                current = ctx0.op_mul(&current, &self.layers[il].ffn_norm);
+                current = ctx0.op_mul(&current, &self.blocks[il].ffn_norm);
 
-                let tmp = ctx0.op_mul_mat(&self.layers[il].w3, &current);
+                let tmp = ctx0.op_mul_mat(&self.blocks[il].ffn_up, &current);
 
-                current = ctx0.op_mul_mat(&self.layers[il].w1, &current);
+                current = ctx0.op_mul_mat(&self.blocks[il].ffn_gate, &current);
 
                 // SILU activation
                 current = ctx0.op_silu(&current);
 
                 current = ctx0.op_mul(&current, &tmp);
 
-                current = ctx0.op_mul_mat(&self.layers[il].w2, &current);
+                current = ctx0.op_mul_mat(&self.blocks[il].ffn_down, &current);
 
                 current = ctx0.op_add(&current, &input_feed_forward);
 
                 // input for next layer
                 input_layer = current;
             }
-
-            ctx0.use_scratch(builder.get_scratch(0));
 
             // norm
             input_layer = ctx0.op_rms_norm(&input_layer);
@@ -351,32 +332,39 @@ impl KnownModel for Llama {
             // lm_head
             input_layer = ctx0.op_mul_mat(&self.output, &input_layer);
 
-            ctx0.use_scratch(None);
             (
                 gf,
                 GraphOutputs {
                     result: input_layer,
                     embedding_result,
+                    output_length: input_len,
                 },
             )
         });
 
         // finish evaluation
-        common::read_last_token(session, &outputs.result, n_vocab, input_len);
-        common::extract_logits(output_request, &outputs.result, n_vocab, input_len);
-        common::extract_embeddings(output_request, &outputs.embedding_result, n_embd, input_len);
+        common::read_last_token(
+            session,
+            &outputs.result,
+            vocabulary_count,
+            outputs.output_length,
+        );
+        common::extract_logits(
+            output_request,
+            &outputs.result,
+            vocabulary_count,
+            outputs.output_length,
+        );
+        common::extract_embeddings(
+            output_request,
+            &outputs.embedding_result,
+            embedding_length,
+            outputs.output_length,
+        );
     }
 
-    fn hyperparameters(&self) -> &Self::Hyperparameters {
-        &self.hyperparameters
-    }
-
-    fn tokenizer(&self) -> &Tokenizer {
-        &self.tokenizer
-    }
-
-    fn context_size(&self) -> usize {
-        self.params.context_size
+    fn data(&self) -> &ModelData {
+        &self.data
     }
 
     fn bot_token_id(&self) -> Option<TokenId> {
@@ -384,14 +372,14 @@ impl KnownModel for Llama {
     }
 
     fn eot_token_id(&self) -> TokenId {
-        self.tokenizer.id("</s>".as_bytes()).unwrap_or(2)
+        self.tokenizer().id("</s>".as_bytes()).unwrap_or(2)
     }
 
-    fn quantize_tensors() -> Vec<Regex> {
+    fn quantize_tensors(&self) -> Vec<Regex> {
         vec![Regex::new(".*weight").unwrap()]
     }
 
-    fn skip_quantize_tensors() -> Vec<Regex> {
+    fn skip_quantize_tensors(&self) -> Vec<Regex> {
         vec![]
     }
 
@@ -400,99 +388,55 @@ impl KnownModel for Llama {
     }
 }
 
-/// LLaMA [hyperparameters](https://en.wikipedia.org/wiki/Hyperparameter_(machine_learning))
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub struct Hyperparameters {
-    /// Size of the model's vocabulary
-    pub n_vocab: usize,
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+struct Hyperparameters {
     /// Size of the model's embedding layer
-    pub n_embd: usize,
-    /// n_mult
-    pub n_mult: usize,
-    /// n_head
-    pub n_head: usize,
-    /// grouped-query attention
-    pub n_head_kv: usize,
-    /// Number of layers in the model
-    pub n_layer: usize,
-    /// n_rot
-    pub n_rot: usize,
+    embedding_length: usize,
+    /// The number of attention heads
+    head_count: usize,
+    /// The number of grouped-query attention heads
+    head_count_kv: usize,
+    /// Number of blocks in the model
+    block_count: usize,
     /// file_type
-    pub file_type: FileType,
+    file_type: Option<FileType>,
+    /// The tensor data layout that this model was encoded with
+    tensor_data_layout: String,
 }
-
-impl llm_base::Hyperparameters for Hyperparameters {
-    fn read_ggml(reader: &mut dyn std::io::BufRead) -> Result<Self, LoadError> {
-        let n_vocab = util::read_i32(reader)?.try_into()?;
-        let n_embd = util::read_i32(reader)?.try_into()?;
-        let n_mult = util::read_i32(reader)?.try_into()?;
-        let n_head = util::read_i32(reader)?.try_into()?;
-        let n_layer = util::read_i32(reader)?.try_into()?;
-        let n_rot = util::read_i32(reader)?.try_into()?;
-        let file_type = util::read_filetype(reader)?;
-
-        // Defaults to multi-head attention where n_head_kv == n_heads
-        let n_head_kv = n_head;
-
-        Ok(Hyperparameters {
-            n_head,
-            n_head_kv,
-            n_vocab,
-            n_embd,
-            n_mult,
-            n_layer,
-            n_rot,
-            file_type,
+impl Hyperparameters {
+    pub fn read(metadata: &Metadata) -> Result<Self, HyperparametersReadError> {
+        Ok(Self {
+            embedding_length: metadata.get_countable("llama.embedding_length")?,
+            head_count: metadata.get_countable("llama.attention.head_count")?,
+            head_count_kv: metadata.get_countable("llama.attention.head_count_kv")?,
+            block_count: metadata.get_countable("llama.block_count")?,
+            file_type: FileType::read_for_hyperparameters(metadata)?,
+            tensor_data_layout: metadata
+                .get_str("llama.tensor_data_layout")
+                .unwrap_or(META_TENSOR_DATA_LAYOUT)
+                .to_string(),
         })
     }
 
-    fn write_ggml(&self, writer: &mut dyn std::io::Write) -> Result<(), HyperparametersWriteError> {
-        util::write_i32(writer, self.n_vocab.try_into()?)?;
-        util::write_i32(writer, self.n_embd.try_into()?)?;
-        util::write_i32(writer, self.n_mult.try_into()?)?;
-        util::write_i32(writer, self.n_head.try_into()?)?;
-        util::write_i32(writer, self.n_layer.try_into()?)?;
-        util::write_i32(writer, self.n_rot.try_into()?)?;
-        util::write_i32(writer, self.file_type.into())?;
-        Ok(())
-    }
-
-    fn n_vocabulary(&self) -> usize {
-        self.n_vocab
-    }
-
-    fn file_type(&self) -> Option<FileType> {
-        Some(self.file_type)
-    }
-
-    fn file_type_mut(&mut self) -> Option<&mut FileType> {
-        Some(&mut self.file_type)
+    /// Returns the number of grouped-query attention heads.
+    fn grouped_query_attention(&self) -> usize {
+        self.head_count / self.head_count_kv
     }
 }
 
-struct Layer {
-    attention_norm: ggml::Tensor,
+struct Block {
+    attn_n: ggml::Tensor,
 
-    wq: ggml::Tensor,
-    wk: ggml::Tensor,
-    wv: ggml::Tensor,
-    wo: ggml::Tensor,
+    attn_q: ggml::Tensor,
+    attn_k: ggml::Tensor,
+    attn_v: ggml::Tensor,
+    attn_output: ggml::Tensor,
 
     // normalization
     ffn_norm: ggml::Tensor,
 
     // ff
-    w1: ggml::Tensor,
-    w2: ggml::Tensor,
-    w3: ggml::Tensor,
-}
-
-/// Available Llama models
-enum LlamaModelType {
-    Model3b,
-    Model7b,
-    Model13b,
-    Model30b,
-    Model65b,
-    Model70b,
+    ffn_gate: ggml::Tensor,
+    ffn_down: ggml::Tensor,
+    ffn_up: ggml::Tensor,
 }

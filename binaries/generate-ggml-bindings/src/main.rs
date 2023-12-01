@@ -25,8 +25,12 @@ fn generate_main(ggml_path: &Path, src_path: &Path) {
     let bindings = bindgen::Builder::default()
         .header(ggml_path.join("ggml.h").to_str().unwrap().to_string())
         .allowlist_file(r".*ggml.h")
-        .header(ggml_path.join("k_quants.h").to_string_lossy())
-        .allowlist_file(r".*k_quants.h")
+        .header(ggml_path.join("ggml-quants.h").to_string_lossy())
+        .allowlist_file(r".*ggml-quants.h")
+        .header(ggml_path.join("ggml-alloc.h").to_string_lossy())
+        .allowlist_file(r".*ggml-alloc.h")
+        .header(ggml_path.join("ggml-backend.h").to_string_lossy())
+        .allowlist_file(r".*ggml-backend.h")
         // Suppress some warnings
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_camel_case_types)]")
@@ -88,6 +92,9 @@ fn generate_metal(ggml_path: &Path, src_path: &Path) {
     generate_extra("metal", ggml_path, src_path, |b| {
         b.header(ggml_path.join("ggml-metal.h").to_string_lossy())
             .allowlist_file(r".*ggml-metal\.h")
+            .raw_line("use super::ggml_cgraph;")
+            .raw_line("use super::ggml_log_callback;")
+            .raw_line("use super::ggml_tensor;")
     });
 }
 

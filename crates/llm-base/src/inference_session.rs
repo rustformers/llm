@@ -1,4 +1,4 @@
-use ggml::{Buffer, ComputationGraph, Context, GraphExecutionPlan, Tensor};
+use ggml::{Buffer, ComputationGraph, Context, GraphAllocator, GraphExecutionPlan, Tensor};
 use serde::Serialize;
 use std::{cell::RefCell, fmt::Display, sync::Arc};
 use thiserror::Error;
@@ -12,21 +12,6 @@ use crate::{
     TokenId, TokenUtf8Buffer, TokenizationError,
 };
 
-// The size of a scratch buffer used for inference. This is used for temporary
-// storage of intermediate results during inference.
-//
-// The specific value was copied from `llama.cpp`.
-const SCRATCH_SIZE: usize = 512 * 1024 * 1024;
-
-type ScratchBuffers = [ggml::Buffer; 2];
-
-fn scratch_buffers() -> ScratchBuffers {
-    [
-        ggml::Buffer::new(SCRATCH_SIZE),
-        ggml::Buffer::new(SCRATCH_SIZE),
-    ]
-}
-
 /// Result of graph building
 pub struct GraphOutputs {
     /// The output containing the model's result
@@ -34,6 +19,9 @@ pub struct GraphOutputs {
 
     /// The output containing embeddings
     pub embedding_result: Tensor,
+
+    /// The length of the output
+    pub output_length: usize,
 }
 
 /// An inference session represents the state of the text generation. This holds
@@ -66,7 +54,7 @@ pub struct InferenceSession {
 
     /// How many tokens have been fed into the model's working memory so far.
     #[doc(hidden)]
-    pub n_past: usize,
+    n_past: usize,
 
     /// How much memory is required per token for the temporary context used
     /// during inference.
@@ -90,21 +78,32 @@ pub struct InferenceSession {
 
     n_embd: usize,
 
-    scratch: ScratchBuffers,
+    /// Allocator used by this session
+    allocator: GraphAllocator,
+
+    ///Context size of this session
+    context_size: usize,
+
+    /// Work buffer for graph planing
+    work_buffer: Vec<u8>,
+
+    /// If the session can use the gpu
+    use_gpu: bool,
 }
 
 pub struct BuildContext<'session> {
     //FIXME: Borrowing issue, dont know how to fix it
     pub ctx0: RefCell<&'session mut Context>,
+    pub allocator: RefCell<&'session GraphAllocator>,
     pub embd: &'session Tensor,
     pub memory_k: &'session Tensor,
     pub memory_v: &'session Tensor,
-    pub scratch: &'session ScratchBuffers,
+    pub n_past: usize,
 }
 
 impl<'session> BuildContext<'session> {
-    pub fn get_scratch(&self, idx: usize) -> Option<&Buffer> {
-        Some(&self.scratch[idx])
+    pub fn input_length(&self) -> usize {
+        self.embd.nelements()
     }
 }
 
@@ -118,102 +117,101 @@ impl InferenceSession {
         n_embd: usize,
         n_vocab: usize,
     ) -> InferenceSession {
-        let ModelParameters {
-            use_gpu,
-            context_size,
-            ..
-        } = *params;
+        todo!()
+        // let ModelParameters {
+        //     use_gpu,
+        //     context_size,
+        //     ..
+        // } = *params;
 
-        let context_byte_size = {
-            let mut size = 0;
-            size += mulf!(
-                context_size,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_k_type.into())
-            ); // memory_k
-            size += mulf!(
-                context_size,
-                n_layer,
-                n_embd,
-                ggml::type_sizef(config.memory_v_type.into())
-            ); // memory_v
-            size += (5 + 10 * n_layer) * 256; // object overhead
+        // let cache_byte_size = {
+        //     let mut size = 0;
+        //     size += mulf!(
+        //         context_size,
+        //         n_layer,
+        //         n_embd,
+        //         ggml::type_sizef(config.memory_k_type.into())
+        //     ); // memory_k
+        //     size += mulf!(
+        //         context_size,
+        //         n_layer,
+        //         n_embd,
+        //         ggml::type_sizef(config.memory_v_type.into())
+        //     ); // memory_v
+        //     size += 2 * 1024 * 1024; // overhead
 
-            size
-        };
+        //     size
+        // };
 
-        if use_gpu {
-            ggml::accelerator::initialize(0);
-            ggml::accelerator::set_scratch_size(config.n_batch * 1024 * 1024);
-        }
+        // log::info!(
+        //     "Allocating {:.2} MB for KV-memory",
+        //     cache_byte_size / (1024 * 1024)
+        // );
 
-        // TODO: revisit this with `Rc`, maybe? We should be able to prove that the session
-        // context is only accessed from one thread at a time, but I've already spent enough
-        // time on this as-is.
-        #[allow(clippy::arc_with_non_send_sync)]
-        let session_ctx = Arc::new(ggml::Context::new_with_allocate(context_byte_size));
+        // if use_gpu {
+        //     ggml::accelerator::initialize(0);
+        //     ggml::accelerator::set_scratch_size(0);
+        // }
 
-        // Initialize key + value memory tensors
-        let n_mem = n_layer * context_size;
-        let n_elements = n_embd * n_mem;
-        let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
+        // // TODO: revisit this with `Rc`, maybe? We should be able to prove that the session
+        // // context is only accessed from one thread at a time, but I've already spent enough
+        // // time on this as-is.
+        // #[allow(clippy::arc_with_non_send_sync)]
+        // let session_ctx = Arc::new(ggml::Context::new_with_allocate(cache_byte_size));
 
-        let scratch = scratch_buffers();
+        // // Initialize key + value memory tensors
+        // let n_mem = n_layer * context_size;
+        // let n_elements = n_embd * n_mem;
+        // let (memory_k, memory_v) = kv_memory(&session_ctx, &config, use_gpu, n_elements);
 
-        // Allocate buffer for storing intermediate values during evaluation (ctx0 backing)
-        // For the first run, we need to guess a maximum buffer size so we can measure
-        // the actual memory consumption of the temporary ggml context.
-        //
-        // These numbers are from `llama.cpp`, and could potentially be more efficient.
-        let buf_size = {
-            let buf_size_mb = if n_layer >= 80 {
-                1536
-            } else if n_layer >= 60 {
-                1280
-            } else {
-                1024
-            };
-            buf_size_mb * 1024 * 1024 + ggml::graph_overhead()
-        };
+        // // Allocate buffer for storing tensor and graph structs
+        // let buf_size = ggml::graph_overhead() + (ggml::tensor_overhead() * ggml::MAX_NODES);
+        // let eval = Buffer::new(buf_size);
+        // log::info!(
+        //     "Allocating {:.2} MB for eval-context",
+        //     buf_size / (1024 * 1024)
+        // );
 
-        let eval = Buffer::new(buf_size);
-        let ctx0 = ggml::Context::new_with_buffer(eval);
+        // let ctx0 = ggml::Context::new_with_buffer(eval, false);
 
-        // Set up Metal support
-        #[cfg(feature = "metal")]
-        let metal_context = {
-            if use_gpu {
-                let mut metal_context = MetalContext::new(config.n_threads);
-                metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
+        // let allocator = GraphAllocator::new_measurement(ggml::TENSOR_ALIGNMENT);
+        // // Set up Metal support
+        // #[cfg(feature = "metal")]
+        // let metal_context = {
+        //     if use_gpu {
+        //         let mut metal_context = MetalContext::new();
+        //         metal_context.add_scratch_buffer(ctx0.storage().as_buffer().unwrap());
 
-                for buf in scratch.iter() {
-                    metal_context.add_scratch_buffer(buf);
-                }
-                metal_context.add_context(session_ctx.clone());
-                Some(metal_context)
-            } else {
-                None
-            }
-        };
+        //         for buf in scratch.iter() {
+        //             metal_context.add_scratch_buffer(buf);
+        //         }
+        //         metal_context.add_context(session_ctx.clone());
+        //         Some(metal_context)
+        //     } else {
+        //         None
+        //     }
+        // };
 
-        InferenceSession {
-            _session_ctx: session_ctx,
-            _memory_size: context_byte_size,
-            config,
-            memory_k,
-            memory_v,
-            n_past: 0,
-            mem_per_token: 0,
-            tokens: vec![],
-            decoded_tokens: vec![],
-            last_logits: vec![0.0; n_vocab],
-            #[cfg(feature = "metal")]
-            metal_context,
-            ctx0,
-            n_embd,
-            scratch,
-        }
+        // InferenceSession {
+        //     _session_ctx: session_ctx,
+        //     _memory_size: cache_byte_size,
+        //     config,
+        //     memory_k,
+        //     memory_v,
+        //     n_past: 0,
+        //     mem_per_token: 0,
+        //     tokens: vec![],
+        //     decoded_tokens: vec![],
+        //     last_logits: vec![0.0; n_vocab],
+        //     #[cfg(feature = "metal")]
+        //     metal_context,
+        //     ctx0,
+        //     n_embd,
+        //     allocator,
+        //     context_size,
+        //     work_buffer: vec![0],
+        //     use_gpu,
+        // }
     }
 
     /// Compute a model (possibly building a graph in the provided closure when called for the first time and/or when parameters have)
@@ -224,24 +222,98 @@ impl InferenceSession {
         builder: F,
     ) -> GraphOutputs
     where
-        F: FnOnce(BuildContext) -> (ComputationGraph, GraphOutputs),
+        F: Fn(BuildContext) -> (ComputationGraph, GraphOutputs),
     {
-        // Build a graph
+        // Check if we need to allocate the graph
+        if self.allocator.in_measuring_mode() {
+            // Build a graph
+            self.ctx0.recreate();
+            let ctx0 = &mut self.ctx0;
+
+            // If we are in measuring mode, we need to build a "worst case" graph, meaning the input has either `batch_size` or `context_size` tokens.
+            let max_n_tokens = self.config.n_batch.min(self.context_size);
+            // We assume the history is full
+            let max_n_past = self.context_size - max_n_tokens;
+            let embd = ctx0
+                .new_tensor_1d(ggml::Type::I32, max_n_tokens)
+                .set_name("embd");
+
+            self.allocator.allocate(&embd);
+
+            let bc = BuildContext {
+                ctx0: RefCell::new(ctx0),
+                allocator: RefCell::new(&self.allocator),
+                embd: &embd,
+                memory_k: &self.memory_k,
+                memory_v: &self.memory_v,
+                n_past: max_n_past,
+            };
+
+            let (mut worst_case_graph, built_result) = builder(bc);
+            // Expand the graph
+            worst_case_graph.build_forward_expand(&built_result.result);
+
+            // Allocate the graph
+            let graph_size =
+                self.allocator.allocate_graph(&worst_case_graph) + ggml::TENSOR_ALIGNMENT;
+            log::info!("Allocating {:.2} MB for graph", graph_size / (1024 * 1024));
+            // Pre-allocate the buffer for future use
+            self.allocator
+                .resize_buffer(graph_size, ggml::TENSOR_ALIGNMENT);
+
+            if self.use_gpu {
+                ggml::accelerator::set_scratch_size(graph_size);
+            }
+        }
+
+        // Reset the context and allocator
         self.ctx0.recreate();
+        self.allocator.reset();
         let ctx0 = &mut self.ctx0;
+
         let mut embd = ctx0
             .new_tensor_1d(ggml::Type::I32, input_tokens.len())
             .set_name("embd");
 
+        self.allocator.allocate(&embd);
+
         let bc = BuildContext {
             ctx0: RefCell::new(ctx0),
+            allocator: RefCell::new(&self.allocator),
             embd: &embd,
             memory_k: &self.memory_k,
             memory_v: &self.memory_v,
-            scratch: &mut self.scratch,
+            n_past: self.n_past,
         };
+
         let (mut built_gf, built_result) = builder(bc);
 
+        // Build the graph
+        built_gf.build_forward_expand(&built_result.result);
+
+        // Allocate the graph
+        self.allocator.allocate_graph(&built_gf);
+
+        #[cfg(feature = "cublas")]
+        {
+            for mut leaf in built_gf.leafs(&ctx0) {
+                if leaf.backend() == ggml::accelerator::Backend::Gpu && !leaf.has_extras() {
+                    unsafe {
+                        let offset = leaf.data().offset_from(self.allocator.buffer.data()) as usize;
+                        leaf.assign_scratch_offset(offset);
+                    }
+                }
+            }
+
+            for mut node in built_gf.nodes(&ctx0) {
+                if node.backend() == ggml::accelerator::Backend::Gpu && !node.has_extras() {
+                    unsafe {
+                        let offset = node.data().offset_from(self.allocator.buffer.data()) as usize;
+                        node.assign_scratch_offset(offset);
+                    }
+                }
+            }
+        }
         // Do Metal'y stuff
         #[cfg(feature = "metal")]
         {
@@ -252,9 +324,6 @@ impl InferenceSession {
 
         // Write input tokens
         unsafe { embd.write_data(bytemuck::cast_slice(input_tokens)) };
-
-        // Compute the graph
-        built_gf.build_forward_expand(&built_result.result);
 
         #[cfg(feature = "metal")]
         {
@@ -276,7 +345,7 @@ impl InferenceSession {
         #[cfg(not(feature = "metal"))]
         {
             let mut plan = GraphExecutionPlan::new(&mut built_gf, self.config.n_threads);
-            plan.execute(ctx0);
+            plan.execute(&mut self.work_buffer);
         }
 
         // Adjust the required memory per token if we didn't know that already
@@ -291,6 +360,7 @@ impl InferenceSession {
         GraphOutputs {
             result: built_result.result.share(),
             embedding_result: built_result.embedding_result.share(),
+            output_length: input_tokens.len(),
         }
     }
 
@@ -303,28 +373,32 @@ impl InferenceSession {
         output_request: &mut OutputRequest,
         mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
     ) -> Result<(), InferenceError> {
-        let beginning_of_sentence = self.n_past == 0;
-
-        let vocab = model.tokenizer();
-        let prompt_tokens = prompt.into().to_tokens(vocab, beginning_of_sentence)?;
+        let prompt_tokens = self.get_prompt_tokens(model, prompt)?;
 
         if self.n_past + prompt_tokens.len() >= model.context_size() {
             return Err(InferenceError::ContextFull);
         }
 
+        self.feed_prompt_tokens(model, output_request, &mut callback, prompt_tokens)
+    }
+
+    fn feed_prompt_tokens<E: std::error::Error + Send + Sync + 'static>(
+        &mut self,
+        model: &dyn Model,
+        output_request: &mut OutputRequest,
+        mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
+        prompt_tokens: Vec<TokenId>,
+    ) -> Result<(), InferenceError> {
         'outer: for batch in prompt_tokens.chunks(self.config.n_batch) {
             model.evaluate(self, batch, output_request);
             for &tk in batch {
                 let should_call_callback = Some(tk) != model.bot_token_id();
 
-                let mut token = match model.tokenizer() {
-                    crate::Tokenizer::Embedded(_) => model.tokenizer().token(tk as usize).to_vec(),
-                    crate::Tokenizer::HuggingFace(_) => {
-                        let mut tokens = self.tokens.clone();
-                        tokens.push(tk);
+                let mut token = {
+                    let mut tokens = self.tokens.clone();
+                    tokens.push(tk);
 
-                        get_newly_decoded_portion_huggingface(model, tokens, &self.decoded_tokens)
-                    }
+                    get_newly_decoded_portion(model, tokens, &self.decoded_tokens)
                 };
 
                 if should_call_callback {
@@ -345,8 +419,44 @@ impl InferenceSession {
             }
         }
         log::trace!("Finished feed prompt");
-
         Ok(())
+    }
+
+    fn get_prompt_tokens<'a, P: Into<Prompt<'a>>>(
+        &self,
+        model: &dyn Model,
+        prompt: P,
+    ) -> Result<Vec<TokenId>, TokenizationError> {
+        let beginning_of_sentence = self.n_past == 0;
+
+        let vocab = model.tokenizer();
+        prompt.into().to_tokens(vocab, beginning_of_sentence)
+    }
+
+    /// Feed a prompt to the model for this session.
+    /// Same as [Self::feed_prompt] but includes logic for cutting tokens in case if the prompt is longer than current n_past.
+    #[instrument(skip_all)]
+    pub fn feed_prompt_with_swap<
+        'a,
+        E: std::error::Error + Send + Sync + 'static,
+        P: Into<Prompt<'a>>,
+    >(
+        &mut self,
+        model: &dyn Model,
+        prompt: P,
+        n_keep: usize,
+        output_request: &mut OutputRequest,
+        mut callback: impl FnMut(&[u8]) -> Result<InferenceFeedback, E>,
+    ) -> Result<(), InferenceError> {
+        let prompt_tokens = self.get_prompt_tokens(model, prompt)?;
+
+        if self.n_past + prompt_tokens.len() >= model.context_size() {
+            let rewind_by = self.n_past + prompt_tokens.len() - model.context_size();
+            self.remove_tokens(model, n_keep, rewind_by)
+                .map_err(|_e| InferenceError::ContextFull)?;
+        }
+
+        self.feed_prompt_tokens(model, output_request, &mut callback, prompt_tokens)
     }
 
     /// Removes `num` tokens from the end of the buffer. Roughly the inverse of `feed_prompt`.
@@ -369,6 +479,46 @@ impl InferenceSession {
             decoded_start -= model.tokenizer().token(*id as usize).len();
         }
         self.decoded_tokens.truncate(decoded_start);
+
+        // Decrement the n_past tokens counter.
+        self.n_past -= num;
+
+        Ok(deleted_tokens)
+    }
+
+    /// Removes `num` tokens from the specified position of the buffer. Similar to [Self::rewind].
+    fn remove_tokens(
+        &mut self,
+        model: &dyn Model,
+        start_from: usize,
+        num: usize,
+    ) -> Result<Vec<TokenId>, RewindError> {
+        if !model.supports_rewind() {
+            return Err(RewindError::UnsupportedArchitecture);
+        }
+
+        if start_from + num >= self.n_past {
+            return Err(RewindError::NotEnoughTokens);
+        }
+
+        // Remove the tokens from self.tokens.
+        let end = start_from + num;
+        let deleted_tokens: Vec<_> = self.tokens.drain(start_from..end).collect();
+
+        // Remove the corresponding chars from decoded
+        let mut decoded_start = 0;
+        let mut decoded_end = 0;
+        if start_from != 0 {
+            for id in &self.tokens[0..start_from] {
+                decoded_start += model.tokenizer().token(*id as usize).len();
+            }
+            decoded_end += decoded_start;
+        }
+
+        for id in &deleted_tokens {
+            decoded_end += model.tokenizer().token(*id as usize).len();
+        }
+        self.decoded_tokens.drain(decoded_start..decoded_end);
 
         // Decrement the n_past tokens counter.
         self.n_past -= num;
@@ -407,16 +557,7 @@ impl InferenceSession {
         if next_token as TokenId == model.eot_token_id() {
             Err(InferenceError::EndOfText)
         } else {
-            let res = match model.tokenizer() {
-                crate::Tokenizer::Embedded(_) => {
-                    model.tokenizer().token(next_token as usize).to_vec()
-                }
-                crate::Tokenizer::HuggingFace(_) => get_newly_decoded_portion_huggingface(
-                    model,
-                    self.tokens.clone(),
-                    &self.decoded_tokens,
-                ),
-            };
+            let res = get_newly_decoded_portion(model, self.tokens.clone(), &self.decoded_tokens);
 
             self.decoded_tokens.append(&mut res.clone());
             Ok(res)
@@ -441,19 +582,7 @@ impl InferenceSession {
     ) -> Result<InferenceStats, InferenceError> {
         let maximum_token_count = request.maximum_token_count.unwrap_or(usize::MAX);
         if request.play_back_previous_tokens {
-            // "Play back" the existing tokens, so that loading from an inference snapshot works
-            // as expected.
-            let mut token_utf8_buf = TokenUtf8Buffer::new();
-            for token_id in &self.tokens {
-                // Buffer the token until it's valid UTF-8, then call the callback.
-                if let Some(tokens) =
-                    token_utf8_buf.push(&model.tokenizer().token(*token_id as usize))
-                {
-                    if let Err(e) = callback(InferenceResponse::SnapshotToken(tokens)) {
-                        return Err(InferenceError::UserCallback(Box::new(e)));
-                    }
-                }
-            }
+            self.play_back_previous_tokens(model, &mut callback)?
         }
         log::trace!(
             "Starting inference request with max_token_count: {}",
@@ -478,10 +607,25 @@ impl InferenceSession {
         stats.feed_prompt_duration = start_at.elapsed().unwrap();
         stats.prompt_tokens = self.n_past;
 
-        // After the prompt is consumed, sample tokens by repeatedly calling
-        // `infer_next_token`. We generate tokens until the model returns an
-        // EndOfText token, or we run out of space in the context window,
-        // or we reach the specified limit.
+        self.infer_tokens(model, rng, &mut callback, maximum_token_count, parameters)?;
+        stats.predict_duration = start_at.elapsed().unwrap();
+        stats.predict_tokens = self.n_past;
+
+        Ok(stats)
+    }
+
+    /// sample tokens by repeatedly calling
+    /// [Self::infer_next_token]. Generate tokens until the model returns an
+    /// EndOfText token, or we run out of space in the context window,
+    /// or we reach the specified limit.
+    fn infer_tokens<E: std::error::Error + Send + Sync + 'static>(
+        &mut self,
+        model: &dyn Model,
+        rng: &mut impl rand::Rng,
+        mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E>,
+        maximum_token_count: usize,
+        parameters: &InferenceParameters,
+    ) -> Result<(), InferenceError> {
         let mut tokens_processed = 0;
         let mut token_utf8_buf = TokenUtf8Buffer::new();
         while tokens_processed < maximum_token_count {
@@ -505,6 +649,79 @@ impl InferenceSession {
 
             tokens_processed += 1;
         }
+        Ok(())
+    }
+
+    /// "Play back" the existing tokens, so that loading from an inference snapshot works
+    /// as expected.
+    fn play_back_previous_tokens<E: std::error::Error + Send + Sync + 'static>(
+        &mut self,
+        model: &dyn Model,
+        mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E>,
+    ) -> Result<(), InferenceError> {
+        let mut token_utf8_buf = TokenUtf8Buffer::new();
+        for token_id in &self.tokens {
+            // Buffer the token until it's valid UTF-8, then call the callback.
+            if let Some(tokens) = token_utf8_buf.push(&model.tokenizer().token(*token_id as usize))
+            {
+                if let Err(e) = callback(InferenceResponse::SnapshotToken(tokens)) {
+                    return Err(InferenceError::UserCallback(Box::new(e)));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Generate text by using the provided [Model] to evaluate the `prompt`.
+    /// Works the same way as [Self::infer] except has infinite text generation via context swapping
+    #[instrument(skip_all)]
+    pub fn infer_with_swap<E: std::error::Error + Send + Sync + 'static>(
+        &mut self,
+        model: &dyn Model,
+        rng: &mut impl rand::Rng,
+        request: &InferenceRequest,
+        n_keep: usize,
+        output_request: &mut OutputRequest,
+        mut callback: impl FnMut(InferenceResponse) -> Result<InferenceFeedback, E>,
+    ) -> Result<InferenceStats, InferenceError> {
+        let maximum_token_count = request.maximum_token_count.unwrap_or(usize::MAX);
+        if request.play_back_previous_tokens {
+            self.play_back_previous_tokens(model, &mut callback)?
+        }
+
+        // infinite text generation via context swapping
+        // if we run out of context:
+        // - take the n_keep first tokens from the original prompt
+        // - remove half of the tokens after n_keep ((n_ctx - n_keep) / 2)
+        if self.n_past >= model.context_size() {
+            self.remove_tokens(model, n_keep, (self.n_past - n_keep) / 2)
+                .map_err(|_e| InferenceError::ContextFull)?;
+        }
+
+        log::trace!(
+            "Starting inference request with max_token_count: {}",
+            maximum_token_count
+        );
+
+        let mut stats = InferenceStats::default();
+        let start_at = std::time::SystemTime::now();
+
+        let parameters = request.parameters;
+
+        // Feed the initial prompt through the transformer, to update its
+        // context window with new data, if necessary.
+        if !request.prompt.is_empty() {
+            self.feed_prompt(
+                model,
+                request.prompt,
+                output_request,
+                feed_prompt_callback(&mut callback),
+            )?;
+        }
+        stats.feed_prompt_duration = start_at.elapsed().unwrap();
+        stats.prompt_tokens = self.n_past;
+
+        self.infer_tokens(model, rng, &mut callback, maximum_token_count, parameters)?;
         stats.predict_duration = start_at.elapsed().unwrap();
         stats.predict_tokens = self.n_past;
 
@@ -608,6 +825,7 @@ impl InferenceSession {
             npast: self.n_past,
             config: self.config,
             tokens: self.tokens.clone(),
+            decoded_tokens: self.decoded_tokens.clone(),
             last_logits: self.last_logits.clone(),
             memory_k,
             memory_v,
@@ -640,6 +858,7 @@ impl InferenceSession {
 
         session.n_past = snapshot.npast;
         session.tokens = snapshot.tokens;
+        session.decoded_tokens = snapshot.decoded_tokens;
         session.last_logits = snapshot.last_logits;
 
         Ok(session)
@@ -664,7 +883,10 @@ impl Drop for InferenceSession {
     }
 }
 
-fn get_newly_decoded_portion_huggingface(
+// TODO: Cache results and/or find a more intelligent way to do this.
+// At present, this will decode *all* tokens generated by the model, which is
+// not ideal when it gets run on each new token. Perhaps only consider the last three for decoding?
+fn get_newly_decoded_portion(
     model: &dyn Model,
     tokens: Vec<u32>,
     decoded_tokens: &[u8],
@@ -694,7 +916,7 @@ pub enum InferenceError {
     ///
     /// Note that this error *can* be ignored and inference can continue, but the results are not guaranteed to be sensical.
     EndOfText,
-    #[error("the user-specified callback returned an error")]
+    #[error("the user-specified callback returned an error: {0}")]
     /// The user-specified callback returned an error.
     UserCallback(Box<dyn std::error::Error + Send + Sync>),
     /// Sampling returned an error.
@@ -745,6 +967,8 @@ pub struct InferenceSnapshotRef<'a> {
     pub config: InferenceSessionConfig,
     /// All tokens generated by this inference session.
     pub tokens: Vec<TokenId>,
+    /// All decoded tokens generated by this inference session.
+    pub decoded_tokens: Vec<u8>,
     /// The vector of logits that was produced after the last inference.
     pub last_logits: Vec<f32>,
     /// The contents of the 'key' memory tensor.
@@ -763,6 +987,7 @@ impl InferenceSnapshotRef<'_> {
             npast: self.npast,
             config: self.config,
             tokens: self.tokens.clone(),
+            decoded_tokens: self.decoded_tokens.clone(),
             last_logits: self.last_logits.clone(),
             memory_k: self.memory_k.to_vec(),
             memory_v: self.memory_v.to_vec(),
@@ -781,6 +1006,8 @@ pub struct InferenceSnapshot {
     pub config: InferenceSessionConfig,
     /// All tokens generated by this inference session.
     pub tokens: Vec<TokenId>,
+    /// All decoded tokens generated by this inference session.
+    pub decoded_tokens: Vec<u8>,
     /// The vector of logits that was produced after the last inference.
     pub last_logits: Vec<f32>,
     /// The contents of the 'key' memory tensor.

@@ -46,10 +46,15 @@ impl Tensor {
     /// Gets the acceleration backend of the tensor
     pub fn backend(&self) -> Backend {
         self.with_alive_ctx(|| unsafe {
-            (self.ptr.as_ref().backend as sys::ggml_backend)
+            (self.ptr.as_ref().backend as sys::ggml_backend_type)
                 .try_into()
                 .unwrap()
         })
+    }
+
+    /// Returns true if the 'extra' field of this tensor is set. e.g. by ggml-cuda
+    pub fn has_extras(&self) -> bool {
+        self.with_alive_ctx(|| unsafe { !self.ptr.as_ref().extra.is_null() })
     }
 
     /// Sets the tensor's acceleration backend and moves the tensor's data to the new backend.
@@ -88,7 +93,7 @@ impl Tensor {
         self.with_alive_ctx(|| {
             #[cfg(feature = "cublas")]
             unsafe {
-                sys::cuda::ggml_cuda_assign_buffers(self.ptr.as_ptr());
+                sys::cuda::ggml_cuda_assign_buffers_no_alloc(self.ptr.as_ptr());
             }
         })
     }
@@ -108,6 +113,18 @@ impl Tensor {
                 sys::cuda::ggml_cuda_assign_buffers_no_scratch(self.ptr.as_ptr());
             }
             self.mark_as_offloaded();
+        })
+    }
+
+    /// If ggml-sys is compiled with CUDA support, this function will set the tensor's scratch offset.
+    /// If not, this is a no-op.
+    #[allow(unused_variables)]
+    pub fn assign_scratch_offset(&self, offset: usize) {
+        self.with_alive_ctx(|| {
+            #[cfg(feature = "cublas")]
+            unsafe {
+                sys::cuda::ggml_cuda_assign_scratch_offset(self.ptr.as_ptr(), offset);
+            }
         })
     }
 
