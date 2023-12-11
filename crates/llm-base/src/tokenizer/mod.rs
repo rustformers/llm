@@ -81,7 +81,7 @@ impl Display for HuggingFaceTokenizerErrorSource {
 
 /// At the time of writing, the embedded tokenizer is not enabled as it has
 /// some bugs. We're just not enabling the option while it's broken.
-const EMBEDDED_TOKENIZER_ENABLED: bool = false;
+const EMBEDDED_TOKENIZER_ENABLED: bool = true;
 
 #[derive(Clone, Debug, PartialEq)]
 /// The source of a tokenizer.
