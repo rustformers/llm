@@ -14,11 +14,12 @@ machine learning.
 
 ## Current State
 
-There are currently three available versions of `llm` (the crate and the CLI):
+There are currently four available versions of `llm` (the crate and the CLI):
 
 - The released version `0.1.1` on `crates.io`. This version is several months out of date and does not include support for the most recent models.
-- The `main` branch of this repository. This version can reliably infer GGMLv3 models, but does not support GGUF, and is also somewhat out of date.
-- The `develop` branch of this repository. This version supports GGUF, but is updating to the latest version of GGML, and is therefore not yet stable.
+- The `main` branch of this repository. This version can reliably infer GGMLv3 models, but does not support GGUF, and uses an old version of GGML.
+- The `gguf` branch of this repository; this is a version of `main` that supports inferencing with GGUF, but does not support any models other than Llama, requires the use of a Hugging Face tokenizer, and does not support quantization. It also uses an old version of GGML.
+- The `develop` branch of this repository. This is a from-scratch re-port of `llama.cpp` to synchronize with the latest version of GGML, and to support all models and GGUF. It is currently a work in progress, and is not yet ready for use.
 
 The plan is to finish up the work on `develop` (see [the PR](https://github.com/rustformers/llm/pull/442)), and then merge it into `main` and release a new version of `llm` to `crates.io`, so that up-to-date support for the latest models and GGUF will be available. It is not yet known when this will happen.
 
