@@ -79,10 +79,6 @@ impl Display for HuggingFaceTokenizerErrorSource {
     }
 }
 
-/// At the time of writing, the embedded tokenizer is not enabled as it has
-/// some bugs. We're just not enabling the option while it's broken.
-const EMBEDDED_TOKENIZER_ENABLED: bool = false;
-
 #[derive(Clone, Debug, PartialEq)]
 /// The source of a tokenizer.
 pub enum TokenizerSource {
@@ -140,13 +136,7 @@ impl TokenizerSource {
                 if let Ok(hf) = gguf.metadata.get_str("tokenizer.huggingface.json") {
                     Ok(Self::load_huggingface_json(hf)?)
                 } else if EmbeddedTokenizer::is_present_in_metadata(&gguf.metadata) {
-                    if EMBEDDED_TOKENIZER_ENABLED {
-                        Ok(EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into())
-                    } else {
-                        Err(TokenizerLoadError::NoSupportedTokenizersFound {
-                            unsupported_tokenizers: vec!["embedded".to_owned()],
-                        })
-                    }
+                    Ok(EmbeddedTokenizer::from_metadata(&gguf.metadata)?.into())
                 } else {
                     Err(TokenizerLoadError::NoSupportedTokenizersFound {
                         unsupported_tokenizers: vec![],
