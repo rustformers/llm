@@ -172,16 +172,10 @@ impl EmbeddedTokenizer {
         match self.model {
             GgufEmbeddedTokenizerModel::Llama => {
                 let text = escape_whitespace(format!(" {}", text).as_bytes());
-
-                let _token_ids: Vec<_> = TokenizerSpm::new(self)
-                    .tokenize(&text)
-                    .into_iter()
-                    .map(|id| {
-                        // TODO: see if this can be made more efficient
-                        output.push((self.id_to_token[id as usize].text.clone(), id));
-                        (self.id_to_token[id as usize].text.clone(), id)
-                    })
-                    .collect();
+                for id in TokenizerSpm::new(self).tokenize(&text) {
+                    // TODO: see if this can be made more efficient
+                    output.push((self.id_to_token[id as usize].text.clone(), id));
+                }
                 Ok(output)
             }
             _ => unimplemented!(),
