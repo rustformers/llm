@@ -1,9 +1,9 @@
 {
   description = "Rust-based tool for inference of LLMs.";
   inputs = {
-    nixpkgs.url = github:nixos/nixpkgs/nixpkgs-unstable;
-    naersk.url = github:nix-community/naersk;
-    flake-utils.url = github:numtide/flake-utils;
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    naersk.url = "github:nix-community/naersk";
+    flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs = { self, nixpkgs, naersk, flake-utils }:
@@ -13,6 +13,8 @@
         naersk' = pkgs.callPackage naersk { };
         llm = naersk'.buildPackage {
           src = ./.;
+          buildInputs = with pkgs; [ openssl ];
+          nativeBuildInputs = with pkgs; [ pkg-config ];
         };
       in
       {

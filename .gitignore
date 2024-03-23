@@ -2,3 +2,4 @@
 /models
 .DS_Store
 /.tests
+/result
